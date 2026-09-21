@@ -20,7 +20,7 @@ pub use discovery::{DirectoryOperation, StationPage};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;

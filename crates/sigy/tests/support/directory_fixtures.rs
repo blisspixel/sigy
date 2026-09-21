@@ -139,6 +139,30 @@ fn directory_jobs_cache_unicode_and_register_without_tuning() -> TestResult {
     let id = found["station_page"]["entries"][0]["id"]
         .as_str()
         .ok_or("station missing")?;
+    assert_eq!(found["station_page"]["favorite_ids"], serde_json::json!([]));
+    let saved = success(directory.path(), &["radio", "favorite", id])?;
+    assert_eq!(saved["directory"]["favorite_stations"], 1);
+    assert_eq!(
+        saved["station_page"]["favorite_ids"],
+        serde_json::json!([id])
+    );
+    assert!(saved["source_page"].is_null());
+    let displayed = super::common::output(
+        std::process::Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(directory.path())
+            .args(["radio", "show", id]),
+    )?;
+    assert!(displayed.status.success());
+    let displayed = String::from_utf8(displayed.stdout)?;
+    assert!(displayed.contains("Radio Québec [favorite]"));
+    assert!(displayed.contains("favorites: 1"));
+    println!("{displayed}");
+    let favorites = success(
+        directory.path(),
+        &["radio", "search", "--favorites", "--name", "QUÉBEC"],
+    )?;
+    assert_eq!(favorites["station_page"]["entries"][0]["id"], id);
     let source = success(
         directory.path(),
         &[
@@ -163,6 +187,28 @@ fn directory_jobs_cache_unicode_and_register_without_tuning() -> TestResult {
     service.wait()?;
     let cached = success(directory.path(), &["radio", "search", "--name", "québec"])?;
     assert_eq!(cached["station_page"]["entries"][0]["name"], "Radio Québec");
+    assert_eq!(
+        cached["station_page"]["favorite_ids"],
+        serde_json::json!([id])
+    );
+    // Exercise the same mutation with the controller stopped, then reopen it.
+    let removed = success(directory.path(), &["radio", "unfavorite", id])?;
+    assert_eq!(removed["directory"]["favorite_stations"], 0);
+    assert_eq!(
+        removed["station_page"]["favorite_ids"],
+        serde_json::json!([])
+    );
+    let mut reopened = RunningChild::start(directory.path())?;
+    let empty = success(directory.path(), &["radio", "search", "--favorites"])?;
+    assert_eq!(empty["station_page"]["entries"], serde_json::json!([]));
+    assert_eq!(empty["directory"]["cached_stations"], 1);
+    let retained = success(directory.path(), &["source", "show", "radio:v1"])?;
+    assert_eq!(
+        retained["source_page"]["entries"][0]["origin"],
+        "https://stream.example"
+    );
+    success(directory.path(), &["service", "stop"])?;
+    reopened.wait()?;
     assert_eq!(fixture.hits.load(Ordering::Relaxed), 1);
     Ok(())
 }

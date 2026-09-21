@@ -67,6 +67,7 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-38 | Recording metadata and sidecars use a consistent versioned envelope with extensible typed profiles for internet radio, podcasts, SDR/IQ, LoRa, Meshtastic and other signals. Preserve frequency/time context where known without assuming every observation is audio. |
 | C-39 | Later receive-only RF exploration includes supported bands such as CB, tuning/scanning and signal-finding tools. Device capabilities, measured coverage and regional rules govern available profiles. |
 | C-40 | Broadcast analysis detects language shifts, candidate advertisements and new-song boundaries within one station. Preserve mixed/overlapping content and uncertainty; song boundaries do not require successful title identification. |
+| C-41 | Support personal-machine and server operation, with optional user-controlled proxy/VPN routing to improve access to sources across networks. Keep routing a small capability supporting a free and open internet; exact profiles, remote control and release placement require qualification. |
 
 ## Reading the status labels
 

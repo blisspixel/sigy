@@ -34,6 +34,7 @@ This folder records primary-source findings, design implications, competing appr
 | Recording validation, rolling retention, catalog/feed evidence and RF metadata | [26. Recording, discovery and RF](26-recording-discovery-and-rf.md) |
 | Radio Browser mirrors, bounded cache refresh, offline search and provenance | [27. Radio directory integration](27-radio-directory.md) |
 | Explicit redirect grants, checked hops and recording provenance | [28. HTTP redirects](28-http-redirects.md) |
+| User-controlled proxies, DNS trust, external VPNs and route evidence | [29. Network routing](29-network-routing.md) |
 
 ## Evidence discipline
 

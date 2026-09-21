@@ -1,6 +1,6 @@
 # Complete CLI, terminal explorer, and radio DVR
 
-Last updated: 2026-09-20. Status: proposed terminal experience. The Rust foundation is selected; the explorer and DVR described here are not yet implemented.
+Last updated: 2026-09-21. Status: proposed complete terminal experience. Bounded CLI directory refresh/search, favorites, finite recording and retention are implemented. Integrated playback, continuous DVR and the TUI described here remain planned; see [progress](../development/progress.md).
 
 ## 1. Experience
 

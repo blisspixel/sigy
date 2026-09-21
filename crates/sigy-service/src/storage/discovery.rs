@@ -37,6 +37,7 @@ pub struct RefreshStatus {
 #[serde(deny_unknown_fields)]
 pub struct DirectoryStatus {
     pub cached_stations: u32,
+    pub favorite_stations: u32,
     pub maximum_stations: u32,
     pub latest_refresh: Option<RefreshStatus>,
 }
@@ -122,6 +123,11 @@ impl Store {
             .optional()?;
         Ok(DirectoryStatus {
             cached_stations,
+            favorite_stations: self.connection.query_row(
+                "SELECT count(*) FROM station_favorites",
+                [],
+                |r| r.get(0),
+            )?,
             maximum_stations: MAX_CACHED_STATIONS,
             latest_refresh: id.map(|id| self.directory_refresh(&id)).transpose()?,
         })
@@ -207,6 +213,7 @@ impl Store {
     pub fn search_stations(
         &self,
         filter: &StationFilter,
+        favorites_only: bool,
         after: Option<&str>,
         limit: u32,
     ) -> Result<Vec<Station>> {
@@ -217,7 +224,7 @@ impl Store {
         if let Some(after) = after {
             validate_station_id(after)?;
         }
-        let mut query = self.connection.prepare("SELECT id FROM directory_stations WHERE provider = 'radio_browser' AND id > ?1 AND instr(name_folded, ?2) > 0 AND (?3 = '' OR country = ?3) AND (?4 = '' OR EXISTS(SELECT 1 FROM json_each(languages_folded) WHERE value = ?4)) AND (?5 = '' OR EXISTS(SELECT 1 FROM json_each(tags_folded) WHERE value = ?5)) AND (NOT ?6 OR healthy = 1) ORDER BY id LIMIT ?7")?;
+        let mut query = self.connection.prepare("SELECT id FROM directory_stations WHERE provider = 'radio_browser' AND id > ?1 AND instr(name_folded, ?2) > 0 AND (?3 = '' OR country = ?3) AND (?4 = '' OR EXISTS(SELECT 1 FROM json_each(languages_folded) WHERE value = ?4)) AND (?5 = '' OR EXISTS(SELECT 1 FROM json_each(tags_folded) WHERE value = ?5)) AND (NOT ?6 OR healthy = 1) AND (NOT ?8 OR EXISTS(SELECT 1 FROM station_favorites WHERE provider = directory_stations.provider AND station_id = directory_stations.id)) ORDER BY id LIMIT ?7")?;
         let ids = query
             .query_map(
                 params![
@@ -227,12 +234,39 @@ impl Store {
                     filter.language.to_lowercase(),
                     filter.tag.to_lowercase(),
                     filter.healthy_only,
-                    limit
+                    limit,
+                    favorites_only
                 ],
                 |r| r.get::<_, String>(0),
             )?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         ids.iter().map(|id| self.station(id)).collect()
+    }
+
+    /// Saves user preference independently of provider observations. Never opens a stream.
+    /// # Errors
+    /// Rejects unknown or invalid identities and corrupt cached metadata.
+    pub fn set_station_favorite(&mut self, id: &str, favorite: bool) -> Result<()> {
+        self.station(id)?;
+        if favorite {
+            self.connection.execute(
+                "INSERT INTO station_favorites(provider, station_id) VALUES ('radio_browser', ?1) ON CONFLICT(provider, station_id) DO NOTHING", [id],
+            )?;
+        } else {
+            self.connection.execute(
+                "DELETE FROM station_favorites WHERE provider = 'radio_browser' AND station_id = ?1", [id],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// # Errors
+    /// Rejects malformed identities or catalog read errors.
+    pub fn is_station_favorite(&self, id: &str) -> Result<bool> {
+        validate_station_id(id)?;
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM station_favorites WHERE provider = 'radio_browser' AND station_id = ?1)", [id], |r| r.get(0),
+        )?)
     }
 
     /// Register an explicitly selected station without contacting its stream.

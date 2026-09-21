@@ -318,7 +318,8 @@ fn non_audio_headers_do_not_make_a_playable_recording() -> TestResult {
     assert!(
         record["failure_detail"]
             .as_str()
-            .is_some_and(|detail| detail.contains("decoded"))
+            .is_some_and(|detail| detail.contains("decoded")),
+        "malformed audio failed outside decoder validation: {record}"
     );
     assert!(
         !invoke(directory.path(), &["record", "path", "bad"])?

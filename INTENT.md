@@ -8,6 +8,8 @@ The central journey is to explore the world's signals and discover what they mea
 
 It should be an exceptionally well-engineered application that feels natural in a terminal and remains dependable during long unattended runs. A newcomer should be able to achieve useful results while learning; experienced users should be able to inspect and control the details.
 
+Support a free and open internet through user choice: open discovery, portable data and optional user-controlled network routes. The same service should run on a personal machine or a server. Proxy configuration and compatibility with externally managed VPNs should remain small, optional capabilities; remote service access is a separate security boundary.
+
 It should make it enjoyable to explore world radio, straightforward to record several sources, and possible to understand broadcasts through live transcription, translation, and topic monitoring. A user should be able to ask to follow a subject, set boundaries, and return to useful findings with inspectable source evidence.
 
 Curiosity and play are part of the product. Discovering unfamiliar music, inspecting a signal, practicing Morse, or stepping through an Enigma machine should be satisfying in its own right. A historical cipher feature does not need an operational justification to belong here.

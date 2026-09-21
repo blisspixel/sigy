@@ -1,6 +1,6 @@
 # Security, privacy, and release design
 
-Last updated: 2026-09-20. Status: proposed controls derived from the product's source, service, model, and extension boundaries. This is not a completed security assessment.
+Last updated: 2026-09-21. Status: proposed controls derived from the product's source, service, model, and extension boundaries. This is not a completed security assessment.
 
 ## 1. Properties to preserve
 
@@ -30,6 +30,8 @@ Actual sandbox mechanisms depend on the OS and selected runtime. Process separat
 Internet station discovery cannot implicitly reach loopback, private networks, link-local services, or local files. Explicit LAN sources and provider endpoints have separately saved destinations and purpose. Check resolved addresses for every connection and validate redirects and nested playlist/segment URLs against the same policy, including IPv6 and alternate representations.
 
 Avoid a validate-then-resolve gap: enforcement must apply to the address actually connected to while retaining correct TLS hostname validation. A decoder that independently opens arbitrary nested URLs can bypass an upstream check. Evaluate constrained fetching, allowed-protocol configuration, or network isolation together with the media backend.
+
+Optional [proxy routing](../design/network-routing.md) requires separate proxy-endpoint and source-destination grants. Delegated DNS changes which addresses Sigy can verify; record that trust explicitly and never label a proxy peer as an observed source peer. Required proxy routes cannot fall back directly. Personal-machine and server deployments share these controls; remote clients need a separately qualified access mechanism.
 
 Keep authentication headers and URL credentials scoped to the intended origin. Do not forward them to a different redirect destination. Logs and error messages redact user information and sensitive query values.
 

@@ -49,6 +49,8 @@ Verify these as complete CLI and TUI journeys using multilingual passages, ambig
 
 ## Near-future watchlist
 
+Plan optional [network routing](docs/design/network-routing.md) alongside internet-source compatibility: user-configured proxies, explicit DNS behavior and no silent direct fallback. Keep the same service usable on a personal machine or server; qualify unattended deployment and remote access separately. Reuse the existing HTTP boundary and user-managed VPNs without building a VPN service or proxy marketplace. D-34 resolves the first supported profile and release placement; R-58 requires connection, DNS, credential and recovery evidence. This capability remains unimplemented.
+
 Revisit multilingual speech models, regional music coverage, local acceleration backends, TUI library compatibility, provider billing controls, hardware APIs, and cryptographic standards/errata at each relevant selection gate. Prefer replaceable interfaces and measured upgrades over dependencies on announced features or expected model improvements.
 
 Keep installed model identity and processing provenance stable for existing results. New models can improve future runs or create new revisions without rewriting historical evidence.

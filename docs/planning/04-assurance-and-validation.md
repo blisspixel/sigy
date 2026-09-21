@@ -73,6 +73,7 @@ All detailed requirements below are proposed refinements of confirmed product co
 | R-55 | C-19, C-38 | Versioned recording exports preserve source/clock/payload lineage without inventing RF or language observations | Sidecar roundtrip, byte/hash evidence, missing/deleted media, typed-profile compatibility and future SigMF interoperability |
 | R-56 | C-06, C-39 | RF detections distinguish measured activity, candidate identities and decoded content within actual device capabilities | Device/region profile validation, scan gaps, ambiguous station matches, numeric units, disconnect and tuner-conflict tests |
 | R-57 | C-17, C-18, C-40 | Separate revisable timelines represent language shifts, candidate ads and song boundaries without forcing one label onto overlapping content | Code switching, unknown languages, false ads, jingles, crossfades, DJ speech, metadata drift, provisional boundary corrections, deduplicated plays and expired evidence |
+| R-58 | C-15, C-41 | Selected routes preserve source authority, explicit DNS trust, credentials and truthful peer evidence; a required proxy never falls back directly | Local proxy/DNS/TLS fixtures, independent endpoint/target checks, no bypass or unexpected DNS, redirect/nested-resource inheritance, auth redaction, bounded stalls/retries, revocation/restart and versioned provenance; [routing contract](../design/network-routing.md) |
 
 ## 3. Capacity profiles
 

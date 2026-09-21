@@ -2,6 +2,8 @@
 
 Date: 2026-09-21. Status: implemented profile; verification evidence belongs in [progress](../development/progress.md).
 
+This records catalog/IPC v6. [Radio favorites](0008-radio-favorites.md) subsequently advances both to v7 without changing redirect authority or recording envelope v2.
+
 Many radio endpoints redirect before returning audio. Source revisions now carry an explicit `redirects` policy. The default is `deny`, including every source migrated from schema v5. `same-origin` allows a change of path/query within the original scheme, host and port. `public` allows other validated public-internet origins and requires public-internet network scope. Exact address pins support only deny or same-origin. Changing policy requires a new immutable revision key.
 
 The CLI accepts `source add ... --redirects public` and `radio add ... --redirects public`. JSON uses `same_origin` for the same-origin enum. Registration remains a local operation and does not connect. Directory refresh does not inherit recording permission and continues to reject redirects.

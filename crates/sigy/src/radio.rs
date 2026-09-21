@@ -68,6 +68,9 @@ pub enum RadioCommand {
     Search {
         #[command(flatten)]
         filters: Filters,
+        /// Only stations explicitly saved as favorites. Combines with all other filters.
+        #[arg(long)]
+        favorites: bool,
         #[arg(long, default_value_t = 16)]
         limit: u32,
         #[arg(long)]
@@ -75,6 +78,10 @@ pub enum RadioCommand {
     },
     /// Inspect cached station metadata. Does not tune or record.
     Show { id: String },
+    /// Save a cached station as a favorite without tuning or recording.
+    Favorite { id: String },
+    /// Remove a favorite without deleting the station, source or recordings.
+    Unfavorite { id: String },
     /// Register a selected station as an immutable public-internet source revision.
     Add {
         id: String,
@@ -112,14 +119,24 @@ impl RadioCommand {
             Self::Status => DirectoryOperation::Status {},
             Self::Search {
                 filters,
+                favorites,
                 limit,
                 after,
             } => DirectoryOperation::Search {
                 filter: filters.filter(),
+                favorites_only: *favorites,
                 after: after.clone(),
                 limit: *limit,
             },
             Self::Show { id } => DirectoryOperation::Show { id: id.clone() },
+            Self::Favorite { id } => DirectoryOperation::SetFavorite {
+                id: id.clone(),
+                favorite: true,
+            },
+            Self::Unfavorite { id } => DirectoryOperation::SetFavorite {
+                id: id.clone(),
+                favorite: false,
+            },
             Self::Add {
                 id,
                 revision,
@@ -138,8 +155,8 @@ pub fn render(writer: &mut impl Write, view: &Snapshot) -> io::Result<()> {
     if let Some(status) = &view.directory {
         writeln!(
             writer,
-            "Radio Browser cache: {} / {} stations. Partial observations, not the complete world catalog.",
-            status.cached_stations, status.maximum_stations
+            "Radio Browser cache: {} / {} stations | favorites: {}. Partial observations, not the complete world catalog.",
+            status.cached_stations, status.maximum_stations, status.favorite_stations
         )?;
         if let Some(refresh) = view
             .directory_refresh
@@ -162,9 +179,14 @@ pub fn render(writer: &mut impl Write, view: &Snapshot) -> io::Result<()> {
     }
     if let Some(page) = &view.station_page {
         for station in &page.entries {
+            let favorite = if page.favorite_ids.contains(&station.id) {
+                " [favorite]"
+            } else {
+                ""
+            };
             writeln!(
                 writer,
-                "{}: {} | {} | {} | bitrate {} | directory languages: {}",
+                "{}: {}{favorite} | {} | {} | bitrate {} | directory languages: {}",
                 station.id,
                 station.name,
                 known(&station.country),
@@ -193,7 +215,7 @@ pub fn render(writer: &mut impl Write, view: &Snapshot) -> io::Result<()> {
         if page.entries.is_empty() {
             writeln!(
                 writer,
-                "No cached matches. Use radio refresh to fetch a bounded page matching your filters."
+                "No cached matches. Check your filters, save favorites with radio favorite, or fetch observations with radio refresh."
             )?;
         }
         if let Some(after) = &page.next_after {

@@ -43,7 +43,7 @@ Confirmed entries are summarized in the [planning index](README.md). These are t
 | D-13 | Local control transport | Protected local IPC or authenticated loopback interface | OS identity, future-client needs, operational complexity |
 | D-14 | Model/runtime defaults | Capability-based adapters; Ollama and OpenRouter targets confirmed | Language quality, latency, footprint, price-bound support |
 | D-15 | Media archive format | Source-preserving segments where reliable, or documented lossless normalization | Seek, recovery, format coverage, storage and license testing |
-| D-16 | Remote Sigy host control | Architecture-compatible, first-release inclusion undecided | Desired SSH/LAN workflow and remote playback requirement |
+| D-16 | Remote Sigy host control | Personal-machine and server deployment confirmed; remote control method and first-release inclusion undecided | Qualify unattended host profiles, SSH/LAN access, authentication and remote playback; never expose local IPC directly to the internet |
 | D-17 | External briefing delivery | In-app and export proposed initially | Desired destinations, account access, delivery/cost scope |
 | D-18 | Hardware pilot | Meshtastic connected-node and HackRF Pro receive tests later | Actual devices, firmware, antenna/setup, OS hosts |
 | D-19 | Music provider/catalog | Post-release metadata plus evaluated fingerprint/catalog adapters | Regional coverage, false-match rate, fees and terms |
@@ -61,6 +61,7 @@ Confirmed entries are summarized in the [planning index](README.md). These are t
 | D-31 | Podcast/feed integration profile | Podcasts alongside internet radio before hardware; RSS/Atom text analysis later; shared local analysis and separately scoped linked resources | Format/namespace support, private-feed policy, polling/backfill limits, media revisions, transcript alignment and mixed-source evaluations |
 | D-32 | Repository and dependency organization | One repository, a few packages with explicit ownership, typed integrations; Rust-first profile remains proposed | G4 stack evidence, actual dependency graph, packaging and build isolation; [organization proposal](12-repository-and-engineering.md) |
 | D-33 | Engineering assessment policy | Periodic OpenSSF Scorecard review after implementation/hosting, individual findings and honest limitations | Confirm scoring tool, qualified release, cadence, hosting controls and publication preference; no score currently assessed |
+| D-34 | Optional network routing | User-configured HTTP/HTTPS or SOCKS5 profiles; user-managed VPN compatibility; reuse the current HTTP boundary | Qualify supported transports, local/delegated DNS trust, independent proxy/source grants, credentials, no direct fallback, provenance migration and release placement; [design](../design/network-routing.md), [research](../../research/29-network-routing.md) |
 
 Resolve decisions in small related groups. Implement and measure bounded choices without presenting unresolved product behavior as confirmed.
 

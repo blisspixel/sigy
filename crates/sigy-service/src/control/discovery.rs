@@ -20,11 +20,17 @@ pub enum DirectoryOperation {
     Status {},
     Search {
         filter: StationFilter,
+        #[serde(default)]
+        favorites_only: bool,
         after: Option<String>,
         limit: u32,
     },
     Show {
         id: String,
+    },
+    SetFavorite {
+        id: String,
+        favorite: bool,
     },
     Add {
         id: String,
@@ -38,12 +44,28 @@ pub enum DirectoryOperation {
 #[serde(deny_unknown_fields)]
 pub struct StationPage {
     pub entries: Vec<Station>,
+    pub favorite_ids: Vec<String>,
     pub next_after: Option<String>,
+}
+
+impl StationPage {
+    fn new(store: &Store, entries: Vec<Station>, next_after: Option<String>) -> Result<Self> {
+        let mut favorite_ids = Vec::new();
+        for station in &entries {
+            if store.is_station_favorite(&station.id)? {
+                favorite_ids.push(station.id.clone());
+            }
+        }
+        Ok(Self {
+            entries,
+            favorite_ids,
+            next_after,
+        })
+    }
 }
 
 pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Snapshot> {
     let mut view = super::snapshot(store)?;
-    view.directory = Some(store.directory_status()?);
     match command {
         DirectoryOperation::Refresh { .. } => return Err(Error::ServiceRequired),
         DirectoryOperation::RefreshStatus { id } => {
@@ -52,29 +74,29 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
         DirectoryOperation::Status {} => (),
         DirectoryOperation::Search {
             filter,
+            favorites_only,
             after,
             limit,
         } => {
-            let entries = store.search_stations(&filter, after.as_deref(), limit)?;
+            let entries =
+                store.search_stations(&filter, favorites_only, after.as_deref(), limit)?;
             let next_after = if let Some(last) = entries.last()
                 && !store
-                    .search_stations(&filter, Some(&last.id), 1)?
+                    .search_stations(&filter, favorites_only, Some(&last.id), 1)?
                     .is_empty()
             {
                 Some(last.id.clone())
             } else {
                 None
             };
-            view.station_page = Some(StationPage {
-                entries,
-                next_after,
-            });
+            view.station_page = Some(StationPage::new(store, entries, next_after)?);
         }
         DirectoryOperation::Show { id } => {
-            view.station_page = Some(StationPage {
-                entries: vec![store.station(&id)?],
-                next_after: None,
-            });
+            view.station_page = Some(StationPage::new(store, vec![store.station(&id)?], None)?);
+        }
+        DirectoryOperation::SetFavorite { id, favorite } => {
+            store.set_station_favorite(&id, favorite)?;
+            view.station_page = Some(StationPage::new(store, vec![store.station(&id)?], None)?);
         }
         DirectoryOperation::Add {
             id,
@@ -89,6 +111,7 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
             });
         }
     }
+    view.directory = Some(store.directory_status()?);
     Ok(view)
 }
 

@@ -14,6 +14,10 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Authorized redirects](decisions/0007-authorized-redirects.md) adds explicit source policy and retained HTTP route observations to the existing acquisition path.
 
+[Radio favorites](decisions/0008-radio-favorites.md) keeps saved station choices separate from refreshed directory metadata, with shared service/maintenance operations and filtered offline search.
+
+Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
+
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:
 
 1. [Product and experience](planning/01-product-and-experience.md)
