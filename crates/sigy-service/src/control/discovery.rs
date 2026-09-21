@@ -2,6 +2,7 @@ use super::{Operation, Snapshot, SourcePage};
 use crate::{
     Error, Result,
     discovery::{RefreshRequest, Station, StationFilter},
+    sources::RedirectPolicy,
     storage::Store,
 };
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,8 @@ pub enum DirectoryOperation {
     Add {
         id: String,
         revision_id: String,
+        #[serde(default)]
+        redirects: RedirectPolicy,
     },
 }
 
@@ -73,8 +76,12 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
                 next_after: None,
             });
         }
-        DirectoryOperation::Add { id, revision_id } => {
-            let admission = store.add_station_source(&id, &revision_id)?;
+        DirectoryOperation::Add {
+            id,
+            revision_id,
+            redirects,
+        } => {
+            let admission = store.add_station_source(&id, &revision_id, redirects)?;
             view.source_page = Some(SourcePage {
                 entries: vec![admission.revision.into()],
                 next_after: None,

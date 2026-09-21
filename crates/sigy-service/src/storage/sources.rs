@@ -107,7 +107,7 @@ pub(super) fn register_source_in(
         NetworkScope::PinnedAddress { address } => ("pinned_address", Some(address.to_string())),
     };
     let created_ms = now_ms()?;
-    tx.execute("INSERT INTO source_revisions(id, kind, name, endpoint, network_scope, pinned_address, created_ms) VALUES (?1, 'http_audio', ?2, ?3, ?4, ?5, ?6)", params![id, source.name(), source.endpoint(), scope, address, created_ms])?;
+    tx.execute("INSERT INTO source_revisions(id, kind, name, endpoint, network_scope, pinned_address, created_ms, redirect_policy) VALUES (?1, 'http_audio', ?2, ?3, ?4, ?5, ?6, ?7)", params![id, source.name(), source.endpoint(), scope, address, created_ms, source.redirects().to_string()])?;
     Ok(SourceAdmission {
         revision: SourceRevision {
             id: id.into(),
@@ -119,10 +119,10 @@ pub(super) fn register_source_in(
 }
 
 fn read_source(connection: &rusqlite::Connection, id: &str) -> Result<Option<SourceRevision>> {
-    let raw = connection.query_row("SELECT kind, name, endpoint, network_scope, pinned_address, created_ms FROM source_revisions WHERE id = ?1", [id], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, i64>(5)?))
+    let raw = connection.query_row("SELECT kind, name, endpoint, network_scope, pinned_address, created_ms, redirect_policy FROM source_revisions WHERE id = ?1", [id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, i64>(5)?, row.get::<_, String>(6)?))
     }).optional()?;
-    let Some((kind, name, endpoint, scope, pinned, created_ms)) = raw else {
+    let Some((kind, name, endpoint, scope, pinned, created_ms, redirects)) = raw else {
         return Ok(None);
     };
     validate_key(id, "source revision ID").map_err(|_| Error::SourceIntegrity)?;
@@ -141,7 +141,9 @@ fn read_source(connection: &rusqlite::Connection, id: &str) -> Result<Option<Sou
         }
         _ => return Err(Error::SourceIntegrity),
     };
-    let source = HttpSource::new(&name, &endpoint, network).map_err(|_| Error::SourceIntegrity)?;
+    let source = HttpSource::new(&name, &endpoint, network)
+        .and_then(|source| source.with_redirects(redirects.parse()?))
+        .map_err(|_| Error::SourceIntegrity)?;
     if source.endpoint() != endpoint {
         return Err(Error::SourceIntegrity);
     }

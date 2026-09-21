@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Error, Result,
     domain::money::Usd,
-    sources::{HttpSource, NetworkScope},
+    sources::{HttpSource, NetworkScope, RedirectPolicy},
     storage::{Store, sources::SourceRevision},
 };
 
@@ -20,7 +20,7 @@ pub use discovery::{DirectoryOperation, StationPage};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -66,6 +66,8 @@ pub enum Operation {
         name: String,
         url: String,
         network: NetworkScope,
+        #[serde(default)]
+        redirects: RedirectPolicy,
     },
     ListSources {
         after: Option<String>,
@@ -155,6 +157,7 @@ pub struct SourceView {
     pub name: String,
     pub origin: String,
     pub network: NetworkScope,
+    pub redirects: RedirectPolicy,
     pub created_ms: i64,
 }
 
@@ -166,6 +169,7 @@ impl From<SourceRevision> for SourceView {
             name: revision.source.name().into(),
             origin: revision.source.origin(),
             network: revision.source.network(),
+            redirects: revision.source.redirects(),
             created_ms: revision.created_ms,
         }
     }
@@ -239,8 +243,9 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
             name,
             url,
             network,
+            redirects,
         } => {
-            let source = HttpSource::new(&name, &url, network)?;
+            let source = HttpSource::new(&name, &url, network)?.with_redirects(redirects)?;
             let admission = store.register_source(&revision_id, &source)?;
             Some(SourcePage {
                 entries: vec![admission.revision.into()],

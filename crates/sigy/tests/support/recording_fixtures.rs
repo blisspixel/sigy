@@ -21,6 +21,14 @@ impl AudioServer {
     }
 
     fn start_delayed(body: Vec<u8>, body_delay: Duration) -> std::io::Result<Self> {
+        Self::start_configured(body, body_delay, false)
+    }
+
+    fn start_configured(
+        body: Vec<u8>,
+        body_delay: Duration,
+        redirect: bool,
+    ) -> std::io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let url = format!("http://127.0.0.1:{}/audio", listener.local_addr()?.port());
@@ -33,8 +41,16 @@ impl AudioServer {
                     Ok((mut stream, _)) => {
                         stream.set_read_timeout(Some(Duration::from_secs(2)))?;
                         stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-                        let mut request = [0_u8; 4096];
-                        let _ = stream.read(&mut request)?;
+                        let mut request = Vec::new();
+                        while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+                            let mut byte = [0];
+                            stream.read_exact(&mut byte)?;
+                            request.push(byte[0]);
+                        }
+                        if redirect && request.starts_with(b"GET /audio ") {
+                            stream.write_all(b"HTTP/1.1 302 Redirect\r\nLocation: /resolved\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
+                            continue;
+                        }
                         thread::sleep(Duration::from_millis(500));
                         write!(
                             stream,
@@ -144,6 +160,67 @@ fn initialize(directory: &std::path::Path, fixture: &AudioServer) -> TestResult 
 
 #[test]
 #[ignore = "requires SIGY_TEST_FFMPEG; run scripts/verify-media.ps1"]
+fn redirected_recording_publishes_audio_and_route_together() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let bytes = wave();
+    let mut fixture = AudioServer::start_configured(bytes.clone(), Duration::ZERO, true)?;
+    initialize(directory.path(), &fixture)?;
+    success(
+        directory.path(),
+        &[
+            "source",
+            "add",
+            "radio:v2",
+            "--name",
+            "Redirect radio",
+            "--url",
+            &fixture.url,
+            "--pin-address",
+            "127.0.0.1",
+            "--redirects",
+            "same-origin",
+        ],
+    )?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &[
+            "record",
+            "start",
+            "redirected",
+            "--source",
+            "radio:v2",
+            "--seconds",
+            "3",
+            "--max-mib",
+            "1",
+        ],
+    )?;
+    let record = wait_recording(directory.path(), "redirected", "completed")?;
+    assert_eq!(record["media_bytes"], bytes.len());
+    let metadata = success(directory.path(), &["record", "metadata", "redirected"])?;
+    assert_eq!(metadata["source"]["redirects"], "same_origin");
+    let route = metadata["capture"]["http_route"]
+        .as_array()
+        .ok_or("missing route")?;
+    assert_eq!(route.len(), 2);
+    assert_eq!(route[0]["status"], 302);
+    assert_eq!(route[1]["status"], 200);
+    assert_eq!(route[0]["origin"], route[1]["origin"]);
+    assert!(!metadata.to_string().contains("/resolved"));
+    let path = success(directory.path(), &["record", "path", "redirected"])?;
+    assert_eq!(
+        std::fs::read(path["path"].as_str().ok_or("missing path")?)?,
+        bytes
+    );
+    fixture.finish()?;
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires SIGY_TEST_FFMPEG; run scripts/verify-media.ps1"]
 fn recording_is_service_owned_verified_exportable_and_prunable() -> TestResult {
     let directory = tempfile::tempdir()?;
     let bytes = wave();
@@ -171,7 +248,9 @@ fn recording_is_service_owned_verified_exportable_and_prunable() -> TestResult {
     let path = path["path"].as_str().ok_or("missing media path")?;
     assert_eq!(std::fs::read(path)?, bytes);
     let metadata = success(directory.path(), &["record", "metadata", "morning"])?;
-    assert_eq!(metadata["schema_version"], 1);
+    assert_eq!(metadata["schema_version"], 2);
+    assert_eq!(metadata["source"]["redirects"], "deny");
+    assert_eq!(metadata["capture"]["http_route"][0]["status"], 200);
     assert_eq!(metadata["payload"]["kind"], "encoded_audio");
     assert_eq!(metadata["storage"]["sha256"], record["sha256"]);
     assert!(!metadata.to_string().contains("/audio"));

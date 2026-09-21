@@ -2,6 +2,8 @@
 
 Date: 2026-09-21. Status: implemented initial increment, with qualification limits below.
 
+This records the initial recording profile. [Authorized redirects](0007-authorized-redirects.md) subsequently extends acquisition, adds route provenance and advances recording exports to envelope v2.
+
 ## Decision
 
 The existing controller owns finite HTTP audio recording workers. CLI exit does not cancel them. Source registration remains separate from dispatch. The catalog atomically creates capture intent, records the starting generation, and reserves the entire requested byte ceiling. Exact request replay never dispatches again, including after failure or restart.

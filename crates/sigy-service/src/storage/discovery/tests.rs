@@ -38,7 +38,7 @@ fn refresh_is_atomic_searchable_and_does_not_rewrite_registered_sources() -> Tes
     let stations = store.search_stations(&query, None, 16)?;
     assert_eq!(stations.len(), 1);
     let id = &stations[0].id;
-    store.add_station_source(id, "radio:v1")?;
+    store.add_station_source(id, "radio:v1", RedirectPolicy::Deny)?;
     assert!(store.begin_refresh_at("two", &request(), 3000)?);
     store.finish_refresh("two", batch("Radio Québec", "https://radio.example/two")?)?;
     assert_eq!(
@@ -50,10 +50,14 @@ fn refresh_is_atomic_searchable_and_does_not_rewrite_registered_sources() -> Tes
         "https://radio.example/one"
     );
     assert!(matches!(
-        store.add_station_source(id, "radio:v1"),
+        store.add_station_source(id, "radio:v1", RedirectPolicy::Deny),
         Err(Error::IdempotencyConflict)
     ));
-    assert!(store.add_station_source(id, "radio:v2")?.newly_created);
+    assert!(
+        store
+            .add_station_source(id, "radio:v2", RedirectPolicy::Public)?
+            .newly_created
+    );
     assert_eq!(store.directory_status()?.cached_stations, 1);
     Ok(())
 }

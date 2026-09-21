@@ -2,7 +2,7 @@
 
 use crate::{
     Error, Result,
-    sources::NetworkScope,
+    sources::{HttpHop, NetworkScope, RedirectPolicy},
     storage::{
         Store,
         dvr::{Recording, Retention},
@@ -30,6 +30,7 @@ pub struct SourceMetadata {
     pub name: String,
     pub origin: String,
     pub network: NetworkScope,
+    pub redirects: RedirectPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +44,7 @@ pub struct CaptureMetadata {
     pub maximum_bytes: u64,
     pub end_reason: Option<String>,
     pub failure_detail: Option<String>,
+    pub http_route: Option<Vec<HttpHop>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,7 +77,7 @@ pub fn export(store: &Store, recording: &Recording) -> Result<RecordingEnvelope>
         .ok_or(Error::CaptureIntegrity)?;
     Ok(RecordingEnvelope {
         schema: "sigy.recording".into(),
-        schema_version: 1,
+        schema_version: 2,
         recording_id: recording.id.clone(),
         source: SourceMetadata {
             adapter: "http_audio".into(),
@@ -83,6 +85,7 @@ pub fn export(store: &Store, recording: &Recording) -> Result<RecordingEnvelope>
             name: source.source.name().into(),
             origin: source.source.origin(),
             network: source.source.network(),
+            redirects: source.source.redirects(),
         },
         capture: CaptureMetadata {
             state: recording.state.clone(),
@@ -93,6 +96,7 @@ pub fn export(store: &Store, recording: &Recording) -> Result<RecordingEnvelope>
             maximum_bytes: recording.maximum_bytes,
             end_reason: recording.end_reason.clone(),
             failure_detail: recording.failure_detail.clone(),
+            http_route: store.recording_route(&recording.id)?,
         },
         payload: PayloadMetadata::EncodedAudio {
             format: recording.format.clone(),

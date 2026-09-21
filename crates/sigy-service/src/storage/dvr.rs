@@ -87,6 +87,7 @@ pub(crate) struct Publication {
     pub format: &'static str,
     pub decoded_microseconds: u64,
     pub end_reason: &'static str,
+    pub http_route: Vec<crate::sources::HttpHop>,
 }
 
 impl Store {
@@ -317,6 +318,20 @@ impl Store {
         {
             return Err(Error::StorageIntegrity);
         }
+        let source_id = self
+            .capture(expected.id())?
+            .ok_or(Error::NotFound)?
+            .plan
+            .source_revision()
+            .to_owned();
+        self.source(&source_id)?
+            .ok_or(Error::SourceIntegrity)?
+            .source
+            .validate_route(&publication.http_route)?;
+        let route_json = serde_json::to_string(&publication.http_route)?;
+        if route_json.len() > 8192 {
+            return Err(Error::StorageIntegrity);
+        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -324,7 +339,7 @@ impl Store {
         if job.version != *expected {
             return Err(Error::StaleCapture);
         }
-        let changed = tx.execute("UPDATE recordings SET storage_state = 'retained', charged_bytes = ?2, media_bytes = ?2, sha256 = ?3, format = ?4, decoded_microseconds = ?5, end_reason = ?6 WHERE id = ?1 AND storage_state = 'reserved' AND charged_bytes >= ?2", params![expected.id(), i64::try_from(publication.bytes).map_err(|_| Error::StorageIntegrity)?, publication.sha256, publication.format, i64::try_from(publication.decoded_microseconds).map_err(|_| Error::StorageIntegrity)?, publication.end_reason])?;
+        let changed = tx.execute("UPDATE recordings SET storage_state = 'retained', charged_bytes = ?2, media_bytes = ?2, sha256 = ?3, format = ?4, decoded_microseconds = ?5, end_reason = ?6, http_route_json = ?7 WHERE id = ?1 AND storage_state = 'reserved' AND charged_bytes >= ?2", params![expected.id(), i64::try_from(publication.bytes).map_err(|_| Error::StorageIntegrity)?, publication.sha256, publication.format, i64::try_from(publication.decoded_microseconds).map_err(|_| Error::StorageIntegrity)?, publication.end_reason, route_json])?;
         if changed != 1 {
             return Err(Error::StorageIntegrity);
         }
@@ -339,6 +354,29 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// Returns publication provenance, or None for unfinished and legacy recordings.
+    /// # Errors
+    /// Rejects malformed or policy-inconsistent observations from the catalog.
+    pub fn recording_route(&self, id: &str) -> Result<Option<Vec<crate::sources::HttpHop>>> {
+        validate_key(id, "recording ID")?;
+        let (json, source_id): (Option<String>, String) = self.connection.query_row(
+            "SELECT r.http_route_json, c.source_revision FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1", [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional()?.ok_or(Error::NotFound)?;
+        let Some(json) = json else {
+            return Ok(None);
+        };
+        if json.len() > 8192 {
+            return Err(Error::StorageIntegrity);
+        }
+        let route = serde_json::from_str::<Vec<crate::sources::HttpHop>>(&json)?;
+        self.source(&source_id)?
+            .ok_or(Error::SourceIntegrity)?
+            .source
+            .validate_route(&route)?;
+        Ok(Some(route))
     }
 
     pub(crate) fn fail_recording(

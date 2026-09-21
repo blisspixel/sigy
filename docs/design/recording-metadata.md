@@ -4,21 +4,23 @@ Updated: 2026-09-21. The HTTP audio export below is implemented. Other profiles 
 
 ## Common envelope
 
-`record metadata ID` emits UTF-8 JSON with `schema: "sigy.recording"` and `schema_version: 1`. The serializer types in `sigy-service::recordings::metadata` are the current export contract. There is no sidecar importer. Exported metadata does not grant permissions or authorize processing.
+`record metadata ID` emits UTF-8 JSON with `schema: "sigy.recording"` and `schema_version: 2`. The serializer types in `sigy-service::recordings::metadata` are the current export contract. There is no sidecar importer. Exported metadata does not grant permissions or authorize processing. Version 2 adds source redirect policy and optional HTTP response-route observations; earlier exports used version 1.
 
 | Section | Current fields and meaning |
 | --- | --- |
 | Identity | Recording ID and independently versioned metadata schema |
-| Source | Immutable revision, acquisition adapter, original name, redacted origin, network scope |
-| Capture | Journal state, revision/generation, explicitly labeled planned UTC window, byte ceiling, end reason and bounded failure detail |
+| Source | Immutable revision, acquisition adapter, original name, redacted origin, network scope and redirect policy |
+| Capture | Journal state, revision/generation, explicitly labeled planned UTC window, byte ceiling, end reason, bounded failure detail and optional HTTP origin/peer/status route |
 | Payload | Tagged `encoded_audio` variant, decoder format and decoded duration when validation succeeds |
 | Storage | Retention at export, retained byte count, SHA-256, storage state, explicit processing acknowledgment |
 
 An exported sidecar is a snapshot. The catalog remains authoritative for later retention changes and deletion. Deleted history preserves earlier byte/hash evidence but reports that media is no longer retained. A planned window is not a measured reception interval, and decoded duration is not a claim about station transmission time. Missing observations remain absent. Current exports do not claim a language, transmitter location, RF frequency, topic, song, or completed automatic analysis.
 
+HTTP route evidence is published with successful media validation, and excludes paths and queries. Null means unavailable, including legacy or unfinished captures; it does not claim that no requests occurred. It does not reconstruct an exact redirected resource or retain failed-attempt hops. [Redirect profile](../decisions/0007-authorized-redirects.md).
+
 ## Extension contract
 
-Extend acquisition, payload and interpretation separately. A source family is not a codec, a radio protocol is not necessarily audio, and an interpretation never replaces the original observation. The next envelope revision must add typed artifact IDs, parent/input references, adapter and configuration versions, actual clock mappings, gaps, completeness and processing revisions before these families dispatch.
+Extend acquisition, payload and interpretation separately. A source family is not a codec, a radio protocol is not necessarily audio, and an interpretation never replaces the original observation. Future envelope revisions must add typed artifact IDs, parent/input references, adapter and configuration versions, actual clock mappings, gaps, completeness and processing revisions before these families dispatch.
 
 | Source/profile | Payload and additional evidence |
 | --- | --- |

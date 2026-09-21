@@ -1,6 +1,6 @@
 # Product naming research
 
-Reviewed: 2026-09-20. Status: preliminary discovery and collision screening. Sigy remains the working name. No rename, domain purchase, package reservation, or trademark clearance has occurred.
+Reviewed: 2026-09-20. Decision updated: 2026-09-21. Status: historical preliminary screening. The user chose to keep Sigy for now; further naming exploration is deferred. No rename, domain purchase, package reservation, or trademark clearance has occurred.
 
 ## Direction
 
@@ -48,4 +48,4 @@ Read the public repository inventory, searched quoted names alone and with app/s
 
 Exact [crates.io registry](https://crates.io/) and [npm registry](https://www.npmjs.com/) API requests for `radiosift` and `wavesift` returned HTTP 404 on the review date. This only means those exact endpoints did not return a package record at that time. WaveSift's existing RF project demonstrates why an absent package record does not establish a clean name. These checks do not reserve a namespace, establish publishability, select Rust/JavaScript, or prove trademark/domain availability. Endpoint forms checked were `https://crates.io/api/v1/crates/{name}` and `https://registry.npmjs.org/{name}`. SignalGlean's package namespaces were not checked.
 
-Before adopting a finalist, check intended distribution namespaces, desired domains through registration data, confusingly similar product names, relevant trademark records, and pronunciation/meaning with speakers of priority languages. No domain or trademark-register check has been completed. Keep this bounded screening distinct from legal clearance. The final naming decision remains [D-01](../docs/planning/05-delivery-and-decisions.md).
+Before public release, check intended distribution namespaces, desired domains through registration data, confusingly similar product names, relevant trademark records, and pronunciation/meaning with speakers of priority languages. No domain or trademark-register check has been completed. Keep this bounded screening distinct from legal clearance. The decision to keep Sigy is recorded in [D-01](../docs/planning/05-delivery-and-decisions.md).

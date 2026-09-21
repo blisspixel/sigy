@@ -163,6 +163,7 @@ pub(crate) async fn capture(
         sha256: hex(&digest.finalize()),
         format,
         decoded_microseconds,
+        http_route: receipt.route,
         end_reason: match receipt.end {
             TransferEnd::EndOfBody => "end_of_body",
             TransferEnd::ByteLimit => "byte_limit",

@@ -2,9 +2,9 @@
 
 ## Product and current phase
 
-Sigy is the working name for a local-first, multilingual signals discovery and analysis platform. Read [README.md](README.md), [INTENT.md](INTENT.md), [ROADMAP.md](ROADMAP.md), and the [planning index](docs/planning/README.md) before consequential changes.
+Sigy is a local-first, multilingual signals discovery and analysis platform. Read [README.md](README.md), [INTENT.md](INTENT.md), [ROADMAP.md](ROADMAP.md), and the [planning index](docs/planning/README.md) before consequential changes.
 
-The user advanced the project to evaluation and implementation on 2026-09-20. Build in verified increments from the existing design; do not claim unfinished gates or release support. Rust 1.98.1 is selected for the foundation; Python is excluded. Keep Sigy as the working name. Follow [active work](docs/development/progress.md), the [foundation decision](docs/decisions/0001-rust-foundation.md), and the evidence gates in [Delivery and decisions](docs/planning/05-delivery-and-decisions.md).
+The user advanced the project to evaluation and implementation on 2026-09-20. Build in verified increments from the existing design; do not claim unfinished gates or release support. Rust 1.98.1 is selected for the foundation; Python is excluded. The user chose to keep Sigy on 2026-09-21; further naming exploration is deferred. Follow [active work](docs/development/progress.md), the [foundation decision](docs/decisions/0001-rust-foundation.md), and the evidence gates in [Delivery and decisions](docs/planning/05-delivery-and-decisions.md).
 
 Reinspect the working tree before each task. The Rust workspace has domain, catalog/ledger, capture journal, source registration, local controller, finite audio recording, retention, metadata export and bounded Radio Browser refresh/search with local Windows tests. Podcasts, integrated playback, TUI and model dispatch remain unimplemented. There is no release or qualified platform matrix. `main` tracks the private `blisspixel/sigy` repository. Distinguish confirmed intent, proposed design, implemented behavior, tested behavior, released behavior, and operationally validated behavior.
 
@@ -42,7 +42,7 @@ The verified local entry point is `./scripts/verify.ps1` in PowerShell. It valid
 
 Use the existing [local controller](docs/decisions/0002-local-controller.md) and [capture journal](docs/decisions/0003-capture-journal.md). Capture mutations require the exact revision/generation; recovery invalidates old workers. Keep state and journal changes in one transaction. Do not expose capture dispatch or completion before source authorization, resource enforcement, and verified media publication exist.
 
-Source authority and HTTP acquisition live in `sigy-service::sources`; immutable revisions live in `storage::sources`. Share one acquisition instance, preserve destination checks and explicit grants, and keep asynchronous DNS cancellable. A transfer receipt is not verified media. Do not introduce unchecked redirects, implicit proxies, retries or permission expansion.
+Source authority and HTTP acquisition live in `sigy-service::sources`; immutable revisions live in `storage::sources`. Share one acquisition instance, preserve destination checks and explicit grants, and keep asynchronous DNS cancellable. A transfer receipt is not verified media. Redirects use immutable opt-in policy, at most three hops, the original deadline and checked destinations at every hop. Preserve migration defaults and route provenance in [authorized redirects](docs/decisions/0007-authorized-redirects.md). Do not introduce implicit proxies, retries or permission expansion.
 
 Directory adapters live in `discovery`, with refresh/cache transactions in `storage::discovery`. Reuse the controller's worker supervisor. A refresh merges a bounded page, never implies a complete catalog or starts playback, and cannot grant private-network authority to returned stations. Preserve exact-request replay and immutable source provenance. Follow [directory refresh](docs/decisions/0006-radio-discovery.md).
 

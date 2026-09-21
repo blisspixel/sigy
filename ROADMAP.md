@@ -4,7 +4,7 @@ Last updated: 2026-09-21
 
 This roadmap is organized by evidence and exit criteria. It does not assign speculative completion dates. Implementation has begun on the Rust foundation; the complete release remains ahead. [Current evidence and active work](docs/development/progress.md) distinguish completed slices from these planned stages.
 
-The current increment adds bounded Radio Browser refresh, offline multilingual station search and immutable station-to-source registration to finite recording and the 14-day/50 GB retention policy. Local Windows fixtures cover cache publication, request replay and process-kill recovery; a live directory metadata check is recorded separately. Continuous segmented DVR, broad stream compatibility, podcasts and integrated playback remain open. No stage exit is implied by this increment.
+The current increment adds explicit bounded HTTP redirects and retained response-route evidence to Radio Browser discovery and finite recording. Existing source permissions remain unchanged during migration. Local Windows fixtures cover permitted/denied redirects, loops, cancellation, publication and recovery; a prior live directory metadata check is recorded separately. Continuous segmented DVR, broad stream compatibility, podcasts and integrated playback remain open. No stage exit is implied by this increment.
 
 The product journey is to explore signals and discover their meaning in context. Each milestone must make the path from observation to interpretation inspectable, preserve uncertainty, and support learning and correction. These are planned acceptance requirements, not claims about the current implementation.
 

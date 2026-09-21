@@ -16,7 +16,7 @@ impl HttpAcquirer {
         let limits = AcquisitionLimits::new(MAX_DOCUMENT_BYTES as u64, Duration::from_secs(8))?;
         let deadline = Instant::now() + limits.duration;
         timeout_at(deadline, async {
-            let mut response = self
+            let (mut response, _) = self
                 .open(source, limits, deadline, "application/json")
                 .await?;
             for encoding in response

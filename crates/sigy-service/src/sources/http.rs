@@ -12,7 +12,10 @@ use tokio::{
     time::{Instant, timeout_at},
 };
 
-use super::HttpSource;
+use super::{
+    HttpHop, HttpSource,
+    redirects::{MAX_REDIRECTS, is_redirect},
+};
 use crate::{Error, Result};
 
 pub const MAXIMUM_BODY_BYTES: u64 = 256 * 1024 * 1024;
@@ -64,6 +67,7 @@ pub struct TransferReceipt {
     pub end: TransferEnd,
     pub declared_content_type: AudioContentType,
     pub peer: SocketAddr,
+    pub route: Vec<HttpHop>,
 }
 
 /// Share one instance across acquisition workers. Clones share admission and
@@ -84,8 +88,8 @@ impl Default for HttpAcquirer {
 }
 
 impl HttpAcquirer {
-    /// Copies a single direct HTTP(S) body to a caller-owned bounded sink.
-    /// Does not create files, follow redirects, retry, decode, or finalize jobs.
+    /// Copies one HTTP(S) body, following only the source's explicit redirect policy.
+    /// Does not create files, retry, decode, or finalize jobs.
     /// A cancelled or failed call may have written a partial body; preserve it
     /// as unverified until the media publication/recovery layer reconciles it.
     /// # Errors
@@ -142,6 +146,54 @@ impl HttpAcquirer {
         limits: AcquisitionLimits,
         deadline: Instant,
         accept: &'static str,
+    ) -> Result<(reqwest::Response, Vec<HttpHop>)> {
+        let mut current = source.clone();
+        let mut visited = vec![current.url.clone()];
+        let mut route = Vec::new();
+        loop {
+            let response = self.open_once(&current, limits, deadline, accept).await?;
+            route.push(HttpHop {
+                origin: current.origin(),
+                peer: response.remote_addr().ok_or(Error::DestinationDenied)?,
+                status: response.status().as_u16(),
+            });
+            if response.status() == StatusCode::OK {
+                return Ok((response, route));
+            }
+            if !is_redirect(response.status().as_u16()) {
+                return Err(Error::Acquisition(
+                    "source did not return HTTP 200 or supported redirect",
+                ));
+            }
+            if route.len() > MAX_REDIRECTS {
+                return Err(Error::Acquisition("redirect hop limit reached"));
+            }
+            let locations = response.headers().get_all(header::LOCATION);
+            if locations.iter().count() != 1 {
+                return Err(Error::Acquisition("missing or ambiguous redirect location"));
+            }
+            let location = locations
+                .iter()
+                .next()
+                .and_then(|value| value.to_str().ok())
+                .ok_or(Error::Acquisition("invalid redirect location"))?;
+            let target = current.redirect_target(location)?;
+            if visited.contains(&target.url) {
+                return Err(Error::Acquisition("redirect loop"));
+            }
+            visited.push(target.url.clone());
+            current = target;
+            // Never consume a redirect body or carry cookies, auth or referer state.
+            drop(response);
+        }
+    }
+
+    async fn open_once(
+        &self,
+        source: &HttpSource,
+        limits: AcquisitionLimits,
+        deadline: Instant,
+        accept: &'static str,
     ) -> Result<reqwest::Response> {
         // Platform verification can retrieve certificate-supplied AIA/OCSP URLs
         // outside the source policy. Use offline WebPKI with explicit roots.
@@ -186,14 +238,6 @@ impl HttpAcquirer {
         {
             return Err(Error::DestinationDenied);
         }
-        if response.status().is_redirection() {
-            return Err(Error::Acquisition(
-                "redirect requires a separately authorized source revision",
-            ));
-        }
-        if response.status() != StatusCode::OK {
-            return Err(Error::Acquisition("source did not return HTTP 200"));
-        }
         Ok(response)
     }
 
@@ -205,14 +249,23 @@ impl HttpAcquirer {
         deadline: Instant,
         mut stop: Option<&mut tokio::sync::watch::Receiver<bool>>,
     ) -> Result<TransferReceipt> {
-        let mut response = self
-            .open(
-                source,
-                limits,
-                deadline,
-                "audio/mpeg, audio/aac, audio/flac, audio/ogg, audio/wav, application/ogg",
-            )
-            .await?;
+        let opened = self.open(
+            source,
+            limits,
+            deadline,
+            "audio/mpeg, audio/aac, audio/flac, audio/ogg, audio/wav, application/ogg",
+        );
+        let (mut response, route) = if let Some(signal) = stop.as_mut() {
+            tokio::select! {
+                biased;
+                () = async { if !*signal.borrow() { let _ = signal.changed().await; } } => {
+                    return Err(Error::Acquisition("stopped before receiving audio"));
+                }
+                result = opened => result?,
+            }
+        } else {
+            opened.await?
+        };
         let peer = response.remote_addr().ok_or(Error::DestinationDenied)?;
         let declared_content_type = validate_headers(response.headers())?;
         let mut bytes = 0;
@@ -224,6 +277,7 @@ impl HttpAcquirer {
                     end: TransferEnd::ByteLimit,
                     declared_content_type,
                     peer,
+                    route,
                 });
             }
             let body = async {
@@ -238,7 +292,7 @@ impl HttpAcquirer {
                     () = async { if !*stop.borrow() { let _ = stop.changed().await; } } => {
                         if bytes == 0 { return Err(Error::Acquisition("stopped before receiving audio")); }
                         sink.flush().await?;
-                        return Ok(TransferReceipt { bytes, end: TransferEnd::UserStop, declared_content_type, peer });
+                        return Ok(TransferReceipt { bytes, end: TransferEnd::UserStop, declared_content_type, peer, route });
                     }
                     () = tokio::time::sleep_until(deadline) => None,
                     result = body => Some(result?),
@@ -255,6 +309,7 @@ impl HttpAcquirer {
                         end: TransferEnd::DurationLimit,
                         declared_content_type,
                         peer,
+                        route,
                     });
                 }
             } else {
@@ -270,6 +325,7 @@ impl HttpAcquirer {
                     end: TransferEnd::EndOfBody,
                     declared_content_type,
                     peer,
+                    route,
                 });
             };
             let remaining = usize::try_from(limits.bytes - bytes)

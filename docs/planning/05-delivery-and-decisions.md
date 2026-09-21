@@ -28,7 +28,7 @@ Confirmed entries are summarized in the [planning index](README.md). These are t
 
 | ID | Decision | Proposed direction or alternatives | Evidence needed |
 | --- | --- | --- | --- |
-| D-01 | Working product name | Sigy remains temporary; prioritize recognizable meaning. Current user candidate Signeta has a near-name Signetta software collision; SignalSift has exact-name analysis-product collisions. See [naming research](../../research/21-naming.md) | Name decision, confusingly similar uses, distribution/domain checks and appropriate trademark review before public release |
+| D-01 | Product name | Resolved for current development on 2026-09-21: keep Sigy; defer further naming exploration. Prior [screening](../../research/21-naming.md) remains historical | Distribution/domain and appropriate trademark checks before public release remain separate from this naming choice |
 | D-02 | Exact capacity profiles | Both small always-on hosts and desktops are confirmed; stream and analysis counts remain unqualified | Representative machines, OS/architecture choices, benchmark corpus |
 | D-03 | Translation output | Captions first; spoken translation separately scoped | User preference and delay/audio-mixing requirements |
 | D-04 | Qualified language coverage | Non-English majority and translation primarily to English are confirmed; define meaningful launch language/task profiles and experimental coverage | Representative stations, regional priorities, mixed-language corpus and competent review |
@@ -128,7 +128,7 @@ The first complete release remains worldwide radio exploration, recordings/DVR, 
 
 Resume with these bounded decisions:
 
-1. Resolve D-01 naming. Sigy is temporary. Signeta is the latest user suggestion; exact and similar-name findings are recorded in [naming research](../../research/21-naming.md). Suggestions in that note are not selected names.
+1. Naming was open at this historical checkpoint. On 2026-09-21 the user chose to keep Sigy; D-01 no longer blocks development. Prior [naming research](../../research/21-naming.md) is retained as dated screening.
 2. Review D-03 through D-06: translated captions versus spoken output, initial language qualification, service behavior across logout/reboot, and retention defaults. Confirm representative hardware for D-02 and supported platforms for D-09.
 3. Review the [architecture](02-architecture-and-data.md), [spending policy](07-providers-and-cost-policy.md), and [assurance requirements](04-assurance-and-validation.md), then close or explicitly bound the remaining G0 through G3 questions.
 4. Review the [stack trade study](06-language-and-stack-trade-study.md) and [repository organization](12-repository-and-engineering.md). Rust is the leading candidate to evaluate; Go remains a comparison candidate. No stack or dependency set is selected.
@@ -138,4 +138,4 @@ No prototypes, model downloads, paid inference, hardware tests, capacity benchma
 
 Checkpoint verification covered all 40 Markdown files and 177 local links, including anchors, register continuity and references, writing rules, and basic credential-pattern checks. No issues were found. The license matches the official Apache 2.0 text. These checks validate documentation integrity, not application behavior or every external source's continuing availability.
 
-The user authorized a private planning repository at [blisspixel/sigy](https://github.com/blisspixel/sigy). The local Git repository uses `main` and an `origin` remote pointing there. This hosting choice preserves Sigy as a working name; D-01 remains open. Local scratch state under `.agents/` is excluded from version control. Check Git status and the upstream commit before claiming a later session is synchronized.
+The user authorized a private repository at [blisspixel/sigy](https://github.com/blisspixel/sigy). The local Git repository uses `main` and an `origin` remote pointing there. The user subsequently chose to keep Sigy on 2026-09-21. Local scratch state under `.agents/` is excluded from version control. Check Git status and the upstream commit before claiming a later session is synchronized.

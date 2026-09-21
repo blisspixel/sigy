@@ -12,7 +12,7 @@ pub mod dvr;
 pub mod ledger;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -79,6 +79,9 @@ impl Store {
         }
         if (0..=4).contains(&version) {
             transaction.execute_batch(include_str!("005-discovery.sql"))?;
+        }
+        if (0..=5).contains(&version) {
+            transaction.execute_batch(include_str!("006-redirects.sql"))?;
         } else if version != i64::from(SCHEMA_VERSION) {
             return Err(Error::FutureSchema {
                 found: version,

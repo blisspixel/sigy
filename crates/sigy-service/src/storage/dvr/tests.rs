@@ -31,7 +31,108 @@ fn publication(bytes: u64) -> Publication {
         format: "wav",
         decoded_microseconds: 1_000_000,
         end_reason: "end_of_body",
+        http_route: vec![crate::sources::HttpHop {
+            origin: "https://example.com".into(),
+            peer: std::net::SocketAddr::from(([8, 8, 8, 8], 443)),
+            status: 200,
+        }],
     }
+}
+
+#[test]
+fn redirect_migration_keeps_v5_sources_denied_and_rolls_back_conflicts() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    for fail in [false, true] {
+        let path = directory.path().join(if fail {
+            "conflict.sqlite3"
+        } else {
+            "legacy.sqlite3"
+        });
+        let connection = rusqlite::Connection::open(&path)?;
+        for sql in [
+            include_str!("../001-foundation.sql"),
+            include_str!("../002-captures.sql"),
+            include_str!("../003-sources.sql"),
+            include_str!("../004-dvr.sql"),
+            include_str!("../005-discovery.sql"),
+        ] {
+            connection.execute_batch(sql)?;
+        }
+        connection.execute("INSERT INTO source_revisions(id, kind, name, endpoint, network_scope, created_ms) VALUES ('legacy:v1', 'http_audio', 'Legacy', 'https://example.com/audio', 'public_internet', 1)", [])?;
+        connection.execute("UPDATE budgets SET limit_micros = 1234567", [])?;
+        if fail {
+            connection.execute(
+                "ALTER TABLE source_revisions ADD COLUMN redirect_policy TEXT",
+                [],
+            )?;
+        }
+        let opened = Store::open(&path);
+        if fail {
+            assert!(opened.is_err());
+            assert_eq!(
+                connection.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))?,
+                5
+            );
+            let count: u32 = connection.query_row("SELECT count(*) FROM pragma_table_info('recordings') WHERE name = 'http_route_json'", [], |r| r.get(0))?;
+            assert_eq!(count, 0);
+        } else {
+            let mut store = opened?;
+            let source = store
+                .source("legacy:v1")?
+                .ok_or("missing legacy source")?
+                .source;
+            assert_eq!(source.redirects(), crate::sources::RedirectPolicy::Deny);
+            assert_eq!(store.budget("global")?.limit().to_string(), "1.234567");
+            let changed = source.with_redirects(crate::sources::RedirectPolicy::Public)?;
+            assert!(matches!(
+                store.register_source("legacy:v1", &changed),
+                Err(Error::IdempotencyConflict)
+            ));
+            store.register_source("legacy:v2", &changed)?;
+            drop(store);
+            assert_eq!(
+                Store::open(&path)?
+                    .source("legacy:v2")?
+                    .ok_or("missing new source")?
+                    .source
+                    .redirects(),
+                crate::sources::RedirectPolicy::Public
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn route_publication_is_atomic_immutable_and_validated_on_export() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog.sqlite3"), 1000)?;
+    let job = store
+        .admit_recording("route", "radio:v1", 1, 100, Retention::Temporary)?
+        .ok_or("not admitted")?;
+    assert!(store.recording_route("route")?.is_none());
+    let mut invalid = publication(20);
+    invalid.http_route[0].peer = std::net::SocketAddr::from(([127, 0, 0, 1], 443));
+    assert!(store.publish_recording(&job.version, &invalid).is_err());
+    assert_eq!(store.recording("route")?.storage_state, "reserved");
+    assert!(store.recording_route("route")?.is_none());
+    store.publish_recording(&job.version, &publication(20))?;
+    assert_eq!(
+        store.recording_route("route")?.ok_or("missing route")?[0].status,
+        200
+    );
+    assert!(
+        store
+            .connection
+            .execute(
+                "UPDATE recordings SET http_route_json = '[]' WHERE id = 'route'",
+                []
+            )
+            .is_err()
+    );
+    store.connection.execute_batch("DROP TRIGGER recording_route_immutable; UPDATE recordings SET http_route_json = '[]' WHERE id = 'route';")?;
+    assert!(store.recording_route("route").is_err());
+    Ok(())
 }
 
 #[test]

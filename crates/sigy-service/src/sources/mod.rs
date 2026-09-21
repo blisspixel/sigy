@@ -2,6 +2,9 @@
 
 pub mod http;
 mod policy;
+mod redirects;
+
+pub use redirects::{HttpHop, RedirectPolicy};
 
 use std::{fmt, net::IpAddr};
 
@@ -36,6 +39,7 @@ pub struct HttpSource {
     name: String,
     url: Url,
     network: NetworkScope,
+    redirects: RedirectPolicy,
 }
 
 impl fmt::Debug for HttpSource {
@@ -45,6 +49,7 @@ impl fmt::Debug for HttpSource {
             .field("name", &self.name)
             .field("origin", &self.origin())
             .field("network", &self.network)
+            .field("redirects", &self.redirects)
             .finish_non_exhaustive()
     }
 }
@@ -90,6 +95,7 @@ impl HttpSource {
             name: name.into(),
             url,
             network,
+            redirects: RedirectPolicy::Deny,
         })
     }
 
@@ -107,6 +113,23 @@ impl HttpSource {
     #[must_use]
     pub const fn network(&self) -> NetworkScope {
         self.network
+    }
+
+    /// # Errors
+    /// Cross-origin redirects require public-internet scope, never an address pin.
+    pub fn with_redirects(mut self, policy: RedirectPolicy) -> Result<Self> {
+        if policy == RedirectPolicy::Public && self.network != (NetworkScope::PublicInternet {}) {
+            return Err(Error::InvalidInput(
+                "public redirects require public-internet scope",
+            ));
+        }
+        self.redirects = policy;
+        Ok(self)
+    }
+
+    #[must_use]
+    pub const fn redirects(&self) -> RedirectPolicy {
+        self.redirects
     }
 
     pub(crate) fn endpoint(&self) -> &str {

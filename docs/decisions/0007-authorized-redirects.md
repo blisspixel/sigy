@@ -1,0 +1,15 @@
+# 0007: Explicit HTTP redirect authority and recording provenance
+
+Date: 2026-09-21. Status: implemented profile; verification evidence belongs in [progress](../development/progress.md).
+
+Many radio endpoints redirect before returning audio. Source revisions now carry an explicit `redirects` policy. The default is `deny`, including every source migrated from schema v5. `same-origin` allows a change of path/query within the original scheme, host and port. `public` allows other validated public-internet origins and requires public-internet network scope. Exact address pins support only deny or same-origin. Changing policy requires a new immutable revision key.
+
+The CLI accepts `source add ... --redirects public` and `radio add ... --redirects public`. JSON uses `same_origin` for the same-origin enum. Registration remains a local operation and does not connect. Directory refresh does not inherit recording permission and continues to reject redirects.
+
+The shared HTTP boundary manually handles 301, 302, 303, 307 and 308 for GET requests. It permits at most three redirects before the final response, detects repeated normalized URLs and retains the original acquisition deadline, byte ceiling and concurrency slot. Each hop validates the URL, DNS answers, TLS identity and connected peer through existing policy. HTTPS cannot downgrade to HTTP. Credentials, fragments, unsupported schemes, malformed/duplicate Location fields and unauthorized destinations fail before a further connection. Redirect bodies are not consumed. Cookies, authentication and referer state are not carried forward; there is no retry or permanent rewriting of the source revision.
+
+Recording cancellation now also interrupts connection/header waits. A successful transfer records each response origin, connected peer and status. The catalog validates and publishes this route atomically with decoded media metadata. Published route observations are immutable and remain after media deletion. Paths and queries are omitted, so these observations distinguish origins and response order without claiming exact redirect-resource identity. Failed/interrupted attempts do not yet persist partial routes.
+
+Schema and IPC advance to v6. Stop older controllers before replacing binaries. Migration preserves prior permissions and spending/storage policy. Recording metadata advances to envelope v2, adding source redirect policy and optional `capture.http_route`. Null means route evidence is unavailable, including legacy recordings; it does not mean no network request occurred. Route arrays are available on metadata export, not bulk recording lists, keeping the existing IPC page bounds.
+
+This extends acquisition only. Playlist/HLS resolution, ICY metadata, authenticated streams, integrated playback and public audio compatibility remain separate qualification work. No new dependency is introduced. [Research](../../research/28-http-redirects.md), [source authority](0004-source-authority-and-http.md), [metadata contract](../design/recording-metadata.md).

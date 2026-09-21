@@ -2,7 +2,7 @@ use clap::{Args, Subcommand};
 use sigy_service::{
     control::{DirectoryOperation, Operation, Snapshot},
     discovery::{RefreshRequest, StationFilter},
-    sources::NetworkScope,
+    sources::{NetworkScope, RedirectPolicy},
 };
 use std::{
     io::{self, Write},
@@ -80,6 +80,9 @@ pub enum RadioCommand {
         id: String,
         #[arg(long)]
         revision: String,
+        /// Redirect scope: deny, same-origin, or public (at most three hops).
+        #[arg(long, default_value = "deny")]
+        redirects: RedirectPolicy,
     },
 }
 
@@ -117,9 +120,14 @@ impl RadioCommand {
                 limit: *limit,
             },
             Self::Show { id } => DirectoryOperation::Show { id: id.clone() },
-            Self::Add { id, revision } => DirectoryOperation::Add {
+            Self::Add {
+                id,
+                revision,
+                redirects,
+            } => DirectoryOperation::Add {
                 id: id.clone(),
                 revision_id: revision.clone(),
+                redirects: *redirects,
             },
         }
         .into()

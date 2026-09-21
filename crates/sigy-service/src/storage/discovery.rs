@@ -14,7 +14,7 @@ use crate::{
         MAX_CACHED_STATIONS, RefreshBatch, RefreshRequest, Station, StationFilter,
         validate_station_id,
     },
-    sources::{HttpSource, NetworkScope},
+    sources::{HttpSource, NetworkScope, RedirectPolicy},
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -238,7 +238,12 @@ impl Store {
     /// Register an explicitly selected station without contacting its stream.
     /// # Errors
     /// Rejects conflicting replay and atomically preserves directory provenance.
-    pub fn add_station_source(&mut self, id: &str, revision: &str) -> Result<SourceAdmission> {
+    pub fn add_station_source(
+        &mut self,
+        id: &str,
+        revision: &str,
+        redirects: RedirectPolicy,
+    ) -> Result<SourceAdmission> {
         validate_station_id(id)?;
         validate_key(revision, "source revision ID")?;
         let tx = self
@@ -251,6 +256,7 @@ impl Store {
         if station.id != id || station.stream_origin != source.origin() {
             return Err(Error::SourceIntegrity);
         }
+        let source = source.with_redirects(redirects)?;
         let admission = register_source_in(&tx, revision, &source)?;
         let link: Option<(String, String)> = tx.query_row("SELECT provider, station_id FROM source_directory_links WHERE source_revision = ?1", [revision], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
         if let Some(link) = link {

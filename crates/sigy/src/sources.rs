@@ -6,7 +6,7 @@ use std::{
 use clap::Subcommand;
 use sigy_service::{
     control::{Operation, SourcePage},
-    sources::NetworkScope,
+    sources::{NetworkScope, RedirectPolicy},
 };
 
 #[derive(Subcommand)]
@@ -22,6 +22,9 @@ pub enum SourceCommand {
         /// Explicitly pin this revision to one public, private or loopback IP.
         #[arg(long)]
         pin_address: Option<IpAddr>,
+        /// Redirect scope: deny, same-origin, or public (at most three hops).
+        #[arg(long, default_value = "deny")]
+        redirects: RedirectPolicy,
     },
     /// List a bounded page of registered revisions, with URL paths omitted.
     List {
@@ -48,6 +51,7 @@ impl SourceCommand {
                 name,
                 url,
                 pin_address,
+                redirects,
             } => Operation::RegisterSource {
                 revision_id: revision_id.clone(),
                 name: name.clone(),
@@ -55,6 +59,7 @@ impl SourceCommand {
                 network: pin_address.map_or(NetworkScope::PublicInternet {}, |address| {
                     NetworkScope::PinnedAddress { address }
                 }),
+                redirects: *redirects,
             },
             Self::List { after, limit } => Operation::ListSources {
                 after: after.clone(),
@@ -86,8 +91,8 @@ pub fn render(writer: &mut impl Write, page: SourcePage) -> io::Result<()> {
         };
         writeln!(
             writer,
-            "{}: {} | {} | {}",
-            entry.revision_id, entry.name, entry.origin, policy
+            "{}: {} | {} | {} | redirects: {}",
+            entry.revision_id, entry.name, entry.origin, policy, entry.redirects
         )?;
     }
     if page.entries.is_empty() {

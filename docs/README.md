@@ -12,6 +12,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Directory refresh and local search](decisions/0006-radio-discovery.md) records the first discovery adapter. The planned [broadcast analysis contract](design/broadcast-analysis.md) separates language shifts, candidate advertisements and song boundaries from source metadata and track identification.
 
+[Authorized redirects](decisions/0007-authorized-redirects.md) adds explicit source policy and retained HTTP route observations to the existing acquisition path.
+
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:
 
 1. [Product and experience](planning/01-product-and-experience.md)
@@ -29,4 +31,4 @@ The [planning index](planning/README.md) records confirmed requirements and the 
 
 [Research](../research/README.md) contains the dated evidence, alternatives, and unresolved experiments for individual topics. Specifications describe proposed behavior; research explains the evidence behind it. Neither implies an implemented capability.
 
-[AGENTS.md](../AGENTS.md) is the canonical concise development guidance. [Naming research](../research/21-naming.md) records the open product-name discussion without changing the working name.
+[AGENTS.md](../AGENTS.md) is the canonical concise development guidance. [Naming research](../research/21-naming.md) retains historical screening; the current decision is to keep Sigy.

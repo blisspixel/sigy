@@ -141,13 +141,22 @@ fn directory_jobs_cache_unicode_and_register_without_tuning() -> TestResult {
         .ok_or("station missing")?;
     let source = success(
         directory.path(),
-        &["radio", "add", id, "--revision", "radio:v1"],
+        &[
+            "radio",
+            "add",
+            id,
+            "--revision",
+            "radio:v1",
+            "--redirects",
+            "public",
+        ],
     )?;
     assert_eq!(
         source["source_page"]["entries"][0]["origin"],
         "https://stream.example"
     );
     assert_eq!(source["captures"]["active"], 0);
+    assert_eq!(source["source_page"]["entries"][0]["redirects"], "public");
     success(directory.path(), &fixture.request("one"))?;
     assert_eq!(fixture.hits.load(Ordering::Relaxed), 1);
     success(directory.path(), &["service", "stop"])?;
@@ -167,7 +176,10 @@ fn killed_directory_refresh_is_interrupted_and_never_replayed() -> TestResult {
     success(directory.path(), &fixture.request("one"))?;
     let deadline = Instant::now() + Duration::from_secs(5);
     while fixture.hits.load(Ordering::Relaxed) == 0 {
-        assert!(Instant::now() < deadline);
+        if Instant::now() >= deadline {
+            let status = success(directory.path(), &["radio", "refresh-status", "one"])?;
+            panic!("directory fixture was not contacted: {status}");
+        }
         thread::sleep(Duration::from_millis(20));
     }
     service.0.kill()?;

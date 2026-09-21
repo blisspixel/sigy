@@ -52,7 +52,7 @@ scripts/                      Actual shared maintenance/verification tools
 .github/workflows/            CI and separate release workflows
 ```
 
-Names remain placeholders while product naming is open. A three-package starting point is a proposal, not a minimum quota. Use modules until a separate package materially enforces dependency isolation, optional compilation, or independent delivery. Unit and package integration tests belong beside their owner; root tests are for assembled behavior. Store migrations beside the database implementation and wire-schema sources beside their protocol owner. Avoid competing schema copies or a miscellaneous `utils` package.
+Sigy is retained as the product name. The three-package foundation now exists; additional packages in this proposed layout are not a minimum quota. Use modules until a separate package materially enforces dependency isolation, optional compilation, or independent delivery. Unit and package integration tests belong beside their owner; root tests are for assembled behavior. Store migrations beside the database implementation and wire-schema sources beside their protocol owner. Avoid competing schema copies or a miscellaneous `utils` package.
 
 The dependency direction is executable composition to service/core, and service to core. The core must not import terminal rendering, provider SDKs, concrete databases, or device drivers. Adapter implementations satisfy ports owned by the domain/application boundary. CLI and TUI use the same service client and operations, including when the service is started locally. Executable packaging does not determine process isolation: one distribution can still run separate service and worker processes.
 
