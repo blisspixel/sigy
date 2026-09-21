@@ -52,6 +52,8 @@ pub enum AudioContentType {
 pub enum TransferEnd {
     EndOfBody,
     ByteLimit,
+    DurationLimit,
+    UserStop,
 }
 
 /// Transport observations, not evidence that decoding or publication succeeded.
@@ -64,7 +66,7 @@ pub struct TransferReceipt {
 }
 
 /// Share one instance across acquisition workers. Clones share admission and
-/// DNS slots; cancelled system DNS calls retain their slot until they return.
+/// DNS slots. DNS lookups are asynchronous and cancellation does not retain workers.
 #[derive(Debug, Clone)]
 pub struct HttpAcquirer {
     attempts: Arc<Semaphore>,
@@ -99,17 +101,46 @@ impl HttpAcquirer {
             .try_acquire()
             .map_err(|_| Error::Acquisition("capacity reached"))?;
         let deadline = Instant::now() + limits.duration;
-        timeout_at(deadline, self.transfer(source, limits, sink))
-            .await
-            .map_err(|_| Error::Acquisition("deadline reached; partial body is unverified"))?
+        timeout_at(
+            deadline,
+            self.transfer(source, limits, sink, deadline, None),
+        )
+        .await
+        .map_err(|_| Error::Acquisition("deadline reached; partial body is unverified"))?
     }
 
-    async fn transfer<W: AsyncWrite + Unpin>(
+    /// Record a bounded stream. An intentional time limit or stop preserves the
+    /// received bytes; connection failures and stalls remain errors.
+    /// # Errors
+    /// Uses the same destination, header, byte and capacity checks as acquisition.
+    pub async fn record<W: AsyncWrite + Unpin>(
         &self,
         source: &HttpSource,
         limits: AcquisitionLimits,
         sink: &mut W,
+        stop: &mut tokio::sync::watch::Receiver<bool>,
     ) -> Result<TransferReceipt> {
+        let _slot = self
+            .attempts
+            .try_acquire()
+            .map_err(|_| Error::Acquisition("capacity reached"))?;
+        let deadline = Instant::now() + limits.duration;
+        timeout_at(
+            deadline + Duration::from_secs(5),
+            self.transfer(source, limits, sink, deadline, Some(stop)),
+        )
+        .await
+        .map_err(|_| {
+            Error::Acquisition("recording sink deadline reached; partial body is unverified")
+        })?
+    }
+
+    async fn open(
+        &self,
+        source: &HttpSource,
+        limits: AcquisitionLimits,
+        deadline: Instant,
+    ) -> Result<reqwest::Response> {
         // Platform verification can retrieve certificate-supplied AIA/OCSP URLs
         // outside the source policy. Use offline WebPKI with explicit roots.
         let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS
@@ -126,8 +157,10 @@ impl HttpAcquirer {
             .http1_max_headers(64)
             .pool_max_idle_per_host(0)
             .connect_timeout(Duration::from_secs(5).min(limits.duration))
-            .read_timeout(Duration::from_secs(5).min(limits.duration))
-            .timeout(limits.duration)
+            // Overall deadlines belong to the transfer. A shorter read timeout
+            // would race an intentional recording limit and discard its receipt.
+            .read_timeout(Duration::from_secs(5))
+            .timeout(limits.duration + Duration::from_secs(5))
             .dns_resolver(resolver::CheckedResolver::new(
                 source.network,
                 self.dns.clone(),
@@ -135,7 +168,7 @@ impl HttpAcquirer {
             .user_agent("Sigy/0.1")
             .build()
             .map_err(|_| Error::Acquisition("HTTP client initialization"))?;
-        let mut response = client
+        let request = client
             .get(source.url.clone())
             .header(
                 header::ACCEPT,
@@ -143,8 +176,10 @@ impl HttpAcquirer {
             )
             .header(header::ACCEPT_ENCODING, "identity")
             .header("icy-metadata", "0")
-            .send()
+            .send();
+        let response = timeout_at(deadline, request)
             .await
+            .map_err(|_| Error::Acquisition("connection deadline reached"))?
             .map_err(|_| Error::Acquisition("connection or response headers"))?;
         let peer = response.remote_addr().ok_or(Error::DestinationDenied)?;
         if !source.network.permits(peer.ip())
@@ -160,6 +195,19 @@ impl HttpAcquirer {
         if response.status() != StatusCode::OK {
             return Err(Error::Acquisition("source did not return HTTP 200"));
         }
+        Ok(response)
+    }
+
+    async fn transfer<W: AsyncWrite + Unpin>(
+        &self,
+        source: &HttpSource,
+        limits: AcquisitionLimits,
+        sink: &mut W,
+        deadline: Instant,
+        mut stop: Option<&mut tokio::sync::watch::Receiver<bool>>,
+    ) -> Result<TransferReceipt> {
+        let mut response = self.open(source, limits, deadline).await?;
+        let peer = response.remote_addr().ok_or(Error::DestinationDenied)?;
         let declared_content_type = validate_headers(response.headers())?;
         let mut bytes = 0;
         loop {
@@ -172,11 +220,41 @@ impl HttpAcquirer {
                     peer,
                 });
             }
-            let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|_| Error::Acquisition("body interrupted; partial body is unverified"))?
-            else {
+            let body = async {
+                response
+                    .chunk()
+                    .await
+                    .map_err(|_| Error::Acquisition("body interrupted; partial body is unverified"))
+            };
+            let chunk = if let Some(stop) = stop.as_mut() {
+                let end = tokio::select! {
+                    biased;
+                    () = async { if !*stop.borrow() { let _ = stop.changed().await; } } => {
+                        if bytes == 0 { return Err(Error::Acquisition("stopped before receiving audio")); }
+                        sink.flush().await?;
+                        return Ok(TransferReceipt { bytes, end: TransferEnd::UserStop, declared_content_type, peer });
+                    }
+                    () = tokio::time::sleep_until(deadline) => None,
+                    result = body => Some(result?),
+                };
+                if let Some(chunk) = end {
+                    chunk
+                } else {
+                    if bytes == 0 {
+                        return Err(Error::Acquisition("empty timed recording"));
+                    }
+                    sink.flush().await?;
+                    return Ok(TransferReceipt {
+                        bytes,
+                        end: TransferEnd::DurationLimit,
+                        declared_content_type,
+                        peer,
+                    });
+                }
+            } else {
+                body.await?
+            };
+            let Some(chunk) = chunk else {
                 if bytes == 0 {
                     return Err(Error::Acquisition("empty body"));
                 }

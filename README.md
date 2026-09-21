@@ -6,7 +6,7 @@ A CLI and TUI platform in development for discovering signals, recording them, u
 
 The planned complete CLI supports operation and automation. The optional TUI will add searchable, refreshable station catalogs, a rotatable terminal globe and day/night world map, source/activity visualizers, and DVR-style pause, rewind, scheduled recording, and replay within retained audio.
 
-**Status: early Rust implementation. The durable catalog, exact budget ledger, background controller, capture journal, source registration and internal HTTP transport pass local Windows tests. User-facing recording, verified media storage, TUI and model processing remain to build.**
+**Status: early Rust implementation. Finite service-owned audio recording, decoder validation, metadata export and rolling storage policy now work through the CLI with local Windows tests. Station discovery, podcast subscriptions, integrated playback, TUI and model processing remain to build.**
 
 Sigy is a working name. Naming research remains open; no replacement has been selected. See [implementation progress](docs/development/progress.md), the [foundation decision](docs/decisions/0001-rust-foundation.md), and the [planning checkpoint](docs/planning/05-delivery-and-decisions.md#8-current-checkpoint-2026-09-20).
 
@@ -16,7 +16,7 @@ Multilingual use is fundamental: most expected listening and music are non-Engli
 
 Local speech processing, reliable language detection, and durable live/batch queues are priorities for monitoring many streams without metered inference fees. Capture and analysis capacities will be qualified separately by machine and language. Optional classifiers can organize transcripts and identified music; reproducible statistics and evidence-linked findings remain separate stages. Music identification and weekly rankings of the monitored station sample are planned after the first release.
 
-Podcasts and RSS/Atom feeds are on the post-release roadmap for automated insights across audio and published text, reusing local processing, evidence history, resource limits, and optional budgeted providers.
+Internet radio and podcasts are the first source priorities, before physical radios. Podcast feeds, supplied transcripts, chapters and episode metadata will reuse the same recording, evidence and processing controls. RSS/Atom text analysis extends that path later.
 
 Meshtastic, other LoRa integrations, and software defined radios such as HackRF Pro belong to the hardware roadmap. The broader plan includes Morse decoding and practice, a visual historical cipher workbench with Enigma, and modern authenticated and post-quantum cryptography using supplied keys. Exploration and fun are product goals alongside dependable unattended operation. Native and web interfaces remain future possibilities.
 
@@ -43,9 +43,30 @@ Replace `PATH_TO_LIBRARY` with a dedicated private directory outside the checkou
 
 The example source is a placeholder. Registration stores configuration without contacting the station. Reusing a revision key cannot change its URL, name or network permission. Public-internet access is the default; `--pin-address` explicitly binds a revision to one supported IP, including a private or loopback address. Lists are paginated with `--limit` and `--after`. Displayed origins omit paths and queries; full URLs remain in the private catalog in plaintext. Do not put access credentials in source URLs. See [source authority and transport](docs/decisions/0004-source-authority-and-http.md).
 
-The capture journal stores finite intent, revisions and worker generations and marks abandoned active attempts interrupted on service startup. Job creation is currently an internal storage API; there is no recording command or service-owned capture worker yet. The internal HTTP adapter has bounded local fixture tests but does not validate or publish media. Status explicitly reports capture and provider dispatch as unavailable. Amounts in JSON are exact decimal USD strings. Windows x86_64 is locally tested; Linux/macOS native validation and release packaging remain pending. See the [controller](docs/decisions/0002-local-controller.md) and [capture journal](docs/decisions/0003-capture-journal.md) decisions for current boundaries.
+The capture journal records intent, revisions and worker generations and marks abandoned active attempts interrupted on startup. Recording is opt-in through the running service. Provider/model dispatch remains unavailable. Amounts in JSON are exact decimal USD strings. Windows x86_64 is locally tested; Linux/macOS native validation and release packaging remain pending.
 
-Run `./scripts/verify.ps1` in PowerShell for native-source verification, formatting, tests, warnings-denied Clippy, build, and dependency auditing. It requires cargo-audit and fails if a check is unavailable. Builds use two jobs and the script limits test concurrency to two. Command examples in the planning documents remain proposals unless implemented and documented here.
+## Record and manage audio
+
+Configure a trusted installed FFmpeg executable once. The following are actual commands; replace both paths and the placeholder source URL above. Source registration must precede recording.
+
+```text
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG --quota-gb 50 --retention-days 14
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY service start
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY record start morning-001 --source demo:v1 --seconds 60 --max-mib 64
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY record show morning-001
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY record path morning-001
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY record metadata morning-001
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY record keep morning-001
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY dvr status
+```
+
+In PowerShell, `(Get-Command ffmpeg -CommandType Application).Source` locates an installed decoder. No executable is downloaded automatically. `record start` returns while the service continues working. Poll `record show` until completed or failed. `record path` prints a verified retained file's path for a media player; audible playback inside Sigy is not implemented yet. `record metadata` emits a versioned JSON sidecar snapshot. Reusing the same recording ID and parameters only reconciles the prior request; choose a new ID for another recording.
+
+Default retention is 14 days with a 50 GB total managed-media quota. Temporary media expires or is evicted oldest-first under quota pressure. `record keep ID` and `record archive ID` protect it from automatic removal, while its bytes still count toward quota. Archive does not create a backup. New recordings fail clearly if protected media fills the allowance. `record temporary ID` restores rolling retention. `record processed ID --receipt RECEIPT_ID` acknowledges external processing and makes temporary media eligible for early cleanup; this does not run analysis. `dvr prune` reclaims eligible media, and `record delete ID` explicitly deletes inactive media even if protected, retaining catalog history.
+
+This initial recording profile accepts direct audio responses, with up to two active attempts, 15 minutes and 256 MiB per attempt. Redirects, playlists/HLS, interleaved ICY metadata, continuous segmented DVR and podcast downloads are not yet qualified. Failed/partial bytes retain their reservation and are not offered as playable media. The decoder is supervised, but aggregate native-memory sandboxing and physical power-loss durability remain open. See [recording and retention](docs/decisions/0005-recording-and-retention.md) and the extensible [recording metadata design](docs/design/recording-metadata.md).
+
+Run `./scripts/verify.ps1` in PowerShell for native-source verification, formatting, tests, warnings-denied Clippy, build, and dependency auditing. It requires cargo-audit and fails if a check is unavailable. Run `./scripts/verify-media.ps1` separately with an installed FFmpeg for the real recording/decoder and process-kill tests. Builds use two jobs; tests run with bounded concurrency. Command examples in planning documents remain proposals unless implemented and documented here.
 
 ## Lawful use and responsibility
 

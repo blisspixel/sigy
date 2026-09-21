@@ -1,6 +1,6 @@
 # Intent
 
-Last updated: 2026-09-20
+Last updated: 2026-09-21
 
 Sigy's purpose is practical signals intelligence for everyday people: a broad, approachable, enjoyable toolkit for discovering signals and turning observations into understanding.
 
@@ -11,6 +11,8 @@ It should be an exceptionally well-engineered application that feels natural in 
 It should make it enjoyable to explore world radio, straightforward to record several sources, and possible to understand broadcasts through live transcription, translation, and topic monitoring. A user should be able to ask to follow a subject, set boundaries, and return to useful findings with inspectable source evidence.
 
 Curiosity and play are part of the product. Discovering unfamiliar music, inspecting a signal, practicing Morse, or stepping through an Enigma machine should be satisfying in its own right. A historical cipher feature does not need an operational justification to belong here.
+
+Receiver personalities such as a CB channel scanner, AM/FM dial and shortwave or spectrum desk should make unfamiliar signals approachable. They share source, capture and interpretation contracts rather than becoming separate applications. Temporary capture for local analysis is a normal workflow; keeping a permanent recording is optional.
 
 ## Breadth and approachability
 
@@ -38,7 +40,7 @@ Users must be able to follow findings back to retained originals, inspect altern
 - Both desktops and small always-on machines need tested capability profiles.
 - Useful multi-stream local language detection and speech processing must remain available with a paid API budget of zero, with separate live and batch queues and honestly qualified language coverage.
 - Music identification and sampled airplay rankings are designed now and built after the first release.
-- Podcasts and RSS/Atom feeds belong on the later roadmap for multilingual automated analysis and insights across source types, within the same resource and spending limits.
+- Internet radio and podcasts are prioritized before hardware. Podcast subscriptions, publisher transcripts and chapters share the same evidence, multilingual processing and storage controls; RSS/Atom text analysis extends that path.
 - Music research and qualification must represent predominantly non-English listening, regional catalogs, and original scripts.
 - Research optional hosted and local classifiers for organizing transcripts and identified music. Model judgments remain distinct from deterministic statistics and source evidence; no classifier is selected by this research request.
 - Meshtastic, other LoRa protocols, and SDR hardware such as HackRF Pro are future source integrations, tested with actual devices when available.

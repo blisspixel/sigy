@@ -10,6 +10,8 @@ The first release retains its confirmed radio, recording, live translation, and 
 
 Supporting a new source should usually mean adding an adapter and its tests. Supporting a new interpretation should usually mean adding a transform with declared input/output types. Neither should require duplicating the library, scheduler, CLI operations, or evidence model.
 
+The [recording metadata and receiver design](../design/recording-metadata.md) defines the implemented audio export and planned typed RF, packet and measurement profiles. CB channel scan, AM/FM dial, shortwave exploration and laboratory views are receive-only presentations of shared capabilities. Internet radio and podcasts precede device integration. Energy detection, demodulation, protocol decoding and interpretation remain separate stages; unknown signals are valid results.
+
 ## 2. Extension roles
 
 | Role | Responsibility | Example |

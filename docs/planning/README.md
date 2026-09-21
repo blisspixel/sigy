@@ -1,6 +1,6 @@
 # Sigy research and design
 
-Last updated: 2026-09-20
+Last updated: 2026-09-21
 
 Status: research-backed product contract. Implementation has begun with a [Rust foundation decision](../decisions/0001-rust-foundation.md); [active work](../development/progress.md) records verified behavior and remaining qualification.
 
@@ -57,13 +57,15 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-28 | Research optional decision models such as Jev through OpenRouter and open-source local classifiers for transcript/music analysis. Consider their value after transcription or identification, within explicit budgets; this does not select a provider or make paid classification required. |
 | C-29 | The CLI must work fully on its own; the TUI is an optional interface over the same operations. |
 | C-30 | Station discovery needs usable search and filters in the TUI and CLI, with refreshed channel/catalog information and visible freshness. |
-| C-31 | Plan a DVR-style terminal radio experience, including retained playback and recording workflows; exact buffer and schedule defaults remain proposed. |
+| C-31 | Provide DVR-style recording and retention. Default media retention is 14 days or capacity pressure within 50 GB; keep/archive protection prevents automatic deletion and protected bytes still count toward quota. Detailed buffer/schedule behavior remains to qualify. |
 | C-32 | Geographic exploration belongs in the TUI, including a rotatable globe, day/night world view, and visualizations of sources and processing activity. Rendering details and capability tiers require evaluation. |
-| C-33 | Add podcasts and RSS/Atom feeds to the later roadmap for automated multilingual analysis and insights at scale, sharing source/evidence and processing controls. |
+| C-33 | Prioritize internet radio and podcasts before physical radio integration. Support feed and episode identity, subscriptions and supplied resources through shared evidence/processing controls; syndicated text analysis follows. |
 | C-34 | Keep dependencies minimal and intentional while preserving mature implementations for complex or security-sensitive capabilities. Repository organization must support extension without duplicated infrastructure. |
 | C-35 | Plan periodic open-source engineering assessments as the project matures, aiming for strong applicable results. OpenSSF Scorecard is the current interpretation of the requested score; no assessment or numeric target is established. |
 | C-36 | Understanding signals in context is central. Preserve an inspectable path from original observations through decoding, transcription, translation and interpretation, including uncertainty and alternatives. Shared contracts extend across languages, mathematical/symbolic material and non-audio sources. |
 | C-37 | Users can trace findings to retained evidence, correct scoped observations or interpretations, inspect affected results and revision history, and understand monitor decisions and coverage. Exploration should teach how results were obtained and what remains unresolved. |
+| C-38 | Recording metadata and sidecars use a consistent versioned envelope with extensible typed profiles for internet radio, podcasts, SDR/IQ, LoRa, Meshtastic and other signals. Preserve frequency/time context where known without assuming every observation is audio. |
+| C-39 | Later receive-only RF exploration includes supported bands such as CB, tuning/scanning and signal-finding tools. Device capabilities, measured coverage and regional rules govern available profiles. |
 
 ## Reading the status labels
 
@@ -82,4 +84,4 @@ They do not establish measured performance, completed hardware compatibility, mo
 
 ## Outstanding product decisions
 
-Outstanding questions cover concrete capacity targets within the confirmed machine profiles, caption versus spoken translation, service behavior across logout and reboot, retention, distribution, qualified language coverage, and workbench/cryptography sequencing. They are centralized in the [decision register](05-delivery-and-decisions.md#3-decision-register).
+Outstanding questions cover concrete capacity targets within the confirmed machine profiles, caption versus spoken translation, service behavior across logout and reboot, detailed buffer/derivative retention, distribution, qualified language coverage, and workbench/cryptography sequencing. Recording defaults are confirmed at 14 days and 50 GB with Keep/Archive protection. Remaining decisions are centralized in the [decision register](05-delivery-and-decisions.md#3-decision-register).

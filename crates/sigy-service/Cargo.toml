@@ -19,9 +19,14 @@ tokio.workspace = true
 getrandom.workspace = true
 reqwest.workspace = true
 webpki-root-certs.workspace = true
+hickory-resolver.workspace = true
+sha2.workspace = true
+fs4.workspace = true
+process-wrap.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 widestring.workspace = true
+windows = { version = "0.62.2", default-features = false, features = ["Win32_System_Threading"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix.workspace = true

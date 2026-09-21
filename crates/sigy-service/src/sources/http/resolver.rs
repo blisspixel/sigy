@@ -1,8 +1,4 @@
-use std::{
-    io,
-    net::{SocketAddr, ToSocketAddrs},
-    sync::Arc,
-};
+use std::{io, net::SocketAddr, sync::Arc};
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use tokio::sync::Semaphore;
@@ -29,19 +25,20 @@ impl Resolve for CheckedResolver {
             let addresses = if let NetworkScope::PinnedAddress { address } = scope {
                 vec![SocketAddr::new(address, 0)]
             } else {
-                let permit = slots
+                let _permit = slots
                     .try_acquire_owned()
                     .map_err(|_| io::Error::other("DNS capacity reached"))?;
-                let hostname = name.as_str().to_owned();
-                // OS DNS cannot reliably be cancelled. The permit lives inside
-                // the blocking task so timeout never admits unbounded lookups.
-                tokio::task::spawn_blocking(move || {
-                    let _permit = permit;
-                    (hostname.as_str(), 0)
-                        .to_socket_addrs()
-                        .map(|addresses| addresses.take(17).collect::<Vec<_>>())
-                })
-                .await??
+                // Use the configured system nameservers without a blocking OS
+                // lookup or search-domain expansion. Dropping the future cancels it.
+                let resolver = hickory_resolver::Resolver::builder_tokio()?.build()?;
+                let hostname = format!("{}.", name.as_str().trim_end_matches('.'));
+                resolver
+                    .lookup_ip(hostname)
+                    .await?
+                    .iter()
+                    .take(17)
+                    .map(|address| SocketAddr::new(address, 0))
+                    .collect()
             };
             validate_addresses(scope, &addresses)?;
             Ok(Box::new(addresses.into_iter()) as Addrs)

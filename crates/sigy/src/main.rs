@@ -11,6 +11,7 @@ use sigy_service::{
     library::Library,
 };
 
+mod dvr;
 mod service;
 mod sources;
 
@@ -29,6 +30,16 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Record direct audio streams and manage retained media.
+    Record {
+        #[command(subcommand)]
+        command: dvr::RecordCommand,
+    },
+    /// Configure rolling retention, storage quota and media validation.
+    Dvr {
+        #[command(subcommand)]
+        command: dvr::DvrCommand,
+    },
     /// Register and inspect immutable source configurations.
     Source {
         #[command(subcommand)]
@@ -93,11 +104,15 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         }
     } else if let Command::Source { command } = &cli.command {
         command.operation()
+    } else if let Command::Record { command } = &cli.command {
+        command.operation()?
+    } else if let Command::Dvr { command } = &cli.command {
+        command.operation()?
     } else {
         Operation::Status {}
     };
     match Library::open(&cli.data_dir, create) {
-        Ok(mut library) => Ok(Some(control::apply(library.store_mut(), operation)?)),
+        Ok(mut library) => Ok(Some(control::apply_library(&mut library, operation)?)),
         Err(sigy_service::Error::LibraryBusy) if !create => {
             Ok(Some(control::request(&cli.data_dir, operation).await?))
         }
@@ -110,9 +125,44 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     };
     let mut stdout = io::stdout().lock();
+    if let Some(metadata) = &view.recording_metadata {
+        serde_json::to_writer_pretty(&mut stdout, metadata)?;
+        writeln!(stdout)?;
+        return Ok(());
+    }
+    if matches!(
+        cli.command,
+        Command::Record {
+            command: dvr::RecordCommand::Path { .. }
+        }
+    ) {
+        let record = view
+            .recording_page
+            .as_ref()
+            .and_then(|page| page.entries.first())
+            .ok_or("recording not found")?;
+        if record.storage_state != "retained" {
+            return Err("recording has no verified retained media".into());
+        }
+        let path = sigy_service::recordings::media_path(&cli.data_dir, &record.object_key)?;
+        if !path.is_file() {
+            return Err("retained media is missing".into());
+        }
+        if cli.json {
+            serde_json::to_writer(&mut stdout, &serde_json::json!({"path": path}))?;
+            writeln!(stdout)?;
+        } else {
+            writeln!(stdout, "{}", path.display())?;
+        }
+        return Ok(());
+    }
     if cli.json {
         serde_json::to_writer(&mut stdout, &view)?;
         writeln!(stdout)?;
+    } else if let Some(policy) = view.dvr {
+        dvr::render_policy(&mut stdout, &policy)?;
+    } else if let Some(page) = view.recording_page {
+        dvr::render_records(&mut stdout, &page)?;
     } else if let Some(page) = view.source_page {
         sources::render(&mut stdout, page)?;
     } else {
@@ -136,11 +186,16 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         )?;
         writeln!(
             stdout,
-            "Capture jobs: {} scheduled, {} active, {} interrupted, {} terminal. Capture dispatch is not implemented.",
+            "Capture jobs: {} scheduled, {} active, {} interrupted, {} terminal. Recording dispatch: {}.",
             view.captures.scheduled,
             view.captures.active,
             view.captures.interrupted,
-            view.captures.terminal
+            view.captures.terminal,
+            if view.captures.dispatch_available {
+                "available"
+            } else {
+                "requires running service and configured DVR"
+            }
         )?;
         for budget in view.budgets {
             writeln!(

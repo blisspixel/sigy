@@ -1,6 +1,6 @@
 # Podcasts, RSS, and Atom for automated insight
 
-Reviewed: 2026-09-20. Status: proposed post-release roadmap capability. No subscriptions created, media downloaded, or parsers implemented.
+Reviewed: 2026-09-20; priority updated 2026-09-21. Podcasts are now prioritized with internet radio before hardware. Broader RSS/Atom text analysis remains later work. No subscriptions, episode downloads or application feed parsers are implemented. [Follow-up research](26-recording-discovery-and-rf.md) records a bounded publisher-feed inspection and corrected namespace semantics.
 
 ## Fit
 

@@ -1,6 +1,6 @@
 # 0003: Durable capture intent and worker generations
 
-Date: 2026-09-20. Status: implemented internal storage API with local tests. Media acquisition and completion remain unavailable.
+Date: 2026-09-20. Status: implemented storage API with local tests. This records the original journal slice. On 2026-09-21, [recording and retention](0005-recording-and-retention.md) added finite media workers and verified publication through this journal; the original limitations below describe the earlier checkpoint.
 
 ## Contract
 

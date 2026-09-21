@@ -79,6 +79,69 @@ fn limits(bytes: u64) -> sigy_service::Result<AcquisitionLimits> {
 }
 
 #[tokio::test]
+async fn intentional_recording_limits_preserve_received_bytes() -> TestResult {
+    for expected in [TransferEnd::DurationLimit, TransferEnd::UserStop] {
+        let fixture = Fixture::new(
+            b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n\r\nabc".to_vec(),
+            true,
+        )
+        .await?;
+        let (sender, mut stop) = tokio::sync::watch::channel(false);
+        let (mut sink, mut reader) = tokio::io::duplex(16);
+        let source = fixture.source()?;
+        let acquirer = HttpAcquirer::default();
+        let capture = acquirer.record(
+            &source,
+            AcquisitionLimits::new(100, Duration::from_millis(300))?,
+            &mut sink,
+            &mut stop,
+        );
+        let control = async {
+            let mut received = [0; 3];
+            reader.read_exact(&mut received).await?;
+            assert_eq!(&received, b"abc");
+            if expected == TransferEnd::UserStop {
+                sender.send(true)?;
+            }
+            Ok::<_, Box<dyn std::error::Error>>(())
+        };
+        let (receipt, control) = timeout(Duration::from_secs(2), async {
+            tokio::join!(capture, control)
+        })
+        .await?;
+        control?;
+        let receipt = receipt?;
+        assert_eq!(receipt.end, expected);
+        assert_eq!(receipt.bytes, 3);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn timed_recording_without_audio_cannot_be_published() -> TestResult {
+    let fixture = Fixture::new(
+        b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n\r\n".to_vec(),
+        true,
+    )
+    .await?;
+    let (_sender, mut stop) = tokio::sync::watch::channel(false);
+    let mut received = Vec::new();
+    assert!(
+        HttpAcquirer::default()
+            .record(
+                &fixture.source()?,
+                AcquisitionLimits::new(100, Duration::from_millis(100))?,
+                &mut received,
+                &mut stop,
+            )
+            .await
+            .is_err()
+    );
+    assert!(received.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn finite_transfer_preserves_bytes_and_authority_without_trusting_audio_labels() -> TestResult
 {
     let mut fixture = Fixture::new(

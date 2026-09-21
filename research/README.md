@@ -31,6 +31,7 @@ This folder records primary-source findings, design implications, competing appr
 | Interface localization and substantive language coverage | [23. Localization and language coverage](23-localization-and-language-coverage.md) |
 | Language, mathematical and unfamiliar signal interpretation | [24. Universal interpretation](24-universal-interpretation.md) |
 | Source authority, HTTP/TLS dependencies, destination policy and finite transfer | [25. HTTP acquisition](25-http-acquisition.md) |
+| Recording validation, rolling retention, catalog/feed evidence and RF metadata | [26. Recording, discovery and RF](26-recording-discovery-and-rf.md) |
 
 ## Evidence discipline
 
@@ -44,7 +45,7 @@ This folder records primary-source findings, design implications, competing appr
 
 ## Research performed in this phase
 
-The initial documentation-only phase reviewed official material including terminal drawing, map data, solar calculations, directory refresh, RSS/Atom, and podcast delivery. A public Radio Browser server-list endpoint was retrieved successfully. That checkpoint included no code or runtime evaluation. Subsequent [foundation experiments](experiments/foundation/README.md) and [implementation evidence](../docs/development/progress.md) are recorded separately. Live transcription, recording validation, paid requests and hardware tests remain outstanding.
+The initial documentation-only phase reviewed official material including terminal drawing, map data, solar calculations, directory refresh, RSS/Atom, and podcast delivery. A public Radio Browser server-list endpoint was retrieved successfully. That checkpoint included no code or runtime evaluation. Subsequent [foundation experiments](experiments/foundation/README.md) and [implementation evidence](../docs/development/progress.md) include local decoder-backed recording, retention and process-kill tests. Live transcription, public-stream interoperability, paid requests and hardware tests remain unqualified.
 
 Several documentation URLs required an upstream repository or canonical redirected page as a fallback. Links in the notes point to the evidence actually used where available. Rolling documentation can change after this date; the technology-selection gate must retain exact versions or immutable snapshots for consequential decisions.
 

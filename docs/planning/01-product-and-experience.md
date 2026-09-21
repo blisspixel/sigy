@@ -42,7 +42,7 @@ A new capability should fit the same journey: choose a source or artifact, choos
 
 Music identification and sampled airplay rankings are planned for after the first release. Hardware adapters follow the initial internet-radio release. A smaller explorer-only milestone does not satisfy the confirmed first-release scope.
 
-Podcasts and RSS/Atom feeds extend the post-release roadmap for automated analysis. The first release establishes source, finite-artifact, language, queue, and evidence contracts that can support them without treating every source as a continuous audio stream.
+Podcasts are prioritized alongside internet radio before hardware. Subscriptions, finite episodes and publisher transcripts/chapters share the source, artifact, language, queue and evidence contracts. RSS/Atom text analysis extends this path later; not every feed is an audio stream.
 
 Morse, the historical cipher workbench, and modern cryptographic operations are confirmed planned capabilities with unresolved release placement. Their full design is in [Signal extensions and workbench](08-signal-extensions-and-workbench.md).
 
@@ -52,7 +52,7 @@ Morse, the historical cipher workbench, and modern cryptographic operations are 
 | --- | --- | --- | --- |
 | Internet radio | Audio, stream metadata, connection events | Tune, record, rewind within a retained buffer, transcribe, translate | Stream availability, redirects, playlists, codec changes, geoblocking |
 | Local media | Existing audio plus import metadata | Import, replay, transcribe, translate, investigate | Source provenance and original capture time may be unknown |
-| Podcasts, later | Finite episode media, show notes, optional supplied transcripts/chapters | Subscribe, queue episodes, replay, translate, follow topics | Feed/episode identity, media revisions, download/backfill limits, transcript alignment |
+| Podcasts | Finite episode media, show notes, optional supplied transcripts/chapters | Subscribe, queue episodes, replay, translate, follow topics | Feed/episode identity, media revisions, download/backfill limits, transcript alignment |
 | RSS/Atom feeds, later | Entries, included text/summaries, update metadata and links | Subscribe, filter, translate, compare, monitor changes | Summary versus full content, bounded polling, duplicate/revised entries, separately permitted linked-content retrieval |
 | Meshtastic | Messages, node information, positions, telemetry | Inspect channels and events, record a log, translate text, monitor topics | Device access, configured channels, duplicated packets, transport disconnects |
 | Other LoRa systems | Protocol-specific packets or decoded events | Inspect using a supported protocol adapter | LoRa modulation alone does not define a message protocol |

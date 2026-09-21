@@ -15,7 +15,10 @@ pub struct CaptureRecord {
     pub recorded_ms: i64,
 }
 
-pub(super) fn read_job(connection: &Connection, id: &str) -> Result<Option<CaptureJob>> {
+pub(in crate::storage) fn read_job(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<CaptureJob>> {
     let row = connection.query_row("SELECT source_revision, starts_ms, ends_ms, maximum_bytes, state, revision, generation, created_ms, updated_ms FROM capture_jobs WHERE id = ?1", [id], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?, row.get::<_, i64>(6)?, row.get::<_, i64>(7)?, row.get::<_, i64>(8)?))
     }).optional()?;
@@ -42,7 +45,7 @@ pub(super) fn read_job(connection: &Connection, id: &str) -> Result<Option<Captu
     .transpose()
 }
 
-pub(super) fn transition(
+pub(in crate::storage) fn transition(
     connection: &Connection,
     mut job: CaptureJob,
     event: CaptureEvent,
@@ -134,7 +137,6 @@ pub(super) fn audit(connection: &Connection, job: &CaptureJob) -> Result<()> {
                 || previous.generation.checked_add(generation_step) != Some(record.generation)
                 || record.previous_state != Some(previous.state)
                 || previous.state.transition(event).ok() != Some(record.state)
-                || event == CaptureEvent::Finalized
             {
                 return Err(Error::CaptureIntegrity);
             }

@@ -9,6 +9,8 @@ use sigy_service::{domain::money::Usd, library::Library, storage::ledger::Reques
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 mod common;
+#[path = "support/recording_fixtures.rs"]
+mod recording_fixtures;
 
 fn invoke(directory: &Path, arguments: &[&str]) -> std::io::Result<Output> {
     common::output(

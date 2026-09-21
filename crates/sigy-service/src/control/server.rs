@@ -27,15 +27,19 @@ pub async fn run(mut library: Library, shutdown: impl Future<Output = ()>) -> Re
     let directory = endpoint::directory(library.directory())?;
     while library.store_mut().recover_submitted()? != 0 {}
     while library.store_mut().recover_captures()? != 0 {}
+    crate::recordings::recover_deletions(&mut library)?;
     let endpoint = Endpoint::new()?;
     let listener = endpoint.listen(&directory)?;
     let publication = endpoint.publish(&directory)?;
     let (stopping, mut stopped) = watch::channel(false);
     let (catalog, worker) = actor::spawn(library, stopping)?;
     let mut clients = JoinSet::new();
+    let mut retention_tick = tokio::time::interval(std::time::Duration::from_secs(60));
+    retention_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     tokio::pin!(shutdown);
     let result = loop {
         tokio::select! {
+            _ = retention_tick.tick() => { let _ = catalog.try_send(Message::Sweep); },
             () = &mut shutdown => break Ok(()),
             _ = stopped.changed() => break Ok(()),
             joined = clients.join_next(), if !clients.is_empty() => {
@@ -62,6 +66,7 @@ pub async fn run(mut library: Library, shutdown: impl Future<Output = ()>) -> Re
     // Every handler has a fixed deadline. Drain replies before dropping the actor.
     while clients.join_next().await.is_some() {}
     drop(publication);
+    let _ = catalog.send(Message::Shutdown).await;
     drop(catalog);
     tokio::task::spawn_blocking(move || worker.join())
         .await
@@ -76,7 +81,7 @@ async fn handle(mut stream: Stream, catalog: mpsc::Sender<Message>) -> Result<()
     let response = if request.version == PROTOCOL_VERSION {
         let (reply, response) = oneshot::channel();
         catalog
-            .send(Message {
+            .send(Message::Request {
                 operation: request.operation,
                 reply,
             })

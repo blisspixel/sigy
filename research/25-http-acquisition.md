@@ -84,7 +84,9 @@ resident-memory claim. Recheck its
 when upgrading. TLS, OS networking, DNS and caller-owned sinks have additional
 memory and lifetime costs.
 
-## Media boundary still open
+## Media boundary at the transport checkpoint
+
+Follow-up on 2026-09-21: [recording research](26-recording-discovery-and-rf.md) and [decision 0005](../docs/decisions/0005-recording-and-retention.md) replace blocking OS name lookup with asynchronous DNS and add a supervised decoder/publication path. The dependency inventory and unresolved boundary below describe the preceding transport-only checkpoint, not current recording behavior.
 
 Symphonia 0.6.1 is a current pure-Rust media candidate with selectable formats
 and codecs, MPL-2.0 licensing and a Rust 1.85 minimum. Version 0.6 introduced API

@@ -1,8 +1,6 @@
 # 0004: Immutable source authority and finite HTTP transport
 
-Date: 2026-09-21. Status: source registration and an internal transport adapter
-implemented with local Windows tests. Executable capture jobs and media
-publication remain unavailable.
+Date: 2026-09-21. Status: source registration and transport implemented with local Windows tests. This records the initial transport slice. [Recording and retention](0005-recording-and-retention.md) subsequently added asynchronous DNS, executable finite recording, media publication and IPC v4; earlier limitations below are historical.
 
 ## Source configuration
 

@@ -281,7 +281,7 @@ Media objects are immutable once committed. Metadata corrections create revision
 
 Retention needs separate policies for temporary live buffers, recordings, transcripts, translations, findings, model caches, and diagnostics. Pinning evidence prevents automatic expiration of the associated objects within the defined policy. Shared objects expire only when all retained references permit it.
 
-Quota enforcement estimates future demand and reports exhaustion before disk failure. No implicit unlimited recording. Exact defaults need a product decision.
+Quota enforcement reserves bounded demand and reports exhaustion before disk failure. Confirmed recording defaults are 14 days and 50 GB of managed media, including protected recordings. Keep/Archive prevents automatic deletion; protected capacity exhaustion refuses new capture. Processing completion can make temporary media eligible for earlier cleanup. See [implemented finite recording](../decisions/0005-recording-and-retention.md) for current limits; live buffer, derivative and model-cache policies remain separate qualification work.
 
 Deletion must state whether derived text and reports remain. Retained reports mark missing audio explicitly. Export can redact source credentials and selected personal metadata without changing original stored evidence.
 
@@ -306,6 +306,8 @@ Adapter protocols should be versioned and testable against recorded fixtures. Ex
 Morse can begin with recorded audio or timed keying observations before hardware integration. Historical cipher transforms create reproducible demonstration artifacts and traces. Modern cryptographic operations use protected supplied-key references and operation-specific verification states. Synthetic artifacts retain their origin and are excluded from ordinary observed-source findings by default.
 
 ## 11. Later podcasts and feeds
+
+Priority update, 2026-09-21: podcast ingestion now belongs with internet radio before hardware. The section anchor is retained for existing links; broader RSS/Atom text analysis remains later work.
 
 Feed polling, finite media acquisition, and live reception are separate source capabilities sharing the service's job, resource, and evidence contracts. A subscription stores a bounded polling/backfill policy. A feed snapshot produces idempotently reconciled entry revisions and admitted processing work; unchanged polls do not trigger repeated model analysis.
 

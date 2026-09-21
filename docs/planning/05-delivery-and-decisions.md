@@ -33,7 +33,7 @@ Confirmed entries are summarized in the [planning index](README.md). These are t
 | D-03 | Translation output | Captions first; spoken translation separately scoped | User preference and delay/audio-mixing requirements |
 | D-04 | Qualified language coverage | Non-English majority and translation primarily to English are confirmed; define meaningful launch language/task profiles and experimental coverage | Representative stations, regional priorities, mixed-language corpus and competent review |
 | D-05 | Service across logout/reboot | Offer clearly named per-user and unattended modes | Desired default and platform-installation review |
-| D-06 | Retention defaults | Finite storage/time policies, pinned evidence, visible disk reserve | Typical collection duration and storage budget |
+| D-06 | Retention details | Recording defaults confirmed: 14 days and 50 GB, Keep/Archive protected and counted, processed temporary media eligible for cleanup | Live-buffer ownership, derived-artifact policies, shared-object accounting and measured storage profiles |
 | D-07 | Paid budget defaults | Paid disabled until finite provider/task policies are configured | Confirmation of periods, strict-mode UX, and provider tests |
 | D-08 | Distribution and dependency licensing | Apache License 2.0 confirmed; packaging, channels, and third-party integration terms remain open | Dependency/model/data license inventory, linking/bundling review, required notices and distribution policy |
 | D-09 | Supported platform versions | Native Windows/macOS/Linux; exact versions/architectures undecided | Maintenance horizon and CI/hardware availability |
@@ -58,7 +58,7 @@ Confirmed entries are summarized in the [planning index](README.md). These are t
 | D-28 | Live/batch scheduling policy | Deadline-aware admission, source fairness, bounded backlog and retention; no automatic paid overflow | Sustainable arrival/service rates, starvation/overload tests, latency-quality tradeoffs on both machine profiles |
 | D-29 | Directory freshness and reconciliation | Cached usable generations, bounded refresh, preserved favorites and explicit health/location provenance | Provider limits, changed-list completeness, mirror/pagination faults and source-identity fixtures |
 | D-30 | DVR and recording schedules | Finite rolling buffers, independent playheads, saved-interval promotion and station/time recurrence | Buffer ownership/defaults, codec seeking, storage/expiry races, time-zone/DST and recovery review |
-| D-31 | Podcast/feed integration profile | Post-release RSS/Atom and finite podcast media using shared local analysis; linked articles and discovery providers separately scoped | Format/namespace support, private-feed policy, polling/backfill limits, media revisions, transcript alignment and mixed-source evaluations |
+| D-31 | Podcast/feed integration profile | Podcasts alongside internet radio before hardware; RSS/Atom text analysis later; shared local analysis and separately scoped linked resources | Format/namespace support, private-feed policy, polling/backfill limits, media revisions, transcript alignment and mixed-source evaluations |
 | D-32 | Repository and dependency organization | One repository, a few packages with explicit ownership, typed integrations; Rust-first profile remains proposed | G4 stack evidence, actual dependency graph, packaging and build isolation; [organization proposal](12-repository-and-engineering.md) |
 | D-33 | Engineering assessment policy | Periodic OpenSSF Scorecard review after implementation/hosting, individual findings and honest limitations | Confirm scoring tool, qualified release, cadence, hosting controls and publication preference; no score currently assessed |
 
@@ -117,6 +117,8 @@ Future architecture decisions record context, alternatives, selection, consequen
 6. Finalize the documentation baseline before considering implementation or experimental code.
 
 ## 8. Current checkpoint: 2026-09-20
+
+Historical planning checkpoint: the section below preserves the pre-implementation record. Current implementation and remaining work are in [active progress](../development/progress.md). Subsequent decisions selected Rust, implemented finite recording with confirmed 14-day/50 GB defaults, and prioritized podcasts alongside internet radio before hardware. Do not use this historical checklist as an implementation or stack-selection gate.
 
 Historical documentation checkpoint, retained for traceability. Subsequent implementation is recorded in [active work](../development/progress.md); the user has advanced the phase and accepted Sigy as the working name.
 

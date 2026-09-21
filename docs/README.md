@@ -8,6 +8,8 @@ Implementation has begun. Read [active work and evidence](development/progress.m
 
 Implemented boundaries are recorded in the [local controller](decisions/0002-local-controller.md), [capture journal](decisions/0003-capture-journal.md) and [source authority and HTTP transport](decisions/0004-source-authority-and-http.md) decisions. Focused implementation targets cover the [terminal experience](design/terminal-experience.md), [language coverage and localization](design/languages.md), and [universal signal interpretation](design/signal-interpretation.md).
 
+Finite recording and its current limitations are covered by [recording and retention](decisions/0005-recording-and-retention.md). The [metadata contract](design/recording-metadata.md) separates shared envelopes from podcast, SDR, CB, LoRa and Meshtastic profiles.
+
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:
 
 1. [Product and experience](planning/01-product-and-experience.md)

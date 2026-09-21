@@ -5,6 +5,7 @@ pub use sigy_core as domain;
 pub mod control;
 mod error;
 pub mod library;
+pub mod recordings;
 pub mod sources;
 pub mod storage;
 

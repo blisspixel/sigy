@@ -92,6 +92,8 @@ Separate catalog freshness, upstream health checks, local connection success, an
 
 ### Rolling retention and playback
 
+Recording defaults are confirmed at 14 days and 50 GB of managed media. Keep/Archive prevents automatic deletion while counting toward quota. Temporary media may expire sooner under capacity pressure or after acknowledged processing. The implemented finite-recording subset and its limitations are in [recording and retention](../decisions/0005-recording-and-retention.md); continuous buffers and playback below remain planned.
+
 Enable a finite rolling buffer through the user's saved playback/capture policy. Show its duration/byte allowance and retained range. Merely searching stations does not buffer their audio. Browsing away or closing a client follows explicit ownership rules for the temporary buffer; durable recordings continue independently.
 
 Each playback session has its own playhead. Pause stops audible progression, while an authorized acquisition can keep collecting. Rewind/seek operates only within retained intervals. Return to live follows the newest playable captured position, with upstream buffering and local delay distinguished where measurable.

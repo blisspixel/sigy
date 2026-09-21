@@ -1,6 +1,6 @@
 //! Durable capture intent and generation-fenced lifecycle. No media is dispatched here.
 
-mod journal;
+pub(super) mod journal;
 
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use sigy_core::capture::{CaptureEvent, CaptureState};
@@ -119,28 +119,9 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(job) = journal::read_job(&tx, id)? {
-            if job.plan != *plan {
-                return Err(Error::IdempotencyConflict);
-            }
-            return Ok(CaptureAdmission {
-                job,
-                newly_created: false,
-            });
-        }
-        let pending: u32 = tx.query_row("SELECT count(*) FROM capture_jobs WHERE state NOT IN ('completed', 'cancelled', 'failed')", [], |row| row.get(0))?;
-        if pending >= MAX_PENDING_CAPTURES {
-            return Err(Error::CaptureCapacity);
-        }
-        let recorded = now_ms()?;
-        tx.execute("INSERT INTO capture_jobs(id, source_revision, starts_ms, ends_ms, maximum_bytes, state, revision, generation, created_ms, updated_ms) VALUES (?1, ?2, ?3, ?4, ?5, 'scheduled', 0, 0, ?6, ?6)", params![id, plan.source_revision, plan.starts_ms, plan.ends_ms, plan.maximum_bytes, recorded])?;
-        tx.execute("INSERT INTO capture_events(job_id, revision, generation, state, reason, recorded_ms) VALUES (?1, 0, 0, 'scheduled', 'accepted', ?2)", params![id, recorded])?;
-        let job = journal::read_job(&tx, id)?.ok_or(Error::CaptureIntegrity)?;
+        let admission = admit(&tx, id, plan)?;
         tx.commit()?;
-        Ok(CaptureAdmission {
-            job,
-            newly_created: true,
-        })
+        Ok(admission)
     }
 
     /// # Errors
@@ -310,4 +291,37 @@ fn validate_page(limit: u32) -> Result<()> {
         return Err(Error::InvalidInput("capture page size"));
     }
     Ok(())
+}
+
+pub(super) fn admit(
+    tx: &rusqlite::Connection,
+    id: &str,
+    plan: &CapturePlan,
+) -> Result<CaptureAdmission> {
+    if let Some(job) = journal::read_job(tx, id)? {
+        if job.plan != *plan {
+            return Err(Error::IdempotencyConflict);
+        }
+        return Ok(CaptureAdmission {
+            job,
+            newly_created: false,
+        });
+    }
+    let pending: u32 = tx.query_row(
+        "SELECT count(*) FROM capture_jobs WHERE state NOT IN ('completed', 'cancelled', 'failed')",
+        [],
+        |row| row.get(0),
+    )?;
+    if pending >= MAX_PENDING_CAPTURES {
+        return Err(Error::CaptureCapacity);
+    }
+    let recorded = now_ms()?;
+    tx.execute("INSERT INTO capture_jobs(id, source_revision, starts_ms, ends_ms, maximum_bytes, state, revision, generation, created_ms, updated_ms) VALUES (?1, ?2, ?3, ?4, ?5, 'scheduled', 0, 0, ?6, ?6)", params![id, plan.source_revision, plan.starts_ms, plan.ends_ms, plan.maximum_bytes, recorded])?;
+    tx.execute("INSERT INTO capture_events(job_id, revision, generation, state, reason, recorded_ms) VALUES (?1, 0, 0, 'scheduled', 'accepted', ?2)", params![id, recorded])?;
+    let job = journal::read_job(tx, id)?.ok_or(Error::CaptureIntegrity)?;
+
+    Ok(CaptureAdmission {
+        job,
+        newly_created: true,
+    })
 }

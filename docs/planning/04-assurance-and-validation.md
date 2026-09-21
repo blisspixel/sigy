@@ -69,6 +69,9 @@ All detailed requirements below are proposed refinements of confirmed product co
 | R-51 | C-33 | Later podcasts/feeds support bounded, idempotent, multilingual incremental analysis with reproducible evidence | Feed/episode revision and duplicate fixtures, XML/network boundaries, partial downloads, supplied-transcript alignment, queue fairness and cost limits |
 | R-52 | C-19, C-36, C-37 | Both clients expose an aligned path from findings through distinct interpretations and representations to retained originals and context, with unknown or expired evidence explicit | Multilingual finding-to-recording journeys, missing/expired ranges, alternative interpretations, location provenance and later typed non-audio replay fixtures |
 | R-53 | C-10, C-15, C-37 | Scoped corrections preserve originals and history, identify stale dependents, and admit any reprocessing through existing resource, destination, retention and cost policy | CLI/TUI correction journeys, dependent and unaffected result checks, concurrent edits, interrupted rebuild, exhausted allowances, unavailable input and old-report comparison |
+| R-54 | C-03, C-31 | Recording reservations are atomic, replay cannot dispatch twice, and age/quota cleanup protects kept/archive and active media | Concurrent reservations, 14-day expiry, pressure ordering, process kill with partial bytes, protected-full quota and interrupted deletion fixtures |
+| R-55 | C-19, C-38 | Versioned recording exports preserve source/clock/payload lineage without inventing RF or language observations | Sidecar roundtrip, byte/hash evidence, missing/deleted media, typed-profile compatibility and future SigMF interoperability |
+| R-56 | C-06, C-39 | RF detections distinguish measured activity, candidate identities and decoded content within actual device capabilities | Device/region profile validation, scan gaps, ambiguous station matches, numeric units, disconnect and tuner-conflict tests |
 
 ## 3. Capacity profiles
 

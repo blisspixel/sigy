@@ -1,6 +1,7 @@
 //! Versioned, bounded local control. The catalog actor owns all durable mutations.
 
 mod actor;
+mod dvr;
 mod endpoint;
 mod frame;
 mod server;
@@ -14,9 +15,10 @@ use crate::{
     storage::{Store, sources::SourceRevision},
 };
 
+pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -42,6 +44,12 @@ impl Request {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    Dvr {
+        command: DvrOperation,
+    },
+    Record {
+        command: RecordingOperation,
+    },
     Status {},
     SetBudget {
         scope: String,
@@ -66,6 +74,8 @@ pub enum Operation {
 impl std::fmt::Debug for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let kind = match self {
+            Self::Dvr { .. } => "dvr",
+            Self::Record { .. } => "record",
             Self::Status {} => "status",
             Self::SetBudget { .. } => "set_budget",
             Self::Stop {} => "stop",
@@ -123,6 +133,9 @@ pub struct Snapshot {
     pub service: Option<ServiceView>,
     pub captures: CaptureStatus,
     pub source_page: Option<SourcePage>,
+    pub recording_page: Option<RecordingPage>,
+    pub dvr: Option<crate::storage::dvr::DvrStatus>,
+    pub recording_metadata: Option<crate::recordings::metadata::RecordingEnvelope>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,7 +184,41 @@ pub struct CaptureStatus {
 /// # Errors
 /// Returns validation, accounting, or catalog errors. No provider work is dispatched.
 pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
+    let mut recording_page = None;
+    let mut dvr_status = None;
+    let mut recording_metadata = None;
     let source_page = match operation {
+        Operation::Record { command } => {
+            if let RecordingOperation::Metadata { id } = &command {
+                recording_metadata = Some(crate::recordings::metadata::export(
+                    store,
+                    &store.recording(id)?,
+                )?);
+            }
+            recording_page = Some(dvr::apply(store, command)?);
+            None
+        }
+        Operation::Dvr { command } => {
+            match command {
+                DvrOperation::Status {} => (),
+                DvrOperation::Configure {
+                    quota_bytes,
+                    minimum_free_bytes,
+                    retention_days,
+                    decoder,
+                } => store.configure_dvr(
+                    quota_bytes,
+                    minimum_free_bytes,
+                    retention_days,
+                    &decoder,
+                )?,
+                DvrOperation::Prune {} => {
+                    return Err(Error::InvalidInput("pruning requires library ownership"));
+                }
+            }
+            dvr_status = Some(store.dvr_status()?);
+            None
+        }
         Operation::SetBudget { scope, limit_usd } => {
             let amount: Usd = limit_usd.parse()?;
             store.set_budget_limit(&scope, amount)?;
@@ -216,6 +263,15 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         }
         Operation::Status {} | Operation::Stop {} => None,
     };
+    let mut view = snapshot(store)?;
+    view.source_page = source_page;
+    view.recording_page = recording_page;
+    view.dvr = dvr_status;
+    view.recording_metadata = recording_metadata;
+    Ok(view)
+}
+
+fn snapshot(store: &Store) -> Result<Snapshot> {
     store.audit_ledger()?;
     let budgets = store
         .budgets()?
@@ -236,7 +292,10 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         provider_dispatch_available: false,
         budgets,
         service: None,
-        source_page,
+        source_page: None,
+        recording_page: None,
+        dvr: None,
+        recording_metadata: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,
