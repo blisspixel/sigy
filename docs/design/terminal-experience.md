@@ -1,14 +1,35 @@
 # Terminal experience contract
 
-Updated: 2026-09-20. Status: implementation target, not implemented UI. This refines [explorer and DVR](../planning/11-radio-explorer-and-dvr.md) using [current terminal research](../../research/22-modern-terminal-ux.md). Source, storage, and spending policy remain owned by the service.
+Updated: 2026-09-21. Status: implementation target, not implemented UI. This refines [explorer and DVR](../planning/11-radio-explorer-and-dvr.md) using [current terminal research](../../research/22-modern-terminal-ux.md). Source, storage, and spending policy remain owned by the service.
 
 ## Product feel and hierarchy
 
 The interface is a listening and research desk: clear source identity, readable content, a useful geographic view, and dependable controls. Visual interest comes from the globe, real activity, maps, and timelines. Do not fabricate signal activity or obscure work beneath decorative effects.
 
+Visual quality, modern interaction and enjoyment are product requirements from the first usable TUI. The interface should invite exploration and reward curiosity through responsive controls, expressive instruments and understandable discoveries. Visual polish belongs in each delivered workflow, including empty, loading, disconnected and error states.
+
 Use six workspaces: Explore, Live, Recordings, Monitors, Findings, and System. Keep the selected source and current playback visible across workspaces. A compact header reports service connection and important resource/cost state; detailed diagnostics belong in System. Avoid filling every panel with borders and abbreviations.
 
 Explore links one query and selection across list, globe, and flat map. Wide layouts show results beside source details or geography. Compact layouts use one focused pane with explicit navigation. At 80x24, search, source identity, primary actions, playback state, and help remain usable. Below that, reduce columns and previews before hiding controls. Very small dimensions must render a safe recovery prompt without panicking.
+
+## Visual direction and discovery
+
+- Use deliberate spacing, alignment, text emphasis and restrained borders to establish hierarchy within terminal cells. Give the main instrument or content room; advanced measurements expand on demand.
+- Use a coherent palette with vivid accents, readable contrast and stable meanings for selection, recording, uncertainty and failure. Mode-specific accents must not redefine status colors. Themes use the same shared components and semantic color roles.
+- Make motion explain interaction: globe rotation follows navigation, a playhead follows retained media, and a meter reflects measured activity. Transitions are brief, interruptible and subject to the existing frame/resource limits. Reduced motion preserves every operation.
+- Keep exploration direct: linked map/list selection, frequency bookmarks, quick comparisons and a discoverable action palette. Opening details or changing a view never starts collection implicitly.
+- Offer explicitly selected local practice material for first-use exploration and signal experiments. Label synthetic or prerecorded observations and simulated time clearly; demos do not need an account, live network or paid provider.
+
+| Presentation | Character and useful visual focus |
+| --- | --- |
+| World listening desk | Rotatable globe, day/night geography, station detail and a persistent player; useful even when a station has no known coordinates |
+| Broadcast radio | A clear frequency dial, presets, measured audio activity and source identity, integrated with recording and translation |
+| CB receiver, later | Channel grid, scan/hold controls, squelch and activity history with a distinct instrument layout |
+| Signal laboratory, later | Waterfall, spectrum, timing or packet views with bookmarks, replay and side-by-side interpretations |
+
+Receiver presentations are contextual views within the shared workspaces, not separate applications or command systems. RF displays require a qualified RF source; an internet audio waveform must not masquerade as measured radio spectrum. Obscure signals remain interesting to inspect even when their meaning is unknown.
+
+Before accepting an explorer layout, inspect real rendered design studies at compact and wide sizes with representative multilingual data. Assess whether the primary action is discoverable, visual hierarchy survives busy and empty states, and exploration feels responsive and enjoyable. Deterministic layout checks and performance measurements complement this visual review; passing snapshots alone does not establish design quality.
 
 ## Interaction contract
 

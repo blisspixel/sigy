@@ -22,6 +22,8 @@ Everyday tasks should begin with a clear action or question, such as "understand
 
 Ease of use is part of engineering quality. Complexity belongs in well-designed internals and optional detail views; users should not need to assemble a decoder pipeline or understand model infrastructure to complete a supported common task.
 
+The TUI must be visually polished, modern and enjoyable from its first usable increment. Expressive receiver views, purposeful motion and satisfying exploration belong alongside reliability and clear information. The [terminal experience contract](docs/design/terminal-experience.md) defines the visual direction, interaction standards and rendered-review requirements.
+
 Users must be able to follow findings back to retained originals, inspect alternative interpretations, and correct an observation or interpretation without erasing its history. Corrections expose affected results and can trigger bounded reprocessing under the existing policy. Exploration should help users learn what a signal contains, how an answer was obtained, and where the evidence stops.
 
 ## Product commitments
