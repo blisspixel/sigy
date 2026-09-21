@@ -6,7 +6,7 @@ A CLI and TUI platform in development for discovering signals, recording them, u
 
 The planned complete CLI supports operation and automation. The optional TUI will add searchable, refreshable station catalogs, a rotatable terminal globe and day/night world map, source/activity visualizers, and DVR-style pause, rewind, scheduled recording, and replay within retained audio.
 
-**Status: early Rust implementation. The durable catalog, exact budget ledger, background controller, and capture job journal pass local Windows tests. Radio acquisition, media storage, TUI, and model processing remain to build.**
+**Status: early Rust implementation. The durable catalog, exact budget ledger, background controller, capture journal, source registration and internal HTTP transport pass local Windows tests. User-facing recording, verified media storage, TUI and model processing remain to build.**
 
 Sigy is a working name. Naming research remains open; no replacement has been selected. See [implementation progress](docs/development/progress.md), the [foundation decision](docs/decisions/0001-rust-foundation.md), and the [planning checkpoint](docs/planning/05-delivery-and-decisions.md#8-current-checkpoint-2026-09-20).
 
@@ -20,7 +20,7 @@ Podcasts and RSS/Atom feeds are on the post-release roadmap for automated insigh
 
 Meshtastic, other LoRa integrations, and software defined radios such as HackRF Pro belong to the hardware roadmap. The broader plan includes Morse decoding and practice, a visual historical cipher workbench with Enigma, and modern authenticated and post-quantum cryptography using supplied keys. Exploration and fun are product goals alongside dependable unattended operation. Native and web interfaces remain future possibilities.
 
-Start with [Intent](INTENT.md), the [Roadmap](ROADMAP.md), [Design documents](docs/README.md), and [Topic research](research/README.md). The [planning index](docs/planning/README.md) distinguishes confirmed requirements, proposed designs, research findings, and unresolved decisions. Research is dated September 20, 2026.
+Start with [Intent](INTENT.md), the [Roadmap](ROADMAP.md), [Design documents](docs/README.md), and [Topic research](research/README.md). The [planning index](docs/planning/README.md) distinguishes confirmed requirements, proposed designs, research findings, and unresolved decisions. Research notes carry their review dates; the latest acquisition review is September 21, 2026.
 
 ## Try the current foundation
 
@@ -34,11 +34,16 @@ cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json budget show
 cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json service start
 cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json service status
 cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json service stop
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json source add demo:v1 --name "Radio example" --url https://radio.example/audio
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json source list
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json source show demo:v1
 ```
 
 Replace `PATH_TO_LIBRARY` with a dedicated private directory outside the checkout. Initialization creates a SQLite catalog with paid processing disabled. The service holds the exclusive library lock; maintenance commands reconnect to its operations while it is running. `service run` keeps the controller in the foreground; `service start` detaches it from the client. This does not install an OS startup service or qualify logout/reboot behavior. Stop the controller before replacing its binary with a different protocol version.
 
-The capture journal stores finite intent, revisions and worker generations and marks abandoned active attempts interrupted on service startup. Job creation is currently an internal storage API; there is no recording command or capture worker yet. Status explicitly reports capture and provider dispatch as unavailable. Amounts in JSON are exact decimal USD strings. Windows x86_64 is locally tested; Linux/macOS native validation and release packaging remain pending. See the [controller](docs/decisions/0002-local-controller.md) and [capture journal](docs/decisions/0003-capture-journal.md) decisions for current boundaries.
+The example source is a placeholder. Registration stores configuration without contacting the station. Reusing a revision key cannot change its URL, name or network permission. Public-internet access is the default; `--pin-address` explicitly binds a revision to one supported IP, including a private or loopback address. Lists are paginated with `--limit` and `--after`. Displayed origins omit paths and queries; full URLs remain in the private catalog in plaintext. Do not put access credentials in source URLs. See [source authority and transport](docs/decisions/0004-source-authority-and-http.md).
+
+The capture journal stores finite intent, revisions and worker generations and marks abandoned active attempts interrupted on service startup. Job creation is currently an internal storage API; there is no recording command or service-owned capture worker yet. The internal HTTP adapter has bounded local fixture tests but does not validate or publish media. Status explicitly reports capture and provider dispatch as unavailable. Amounts in JSON are exact decimal USD strings. Windows x86_64 is locally tested; Linux/macOS native validation and release packaging remain pending. See the [controller](docs/decisions/0002-local-controller.md) and [capture journal](docs/decisions/0003-capture-journal.md) decisions for current boundaries.
 
 Run `./scripts/verify.ps1` in PowerShell for native-source verification, formatting, tests, warnings-denied Clippy, build, and dependency auditing. It requires cargo-audit and fails if a check is unavailable. Builds use two jobs and the script limits test concurrency to two. Command examples in the planning documents remain proposals unless implemented and documented here.
 

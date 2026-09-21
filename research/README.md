@@ -1,6 +1,6 @@
 # Research index
 
-Research baseline: **September 20, 2026**.
+Research baseline: **September 20, 2026**. Latest topic update: **September 21, 2026**. Individual notes retain their review dates.
 
 This folder records primary-source findings, design implications, competing approaches, and unanswered questions. It supports the [intent](../INTENT.md) and [design documents](../docs/README.md). It does not select a stack or claim that experiments have been completed.
 
@@ -30,6 +30,7 @@ This folder records primary-source findings, design implications, competing appr
 | Current terminal libraries, interaction, accessibility and performance | [22. Modern terminal UX](22-modern-terminal-ux.md) |
 | Interface localization and substantive language coverage | [23. Localization and language coverage](23-localization-and-language-coverage.md) |
 | Language, mathematical and unfamiliar signal interpretation | [24. Universal interpretation](24-universal-interpretation.md) |
+| Source authority, HTTP/TLS dependencies, destination policy and finite transfer | [25. HTTP acquisition](25-http-acquisition.md) |
 
 ## Evidence discipline
 

@@ -1,8 +1,10 @@
 # Roadmap
 
-Last updated: 2026-09-20
+Last updated: 2026-09-21
 
 This roadmap is organized by evidence and exit criteria. It does not assign speculative completion dates. Implementation has begun on the Rust foundation; the complete release remains ahead. [Current evidence and active work](docs/development/progress.md) distinguish completed slices from these planned stages.
+
+The current increment adds immutable source registration and a bounded HTTP transport with local failure fixtures. Service-owned recording still requires bounded DNS/worker shutdown, storage admission and verified media publication. No stage exit is implied by this internal transport milestone.
 
 The product journey is to explore signals and discover their meaning in context. Each milestone must make the path from observation to interpretation inspectable, preserve uncertainty, and support learning and correction. These are planned acceptance requirements, not claims about the current implementation.
 

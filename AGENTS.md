@@ -6,7 +6,7 @@ Sigy is the working name for a local-first, multilingual signals discovery and a
 
 The user advanced the project to evaluation and implementation on 2026-09-20. Build in verified increments from the existing design; do not claim unfinished gates or release support. Rust 1.98.1 is selected for the foundation; Python is excluded. Keep Sigy as the working name. Follow [active work](docs/development/progress.md), the [foundation decision](docs/decisions/0001-rust-foundation.md), and the evidence gates in [Delivery and decisions](docs/planning/05-delivery-and-decisions.md).
 
-Reinspect the working tree before each task. The Rust workspace has domain, catalog/ledger, capture journal, local controller, and CLI code with local Windows tests. Media acquisition and model dispatch are not implemented. There is no release or qualified platform matrix. `main` tracks the private `blisspixel/sigy` repository. Distinguish confirmed intent, proposed design, implemented behavior, tested behavior, released behavior, and operationally validated behavior.
+Reinspect the working tree before each task. The Rust workspace has domain, catalog/ledger, capture journal, source registration, local controller, CLI and an internal finite HTTP transport with local Windows tests. Executable capture jobs, verified media publication and model dispatch are not implemented. There is no release or qualified platform matrix. `main` tracks the private `blisspixel/sigy` repository. Distinguish confirmed intent, proposed design, implemented behavior, tested behavior, released behavior, and operationally validated behavior.
 
 ## Context and canonical homes
 
@@ -41,6 +41,8 @@ The verified local entry point is `./scripts/verify.ps1` in PowerShell. It valid
 `sigy-core` has no dependencies. `sigy-service` owns the SQLite catalog, migrations, accounting, and library ownership; interfaces reuse those operations. `sigy` owns command parsing and output. Domain values validate before storage or execution. Never replace exact monetary strings/integers with floating point, drop uncertain liabilities, or dispatch on an idempotent replay of a submission transition. The single library lock must outlive the catalog connection.
 
 Use the existing [local controller](docs/decisions/0002-local-controller.md) and [capture journal](docs/decisions/0003-capture-journal.md). Capture mutations require the exact revision/generation; recovery invalidates old workers. Keep state and journal changes in one transaction. Do not expose capture dispatch or completion before source authorization, resource enforcement, and verified media publication exist.
+
+Source authority and HTTP acquisition live in `sigy-service::sources`; immutable revisions live in `storage::sources`. Follow [the source boundary](docs/decisions/0004-source-authority-and-http.md). Share one acquisition instance, validate actual destinations before connection, and preserve explicit address grants. A byte-transfer receipt is not verified or durable media. Resolve bounded DNS/worker shutdown before service dispatch; do not let adapters or models introduce unchecked redirects, implicit proxies, retries or permission expansion.
 
 `vendor/libsqlite3-sys` is retained third-party source with a documented SQLite patch override. Preserve its notices and bytes, do not apply first-party formatting, and verify changes against [native provenance](vendor/README.md). Do not manually change checksum expectations to conceal an unexplained source change.
 

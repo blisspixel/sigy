@@ -166,7 +166,10 @@ fn service_startup_exposes_recovered_capture_intent_without_claiming_recording()
     };
     let mut service = RunningChild::start(directory.path())?;
     let snapshot = success(directory.path(), &["service", "status"])?;
-    assert_eq!(snapshot["schema_version"], 2);
+    assert_eq!(
+        snapshot["schema_version"],
+        sigy_service::storage::SCHEMA_VERSION
+    );
     assert_eq!(snapshot["captures"]["dispatch_available"], false);
     assert_eq!(snapshot["captures"]["scheduled"], 1);
     assert_eq!(snapshot["captures"]["active"], 0);
@@ -194,6 +197,59 @@ fn service_startup_exposes_recovered_capture_intent_without_claiming_recording()
 }
 
 struct DetachedService(PathBuf);
+
+#[test]
+fn source_registration_uses_the_running_owner_and_survives_restart() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    success(directory.path(), &["library", "init"])?;
+    let mut service = RunningChild::start(directory.path())?;
+    let args = [
+        "source",
+        "add",
+        "quebec:v1",
+        "--name",
+        "Radio Québec",
+        "--url",
+        "https://unresolved.invalid/audio?token=hidden",
+    ];
+    let added = success(directory.path(), &args)?;
+    assert_eq!(added["service"]["process_id"], service.0.id());
+    assert_eq!(added["source_page"]["newly_created"], true);
+    assert_eq!(
+        success(directory.path(), &args)?["source_page"]["newly_created"],
+        false
+    );
+    let changed = invoke(
+        directory.path(),
+        &[
+            "source",
+            "add",
+            "quebec:v1",
+            "--name",
+            "Changed",
+            "--url",
+            "https://unresolved.invalid/audio?token=hidden",
+        ],
+    )?;
+    assert!(!changed.status.success());
+    assert!(!String::from_utf8_lossy(&changed.stderr).contains("hidden"));
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    let reopened = success(directory.path(), &["source", "show", "quebec:v1"])?;
+    assert!(reopened["service"].is_null());
+    assert_eq!(
+        reopened["source_page"]["entries"][0]["name"],
+        "Radio Québec"
+    );
+    let mut restarted = RunningChild::start(directory.path())?;
+    assert_eq!(
+        success(directory.path(), &["source", "list"])?["source_page"]["entries"],
+        reopened["source_page"]["entries"]
+    );
+    success(directory.path(), &["service", "stop"])?;
+    restarted.wait()?;
+    Ok(())
+}
 
 impl Drop for DetachedService {
     fn drop(&mut self) {

@@ -17,6 +17,8 @@ serde_json.workspace = true
 interprocess.workspace = true
 tokio.workspace = true
 getrandom.workspace = true
+reqwest.workspace = true
+webpki-root-certs.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 widestring.workspace = true
@@ -26,6 +28,7 @@ rustix.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio-rustls.workspace = true
 
 [lints]
 workspace = true

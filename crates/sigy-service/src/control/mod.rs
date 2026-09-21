@@ -7,11 +7,16 @@ mod server;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Result, domain::money::Usd, storage::Store};
+use crate::{
+    Error, Result,
+    domain::money::Usd,
+    sources::{HttpSource, NetworkScope},
+    storage::{Store, sources::SourceRevision},
+};
 
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -34,12 +39,44 @@ impl Request {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
     Status {},
-    SetBudget { scope: String, limit_usd: String },
+    SetBudget {
+        scope: String,
+        limit_usd: String,
+    },
     Stop {},
+    RegisterSource {
+        revision_id: String,
+        name: String,
+        url: String,
+        network: NetworkScope,
+    },
+    ListSources {
+        after: Option<String>,
+        limit: u32,
+    },
+    ShowSource {
+        revision_id: String,
+    },
+}
+
+impl std::fmt::Debug for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            Self::Status {} => "status",
+            Self::SetBudget { .. } => "set_budget",
+            Self::Stop {} => "stop",
+            Self::RegisterSource { .. } => "register_source",
+            Self::ListSources { .. } => "list_sources",
+            Self::ShowSource { .. } => "show_source",
+        };
+        f.debug_struct("Operation")
+            .field("kind", &kind)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +122,39 @@ pub struct Snapshot {
     pub budgets: Vec<BudgetView>,
     pub service: Option<ServiceView>,
     pub captures: CaptureStatus,
+    pub source_page: Option<SourcePage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceView {
+    pub revision_id: String,
+    pub kind: String,
+    pub name: String,
+    pub origin: String,
+    pub network: NetworkScope,
+    pub created_ms: i64,
+}
+
+impl From<SourceRevision> for SourceView {
+    fn from(revision: SourceRevision) -> Self {
+        Self {
+            revision_id: revision.id,
+            kind: "http_audio".into(),
+            name: revision.source.name().into(),
+            origin: revision.source.origin(),
+            network: revision.source.network(),
+            created_ms: revision.created_ms,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourcePage {
+    pub entries: Vec<SourceView>,
+    pub next_after: Option<String>,
+    pub newly_created: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,10 +171,51 @@ pub struct CaptureStatus {
 /// # Errors
 /// Returns validation, accounting, or catalog errors. No provider work is dispatched.
 pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
-    if let Operation::SetBudget { scope, limit_usd } = operation {
-        let amount: Usd = limit_usd.parse()?;
-        store.set_budget_limit(&scope, amount)?;
-    }
+    let source_page = match operation {
+        Operation::SetBudget { scope, limit_usd } => {
+            let amount: Usd = limit_usd.parse()?;
+            store.set_budget_limit(&scope, amount)?;
+            None
+        }
+        Operation::RegisterSource {
+            revision_id,
+            name,
+            url,
+            network,
+        } => {
+            let source = HttpSource::new(&name, &url, network)?;
+            let admission = store.register_source(&revision_id, &source)?;
+            Some(SourcePage {
+                entries: vec![admission.revision.into()],
+                next_after: None,
+                newly_created: Some(admission.newly_created),
+            })
+        }
+        Operation::ShowSource { revision_id } => {
+            let revision = store.source(&revision_id)?.ok_or(Error::NotFound)?;
+            Some(SourcePage {
+                entries: vec![revision.into()],
+                next_after: None,
+                newly_created: None,
+            })
+        }
+        Operation::ListSources { after, limit } => {
+            let entries = store.sources(after.as_deref(), limit)?;
+            let next_after = if let Some(last) = entries.last()
+                && !store.sources(Some(&last.id), 1)?.is_empty()
+            {
+                Some(last.id.clone())
+            } else {
+                None
+            };
+            Some(SourcePage {
+                entries: entries.into_iter().map(Into::into).collect(),
+                next_after,
+                newly_created: None,
+            })
+        }
+        Operation::Status {} | Operation::Stop {} => None,
+    };
     store.audit_ledger()?;
     let budgets = store
         .budgets()?
@@ -125,6 +236,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         provider_dispatch_available: false,
         budgets,
         service: None,
+        source_page,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

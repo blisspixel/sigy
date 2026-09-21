@@ -8,8 +8,9 @@ use crate::{Error, Result};
 
 pub mod captures;
 pub mod ledger;
+pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -67,6 +68,9 @@ impl Store {
         }
         if (0..=1).contains(&version) {
             transaction.execute_batch(include_str!("002-captures.sql"))?;
+        }
+        if (0..=2).contains(&version) {
+            transaction.execute_batch(include_str!("003-sources.sql"))?;
         } else if version != i64::from(SCHEMA_VERSION) {
             return Err(Error::FutureSchema {
                 found: version,
@@ -85,6 +89,7 @@ impl Store {
         }
         store.audit_ledger()?;
         store.audit_captures()?;
+        store.audit_sources()?;
         Ok(store)
     }
 

@@ -12,6 +12,7 @@ use sigy_service::{
 };
 
 mod service;
+mod sources;
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Local-first signals discovery and analysis")]
@@ -28,6 +29,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Register and inspect immutable source configurations.
+    Source {
+        #[command(subcommand)]
+        command: sources::SourceCommand,
+    },
     /// Start, inspect, and stop the persistent local controller.
     Service {
         #[command(subcommand)]
@@ -85,6 +91,8 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
             scope: scope.clone(),
             limit_usd: usd.to_string(),
         }
+    } else if let Command::Source { command } = &cli.command {
+        command.operation()
     } else {
         Operation::Status {}
     };
@@ -105,6 +113,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if cli.json {
         serde_json::to_writer(&mut stdout, &view)?;
         writeln!(stdout)?;
+    } else if let Some(page) = view.source_page {
+        sources::render(&mut stdout, page)?;
     } else {
         if let Some(service) = view.service {
             writeln!(

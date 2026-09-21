@@ -40,6 +40,14 @@ pub enum Error {
     LedgerIntegrity,
     #[error("capture journal integrity check failed")]
     CaptureIntegrity,
+    #[error("source catalog integrity check failed")]
+    SourceIntegrity,
+    #[error("source catalog admission limit reached")]
+    SourceCapacity,
+    #[error("source destination is not authorized by its network policy")]
+    DestinationDenied,
+    #[error("source acquisition failed: {0}")]
+    Acquisition(&'static str),
     #[error("capture revision or worker generation is stale; reread current state")]
     StaleCapture,
     #[error("capture admission limit reached")]

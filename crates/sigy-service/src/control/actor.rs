@@ -46,6 +46,10 @@ pub(super) fn spawn(
                 let result = result.map_err(|error| Failure {
                     code: match error {
                         Error::InvalidInput(_) | Error::Money(_) => "invalid_request",
+                        Error::DestinationDenied => "destination_denied",
+                        Error::IdempotencyConflict => "idempotency_conflict",
+                        Error::NotFound => "not_found",
+                        Error::SourceCapacity => "source_capacity",
                         Error::Budget(_) => "budget_rejected",
                         Error::ServiceStopped => "stopping",
                         _ => "catalog_failure",

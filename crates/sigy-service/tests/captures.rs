@@ -315,7 +315,7 @@ fn migration_preserves_existing_liabilities_and_rolls_back_on_failure() -> TestR
             );
             assert_eq!(
                 connection.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))?,
-                2
+                sigy_service::storage::SCHEMA_VERSION
             );
             assert_eq!(migrated.capture_counts()?.scheduled, 0);
             migrated.audit_captures()?;
