@@ -2,13 +2,13 @@
 
 **Practical signals intelligence for everyday people.**
 
-A planned CLI and TUI platform that makes it easy and enjoyable to discover signals, record them, understand what they contain, follow what changes, and experiment with how they work.
+A CLI and TUI platform in development for discovering signals, recording them, understanding what they contain, following changes, and experimenting with how they work.
 
-The CLI is a complete interface for operation and automation. The optional TUI adds searchable, refreshable station catalogs, a rotatable terminal globe and day/night world map, source/activity visualizers, and DVR-style pause, rewind, scheduled recording, and replay within retained audio.
+The planned complete CLI supports operation and automation. The optional TUI will add searchable, refreshable station catalogs, a rotatable terminal globe and day/night world map, source/activity visualizers, and DVR-style pause, rewind, scheduled recording, and replay within retained audio.
 
-**Status: research and design. No implementation language or stack has been selected. Python is excluded.**
+**Status: early Rust implementation. The durable catalog, exact budget ledger, background controller, and capture job journal pass local Windows tests. Radio acquisition, media storage, TUI, and model processing remain to build.**
 
-Sigy is a working name. Naming research remains open; no replacement has been selected. The [current checkpoint and next steps](docs/planning/05-delivery-and-decisions.md#8-current-checkpoint-2026-09-20) provide a starting point for continuing the planning work.
+Sigy is a working name. Naming research remains open; no replacement has been selected. See [implementation progress](docs/development/progress.md), the [foundation decision](docs/decisions/0001-rust-foundation.md), and the [planning checkpoint](docs/planning/05-delivery-and-decisions.md#8-current-checkpoint-2026-09-20).
 
 The first complete release is intended to include world radio exploration, organized recordings, live translation, and autonomous topic monitoring within user-defined limits. A persistent background service will continue work when the terminal interface closes. Model processing will be local by default, with user-configured LAN and remote providers, including Ollama and OpenRouter. Paid processing requires enforced budgets and transparent accounting.
 
@@ -22,7 +22,25 @@ Meshtastic, other LoRa integrations, and software defined radios such as HackRF 
 
 Start with [Intent](INTENT.md), the [Roadmap](ROADMAP.md), [Design documents](docs/README.md), and [Topic research](research/README.md). The [planning index](docs/planning/README.md) distinguishes confirmed requirements, proposed designs, research findings, and unresolved decisions. Research is dated September 20, 2026.
 
-This repository currently describes the intended product. Command examples in the planning documents are interface proposals, not available commands.
+## Try the current foundation
+
+Rust 1.98.1 is pinned by `rust-toolchain.toml`. From the repository root:
+
+```text
+cargo run --locked -p sigy -- --help
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json library init
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json library status
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json budget show
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json service start
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json service status
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY --json service stop
+```
+
+Replace `PATH_TO_LIBRARY` with a dedicated private directory outside the checkout. Initialization creates a SQLite catalog with paid processing disabled. The service holds the exclusive library lock; maintenance commands reconnect to its operations while it is running. `service run` keeps the controller in the foreground; `service start` detaches it from the client. This does not install an OS startup service or qualify logout/reboot behavior. Stop the controller before replacing its binary with a different protocol version.
+
+The capture journal stores finite intent, revisions and worker generations and marks abandoned active attempts interrupted on service startup. Job creation is currently an internal storage API; there is no recording command or capture worker yet. Status explicitly reports capture and provider dispatch as unavailable. Amounts in JSON are exact decimal USD strings. Windows x86_64 is locally tested; Linux/macOS native validation and release packaging remain pending. See the [controller](docs/decisions/0002-local-controller.md) and [capture journal](docs/decisions/0003-capture-journal.md) decisions for current boundaries.
+
+Run `./scripts/verify.ps1` in PowerShell for native-source verification, formatting, tests, warnings-denied Clippy, build, and dependency auditing. It requires cargo-audit and fails if a check is unavailable. Builds use two jobs and the script limits test concurrency to two. Command examples in the planning documents remain proposals unless implemented and documented here.
 
 ## Lawful use and responsibility
 

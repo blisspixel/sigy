@@ -1,6 +1,6 @@
 # Repository organization and engineering
 
-Reviewed: 2026-09-20. Status: proposed organization and engineering profile. No stack is selected and no implementation directories are created. See [engineering research](../../research/20-repository-engineering.md) and the [stack trade study](06-language-and-stack-trade-study.md).
+Reviewed: 2026-09-20. Status: organization and engineering plan. The initial three-crate Rust workspace now exists under the [foundation decision](../decisions/0001-rust-foundation.md). Later subsystem directories and integrations in the illustrative tree remain planned. See [active work](../development/progress.md), [engineering research](../../research/20-repository-engineering.md), and the historical [stack trade study](06-language-and-stack-trade-study.md).
 
 ## 1. Organize around ownership
 
@@ -26,7 +26,7 @@ Keep the existing documents in place. Add decision records under `docs/decisions
 
 ## 2. Proposed Rust organization
 
-Rust is the leading recommendation to evaluate because explicit resource ownership and native integration fit the long-term signal-processing scope. This is an engineering judgment, not a completed G4 decision. The following tree is illustrative and remains entirely uncreated:
+Rust is now selected for foundation development because explicit resource ownership and native integration fit the long-term signal-processing scope, supported by bounded local evaluation. This does not complete the entire G4 matrix. The three top-level crates exist; the following fuller tree remains an implementation direction rather than a claim that every module is present:
 
 ```text
 Cargo.toml                    Workspace and shared policy
@@ -86,7 +86,7 @@ Application data belongs in documented platform data/cache/config locations outs
 
 ## 5. Verification and supply-chain roadmap
 
-Current verification covers documentation integrity and evidence consistency. There is no build or runnable application. [AGENTS.md](../../AGENTS.md) must not advertise future commands as present commands.
+Current verification covers the Rust foundation, maintenance CLI, transactional ledger, and documentation. The shared PowerShell entry point checks native source hashes, formatting, tests, strict Clippy, build, and advisories. [AGENTS.md](../../AGENTS.md) points to the verified commands. Broader service, media, model, and platform evidence remains pending.
 
 After stack selection, create one local verification entry point used by CI. For Rust, qualify formatting, compiler checks, warnings-denied Clippy, useful unit/integration tests, dependency/license/advisory review, and release build checks. Scope unsafe/FFI code explicitly and use suitable fuzzing, interpreter/sanitizer, concurrency, and native-worker checks where supported. If Go is selected, qualify formatting, compilation, tests, vet, mature static analysis, vulnerability checks, and race/fuzz tests. Add exact commands only against actual configuration and supported tool versions.
 

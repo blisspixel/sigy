@@ -25,8 +25,8 @@ All detailed requirements below are proposed refinements of confirmed product co
 | R-07 | C-02 | Live original text and translated text expose provisional/final state and delay | Timestamped speech fixture and caption revision inspection |
 | R-08 | C-02, C-10 | Batch reprocessing preserves input and output revision provenance | Repeat with a different model/configuration and inspect history |
 | R-09 | C-04, C-14 | Effective processing destination matches configured policy | Network-observation tests for local, LAN, hosted, and fallback paths |
-| R-10 | C-07, C-11 | Autonomous source changes remain inside source, time, and resource policy | Generated-plan fuzzing and disallowed-operation fixtures |
-| R-11 | C-07 | Findings reference existing evidence and show collection/processing coverage | Citation/range validation and labeled briefing review |
+| R-10 | C-07, C-11, C-37 | Autonomous source changes remain inside source, time and resource policy and expose their recorded basis, policy version, outcome and resource/cost effects | Generated-plan fuzzing, disallowed-operation fixtures, decision-history review after reconnect and no fabricated rationale for missing history |
+| R-11 | C-07, C-37 | Findings reference existing evidence and expose conflicting reports, duplicate-source relationships, unresolved independence and collection/processing coverage | Citation/range validation, repeated/syndicated and contradictory reports, missing-coverage fixtures and labeled briefing review |
 | R-12 | C-10 | Source content cannot grant permissions or become executable control input | Adversarial metadata/transcript and plan-boundary tests |
 | R-13 | C-15 | Every paid request is admitted against all applicable budget reservations | Concurrent last-balance races and transaction-interruption tests |
 | R-14 | C-15 | Uncertain submitted charges survive restart and cannot free budget prematurely | Timeout, missing-final-usage, restart, and period-rollover scenarios |
@@ -51,7 +51,7 @@ All detailed requirements below are proposed refinements of confirmed product co
 | R-33 | C-20 | Morse decoding reports uncertainty and preserves replayable input alignment | Independent standard/real-signal fixtures across timing, interference, speed, gaps and prosigns |
 | R-34 | C-21 | Enigma output and visible stepping trace match the specified variant | Independent known-answer vectors, double stepping, ring/plugboard cases, deterministic reset/replay |
 | R-35 | C-22 | Modern crypto uses qualified profiles and protects operational keys | Conformance/interoperability, tamper and wrong-key tests, nonce concurrency/restart tests, no secret leakage |
-| R-36 | C-23 | Exploration/workbench journeys are engaging, understandable, and usable alongside active collection | User review of discovery and experiments, keyboard/reduced-motion layouts, synthetic-origin labels, resource contention |
+| R-36 | C-23, C-37 | Exploration/workbench journeys are engaging and let users inspect inputs and intermediate results, explain displayed activity and identify uncertainty alongside active collection | Newcomer explanation/replay tasks and enjoyment review, keyboard/reduced-motion layouts, synthetic-origin labels, ambiguity and resource contention |
 | R-37 | C-10, C-11 | Discovered URLs and nested resources cannot bypass configured host/network boundaries | Redirect, DNS/address, private-endpoint, protocol and decoder-subresource fixtures |
 | R-38 | C-01, C-10 | Release/update and local-control paths protect installation and library access | Unauthorized clients, artifact substitution, interruption and clean-host restore tests |
 | R-39 | C-24 | Supported everyday workflows are discoverable and usable without specialist prerequisite knowledge | Newcomer task sessions, preset/error-recovery review, comprehension of results and limits, advanced-control discoverability |
@@ -67,6 +67,8 @@ All detailed requirements below are proposed refinements of confirmed product co
 | R-49 | C-32 | Globe/map/list views provide consistent keyboard discovery and bounded rendering on declared terminal profiles | Rotation, zoom/clusters, query agreement, small/monochrome/SSH modes, resize, reduced motion and capture-under-render-load tests |
 | R-50 | C-32, C-19 | Geographic and signal displays expose actual location/measurement basis and distinguish solar context from reception | Unknown/coarse coordinates, fixed-date sun cases, stale data, audio-versus-RF labels and source-type fixtures |
 | R-51 | C-33 | Later podcasts/feeds support bounded, idempotent, multilingual incremental analysis with reproducible evidence | Feed/episode revision and duplicate fixtures, XML/network boundaries, partial downloads, supplied-transcript alignment, queue fairness and cost limits |
+| R-52 | C-19, C-36, C-37 | Both clients expose an aligned path from findings through distinct interpretations and representations to retained originals and context, with unknown or expired evidence explicit | Multilingual finding-to-recording journeys, missing/expired ranges, alternative interpretations, location provenance and later typed non-audio replay fixtures |
+| R-53 | C-10, C-15, C-37 | Scoped corrections preserve originals and history, identify stale dependents, and admit any reprocessing through existing resource, destination, retention and cost policy | CLI/TUI correction journeys, dependent and unaffected result checks, concurrent edits, interrupted rebuild, exhausted allowances, unavailable input and old-report comparison |
 
 ## 3. Capacity profiles
 
@@ -111,6 +113,8 @@ Requirements R-31 and R-33 through R-35 qualify their respective future releases
 R-44 qualifies the post-release music milestone. R-43 applies to whichever classifiers are adopted; it does not require Jev or a hosted classifier in the first release. R-45 initially covers monitor overview/history and evidence; advanced graph exploration remains a later decision.
 
 R-46 through R-50 refine the first-release radio and terminal experience, with RF-specific visualizations qualified alongside hardware. R-51 qualifies the later podcast/feed milestone; common typed-artifact and job contracts are designed now.
+
+R-52 and R-53 qualify the first-release radio evidence and correction journeys. Their shared contracts cover later representations without requiring every decoder or hardware adapter in that release. Corrections must remain useful when reprocessing is paused: show the accepted correction, affected results and reason for waiting without presenting stale output as current.
 
 ## 5. Failure and recovery analysis
 

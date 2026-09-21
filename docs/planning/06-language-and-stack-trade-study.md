@@ -1,6 +1,6 @@
 # Language and stack trade study
 
-Status: preliminary comparison. **No language or stack selected.** Research baseline: 2026-09-20. See [primary-source language research](../../research/07-language-and-stack.md).
+Status: historical pre-selection comparison. Research baseline: 2026-09-20. The subsequent [foundation decision](../decisions/0001-rust-foundation.md) selects Rust for initial development and records the incomplete qualification matrix. See [primary-source language research](../../research/07-language-and-stack.md).
 
 ## 1. What the decision must optimize
 

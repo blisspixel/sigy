@@ -27,6 +27,9 @@ This folder records primary-source findings, design implications, competing appr
 | Finite media, syndicated text, feed updates, and mixed-source insights | [19. Podcasts and feeds](19-podcasts-and-feeds.md) |
 | Workspace ownership, persistent instructions, dependency discipline, and Scorecard | [20. Repository engineering](20-repository-engineering.md) |
 | Understandable naming, product associations, and preliminary collision screening | [21. Product naming](21-naming.md) |
+| Current terminal libraries, interaction, accessibility and performance | [22. Modern terminal UX](22-modern-terminal-ux.md) |
+| Interface localization and substantive language coverage | [23. Localization and language coverage](23-localization-and-language-coverage.md) |
+| Language, mathematical and unfamiliar signal interpretation | [24. Universal interpretation](24-universal-interpretation.md) |
 
 ## Evidence discipline
 
@@ -40,13 +43,13 @@ This folder records primary-source findings, design implications, competing appr
 
 ## Research performed in this phase
 
-Official documentation was reviewed for the topics below, including terminal drawing, map data, solar calculations, directory refresh, RSS/Atom, and podcast delivery. A public Radio Browser server-list endpoint was retrieved successfully. No Sigy code, performance benchmark, live transcription, recording validation, paid API request, or hardware test was performed.
+The initial documentation-only phase reviewed official material including terminal drawing, map data, solar calculations, directory refresh, RSS/Atom, and podcast delivery. A public Radio Browser server-list endpoint was retrieved successfully. That checkpoint included no code or runtime evaluation. Subsequent [foundation experiments](experiments/foundation/README.md) and [implementation evidence](../docs/development/progress.md) are recorded separately. Live transcription, recording validation, paid requests and hardware tests remain outstanding.
 
 Several documentation URLs required an upstream repository or canonical redirected page as a fallback. Links in the notes point to the evidence actually used where available. Rolling documentation can change after this date; the technology-selection gate must retain exact versions or immutable snapshots for consequential decisions.
 
 Additional research reviewed current speech/decision model cards, aggregator and receiver projects, agentic tool interfaces, and the published MCP revision. OpenRouter's Jev model/provider metadata and official System One integration documentation were retrieved read-only. No inference endpoint was invoked. Documented capabilities and illustrative capacity/cost arithmetic remain distinct from measured compatibility or performance.
 
-Repository-engineering research covers workspace boundaries, instruction discovery, dependency review, and OpenSSF Scorecard practices. Naming research records candidate collisions and search limitations. Neither research area establishes a selected stack, an assessed security score, or a cleared product name.
+Repository-engineering research covers workspace boundaries, instruction discovery, dependency review, and OpenSSF Scorecard practices. Naming research records candidate collisions and search limitations. Neither research area establishes an assessed security score or a cleared product name; selected technology and its qualification limits live in [architecture decisions](../docs/decisions/0001-rust-foundation.md).
 
 ## Near-future review cadence
 

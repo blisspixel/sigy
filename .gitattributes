@@ -1,0 +1,2 @@
+* text=auto eol=lf
+vendor/libsqlite3-sys/** -text

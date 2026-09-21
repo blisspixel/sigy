@@ -4,6 +4,8 @@ Last updated: 2026-09-20
 
 Sigy's purpose is practical signals intelligence for everyday people: a broad, approachable, enjoyable toolkit for discovering signals and turning observations into understanding.
 
+The central journey is to explore the world's signals and discover what they mean. Understanding includes the original observation, its context, the steps used to interpret it, and what remains unresolved. This applies across languages and representations, including mathematical and symbolic material, through the shared [interpretation contract](docs/design/signal-interpretation.md).
+
 It should be an exceptionally well-engineered application that feels natural in a terminal and remains dependable during long unattended runs. A newcomer should be able to achieve useful results while learning; experienced users should be able to inspect and control the details.
 
 It should make it enjoyable to explore world radio, straightforward to record several sources, and possible to understand broadcasts through live transcription, translation, and topic monitoring. A user should be able to ask to follow a subject, set boundaries, and return to useful findings with inspectable source evidence.
@@ -17,6 +19,8 @@ The ambition is to cover most everyday signal workflows in one coherent applicat
 Everyday tasks should begin with a clear action or question, such as "understand this station," "follow this topic," or "show me how this code works." Useful presets, plain-language status, contextual explanations, and reversible exploration help users progress. Detailed signal controls and reproducible automation remain available as users need them.
 
 Ease of use is part of engineering quality. Complexity belongs in well-designed internals and optional detail views; users should not need to assemble a decoder pipeline or understand model infrastructure to complete a supported common task.
+
+Users must be able to follow findings back to retained originals, inspect alternative interpretations, and correct an observation or interpretation without erasing its history. Corrections expose affected results and can trigger bounded reprocessing under the existing policy. Exploration should help users learn what a signal contains, how an answer was obtained, and where the evidence stops.
 
 ## Product commitments
 
@@ -53,13 +57,13 @@ Keep dependencies minimal and intentional across the complete distribution, incl
 
 Reliability means preserving captured data, reporting gaps, recovering predictably, keeping resource use bounded, and letting a user understand what the system did. Analysis quality means separating original observations from interpretations and making findings checkable.
 
-Language choice contributes to this standard but cannot establish it alone. Rust and Go are research candidates. Python is excluded. No language, framework, database, model runtime, or media backend is selected yet.
+Language choice contributes to this standard but cannot establish it alone. Rust is selected for the foundation after initial Rust/Go evaluation; Python is excluded. SQLite is the initial catalog. Model, media, and terminal choices retain their own evidence gates. See the [foundation decision](docs/decisions/0001-rust-foundation.md).
 
 ## Current phase
 
-Research and plan the entire product before writing implementation code. Establish intent, workflows, architecture, risks, operational rules, and verification criteria first. Use primary-source research dated September 20, 2026, and identify what needs rechecking as the ecosystem changes.
+The initial documentation and research baseline preceded implementation. The user advanced the project to building on September 20, 2026. Continue researching consequential choices, preserving the product contracts, and verifying each implementation increment before expanding it.
 
-The current deliverables are [documentation](docs/README.md), [topic research](research/README.md), and a [roadmap](ROADMAP.md). Benchmarks and prototypes are future work after the documentation phase is reviewed. No implementation, dependency installation, model download, or paid inference is part of this phase.
+Current deliverables include source, tests, [documentation](docs/README.md), [topic research](research/README.md), and the [roadmap](ROADMAP.md). [Implementation progress](docs/development/progress.md) records evidence, open work, and the active development spending ceiling. Research conclusions do not establish measured language, hardware, or platform support.
 
 ## What success looks like
 

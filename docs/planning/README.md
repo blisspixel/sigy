@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-20
 
-Status: initial research-backed design package, under review. Implementation and stack selection have not begun.
+Status: research-backed product contract. Implementation has begun with a [Rust foundation decision](../decisions/0001-rust-foundation.md); [active work](../development/progress.md) records verified behavior and remaining qualification.
 
 ## Read in this order
 
@@ -62,6 +62,8 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-33 | Add podcasts and RSS/Atom feeds to the later roadmap for automated multilingual analysis and insights at scale, sharing source/evidence and processing controls. |
 | C-34 | Keep dependencies minimal and intentional while preserving mature implementations for complex or security-sensitive capabilities. Repository organization must support extension without duplicated infrastructure. |
 | C-35 | Plan periodic open-source engineering assessments as the project matures, aiming for strong applicable results. OpenSSF Scorecard is the current interpretation of the requested score; no assessment or numeric target is established. |
+| C-36 | Understanding signals in context is central. Preserve an inspectable path from original observations through decoding, transcription, translation and interpretation, including uncertainty and alternatives. Shared contracts extend across languages, mathematical/symbolic material and non-audio sources. |
+| C-37 | Users can trace findings to retained evidence, correct scoped observations or interpretations, inspect affected results and revision history, and understand monitor decisions and coverage. Exploration should teach how results were obtained and what remains unresolved. |
 
 ## Reading the status labels
 

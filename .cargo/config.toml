@@ -1,0 +1,3 @@
+[build]
+# Keep local development usable on small hosts and during background capture.
+jobs = 2

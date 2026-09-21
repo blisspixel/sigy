@@ -89,6 +89,7 @@ The first release needs a topic overview, evidence list, timeline, and changes s
 | Record | Essential properties |
 | --- | --- |
 | Monitor specification | User goal, source/language scope, schedule, limits, version and authority |
+| Monitor action | Proposed source change, recorded selection basis, applicable policy version, admission decision, execution outcome and resource/cost references |
 | Analysis decision | Input revisions, criteria, scores, model identity, acceptance policy |
 | Finding | Claim type, wording, support/contradiction links, time bounds, uncertainty, revisions |
 | Entity reference | Original name/script, aliases, candidate identity links and merge provenance |
@@ -98,7 +99,11 @@ The first release needs a topic overview, evidence list, timeline, and changes s
 
 Collected evidence is immutable while retained. Interpretations can be revised. Current monitor checkpoints are operational state. User policy and curated context are authoritative only within their explicit scope. A generated notebook cannot silently edit permissions or become executable instructions.
 
-On an ASR correction, changed track identity, entity merge, or new model pass, mark dependent results stale or recompute them as new revisions. Preserve earlier report snapshots so a user can understand what was known at that time. Retention/deletion must label missing support and propagate privacy deletion where required.
+Both clients must let a user follow a finding through the exact translation and original transcript revisions to the retained recording interval and surrounding context. Preserve source, timing, language observations, location basis, processing method, and gaps along that path. Distinguish observations, mechanically checked properties, model interpretations, supplied context and unresolved alternatives. A translation is not independent support for the claim it translates.
+
+On a scoped correction to a name, language span, transcript or interpretation, changed track identity, entity merge, or new model pass, identify and mark dependent results stale. Record the corrected revision and expose the affected results. Recompute only through the existing resource, destination, retention and spending policy; a correction cannot authorize paid fallback or restore expired source material. Preserve earlier report snapshots and leave unavailable or deferred results visibly stale. Concurrent corrections must expose revision conflicts rather than silently overwrite another correction. Retention/deletion must label missing support and propagate privacy deletion where required.
+
+Briefings retain conflicting reports and duplicate/syndicated-source relationships, including unknown independence. Repeated statements and translated copies must not inflate corroboration. Monitor history explains recorded decisions and outcomes within the user's collection policy, with references to actual actions and costs. Missing decision evidence stays unknown instead of being filled by a generated retrospective explanation.
 
 Allow Markdown and structured export with stable IDs, evidence references, timestamps, coverage, and revisions. The transactional catalog remains responsible for jobs and budgets. Search indexes and topic projections should be rebuildable from the retained records that produced them.
 

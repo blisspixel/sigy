@@ -1,6 +1,6 @@
 # Architecture and data
 
-Status: proposed, language-independent system design. Concrete libraries, storage engines, wire protocols, and process granularity remain subject to the trade study.
+Status: broader system design with incremental implementation. The [foundation](../decisions/0001-rust-foundation.md), [local controller](../decisions/0002-local-controller.md), and [capture journal](../decisions/0003-capture-journal.md) decisions record selected and locally tested subsets. Remaining workers, media storage, provider paths and platform profiles retain their evidence gates.
 
 ## 1. Design principles
 
@@ -67,7 +67,7 @@ The confirmed requirement is survival of client closure. Supporting collection b
 
 Linux service integration, macOS launch agents/daemons, and Windows Service Control Manager integration need platform-specific adapters. User playback remains outside the unattended service. See the [platform evidence](03-source-and-model-research.md#platforms-and-terminal-behavior).
 
-The local control contract needs authenticated identity or OS-enforced peer access, version negotiation, structured errors, idempotency keys, event cursors, and cancellation semantics. The leading options are protected local sockets/named pipes or authenticated loopback HTTP. No transport is selected yet.
+The local control contract needs authenticated identity or OS-enforced peer access, explicit version compatibility, structured errors, idempotency keys, event cursors, and cancellation semantics. The initial controller selects protected local sockets/named pipes with strict version checks, bounded messages and shared catalog operations. Event subscriptions and operation-specific cancellation remain future extensions. See the [controller decision](../decisions/0002-local-controller.md) for implemented controls and platform limitations.
 
 Remote access is a separate capability requiring explicit configuration. A future web client does not justify binding the first release to every network interface.
 

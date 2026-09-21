@@ -4,9 +4,9 @@
 
 Sigy is the working name for a local-first, multilingual signals discovery and analysis platform. Read [README.md](README.md), [INTENT.md](INTENT.md), [ROADMAP.md](ROADMAP.md), and the [planning index](docs/planning/README.md) before consequential changes.
 
-The current phase is documentation and research only. Do not create application code, prototypes, dependency manifests, installed services, or model downloads until the user advances the phase. Python is excluded. Rust is the leading recommendation for evaluation, not a selected stack. Follow the evidence gates in [Delivery and decisions](docs/planning/05-delivery-and-decisions.md). Naming is also unresolved; do not turn a candidate into a rename without a decision.
+The user advanced the project to evaluation and implementation on 2026-09-20. Build in verified increments from the existing design; do not claim unfinished gates or release support. Rust 1.98.1 is selected for the foundation; Python is excluded. Keep Sigy as the working name. Follow [active work](docs/development/progress.md), the [foundation decision](docs/decisions/0001-rust-foundation.md), and the evidence gates in [Delivery and decisions](docs/planning/05-delivery-and-decisions.md).
 
-Reinspect the working tree before each task. On 2026-09-20 it contains planning documents and the Apache 2.0 license, with no implementation, build configuration, tests, or CI. Git is initialized on `main`, with `origin` pointing to the private `blisspixel/sigy` repository. Hosting uses the working name and does not settle product naming. Update this baseline when it changes. Distinguish confirmed intent, proposed design, implemented behavior, tested behavior, released behavior, and operationally validated behavior.
+Reinspect the working tree before each task. The Rust workspace has domain, catalog/ledger, capture journal, local controller, and CLI code with local Windows tests. Media acquisition and model dispatch are not implemented. There is no release or qualified platform matrix. `main` tracks the private `blisspixel/sigy` repository. Distinguish confirmed intent, proposed design, implemented behavior, tested behavior, released behavior, and operationally validated behavior.
 
 ## Context and canonical homes
 
@@ -36,7 +36,13 @@ Confirmed requirements live in the planning index; open decisions and work packa
 
 Research changing technical facts from primary sources before consequential choices. Record the review date, alternatives, limitations, and evidence needed. Prefer stable GA technology, intentional dependencies, and one application language unless a measured need justifies another. Review the complete dependency and distribution graph, including native libraries and model assets.
 
-There are currently no project install, build, lint, or test commands. Do not invent them or present proposed CLI examples as executable functionality. A verified discovery command is `rg --files --hidden -g '!.git/**' -g '!.agents/**'`. For documentation changes, check relative links and anchors, requirement/decision identifiers, status consistency, source support, and writing rules. Describe exactly what was checked.
+The verified local entry point is `./scripts/verify.ps1` in PowerShell. It validates the native source hashes, formatting, workspace tests, warnings-denied Clippy, build, and dependency advisories. It requires cargo-audit; do not silently skip missing checks. The underlying commands are in the script. Use the pinned toolchain and preserve `Cargo.lock`; regenerate it intentionally after manifest changes. For documentation, check links/anchors, register IDs, status consistency, sources, and writing rules. Planning CLI examples are proposals unless the actual parser implements them.
+
+`sigy-core` has no dependencies. `sigy-service` owns the SQLite catalog, migrations, accounting, and library ownership; interfaces reuse those operations. `sigy` owns command parsing and output. Domain values validate before storage or execution. Never replace exact monetary strings/integers with floating point, drop uncertain liabilities, or dispatch on an idempotent replay of a submission transition. The single library lock must outlive the catalog connection.
+
+Use the existing [local controller](docs/decisions/0002-local-controller.md) and [capture journal](docs/decisions/0003-capture-journal.md). Capture mutations require the exact revision/generation; recovery invalidates old workers. Keep state and journal changes in one transaction. Do not expose capture dispatch or completion before source authorization, resource enforcement, and verified media publication exist.
+
+`vendor/libsqlite3-sys` is retained third-party source with a documented SQLite patch override. Preserve its notices and bytes, do not apply first-party formatting, and verify changes against [native provenance](vendor/README.md). Do not manually change checksum expectations to conceal an unexplained source change.
 
 After implementation is authorized, derive verification commands from actual manifests, configuration, scripts, and tool help before documenting them. Use the selected ecosystem's strong compiler, type, lint, and security checks. Verify the relevant behavior, inspect failures, fix causes, rerun affected checks, and self-review. Never weaken checks, assertions, schemas, or error handling merely to pass. Use crash, concurrency, cost, native-boundary, and real platform evidence where the change requires it. Performance claims need measurements; rendered interfaces need inspection.
 
@@ -47,6 +53,8 @@ Keep one coherent implementation of shared behavior. Add enforceable invariants 
 Keep disposable maps, diagnostics, scratch notes, and local receipts in gitignored `.agents/`; never store credentials there. Promote durable conclusions to canonical documentation, decisions, tests, or bounded tickets. Add structural indexes or coordination machinery only when they materially help, and keep them synchronized. This file is the canonical shared instruction source; add thin tool-specific pointers only when needed.
 
 Update affected project state after meaningful work. Do not infer permission to spend, publish, send messages, delete user data, or change production systems from a routine local editing task. Respect authorization already given. Refining these instructions alone does not authorize Git initialization, commits, pushes, releases, or deployment. Instruction Markdown does not enforce runtime security or spending boundaries.
+
+The active implementation goal has a cumulative USD 10 external-spend ceiling, excluding the user's coding-session costs. Prefer USD 0. Do not run paid inference, paid CI, hosted compute, purchases, or recurring services without a mechanically bounded allocation and a recorded reservation in the work ledger. Existing keys and accounts are not permission to consume an unbounded balance. Keep ordinary verification local until hosted billing is qualified.
 
 ## Writing and attribution
 

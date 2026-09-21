@@ -1,10 +1,10 @@
 # Delivery and decisions
 
-Last updated: 2026-09-20. Status: proposed process for completing design before implementation.
+Last updated: 2026-09-20. Status: product decision and evidence register during incremental implementation.
 
 ## 1. Current scope
 
-This phase creates and reviews documentation. It does not create application code, prototype code, dependency manifests, installed services, model downloads, or paid inference jobs. The [roadmap](../../ROADMAP.md) separates later technology evaluation from this phase.
+The initial documentation-only phase is complete as a checkpoint. The user has now authorized evaluation and implementation, with a cumulative USD 10 external-spend ceiling and a preference for zero paid use. [Active work](../development/progress.md) records implementation evidence and accounting. Installed system services, releases, and paid experiments retain their specific operational controls.
 
 The present package is a research-backed draft. Detailed choices marked proposed do not become approved merely because the document is long or the research is extensive.
 
@@ -20,7 +20,7 @@ The present package is a research-backed draft. Detailed choices marked proposed
 | G5: Implementation baseline | Selected versions, schemas/protocols, interface specifications, verification plan, deliverable slices | Work can begin against an agreed design with acceptance criteria |
 | G6: Release | Complete first-release workflows and assurance evidence | All release-blocking requirements pass on declared supported profiles |
 
-The current task addresses G0 through the documentation portion of G3. G4 requires evidence that does not exist yet. It must not be marked complete based on upstream documentation alone.
+The [foundation decision](../decisions/0001-rust-foundation.md) selects Rust and SQLite for initial implementation using research and bounded local evidence. The full G4 qualification matrix is not complete, and later subsystem/platform gates remain open. Do not equate a foundation choice with product or release qualification.
 
 ## 3. Decision register
 
@@ -37,9 +37,9 @@ Confirmed entries are summarized in the [planning index](README.md). These are t
 | D-07 | Paid budget defaults | Paid disabled until finite provider/task policies are configured | Confirmation of periods, strict-mode UX, and provider tests |
 | D-08 | Distribution and dependency licensing | Apache License 2.0 confirmed; packaging, channels, and third-party integration terms remain open | Dependency/model/data license inventory, linking/bundling review, required notices and distribution policy |
 | D-09 | Supported platform versions | Native Windows/macOS/Linux; exact versions/architectures undecided | Maintenance horizon and CI/hardware availability |
-| D-10 | Application language | Rust and Go under evaluation; Python excluded | Workload evidence and long-term-maintenance trade study |
+| D-10 | Application language | Rust selected for the foundation; Go comparison preserved in the decision record; Python excluded | [Decision and limitations](../decisions/0001-rust-foundation.md); broader platform and workload qualification continues |
 | D-11 | Media backend/boundary | Supervised workers, embedded libraries, or pipeline engine | Timing, fault isolation, packaging, copy and resource measurements |
-| D-12 | Catalog/search | Embedded transactional store leading hypothesis; server store remains an alternative | Write/recovery/backup and multilingual retrieval evidence |
+| D-12 | Catalog/search | SQLite selected for the initial catalog; multilingual search remains open | Initial transactional ledger tests; further job/media recovery, backup, growth, and retrieval evidence |
 | D-13 | Local control transport | Protected local IPC or authenticated loopback interface | OS identity, future-client needs, operational complexity |
 | D-14 | Model/runtime defaults | Capability-based adapters; Ollama and OpenRouter targets confirmed | Language quality, latency, footprint, price-bound support |
 | D-15 | Media archive format | Source-preserving segments where reliable, or documented lossless normalization | Seek, recovery, format coverage, storage and license testing |
@@ -62,7 +62,7 @@ Confirmed entries are summarized in the [planning index](README.md). These are t
 | D-32 | Repository and dependency organization | One repository, a few packages with explicit ownership, typed integrations; Rust-first profile remains proposed | G4 stack evidence, actual dependency graph, packaging and build isolation; [organization proposal](12-repository-and-engineering.md) |
 | D-33 | Engineering assessment policy | Periodic OpenSSF Scorecard review after implementation/hosting, individual findings and honest limitations | Confirm scoring tool, qualified release, cadence, hosting controls and publication preference; no score currently assessed |
 
-These decisions should be resolved in small related groups rather than one long questionnaire. None requires creating code during the current documentation phase.
+Resolve decisions in small related groups. Implement and measure bounded choices without presenting unresolved product behavior as confirmed.
 
 ## 4. Research and future experiment register
 
@@ -75,7 +75,7 @@ These decisions should be resolved in small related groups rather than one long 
 | E-05: Speech and translation | Which profiles meet quality and latency on each host class? | Frozen evaluation corpus, results by language and condition |
 | E-06: Catalog and search | Can the catalog recover and retrieve evidence under sustained use? | Fault/backup results, retrieval benchmark, growth estimates |
 | E-07: Paid providers | Can every allowed billing dimension and fallback be bounded? | Adapter contract, reservation/reconciliation fixtures, later bounded live results |
-| E-08: Monitoring quality | Does autonomous discovery produce relevant, well-supported coverage? | Labeled topic windows, source-selection trace, report-quality results |
+| E-08: Monitoring quality | Does autonomous discovery produce relevant, well-supported and explainable coverage? | Labeled topic windows, recorded source-selection decisions/outcomes, duplicate/contradictory reports, coverage gaps and report-quality results |
 | E-09: Rust/Go comparison | Which candidate best satisfies the full architecture and maintenance needs? | Comparable workload results and reviewed decision record |
 | E-10: Hardware replay/pilot | Are adapter and tuning contracts correct on real devices? | Replay fixtures followed by device/firmware/OS results |
 | E-11: Music identification | Which method identifies the intended regional sample reliably? | Catalog coverage, false/unknown match rates, deduplication and cost evidence |
@@ -85,13 +85,13 @@ These decisions should be resolved in small related groups rather than one long 
 | E-15: Modern cryptography | Which profiles and implementations meet operation and key-lifecycle requirements? | Conformance/interoperability, tamper/nonce/restart tests, key-storage/recovery design and focused review |
 | E-16: Security and release boundaries | Can the chosen media, IPC, credential and distribution paths enforce application policy? | Redirect/nested-resource and import fixtures, access-control tests, signed-package/update and restore evidence |
 | E-17: Classifier cascade | Do local or hosted decisions improve useful analysis without unacceptable missed events? | Majority non-English original/translated baselines, held-out calibration, false-negative audit, resource/cost comparison, endpoint billing qualification |
-| E-18: Persistent topic context | Can evolving findings remain grounded across corrections, contradictions, retention and model changes? | Multi-window replay, evidence/support checks, annotation preservation, projection rebuild and export/restore results |
+| E-18: Persistent topic context | Can users inspect and correct findings across contradictions, retention and model changes? | CLI/TUI finding-to-original and correction journeys, scoped dependency invalidation, bounded interrupted/deferred rebuilds, preserved report history, evidence/support checks and export/restore results |
 | E-19: Local processing at scale | Which mixed capture/detection/ASR/translation workloads remain sustainable with no metered inference? | Both host classes, live/batch service curves, quality by language, backlog fairness, retention and thermal/storage evidence |
 | E-20: Terminal explorer and parity | Can each viable stack deliver the globe/day-night/list experience without impairing capture or CLI completeness? | Comparable projection, marker, Unicode, keyboard, output-bandwidth, slow-terminal and full CLI workflow evidence |
 | E-21: Catalog and DVR lifecycle | Do refresh, shared buffers, independent playback and recording schedules recover correctly? | Identity and stale-data fixtures, seek/gap cases, promotion/expiry races, storage faults, DST and occurrence replay |
 | E-22: Podcasts and feeds | Can bounded subscriptions and finite episodes improve cross-source insight without duplicate work? | RSS/Atom/media revision fixtures, language/evidence quality, security boundaries, incremental-cost and mixed-load results |
 
-Experiments E-02 onward may involve code later. They are specifications for future work, not authorization to implement them during the documentation-only phase. E-07 live paid validation also needs a deliberately enabled bounded budget.
+The user has authorized implementation and bounded experiments. E-07 live paid validation still needs a mechanically enforced allocation inside the cumulative development ceiling. Initial verification uses local deterministic fixtures and no paid calls.
 
 ## 5. Planning completeness and honest uncertainty
 
@@ -117,6 +117,8 @@ Future architecture decisions record context, alternatives, selection, consequen
 6. Finalize the documentation baseline before considering implementation or experimental code.
 
 ## 8. Current checkpoint: 2026-09-20
+
+Historical documentation checkpoint, retained for traceability. Subsequent implementation is recorded in [active work](../development/progress.md); the user has advanced the phase and accepted Sigy as the working name.
 
 The intent, roadmap, confirmed requirements, subsystem designs, research notes, assurance requirements, and canonical agent instructions form a reviewable documentation baseline. The baseline is a draft, not approval of every proposed design or completion of G0 through G3. There is no application, build configuration, test suite, CI, release, or measured capability profile.
 

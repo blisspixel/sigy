@@ -1,6 +1,6 @@
 # Language and stack research
 
-Reviewed: 2026-09-20. Status: evidence for a future decision. Rust and Go are candidates; neither is selected. Python is excluded by product direction.
+Reviewed: 2026-09-20. Status: original evidence used for the subsequent [Rust foundation decision](../docs/decisions/0001-rust-foundation.md). The comparison below predates that decision. Python is excluded by product direction.
 
 ## Rust evidence
 

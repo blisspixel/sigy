@@ -1,6 +1,6 @@
 # Repository structure and engineering evidence
 
-Reviewed: 2026-09-20. Status: primary-source review and proposed engineering implications. No stack, toolchain, CI workflow, or Scorecard result is selected or validated.
+Reviewed: 2026-09-20. Status: primary-source review and engineering implications. The subsequent [foundation decision](../docs/decisions/0001-rust-foundation.md) selects the initial Rust workspace. CI and Scorecard qualification remain pending.
 
 ## Workspace conventions
 
