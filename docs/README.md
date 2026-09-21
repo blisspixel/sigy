@@ -10,6 +10,8 @@ Implemented boundaries are recorded in the [local controller](decisions/0002-loc
 
 Finite recording and its current limitations are covered by [recording and retention](decisions/0005-recording-and-retention.md). The [metadata contract](design/recording-metadata.md) separates shared envelopes from podcast, SDR, CB, LoRa and Meshtastic profiles.
 
+[Directory refresh and local search](decisions/0006-radio-discovery.md) records the first discovery adapter. The planned [broadcast analysis contract](design/broadcast-analysis.md) separates language shifts, candidate advertisements and song boundaries from source metadata and track identification.
+
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:
 
 1. [Product and experience](planning/01-product-and-experience.md)

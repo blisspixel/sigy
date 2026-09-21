@@ -57,3 +57,9 @@ All modes share service operations and CLI parity, keyboard navigation, plain te
 Receiver location is optional and private by default. A nearby licensed transmitter and matching frequency suggest a candidate identity, not reception proof. Store the geographic basis and match evidence. Unusual signals can be bookmarked and reprocessed within retention limits; do not imply that arbitrary mathematics, encryption or unknown protocols can always be solved.
 
 The initial hardware implementation exposes reception only, not a disabled transmit button that a theme or model can activate. Any later transmit proposal needs a separate capability and authorization design covering jurisdiction, band, device certification, power and emission limits. An acknowledgment or license checkbox is not a substitute for these constraints.
+
+### Candidate receive-only experiments
+
+Plan time-code inspection, weather-image reception, satellite/balloon telemetry, own-device sensor decoding and radio-astronomy measurements as optional laboratory profiles. They need explicit antennas/front-end settings, sample and decoder contracts, bounded collection, provenance and independent acceptance evidence. A decoded image, timed symbol stream, packet and calibrated spectrum are different artifact types. Recorded or synthetic fixtures can support learning before hardware is connected.
+
+Device marketing does not qualify these profiles. Nominal sample rate differs from measured usable bandwidth; sample word width differs from effective resolution. Oscillator stability does not establish timestamp accuracy, phase coherence, direction finding or calibrated power. Recheck satellite availability and regional conditions before shipping presets. Do not require new hardware purchases, paid services or transmission for the initial software workflow.

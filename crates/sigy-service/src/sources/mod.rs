@@ -123,6 +123,6 @@ fn literal_address(url: &Url) -> Option<IpAddr> {
         .ok()
 }
 
-fn unsafe_display(character: char) -> bool {
+pub(crate) fn unsafe_display(character: char) -> bool {
     character.is_control() || matches!(character, '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }

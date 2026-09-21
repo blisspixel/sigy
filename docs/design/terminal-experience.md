@@ -55,6 +55,8 @@ Expose selection, audible playback, recording, queued analysis, and monitor memb
 
 The timeline identifies retained audio, unavailable intervals, bookmarks, and processing coverage. Pausing playback does not pause capture. A playhead that expires receives a clear choice of retained audio or live playback. Caption mode identifies whether text follows the playhead or incoming content. Side-by-side original/translation is a wide-layout option; compact mode switches between both without losing alignment.
 
+As detectors become available, aligned tracks show language changes, candidate ads and song boundaries with uncertainty and revisions. Speech and music can overlap; an unresolved song still has an inspectable interval. Follow the [broadcast analysis contract](broadcast-analysis.md), keeping these planned views distinct from currently implemented behavior.
+
 When disconnected, mark the snapshot's age and last confirmed state. Disable commands that cannot be safely submitted. Reconnect retrieves fresh state before accepting dependent actions. Preserve local editing, but never silently replay a start, deletion, or paid-processing request. A retryable operation needs service-defined idempotency, not a UI guess.
 
 ## Localization, accessibility, and terminal safety

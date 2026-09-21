@@ -14,6 +14,8 @@ Curiosity and play are part of the product. Discovering unfamiliar music, inspec
 
 Receiver personalities such as a CB channel scanner, AM/FM dial and shortwave or spectrum desk should make unfamiliar signals approachable. They share source, capture and interpretation contracts rather than becoming separate applications. Temporary capture for local analysis is a normal workflow; keeping a permanent recording is optional.
 
+Broadcasts change within a session. Detect language shifts, candidate advertisements and new-song boundaries on their own timelines, preserving overlaps and uncertainty. A song can start before its identity is known. Directory metadata never substitutes for listening to the content. See the [broadcast analysis contract](docs/design/broadcast-analysis.md).
+
 ## Breadth and approachability
 
 The ambition is to cover most everyday signal workflows in one coherent application: discover, listen or inspect, capture, decode, translate, search, compare, monitor, and explain findings. The informal "90%" aspiration expresses that breadth. Coverage will be judged against a documented set of representative tasks, source types, and supported profiles before any numerical claim is made.

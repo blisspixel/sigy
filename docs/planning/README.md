@@ -66,6 +66,7 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-37 | Users can trace findings to retained evidence, correct scoped observations or interpretations, inspect affected results and revision history, and understand monitor decisions and coverage. Exploration should teach how results were obtained and what remains unresolved. |
 | C-38 | Recording metadata and sidecars use a consistent versioned envelope with extensible typed profiles for internet radio, podcasts, SDR/IQ, LoRa, Meshtastic and other signals. Preserve frequency/time context where known without assuming every observation is audio. |
 | C-39 | Later receive-only RF exploration includes supported bands such as CB, tuning/scanning and signal-finding tools. Device capabilities, measured coverage and regional rules govern available profiles. |
+| C-40 | Broadcast analysis detects language shifts, candidate advertisements and new-song boundaries within one station. Preserve mixed/overlapping content and uncertainty; song boundaries do not require successful title identification. |
 
 ## Reading the status labels
 

@@ -9,6 +9,8 @@ use sigy_service::{domain::money::Usd, library::Library, storage::ledger::Reques
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 mod common;
+#[path = "support/directory_fixtures.rs"]
+mod directory_fixtures;
 #[path = "support/recording_fixtures.rs"]
 mod recording_fixtures;
 

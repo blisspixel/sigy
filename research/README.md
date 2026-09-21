@@ -32,6 +32,7 @@ This folder records primary-source findings, design implications, competing appr
 | Language, mathematical and unfamiliar signal interpretation | [24. Universal interpretation](24-universal-interpretation.md) |
 | Source authority, HTTP/TLS dependencies, destination policy and finite transfer | [25. HTTP acquisition](25-http-acquisition.md) |
 | Recording validation, rolling retention, catalog/feed evidence and RF metadata | [26. Recording, discovery and RF](26-recording-discovery-and-rf.md) |
+| Radio Browser mirrors, bounded cache refresh, offline search and provenance | [27. Radio directory integration](27-radio-directory.md) |
 
 ## Evidence discipline
 

@@ -27,6 +27,7 @@ pub async fn run(mut library: Library, shutdown: impl Future<Output = ()>) -> Re
     let directory = endpoint::directory(library.directory())?;
     while library.store_mut().recover_submitted()? != 0 {}
     while library.store_mut().recover_captures()? != 0 {}
+    library.store_mut().recover_directory_refreshes()?;
     crate::recordings::recover_deletions(&mut library)?;
     let endpoint = Endpoint::new()?;
     let listener = endpoint.listen(&directory)?;

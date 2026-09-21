@@ -1,6 +1,7 @@
 //! Versioned, bounded local control. The catalog actor owns all durable mutations.
 
 mod actor;
+mod discovery;
 mod dvr;
 mod endpoint;
 mod frame;
@@ -15,10 +16,11 @@ use crate::{
     storage::{Store, sources::SourceRevision},
 };
 
+pub use discovery::{DirectoryOperation, StationPage};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -44,6 +46,9 @@ impl Request {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    Radio {
+        command: DirectoryOperation,
+    },
     Dvr {
         command: DvrOperation,
     },
@@ -74,6 +79,7 @@ pub enum Operation {
 impl std::fmt::Debug for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let kind = match self {
+            Self::Radio { .. } => "radio",
             Self::Dvr { .. } => "dvr",
             Self::Record { .. } => "record",
             Self::Status {} => "status",
@@ -126,6 +132,9 @@ pub struct ServiceView {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Snapshot {
+    pub directory: Option<crate::storage::discovery::DirectoryStatus>,
+    pub directory_refresh: Option<crate::storage::discovery::RefreshStatus>,
+    pub station_page: Option<StationPage>,
     pub schema_version: u32,
     pub sqlite_version: String,
     pub provider_dispatch_available: bool,
@@ -188,6 +197,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
     let mut dvr_status = None;
     let mut recording_metadata = None;
     let source_page = match operation {
+        Operation::Radio { command } => return discovery::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
                 recording_metadata = Some(crate::recordings::metadata::export(
@@ -287,6 +297,9 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         .collect();
     let captures = store.capture_counts()?;
     Ok(Snapshot {
+        directory: None,
+        directory_refresh: None,
+        station_page: None,
         schema_version: crate::storage::SCHEMA_VERSION,
         sqlite_version: store.sqlite_version()?,
         provider_dispatch_available: false,

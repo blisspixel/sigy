@@ -72,6 +72,7 @@ All detailed requirements below are proposed refinements of confirmed product co
 | R-54 | C-03, C-31 | Recording reservations are atomic, replay cannot dispatch twice, and age/quota cleanup protects kept/archive and active media | Concurrent reservations, 14-day expiry, pressure ordering, process kill with partial bytes, protected-full quota and interrupted deletion fixtures |
 | R-55 | C-19, C-38 | Versioned recording exports preserve source/clock/payload lineage without inventing RF or language observations | Sidecar roundtrip, byte/hash evidence, missing/deleted media, typed-profile compatibility and future SigMF interoperability |
 | R-56 | C-06, C-39 | RF detections distinguish measured activity, candidate identities and decoded content within actual device capabilities | Device/region profile validation, scan gaps, ambiguous station matches, numeric units, disconnect and tuner-conflict tests |
+| R-57 | C-17, C-18, C-40 | Separate revisable timelines represent language shifts, candidate ads and song boundaries without forcing one label onto overlapping content | Code switching, unknown languages, false ads, jingles, crossfades, DJ speech, metadata drift, provisional boundary corrections, deduplicated plays and expired evidence |
 
 ## 3. Capacity profiles
 

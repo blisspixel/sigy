@@ -1,5 +1,6 @@
 //! Finite HTTP transport only. Received bytes are not verified media or a recording.
 
+mod documents;
 mod resolver;
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
@@ -140,6 +141,7 @@ impl HttpAcquirer {
         source: &HttpSource,
         limits: AcquisitionLimits,
         deadline: Instant,
+        accept: &'static str,
     ) -> Result<reqwest::Response> {
         // Platform verification can retrieve certificate-supplied AIA/OCSP URLs
         // outside the source policy. Use offline WebPKI with explicit roots.
@@ -170,10 +172,7 @@ impl HttpAcquirer {
             .map_err(|_| Error::Acquisition("HTTP client initialization"))?;
         let request = client
             .get(source.url.clone())
-            .header(
-                header::ACCEPT,
-                "audio/mpeg, audio/aac, audio/flac, audio/ogg, audio/wav, application/ogg",
-            )
+            .header(header::ACCEPT, accept)
             .header(header::ACCEPT_ENCODING, "identity")
             .header("icy-metadata", "0")
             .send();
@@ -206,7 +205,14 @@ impl HttpAcquirer {
         deadline: Instant,
         mut stop: Option<&mut tokio::sync::watch::Receiver<bool>>,
     ) -> Result<TransferReceipt> {
-        let mut response = self.open(source, limits, deadline).await?;
+        let mut response = self
+            .open(
+                source,
+                limits,
+                deadline,
+                "audio/mpeg, audio/aac, audio/flac, audio/ogg, audio/wav, application/ogg",
+            )
+            .await?;
         let peer = response.remote_addr().ok_or(Error::DestinationDenied)?;
         let declared_content_type = validate_headers(response.headers())?;
         let mut bytes = 0;

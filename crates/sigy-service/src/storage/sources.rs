@@ -30,42 +30,12 @@ impl Store {
     /// # Errors
     /// Rejects malformed keys, conflicting replays, full catalogs or write errors.
     pub fn register_source(&mut self, id: &str, source: &HttpSource) -> Result<SourceAdmission> {
-        validate_key(id, "source revision ID")?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(revision) = read_source(&tx, id)? {
-            if revision.source != *source {
-                return Err(Error::IdempotencyConflict);
-            }
-            return Ok(SourceAdmission {
-                revision,
-                newly_created: false,
-            });
-        }
-        let count: u32 = tx.query_row("SELECT count(*) FROM source_revisions", [], |row| {
-            row.get(0)
-        })?;
-        if count >= MAX_SOURCE_REVISIONS {
-            return Err(Error::SourceCapacity);
-        }
-        let (scope, address) = match source.network() {
-            NetworkScope::PublicInternet {} => ("public_internet", None),
-            NetworkScope::PinnedAddress { address } => {
-                ("pinned_address", Some(address.to_string()))
-            }
-        };
-        let created_ms = now_ms()?;
-        tx.execute("INSERT INTO source_revisions(id, kind, name, endpoint, network_scope, pinned_address, created_ms) VALUES (?1, 'http_audio', ?2, ?3, ?4, ?5, ?6)", params![id, source.name(), source.endpoint(), scope, address, created_ms])?;
+        let admission = register_source_in(&tx, id, source)?;
         tx.commit()?;
-        Ok(SourceAdmission {
-            revision: SourceRevision {
-                id: id.into(),
-                source: source.clone(),
-                created_ms,
-            },
-            newly_created: true,
-        })
+        Ok(admission)
     }
 
     /// # Errors
@@ -109,6 +79,43 @@ impl Store {
         }
         Ok(())
     }
+}
+
+pub(super) fn register_source_in(
+    tx: &rusqlite::Connection,
+    id: &str,
+    source: &HttpSource,
+) -> Result<SourceAdmission> {
+    validate_key(id, "source revision ID")?;
+    if let Some(revision) = read_source(tx, id)? {
+        if revision.source != *source {
+            return Err(Error::IdempotencyConflict);
+        }
+        return Ok(SourceAdmission {
+            revision,
+            newly_created: false,
+        });
+    }
+    let count: u32 = tx.query_row("SELECT count(*) FROM source_revisions", [], |row| {
+        row.get(0)
+    })?;
+    if count >= MAX_SOURCE_REVISIONS {
+        return Err(Error::SourceCapacity);
+    }
+    let (scope, address) = match source.network() {
+        NetworkScope::PublicInternet {} => ("public_internet", None),
+        NetworkScope::PinnedAddress { address } => ("pinned_address", Some(address.to_string())),
+    };
+    let created_ms = now_ms()?;
+    tx.execute("INSERT INTO source_revisions(id, kind, name, endpoint, network_scope, pinned_address, created_ms) VALUES (?1, 'http_audio', ?2, ?3, ?4, ?5, ?6)", params![id, source.name(), source.endpoint(), scope, address, created_ms])?;
+    Ok(SourceAdmission {
+        revision: SourceRevision {
+            id: id.into(),
+            source: source.clone(),
+            created_ms,
+        },
+        newly_created: true,
+    })
 }
 
 fn read_source(connection: &rusqlite::Connection, id: &str) -> Result<Option<SourceRevision>> {

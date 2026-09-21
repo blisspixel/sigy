@@ -6,7 +6,7 @@ A CLI and TUI platform in development for discovering signals, recording them, u
 
 The planned complete CLI supports operation and automation. The optional TUI will add searchable, refreshable station catalogs, a rotatable terminal globe and day/night world map, source/activity visualizers, and DVR-style pause, rewind, scheduled recording, and replay within retained audio.
 
-**Status: early Rust implementation. Finite service-owned audio recording, decoder validation, metadata export and rolling storage policy now work through the CLI with local Windows tests. Station discovery, podcast subscriptions, integrated playback, TUI and model processing remain to build.**
+**Status: early Rust implementation. Radio Browser refresh and cached search, finite service-owned audio recording, decoder validation, metadata export and rolling storage policy work through the CLI. Local Windows tests and a live directory check support this increment. Podcast subscriptions, integrated playback, TUI and model processing remain to build.**
 
 Sigy is a working name. Naming research remains open; no replacement has been selected. See [implementation progress](docs/development/progress.md), the [foundation decision](docs/decisions/0001-rust-foundation.md), and the [planning checkpoint](docs/planning/05-delivery-and-decisions.md#8-current-checkpoint-2026-09-20).
 
@@ -44,6 +44,24 @@ Replace `PATH_TO_LIBRARY` with a dedicated private directory outside the checkou
 The example source is a placeholder. Registration stores configuration without contacting the station. Reusing a revision key cannot change its URL, name or network permission. Public-internet access is the default; `--pin-address` explicitly binds a revision to one supported IP, including a private or loopback address. Lists are paginated with `--limit` and `--after`. Displayed origins omit paths and queries; full URLs remain in the private catalog in plaintext. Do not put access credentials in source URLs. See [source authority and transport](docs/decisions/0004-source-authority-and-http.md).
 
 The capture journal records intent, revisions and worker generations and marks abandoned active attempts interrupted on startup. Recording is opt-in through the running service. Provider/model dispatch remains unavailable. Amounts in JSON are exact decimal USD strings. Windows x86_64 is locally tested; Linux/macOS native validation and release packaging remain pending.
+
+## Find radio stations
+
+Start the service using the commands above, then request a directory page:
+
+```text
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio refresh french-news-001 --language french --tag news --limit 100
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio refresh-status french-news-001
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio search --language french --tag news
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio show STATION_UUID
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio add STATION_UUID --revision selected:v1
+```
+
+Wait for refresh status to become completed, then replace `STATION_UUID` with an ID from search. Search supports `--name`, `--country`, `--language`, `--tag`, `--healthy` and pagination. It works offline against the partial local cache. Refresh uses the network only when requested; choose a new refresh ID to fetch again. Mirror discovery, timeouts, response sizes and cache growth are bounded. Refresh and registration do not contact station streams, play audio or run analysis.
+
+Observation age and directory health are shown separately from actual stream compatibility. Directory languages are hints, not detected speech. A station can change languages, programmes, ads and songs; the [broadcast analysis contract](docs/design/broadcast-analysis.md) plans separate revisable timelines for those changes. No such detectors are implemented yet.
+
+`radio add` preserves a metadata snapshot and registers the chosen public stream as an immutable source. Use `selected:v1` with `record start --source` below. Some catalog entries use redirects, playlists or HLS that the initial recorder cannot handle. This is a bounded discovery increment, not a complete radio player. See [directory behavior and limits](docs/decisions/0006-radio-discovery.md).
 
 ## Record and manage audio
 

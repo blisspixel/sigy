@@ -7,11 +7,12 @@ use rusqlite::{Connection, TransactionBehavior};
 use crate::{Error, Result};
 
 pub mod captures;
+pub mod discovery;
 pub mod dvr;
 pub mod ledger;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -75,6 +76,9 @@ impl Store {
         }
         if (0..=3).contains(&version) {
             transaction.execute_batch(include_str!("004-dvr.sql"))?;
+        }
+        if (0..=4).contains(&version) {
+            transaction.execute_batch(include_str!("005-discovery.sql"))?;
         } else if version != i64::from(SCHEMA_VERSION) {
             return Err(Error::FutureSchema {
                 found: version,
@@ -95,6 +99,7 @@ impl Store {
         store.audit_captures()?;
         store.audit_sources()?;
         store.audit_dvr()?;
+        store.audit_discovery()?;
         Ok(store)
     }
 

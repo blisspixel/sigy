@@ -50,7 +50,7 @@ pub enum Error {
     StorageQuota,
     #[error("DVR storage integrity check failed; preserve the library for recovery")]
     StorageIntegrity,
-    #[error("recording requires the persistent service; run service start first")]
+    #[error("this operation requires the persistent service; run service start first")]
     ServiceRequired,
     #[error("source destination is not authorized by its network policy")]
     DestinationDenied,

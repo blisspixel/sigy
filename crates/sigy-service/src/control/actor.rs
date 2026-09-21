@@ -9,7 +9,13 @@ use crate::{
 use std::{collections::HashMap, thread, time::Instant};
 use tokio::sync::{mpsc, oneshot, watch};
 
+mod discovery;
+
 pub(super) enum Message {
+    DirectoryFinished {
+        id: String,
+        result: Result<crate::discovery::RefreshBatch>,
+    },
     Sweep,
     Request {
         operation: Operation,
@@ -44,12 +50,21 @@ struct Actor {
     runtime: tokio::runtime::Handle,
     sender: mpsc::WeakSender<Message>,
     workers: HashMap<String, Worker>,
+    directory_worker: Option<Worker>,
     acquirer: HttpAcquirer,
 }
 
 impl Actor {
     fn apply(&mut self, operation: Operation) -> Result<Snapshot> {
         let operation = match operation {
+            Operation::Radio {
+                command: super::DirectoryOperation::Refresh { id, request },
+            } => {
+                self.start_directory(&id, request)?;
+                Operation::Radio {
+                    command: super::DirectoryOperation::RefreshStatus { id },
+                }
+            }
             Operation::Record {
                 command:
                     RecordingOperation::Start {
@@ -137,32 +152,47 @@ impl Actor {
             }
         };
         let generation = job.version.generation();
-        let sender = self.sender.upgrade().ok_or(Error::ServiceStopped)?;
         let acquirer = self.acquirer.clone();
+        let worker_id = id.to_owned();
+        let worker = self.spawn_worker(
+            move |signal| {
+                recordings::capture(directory, key, source, limits, decoder, acquirer, signal)
+            },
+            move |result| Message::Finished {
+                id: worker_id,
+                generation,
+                result,
+            },
+        )?;
+        self.workers.insert(id.into(), worker);
+        Ok(())
+    }
+
+    fn spawn_worker<T, F>(
+        &self,
+        work: impl FnOnce(watch::Receiver<bool>) -> F + Send + 'static,
+        finished: impl FnOnce(Result<T>) -> Message + Send + 'static,
+    ) -> Result<Worker>
+    where
+        T: Send + 'static,
+        F: std::future::Future<Output = Result<T>> + Send + 'static,
+    {
+        let sender = self.sender.upgrade().ok_or(Error::ServiceStopped)?;
         let (stop, signal) = watch::channel(false);
         let ownership = self.library.hold_ownership();
-        let worker_id = id.to_owned();
-        let runtime = self.runtime.clone();
+        let inner = self.runtime.spawn(async move {
+            let _ownership = ownership;
+            work(signal).await
+        });
         let task = self.runtime.spawn(async move {
-            let inner = runtime.spawn(async move {
-                let _ownership = ownership;
-                recordings::capture(directory, key, source, limits, decoder, acquirer, signal).await
-            });
             let guard = AbortTask(inner.abort_handle());
             let result = inner
                 .await
-                .unwrap_or(Err(Error::Acquisition("recording worker failed")));
+                .unwrap_or(Err(Error::Acquisition("service worker failed")));
             drop(guard);
-            let _ = sender
-                .send(Message::Finished {
-                    id: worker_id,
-                    generation,
-                    result,
-                })
-                .await;
+            let _ = sender.send(finished(result)).await;
         });
-        self.workers.insert(id.into(), Worker { stop, task });
-        Ok(())
+        Ok(Worker { stop, task })
     }
 
     fn reclaim(&mut self, requested: u64) -> Result<()> {
@@ -208,6 +238,9 @@ impl Actor {
     }
 
     fn stop(&self) {
+        if let Some(worker) = &self.directory_worker {
+            worker.stop.send_replace(true);
+        }
         for worker in self.workers.values() {
             worker.stop.send_replace(true);
         }
@@ -224,6 +257,7 @@ pub(super) fn spawn(
         runtime: tokio::runtime::Handle::current(),
         sender: sender.downgrade(),
         workers: HashMap::new(),
+        directory_worker: None,
         acquirer: HttpAcquirer::default(),
     };
     let thread = thread::Builder::new()
@@ -234,6 +268,13 @@ pub(super) fn spawn(
             let mut shutdown = false;
             while let Some(message) = receiver.blocking_recv() {
                 match message {
+                    Message::DirectoryFinished { id, result } => {
+                        if actor.finish_directory(&id, result).is_err() {
+                            stopped = true;
+                            actor.stop();
+                            stopping.send_replace(true);
+                        }
+                    }
                     Message::Sweep => {
                         if !stopped && recordings::prune(&mut actor.library).is_err() {
                             stopped = true;
@@ -286,7 +327,7 @@ pub(super) fn spawn(
                         });
                     }
                 }
-                if shutdown && actor.workers.is_empty() {
+                if shutdown && actor.workers.is_empty() && actor.directory_worker.is_none() {
                     break;
                 }
             }

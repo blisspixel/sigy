@@ -12,6 +12,7 @@ use sigy_service::{
 };
 
 mod dvr;
+mod radio;
 mod service;
 mod sources;
 
@@ -30,6 +31,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Discover internet stations and search the local directory cache.
+    Radio {
+        #[command(subcommand)]
+        command: radio::RadioCommand,
+    },
     /// Record direct audio streams and manage retained media.
     Record {
         #[command(subcommand)]
@@ -104,6 +110,8 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         }
     } else if let Command::Source { command } = &cli.command {
         command.operation()
+    } else if let Command::Radio { command } = &cli.command {
+        command.operation()
     } else if let Command::Record { command } = &cli.command {
         command.operation()?
     } else if let Command::Dvr { command } = &cli.command {
@@ -165,6 +173,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         dvr::render_records(&mut stdout, &page)?;
     } else if let Some(page) = view.source_page {
         sources::render(&mut stdout, page)?;
+    } else if view.directory.is_some() {
+        radio::render(&mut stdout, &view)?;
     } else {
         if let Some(service) = view.service {
             writeln!(

@@ -1,0 +1,19 @@
+# Radio directory integration
+
+Reviewed: 2026-09-21. Implementation decisions, not broad radio interoperability claims.
+
+Radio Browser documents DNS/SRV mirror discovery, a descriptive user agent, stable station UUIDs and country codes. Its station search supports bounded results, offsets and filters; mirrors represent the same underlying catalog. The provider requests click reporting, which is a state-changing action. This increment reads metadata only and neither plays streams nor submits clicks or votes. Resolve listening telemetry before adding integrated playback. [API discovery](https://api.radio-browser.info/), [API fields and search](https://docs.radio-browser.info/).
+
+The adapter uses SRV discovery and at most two validated HTTPS mirror attempts with a total deadline. An explicitly configured mirror is supported for self-hosted catalogs and local tests. Its exact-IP grant applies only to the mirror; returned station entries cannot acquire local-network permission. Redirects, automatic proxies, decompression and hidden retries remain disabled through the existing HTTP boundary.
+
+Directory JSON uses the existing Serde dependency with a bounded array visitor. Rows are validated independently; rejected rows are counted. Duplicate identities and incomplete/malformed page structure fail the refresh. Body size, page size, metadata sizes, refresh history and cache size are finite. Streaming array validation avoids constructing an arbitrarily large array before enforcing the row limit. Serde JSON 1.0.151's `raw_value` feature borrows each row from the bounded body before typed parsing, avoiding a generic value tree for unknown fields. No new package is added. [RawValue API](https://docs.rs/serde_json/1.0.151/serde_json/value/struct.RawValue.html).
+
+A live metadata smoke check exposed an empty-filter edge case: sending empty country/language/tag parameters can narrow upstream matches. The adapter omits unused filters and only asks for exact language/tag matching when those filters are present. A local HTTP fixture verifies the request shape.
+
+Refreshes merge one explicitly requested page into the local cache in a single transaction. They do not claim a complete catalog snapshot or delete entries absent from a filtered page. A failed or interrupted refresh leaves previous observations available. Offset pages can drift while the upstream catalog changes; UUID upserts limit duplicates but cannot prove gap-free enumeration. Conditional requests and complete generation replacement remain future work if supported and qualified.
+
+Station language fields are publisher/directory declarations. They do not replace span-level language detection, identify song lyrics, or establish current availability. Display their provenance and observation time. Preserve Unicode names; the current search uses Unicode lowercase substring matching for names and exact normalized language/tag labels, not accent-insensitive or full linguistic collation. Country and language are independent filters.
+
+Hickory Resolver 0.26.3 is already selected. Its current generic lookup exposes answer records through `answers()` and typed SRV data; the downloaded stable source and compiler were checked. Both mirror discovery and endpoint resolution use the existing resolver policy and bounded DNS slots. [Resolver API](https://docs.rs/hickory-resolver/0.26.3/hickory_resolver/struct.Resolver.html).
+
+Station-to-source registration copies the validated public endpoint and preserves a directory metadata snapshot atomically. A later refresh cannot rewrite an existing source or its recordings. Complete directory export, favorites, provider reconciliation, podcast catalogs and geographically complete coverage are not established by this increment. The schema includes provider identity so subsequent adapters do not conflate provider-local IDs.

@@ -1,12 +1,14 @@
 # Analysis, knowledge, and multi-stream processing
 
-Last updated: 2026-09-20. Status: proposed design. The local-processing priority is confirmed; particular recognizers, classifiers, provider routes, and notebook implementation remain undecided.
+Last updated: 2026-09-21. Status: proposed design. The local-processing priority is confirmed; particular recognizers, classifiers, provider routes, and notebook implementation remain undecided.
 
 ## 1. Intended experience
 
 A user can record many stations, see which languages occur, prioritize a few live translations, and queue the rest for local processing. A monitor turns available transcripts into a developing account of a topic. Later, music analysis turns observed plays into weekly views of the monitored stations. The application remains useful with a paid API budget of zero.
 
 Local processing means no metered inference fee. Supported throughput depends on tested hardware and quality profiles. The interface distinguishes how much was captured, detected as speech/music, transcribed, translated, classified, identified, and included in a report. These are separate accomplishments.
+
+The [broadcast analysis contract](../design/broadcast-analysis.md) owns within-station language shifts, candidate advertisement labels and music boundaries. These are overlapping, revisable observations. Preserve unknowns and supporting intervals; neither a station's declared language nor a changing metadata title establishes the current content. A candidate ad cannot silently suppress transcription, topic evidence or retained audio.
 
 Podcasts, prioritized with internet radio before hardware, and later RSS/Atom text feeds reuse these stages and topic records. Finite episodes need media revisions and replay alignment; text entries need content revisions and passage anchors. Process new/changed evidence once where policies allow reuse, with fair queues and explicit backfill limits. Preserve source-specific time and coverage measures in combined insights. [Podcast/feed contracts](02-architecture-and-data.md#11-later-podcasts-and-feeds).
 
