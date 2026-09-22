@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-21",
+  "host": "Windows x86_64",
+  "terminal": "Windows Terminal 1.24.11911.0",
+  "requested_cols": 80,
+  "requested_rows": 24,
+  "observed_cols": 80,
+  "observed_rows": 24,
+  "font": "Consolas",
+  "backend": "termina",
+  "wt_session": true,
+  "reduced_motion": true,
+  "linear": true,
+  "monochrome": true,
+  "has_search": true,
+  "has_identity": true,
+  "has_playback": true,
+  "has_help": true,
+  "client": "sigy tui --inspect",
+  "library": "empty local catalog",
+  "audio_started": false
+}

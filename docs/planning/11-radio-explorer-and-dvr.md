@@ -1,6 +1,6 @@
 # Complete CLI, terminal explorer, and radio DVR
 
-Last updated: 2026-09-21. Status: proposed complete terminal experience. Bounded CLI directory refresh/search, favorites, finite recording and retention are implemented. Integrated playback, continuous DVR and the TUI described here remain planned; see [progress](../development/progress.md).
+Last updated: 2026-09-21. Status: the list explorer is implemented over the existing CLI operations. The globe, map, continuous DVR, and the rest of this terminal experience remain planned; see [progress](../development/progress.md).
 
 ## 1. Experience
 

@@ -1,6 +1,6 @@
 # Terminal experience contract
 
-Updated: 2026-09-21. Status: implementation target, not implemented UI. This refines [explorer and DVR](../planning/11-radio-explorer-and-dvr.md) using [current terminal research](../../research/22-modern-terminal-ux.md). Source, storage, and spending policy remain owned by the service.
+Updated: 2026-09-21. Status: the list explorer is implemented in [0016](../decisions/0016-list-explorer.md). The globe, map, captions, and visualizers in this contract are not. This refines [explorer and DVR](../planning/11-radio-explorer-and-dvr.md) using [current terminal research](../../research/22-modern-terminal-ux.md). Source, storage, and spending policy remain owned by the service.
 
 ## Product feel and hierarchy
 

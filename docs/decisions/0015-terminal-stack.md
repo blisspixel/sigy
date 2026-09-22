@@ -1,10 +1,10 @@
 # 0015: Termina is the terminal backend
 
-Date: 2026-09-21. Status: selected for the later list explorer. No terminal crate is in the application. The client still opens no second catalog.
+Date: 2026-09-21. Status: selected. The list explorer depends on this backend; see [0016](0016-list-explorer.md). The client still opens no second catalog.
 
 ## Decision
 
-When the list explorer is added, use Ratatui 0.30.2 with one backend: Termina 0.3.3. Do not also depend on Crossterm. This operation does not add that crate.
+When the list explorer is added, use Ratatui 0.30.2 with one backend: Termina 0.3.3. Do not also depend on Crossterm. This measurement does not add that crate. [The list explorer](0016-list-explorer.md) adds it later with the `termina` feature only.
 
 ## Measurement
 
@@ -29,4 +29,4 @@ Crossterm 0.29.0 recorded no paste event. On ConPTY, all three repeats finished 
 
 ## Limits
 
-The list explorer is not rendered. The globe, capture under a slow terminal, screen readers, and other operating systems were not measured. A hard kill still cannot restore modes. Operation 9 still has to build the explorer on this backend and inspect that client in Windows Terminal.
+This measurement did not render the product explorer. [Operation 9](0016-list-explorer.md) does that and records its own Windows Terminal inspection. The globe, capture under a slow terminal, screen readers, and other operating systems were not measured here. A hard kill still cannot restore modes.

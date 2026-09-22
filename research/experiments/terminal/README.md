@@ -11,3 +11,5 @@ cargo run --release --manifest-path research/experiments/terminal/Cargo.toml -- 
 ```
 
 `--only conpty` or `--only hosted` repeats one host. The command exits 0 after writing the report. Individual candidate checks can fail; the JSON `pass` field records that.
+
+`font REPORT` writes the current console font face and whether `WT_SESSION` is set. The list explorer inspection on the same day is [2026-09-21-explorer.json](results/2026-09-21-explorer.json).

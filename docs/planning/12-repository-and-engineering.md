@@ -65,14 +65,14 @@ Rust is the selected implementation language. The Go comparison remains historic
 | Responsibility | Leading candidate to evaluate | Boundary |
 | --- | --- | --- |
 | Application, service, CLI/TUI | Rust | One application language; Python excluded |
-| Terminal rendering/input | Ratatui 0.30.2 with Termina 0.3.3, selected in [terminal stack](../decisions/0015-terminal-stack.md); not yet a dependency | Presentation consumes service projections |
+| Terminal rendering/input | Ratatui 0.30.2 with Termina 0.3.3, selected in [terminal stack](../decisions/0015-terminal-stack.md) and used by the [list explorer](../decisions/0016-list-explorer.md) | Presentation consumes service projections |
 | CLI parsing | clap | Reuse commands and validation across interactive/noninteractive use |
 | Async I/O and supervision | Tokio | One runtime policy; CPU-heavy inference does not block control or capture |
 | Catalog and durable metadata | SQLite | One embedded transactional store; binding and search approach unresolved |
 | Media and speech | User-installed FFmpeg for the current decoder and retained-file player; speech engines remain unevaluated | FFmpeg is not a Cargo dependency and is not downloaded by Sigy. Replacing it requires a measured decision |
 | Text/model access | Typed adapters over one shared HTTP mechanism | Ollama and OpenRouter targets; no mandatory provider SDK or agent framework |
 
-These are candidates, not dependencies to add today. Choose exact stable versions, enabled features, supported targets, and replacement policies at G4/G5 after measurements. Rust itself does not guarantee a smaller dependency graph than Go. Count and inspect the assembled product, including codecs, drivers, native binaries, accelerator libraries, certificates, and model files.
+These are candidates, not dependencies to add today, except the terminal row: the list explorer depends on the selected Ratatui and Termina versions. Choose exact stable versions, enabled features, supported targets, and replacement policies at G4/G5 after measurements. Rust itself does not guarantee a smaller dependency graph than Go. Count and inspect the assembled product, including codecs, drivers, native binaries, accelerator libraries, certificates, and model files.
 
 No server database, distributed message broker, web frontend runtime, vector database, or general plugin marketplace is currently justified as a mandatory foundation. Introduce one only for a demonstrated requirement. Existing mature implementations are preferable to writing TLS, cryptography, media codecs, or standards-heavy parsers for the sake of a smaller manifest.
 

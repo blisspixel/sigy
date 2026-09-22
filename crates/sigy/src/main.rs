@@ -12,6 +12,7 @@ use sigy_service::{
 };
 
 mod dvr;
+mod explorer;
 mod listen;
 mod radio;
 mod service;
@@ -71,6 +72,21 @@ enum Command {
     Listen {
         #[command(subcommand)]
         command: listen::ListenCommand,
+    },
+    /// Open the list explorer. Selection does not start audio, capture, refresh, or a click.
+    Tui {
+        /// Freeze decorative motion. No animation is drawn in this explorer.
+        #[arg(long)]
+        reduced_motion: bool,
+        /// Use one reading order with explicit text labels.
+        #[arg(long)]
+        linear: bool,
+        /// Draw without color. `NO_COLOR` also selects this.
+        #[arg(long)]
+        monochrome: bool,
+        /// Draw one frame, write a JSON size report, and exit. Does not stop the service.
+        #[arg(long)]
+        inspect: Option<PathBuf>,
     },
 }
 
@@ -137,6 +153,9 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
 async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if let Command::Listen { command } = &cli.command {
         return listen::execute(&cli.data_dir, command, cli.json).await;
+    }
+    if matches!(cli.command, Command::Tui { .. }) {
+        return Err("the list explorer starts before the service runtime".into());
     }
     let Some(view) = execute(cli).await? else {
         return Ok(());
@@ -245,6 +264,19 @@ fn render_status(stdout: &mut impl Write, view: &Snapshot) -> io::Result<()> {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        if let Command::Tui {
+            reduced_motion,
+            linear,
+            monochrome,
+            inspect,
+        } = &cli.command
+        {
+            return explorer::run(
+                &cli.data_dir,
+                explorer::Modes::resolve(*reduced_motion, *linear, *monochrome),
+                inspect.as_deref(),
+            );
+        }
         #[cfg(unix)]
         service::detach_if_requested(&cli.command)?;
         let runtime = tokio::runtime::Builder::new_multi_thread()

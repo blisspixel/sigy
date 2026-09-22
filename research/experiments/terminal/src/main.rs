@@ -30,6 +30,18 @@ fn dispatch() -> Result<ExitCode, Box<dyn Error + Send + Sync>> {
             probe::run(args)?;
             Ok(ExitCode::SUCCESS)
         }
+        Some(command) if command == "font" => {
+            let path = args.next().ok_or("font requires a report path")?;
+            let face = modes::font_face().unwrap_or_default();
+            let session = env::var_os("WT_SESSION").is_some();
+            let line = format!(
+                "{{\"font\":{},\"wt\":{}}}\n",
+                textutil::json_string(&face),
+                session
+            );
+            std::fs::write(path, line)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Some(command) if command == "measure" => {
             drive::run(args)?;
             Ok(ExitCode::SUCCESS)
