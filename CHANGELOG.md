@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Rewrote the README as a product introduction. It shows `sigy --help` and an empty list-explorer frame from this Windows host. Command detail lives in the usage guide.
+- Added `scripts/install.sh` and `scripts/install.ps1`. They install Rust 1.98.1 for the current user when `cargo` is missing, then install the `sigy` binary from this checkout. They do not install an operating-system service or download FFmpeg, and they are not the verification entry point.
+
 - Added a Rust workspace with a dependency-free domain core, transactional service storage, and an initial maintenance CLI.
 - Added exact USD accounting, global and named lifetime budgets, atomic reservations, submission uncertainty, idempotent reconciliation, and billing-breach freezes. Provider dispatch remains unavailable.
 - Added exclusive library ownership, schema identity checks, SQLite migrations, and append-only ledger events.

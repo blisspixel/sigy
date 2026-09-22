@@ -4,7 +4,7 @@ Last updated: 2026-09-22
 
 Read [Intent](../INTENT.md) first, followed by the [Roadmap](../ROADMAP.md).
 
-Implementation has begun. Read [active work and evidence](development/progress.md) and the [Rust foundation decision](decisions/0001-rust-foundation.md) for current state. The planning chapters retain the broader product contract; they are not a list of shipped features.
+Implementation has begun. Read [active work and evidence](development/progress.md), the [usage guide](usage.md), and the [Rust foundation decision](decisions/0001-rust-foundation.md) for current state. The planning chapters retain the broader product contract; they are not a list of shipped features.
 
 Implemented boundaries are recorded in the [local controller](decisions/0002-local-controller.md), [capture journal](decisions/0003-capture-journal.md) and [source authority and HTTP transport](decisions/0004-source-authority-and-http.md) decisions. Focused implementation targets cover the [terminal experience](design/terminal-experience.md), [language coverage and localization](design/languages.md), and [universal signal interpretation](design/signal-interpretation.md).
 

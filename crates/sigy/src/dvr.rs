@@ -88,9 +88,7 @@ pub enum RecordCommand {
         icy: bool,
     },
     /// Finish the received portion of a running recording and validate it.
-    Stop {
-        id: String,
-    },
+    Stop { id: String },
     /// List recordings, including failed, interrupted, and deleted history.
     List {
         #[arg(long)]
@@ -98,29 +96,18 @@ pub enum RecordCommand {
         #[arg(long, default_value_t = 16)]
         limit: u32,
     },
-    Show {
-        id: String,
-    },
+    /// Inspect one recording, including history after the file is deleted.
+    Show { id: String },
     /// Print the verified recording's local path for a media player.
-    Path {
-        id: String,
-    },
+    Path { id: String },
     /// Export a versioned JSON sidecar snapshot to stdout, without URL paths or keys.
-    Metadata {
-        id: String,
-    },
+    Metadata { id: String },
     /// Protect a recording from automatic expiration and eviction.
-    Keep {
-        id: String,
-    },
+    Keep { id: String },
     /// Mark protected long-term retention in this library. This is not a backup.
-    Archive {
-        id: String,
-    },
+    Archive { id: String },
     /// Return media to the rolling age and capacity policy.
-    Temporary {
-        id: String,
-    },
+    Temporary { id: String },
     /// Acknowledge completed external processing; temporary media becomes reclaimable.
     Processed {
         id: String,
@@ -128,9 +115,7 @@ pub enum RecordCommand {
         receipt: String,
     },
     /// Explicitly remove inactive media, including kept/archived media. Keep its history.
-    Delete {
-        id: String,
-    },
+    Delete { id: String },
 }
 
 impl RecordCommand {
