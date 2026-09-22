@@ -2,6 +2,7 @@
 
 pub(crate) mod hls;
 pub mod http;
+pub(crate) mod icy;
 pub(crate) mod playlist;
 mod policy;
 mod redirects;

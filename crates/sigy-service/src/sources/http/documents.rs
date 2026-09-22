@@ -52,7 +52,13 @@ impl HttpAcquirer {
         let deadline = Instant::now() + limits.duration;
         timeout_at(deadline, async {
             let (mut response, _) = self
-                .open(source, limits, deadline, "application/json")
+                .open(
+                    source,
+                    limits,
+                    deadline,
+                    "application/json",
+                    crate::sources::icy::MetadataPolicy::Off,
+                )
                 .await?;
             for encoding in response
                 .headers()
@@ -135,7 +141,15 @@ impl HttpAcquirer {
         let limits = AcquisitionLimits::new(MAX_PLAYLIST_BYTES as u64, DOCUMENT_DEADLINE)?;
         let deadline = Instant::now() + limits.duration;
         timeout_at(deadline, async {
-            let (mut response, _) = self.open(source, limits, deadline, PLAYLIST_ACCEPT).await?;
+            let (mut response, _) = self
+                .open(
+                    source,
+                    limits,
+                    deadline,
+                    PLAYLIST_ACCEPT,
+                    crate::sources::icy::MetadataPolicy::Off,
+                )
+                .await?;
             let kind = playlist_kind(response.headers())?;
             if response
                 .content_length()

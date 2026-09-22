@@ -10,4 +10,4 @@ Accepting an index registers one new immutable `http_audio` revision and records
 
 The catalog and local IPC advance to v8. Stop older controllers before replacing the executable. Migration from v7 adds the playlist tables without changing source, recording, budget, or directory rows. Ordinary playlist views show origins only. Entry paths and queries remain in the private catalog. No dependency changes are needed.
 
-This operation does not play the accepted entry, fetch HLS media segments, split ICY metadata, or report a directory click. Finite HLS media recording is the separate `record hls` command in [HLS media playlists](0012-hls-media-playlist.md). ICY metadata remains a later build-order operation.
+This operation does not play the accepted entry, fetch HLS media segments, split ICY metadata, or report a directory click. Finite HLS media recording is the separate `record hls` command in [HLS media playlists](0012-hls-media-playlist.md). Explicit ICY observations are [0013](0013-icy-observations.md). Listen still rejects interleaved metadata.

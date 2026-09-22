@@ -16,6 +16,7 @@ use tokio::{
 
 use super::{
     HttpHop, HttpSource,
+    icy::{IcyObservation, IcySplitter, MetadataPolicy, interval_header},
     redirects::{MAX_REDIRECTS, is_redirect},
 };
 use crate::{Error, Result};
@@ -93,6 +94,7 @@ pub struct TransferReceipt {
     pub declared_content_type: AudioContentType,
     pub peer: SocketAddr,
     pub route: Vec<HttpHop>,
+    pub(crate) observations: Vec<IcyObservation>,
 }
 
 #[derive(Debug)]
@@ -101,6 +103,7 @@ struct Opened {
     route: Vec<HttpHop>,
     declared_content_type: AudioContentType,
     peer: SocketAddr,
+    interval: Option<u64>,
 }
 
 /// One admitted audio response. Dropping it releases the shared attempt slot.
@@ -157,7 +160,7 @@ impl HttpAcquirer {
         let deadline = Instant::now() + limits.duration;
         timeout_at(
             deadline,
-            self.transfer(source, limits, sink, deadline, None),
+            self.transfer(source, limits, sink, deadline, None, MetadataPolicy::Off),
         )
         .await
         .map_err(|_| Error::Acquisition("deadline reached; partial body is unverified"))?
@@ -174,6 +177,18 @@ impl HttpAcquirer {
         sink: &mut W,
         stop: &mut tokio::sync::watch::Receiver<bool>,
     ) -> Result<TransferReceipt> {
+        self.record_with(source, limits, sink, stop, MetadataPolicy::Off)
+            .await
+    }
+
+    pub(crate) async fn record_with<W: AsyncWrite + Unpin>(
+        &self,
+        source: &HttpSource,
+        limits: AcquisitionLimits,
+        sink: &mut W,
+        stop: &mut tokio::sync::watch::Receiver<bool>,
+        metadata: MetadataPolicy,
+    ) -> Result<TransferReceipt> {
         let _slot = self
             .attempts
             .try_acquire()
@@ -181,7 +196,7 @@ impl HttpAcquirer {
         let deadline = Instant::now() + limits.duration;
         timeout_at(
             deadline + Duration::from_secs(5),
-            self.transfer(source, limits, sink, deadline, Some(stop)),
+            self.transfer(source, limits, sink, deadline, Some(stop), metadata),
         )
         .await
         .map_err(|_| {
@@ -195,12 +210,15 @@ impl HttpAcquirer {
         limits: AcquisitionLimits,
         deadline: Instant,
         accept: &'static str,
+        metadata: MetadataPolicy,
     ) -> Result<(reqwest::Response, Vec<HttpHop>)> {
         let mut current = source.clone();
         let mut visited = vec![current.url.clone()];
         let mut route = Vec::new();
         loop {
-            let response = self.open_once(&current, limits, deadline, accept).await?;
+            let response = self
+                .open_once(&current, limits, deadline, accept, metadata)
+                .await?;
             route.push(HttpHop {
                 origin: current.origin(),
                 peer: response.remote_addr().ok_or(Error::DestinationDenied)?,
@@ -243,6 +261,7 @@ impl HttpAcquirer {
         limits: AcquisitionLimits,
         deadline: Instant,
         accept: &'static str,
+        metadata: MetadataPolicy,
     ) -> Result<reqwest::Response> {
         // Platform verification can retrieve certificate-supplied AIA/OCSP URLs
         // outside the source policy. Use offline WebPKI with explicit roots.
@@ -275,7 +294,13 @@ impl HttpAcquirer {
             .get(source.url.clone())
             .header(header::ACCEPT, accept)
             .header(header::ACCEPT_ENCODING, "identity")
-            .header("icy-metadata", "0")
+            .header(
+                "icy-metadata",
+                match metadata {
+                    MetadataPolicy::Off => "0",
+                    MetadataPolicy::Requested => "1",
+                },
+            )
             .send();
         let response = timeout_at(deadline, request)
             .await
@@ -307,7 +332,9 @@ impl HttpAcquirer {
             .map_err(|_| Error::Acquisition("capacity reached"))?;
         let deadline = Instant::now() + limits.duration;
         let mut signal = Some(stop);
-        let opened = self.begin(source, limits, deadline, &mut signal).await?;
+        let opened = self
+            .begin(source, limits, deadline, &mut signal, MetadataPolicy::Off)
+            .await?;
         Ok(AudioDownload {
             opened,
             limits,
@@ -347,8 +374,11 @@ impl HttpAcquirer {
         sink: &mut W,
         deadline: Instant,
         mut stop: Option<&mut tokio::sync::watch::Receiver<bool>>,
+        metadata: MetadataPolicy,
     ) -> Result<TransferReceipt> {
-        let opened = self.begin(source, limits, deadline, &mut stop).await?;
+        let opened = self
+            .begin(source, limits, deadline, &mut stop, metadata)
+            .await?;
         Self::pump(opened, limits, sink, deadline, &mut stop).await
     }
 
@@ -358,12 +388,14 @@ impl HttpAcquirer {
         limits: AcquisitionLimits,
         deadline: Instant,
         stop: &mut Option<&mut tokio::sync::watch::Receiver<bool>>,
+        metadata: MetadataPolicy,
     ) -> Result<Opened> {
         let connecting = self.open(
             source,
             limits,
             deadline,
             "audio/mpeg, audio/aac, audio/flac, audio/ogg, audio/wav, application/ogg",
+            metadata,
         );
         let (response, route) = if let Some(signal) = stop.as_mut() {
             tokio::select! {
@@ -378,11 +410,13 @@ impl HttpAcquirer {
         };
         let peer = response.remote_addr().ok_or(Error::DestinationDenied)?;
         let declared_content_type = validate_headers(response.headers())?;
+        let interval = icy_interval(response.headers(), metadata)?;
         Ok(Opened {
             response,
             route,
             declared_content_type,
             peer,
+            interval,
         })
     }
 
@@ -398,18 +432,18 @@ impl HttpAcquirer {
             route,
             declared_content_type,
             peer,
+            interval,
         } = opened;
-        let mut bytes = 0;
+        let mut carried = Carried {
+            bytes: 0,
+            declared_content_type,
+            peer,
+            route,
+            splitter: interval.map(IcySplitter::new).transpose()?,
+        };
         loop {
-            if bytes == limits.bytes {
-                sink.flush().await?;
-                return Ok(TransferReceipt {
-                    bytes,
-                    end: TransferEnd::ByteLimit,
-                    declared_content_type,
-                    peer,
-                    route,
-                });
+            if carried.bytes == limits.bytes {
+                return close_transfer(sink, carried, TransferEnd::ByteLimit, false).await;
             }
             let body = async {
                 response
@@ -421,9 +455,10 @@ impl HttpAcquirer {
                 let end = tokio::select! {
                     biased;
                     () = async { if !*stop.borrow() { let _ = stop.changed().await; } } => {
-                        if bytes == 0 { return Err(Error::Acquisition("stopped before receiving audio")); }
-                        sink.flush().await?;
-                        return Ok(TransferReceipt { bytes, end: TransferEnd::UserStop, declared_content_type, peer, route });
+                        if carried.bytes == 0 {
+                            return Err(Error::Acquisition("stopped before receiving audio"));
+                        }
+                        return close_transfer(sink, carried, TransferEnd::UserStop, false).await;
                     }
                     () = tokio::time::sleep_until(deadline) => None,
                     result = body => Some(result?),
@@ -431,42 +466,95 @@ impl HttpAcquirer {
                 if let Some(chunk) = end {
                     chunk
                 } else {
-                    if bytes == 0 {
+                    if carried.bytes == 0 {
                         return Err(Error::Acquisition("empty timed recording"));
                     }
-                    sink.flush().await?;
-                    return Ok(TransferReceipt {
-                        bytes,
-                        end: TransferEnd::DurationLimit,
-                        declared_content_type,
-                        peer,
-                        route,
-                    });
+                    return close_transfer(sink, carried, TransferEnd::DurationLimit, false).await;
                 }
             } else {
                 body.await?
             };
             let Some(chunk) = chunk else {
-                if bytes == 0 {
+                if carried.bytes == 0 {
                     return Err(Error::Acquisition("empty body"));
                 }
-                sink.flush().await?;
-                return Ok(TransferReceipt {
-                    bytes,
-                    end: TransferEnd::EndOfBody,
-                    declared_content_type,
-                    peer,
-                    route,
-                });
+                return close_transfer(sink, carried, TransferEnd::EndOfBody, true).await;
             };
-            let remaining = usize::try_from(limits.bytes - bytes)
+            let produced;
+            let audio = if let Some(splitter) = carried.splitter.as_mut() {
+                produced = splitter.push(&chunk)?;
+                produced.as_slice()
+            } else {
+                chunk.as_ref()
+            };
+            let room = usize::try_from(limits.bytes - carried.bytes)
                 .map_err(|_| Error::InvalidInput("body byte range"))?;
-            let accepted = chunk.len().min(remaining);
-            // No whole-body buffering, decompression or secondary URL fetching.
-            sink.write_all(&chunk[..accepted]).await?;
-            bytes += u64::try_from(accepted).map_err(|_| Error::InvalidInput("body byte range"))?;
+            let take = audio.len().min(room);
+            if take > 0 {
+                // Metadata bytes are not written and do not count toward the ceiling.
+                sink.write_all(&audio[..take]).await?;
+                carried.bytes +=
+                    u64::try_from(take).map_err(|_| Error::InvalidInput("body byte range"))?;
+            }
+            if take < audio.len() {
+                return close_transfer(sink, carried, TransferEnd::ByteLimit, false).await;
+            }
         }
     }
+}
+
+struct Carried {
+    bytes: u64,
+    declared_content_type: AudioContentType,
+    peer: SocketAddr,
+    route: Vec<HttpHop>,
+    splitter: Option<IcySplitter>,
+}
+
+async fn close_transfer<W: AsyncWrite + Unpin>(
+    sink: &mut W,
+    mut carried: Carried,
+    end: TransferEnd,
+    complete: bool,
+) -> Result<TransferReceipt> {
+    if complete && let Some(splitter) = carried.splitter.as_ref() {
+        splitter.finish()?;
+    }
+    if let Some(splitter) = carried.splitter.as_mut() {
+        splitter.retain_through(carried.bytes);
+    }
+    sink.flush().await?;
+    Ok(TransferReceipt {
+        bytes: carried.bytes,
+        end,
+        declared_content_type: carried.declared_content_type,
+        peer: carried.peer,
+        route: carried.route,
+        observations: carried
+            .splitter
+            .take()
+            .map(IcySplitter::into_observations)
+            .unwrap_or_default(),
+    })
+}
+
+fn icy_interval(headers: &header::HeaderMap, metadata: MetadataPolicy) -> Result<Option<u64>> {
+    let values = headers.get_all("icy-metaint");
+    let count = values.iter().count();
+    if count == 0 {
+        return Ok(None);
+    }
+    if metadata == MetadataPolicy::Off || count != 1 {
+        return Err(Error::Acquisition(
+            "interleaved ICY metadata is unsupported",
+        ));
+    }
+    let value = values
+        .iter()
+        .next()
+        .and_then(|item| item.to_str().ok())
+        .ok_or(Error::Acquisition("ICY metadata interval is invalid"))?;
+    Ok(Some(interval_header(value)?))
 }
 
 fn validate_headers(headers: &header::HeaderMap) -> Result<AudioContentType> {
@@ -475,11 +563,6 @@ fn validate_headers(headers: &header::HeaderMap) -> Result<AudioContentType> {
         if !value.as_bytes().eq_ignore_ascii_case(b"identity") {
             return Err(Error::Acquisition("encoded HTTP body is unsupported"));
         }
-    }
-    if headers.contains_key("icy-metaint") {
-        return Err(Error::Acquisition(
-            "interleaved ICY metadata is unsupported",
-        ));
     }
     if headers.get_all(header::CONTENT_TYPE).iter().count() != 1 {
         return Err(Error::Acquisition(

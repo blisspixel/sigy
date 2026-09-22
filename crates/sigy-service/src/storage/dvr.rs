@@ -88,6 +88,7 @@ pub(crate) struct Publication {
     pub decoded_microseconds: u64,
     pub end_reason: &'static str,
     pub http_route: Vec<crate::sources::HttpHop>,
+    pub observations: Vec<crate::sources::icy::IcyObservation>,
 }
 
 impl Store {
@@ -170,6 +171,7 @@ impl Store {
         seconds: u64,
         maximum: u64,
         retention: Retention,
+        metadata: bool,
     ) -> Result<Option<CaptureJob>> {
         validate_key(id, "recording ID")?;
         validate_key(source, "source revision")?;
@@ -181,11 +183,20 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let existing: Option<(String, u64, u64, String)> = tx.query_row(
-            "SELECT c.source_revision, r.duration_seconds, c.maximum_bytes, r.initial_retention FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1", [id],
-            |r| Ok((r.get(0)?, unsigned(r, 1)?, unsigned(r, 2)?, r.get(3)?))).optional()?;
+        let requested = i64::from(metadata);
+        let existing: Option<(String, u64, u64, String, i64)> = tx.query_row(
+            "SELECT c.source_revision, r.duration_seconds, c.maximum_bytes, r.initial_retention, r.metadata_requested FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1", [id],
+            |r| Ok((r.get(0)?, unsigned(r, 1)?, unsigned(r, 2)?, r.get(3)?, r.get(4)?))).optional()?;
         if let Some(parameters) = existing {
-            if parameters != (source.into(), seconds, maximum, retention.as_str().into()) {
+            if parameters
+                != (
+                    source.into(),
+                    seconds,
+                    maximum,
+                    retention.as_str().into(),
+                    requested,
+                )
+            {
                 return Err(Error::IdempotencyConflict);
             }
             return Ok(None);
@@ -245,7 +256,7 @@ impl Store {
         getrandom::fill(&mut random)
             .map_err(|_| Error::InvalidInput("secure random source unavailable"))?;
         let key = hex(&random);
-        tx.execute("INSERT INTO recordings(id, object_key, duration_seconds, initial_retention, retention, storage_state, charged_bytes) VALUES (?1, ?2, ?3, ?4, ?4, 'reserved', ?5)", params![id, key, i64::try_from(seconds).map_err(|_| Error::StorageIntegrity)?, retention.as_str(), plan.maximum_bytes()])?;
+        tx.execute("INSERT INTO recordings(id, object_key, duration_seconds, initial_retention, retention, storage_state, charged_bytes, metadata_requested) VALUES (?1, ?2, ?3, ?4, ?4, 'reserved', ?5, ?6)", params![id, key, i64::try_from(seconds).map_err(|_| Error::StorageIntegrity)?, retention.as_str(), plan.maximum_bytes(), i64::from(metadata)])?;
         let job = journal::transition(
             &tx,
             admission.job,
@@ -351,6 +362,20 @@ impl Store {
         if changed != 1 {
             return Err(Error::StorageIntegrity);
         }
+        let requested: i64 = tx.query_row(
+            "SELECT metadata_requested FROM recordings WHERE id = ?1",
+            [expected.id()],
+            |row| row.get(0),
+        )?;
+        if requested == 0 && !publication.observations.is_empty() {
+            return Err(Error::StorageIntegrity);
+        }
+        store_observations(
+            &tx,
+            expected.id(),
+            publication.bytes,
+            &publication.observations,
+        )?;
         let now = now_ms()?;
         let stopped = journal::transition(&tx, job, CaptureEvent::Stop, "media_received", now)?;
         journal::transition(
@@ -513,6 +538,69 @@ impl Store {
         }
         Ok(())
     }
+
+    /// Ordered untrusted ICY text. An empty list means none was published.
+    /// # Errors
+    /// Rejects a malformed identifier or a corrupt observation row.
+    pub fn recording_observations(&self, id: &str) -> Result<Vec<(u64, String)>> {
+        validate_key(id, "recording ID")?;
+        let mut statement = self.connection.prepare(
+            "SELECT audio_offset, text FROM recording_observations WHERE recording_id = ?1 ORDER BY ordinal",
+        )?;
+        let rows = statement
+            .query_map([id], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut previous = None;
+        let mut observations = Vec::with_capacity(rows.len());
+        for (offset, text) in rows {
+            let offset = u64::try_from(offset).map_err(|_| Error::StorageIntegrity)?;
+            if text.is_empty()
+                || text.len() > crate::sources::icy::MAX_ICY_BLOCK
+                || text.chars().any(crate::sources::unsafe_display)
+                || previous.is_some_and(|previous: u64| offset <= previous)
+            {
+                return Err(Error::StorageIntegrity);
+            }
+            previous = Some(offset);
+            observations.push((offset, text));
+        }
+        Ok(observations)
+    }
+}
+
+fn store_observations(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+    bytes: u64,
+    observations: &[crate::sources::icy::IcyObservation],
+) -> Result<()> {
+    if observations.len() > crate::sources::icy::MAX_ICY_OBSERVATIONS {
+        return Err(Error::StorageIntegrity);
+    }
+    let mut previous = None;
+    for (ordinal, observation) in observations.iter().enumerate() {
+        if observation.text.is_empty()
+            || observation.text.len() > crate::sources::icy::MAX_ICY_BLOCK
+            || observation.text.chars().any(crate::sources::unsafe_display)
+            || observation.audio_offset > bytes
+            || previous.is_some_and(|previous: u64| observation.audio_offset <= previous)
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        previous = Some(observation.audio_offset);
+        tx.execute(
+            "INSERT INTO recording_observations(recording_id, ordinal, audio_offset, text) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                id,
+                i64::try_from(ordinal).map_err(|_| Error::StorageIntegrity)?,
+                i64::try_from(observation.audio_offset).map_err(|_| Error::StorageIntegrity)?,
+                observation.text,
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 fn unsigned(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<u64> {

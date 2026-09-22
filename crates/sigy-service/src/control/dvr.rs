@@ -31,6 +31,7 @@ pub enum RecordingOperation {
         seconds: u64,
         maximum_bytes: u64,
         retention: Retention,
+        icy: bool,
     },
     /// Record one finite HLS media playlist. A master playlist is rejected.
     Hls {

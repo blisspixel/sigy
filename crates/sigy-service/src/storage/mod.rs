@@ -16,7 +16,7 @@ mod playlists;
 pub use clicks::ClickStatus;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -98,6 +98,9 @@ impl Store {
         }
         if (0..=9).contains(&version) {
             transaction.execute_batch(include_str!("010-listens.sql"))?;
+        }
+        if (0..=10).contains(&version) {
+            transaction.execute_batch(include_str!("011-icy.sql"))?;
         } else if version != i64::from(SCHEMA_VERSION) {
             return Err(Error::FutureSchema {
                 found: version,

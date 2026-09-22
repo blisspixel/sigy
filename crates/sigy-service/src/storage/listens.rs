@@ -264,7 +264,8 @@ mod tests {
                 "radio:v1",
                 30,
                 1_048_576,
-                crate::storage::dvr::Retention::Temporary
+                crate::storage::dvr::Retention::Temporary,
+                false,
             ),
             Err(Error::InvalidInput("source revision is in use"))
         ));
@@ -282,6 +283,7 @@ mod tests {
             30,
             1_048_576,
             crate::storage::dvr::Retention::Temporary,
+            false,
         )?;
         assert!(admitted.is_some());
         assert!(matches!(

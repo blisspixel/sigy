@@ -176,6 +176,7 @@ fn receipt_from(
         declared_content_type: kind.ok_or(Error::Acquisition("HLS playlist produced no audio"))?,
         peer: peer.ok_or(Error::Acquisition("HLS playlist produced no audio"))?,
         route,
+        observations: Vec::new(),
     })
 }
 

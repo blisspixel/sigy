@@ -736,3 +736,195 @@ fn hls_media_playlist_publishes_audio_and_master_is_rejected() -> TestResult {
     service.wait()?;
     Ok(())
 }
+
+struct IcyServer {
+    origin: String,
+    paths: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    headers: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl IcyServer {
+    fn start(audio: &[u8], title: &str) -> std::io::Result<Self> {
+        let (interval, body) = icy_body(audio, title)?;
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let origin = format!("http://127.0.0.1:{}", listener.local_addr()?.port());
+        let stop = Arc::new(AtomicBool::new(false));
+        let paths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let headers = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cancelled = stop.clone();
+        let recorded = paths.clone();
+        let noted = headers.clone();
+        let worker = thread::spawn(move || {
+            icy_accept(&listener, &cancelled, &recorded, &noted, interval, &body)
+        });
+        Ok(Self {
+            origin,
+            paths,
+            headers,
+            stop,
+            worker: Some(worker),
+        })
+    }
+}
+
+impl Drop for IcyServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn icy_body(audio: &[u8], title: &str) -> std::io::Result<(u64, Vec<u8>)> {
+    let mut block = title.as_bytes().to_vec();
+    let size = block.len().div_ceil(16) * 16;
+    block.resize(size, 0);
+    let chunks = u8::try_from(size / 16).map_err(|_| std::io::Error::other("icy block"))?;
+    let mut body = audio.to_vec();
+    body.push(chunks);
+    body.extend(block);
+    let interval = u64::try_from(audio.len()).map_err(|_| std::io::Error::other("icy interval"))?;
+    Ok((interval, body))
+}
+
+fn icy_accept(
+    listener: &TcpListener,
+    cancelled: &AtomicBool,
+    recorded: &std::sync::Mutex<Vec<String>>,
+    noted: &std::sync::Mutex<Vec<String>>,
+    interval: u64,
+    body: &[u8],
+) -> std::io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+                stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+                let mut request = Vec::new();
+                while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte)?;
+                    request.push(byte[0]);
+                }
+                let text = String::from_utf8_lossy(&request);
+                let path = text.split_whitespace().nth(1).unwrap_or("").to_owned();
+                let header = text
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("icy-metadata")
+                            .then(|| value.trim().to_owned())
+                    })
+                    .unwrap_or_default();
+                if let Ok(mut paths) = recorded.lock() {
+                    paths.push(path);
+                }
+                if let Ok(mut headers) = noted.lock() {
+                    headers.push(header);
+                }
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nicy-metaint: {interval}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.write_all(body);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
+fn icy_metadata_stays_out_of_the_audio_hash() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let audio = wave();
+    let title = "StreamTitle='Owned Station';StreamUrl='http://127.0.0.1/secret-stream';";
+    let server = IcyServer::start(&audio, title)?;
+    let decoder = std::env::var("SIGY_TEST_FFMPEG")?;
+    success(directory.path(), &["library", "init"])?;
+    success(
+        directory.path(),
+        &["dvr", "configure", "--decoder", &decoder, "--quota-gb", "1"],
+    )?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &[
+            "source",
+            "add",
+            "icy:v1",
+            "--name",
+            "Icy",
+            "--url",
+            &format!("{}/audio", server.origin),
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    success(
+        directory.path(),
+        &[
+            "record",
+            "start",
+            "plain",
+            "--source",
+            "icy:v1",
+            "--seconds",
+            "30",
+            "--max-mib",
+            "1",
+        ],
+    )?;
+    let failed = wait_terminal(directory.path(), "plain")?;
+    assert_eq!(failed["state"], "failed", "{failed}");
+    success(
+        directory.path(),
+        &[
+            "record",
+            "start",
+            "titled",
+            "--source",
+            "icy:v1",
+            "--seconds",
+            "30",
+            "--max-mib",
+            "1",
+            "--icy",
+        ],
+    )?;
+    let recorded = wait_terminal(directory.path(), "titled")?;
+    assert_eq!(recorded["state"], "completed", "{recorded}");
+    assert_eq!(recorded["media_bytes"], audio.len());
+    let path = success(directory.path(), &["record", "path", "titled"])?;
+    let published = std::fs::read(path["path"].as_str().ok_or("missing path")?)?;
+    assert_eq!(published, audio);
+    let metadata = success(directory.path(), &["record", "metadata", "titled"])?;
+    assert_eq!(metadata["schema_version"], 3);
+    assert_eq!(metadata["source"]["name"], "Icy");
+    let observations = metadata["capture"]["icy_observations"]
+        .as_array()
+        .ok_or("missing observations")?;
+    assert_eq!(observations.len(), 1);
+    assert_eq!(observations[0]["text"], title);
+    assert_eq!(observations[0]["audio_offset"], audio.len());
+    let paths = server.paths.lock().map_err(|_| "icy paths")?.clone();
+    let headers = server.headers.lock().map_err(|_| "icy headers")?.clone();
+    assert_eq!(paths, vec!["/audio".to_owned(), "/audio".to_owned()]);
+    assert_eq!(headers, vec!["0".to_owned(), "1".to_owned()]);
+    let digest = metadata["storage"]["sha256"].as_str().unwrap_or("");
+    assert_eq!(digest.len(), 64);
+    assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}

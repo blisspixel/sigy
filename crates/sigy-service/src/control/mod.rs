@@ -24,7 +24,7 @@ pub use listen::{ListenOperation, ListenView};
 pub use playlist::{PlaylistOperation, PlaylistView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;

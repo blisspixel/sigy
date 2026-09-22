@@ -24,6 +24,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [HLS media playlists](decisions/0012-hls-media-playlist.md) record one finite media playlist through the shared acquirer and the existing recording path. A master playlist fails before a variant fetch. Playlist resolution still rejects HLS.
 
+[ICY observations](decisions/0013-icy-observations.md) keep explicit stream titles out of the published audio. The default recording and every listen still reject interleaved metadata.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:

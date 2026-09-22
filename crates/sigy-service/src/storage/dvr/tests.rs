@@ -36,6 +36,7 @@ fn publication(bytes: u64) -> Publication {
             peer: std::net::SocketAddr::from(([8, 8, 8, 8], 443)),
             status: 200,
         }],
+        observations: Vec::new(),
     }
 }
 
@@ -108,7 +109,7 @@ fn route_publication_is_atomic_immutable_and_validated_on_export() -> TestResult
     let directory = tempfile::tempdir()?;
     let mut store = setup(&directory.path().join("catalog.sqlite3"), 1000)?;
     let job = store
-        .admit_recording("route", "radio:v1", 1, 100, Retention::Temporary)?
+        .admit_recording("route", "radio:v1", 1, 100, Retention::Temporary, false)?
         .ok_or("not admitted")?;
     assert!(store.recording_route("route")?.is_none());
     let mut invalid = publication(20);
@@ -180,20 +181,20 @@ fn defaults_and_reservations_survive_restart_without_replay() -> TestResult {
     assert_eq!(initial.retention_days, 14);
     let mut store = setup(&path, 1000)?;
     let job = store
-        .admit_recording("one", "radio:v1", 60, 600, Retention::Temporary)?
+        .admit_recording("one", "radio:v1", 60, 600, Retention::Temporary, false)?
         .ok_or("not admitted")?;
     assert!(
         store
-            .admit_recording("one", "radio:v1", 60, 600, Retention::Temporary)?
+            .admit_recording("one", "radio:v1", 60, 600, Retention::Temporary, false)?
             .is_none()
     );
     assert!(matches!(
-        store.admit_recording("two", "radio:v1", 60, 600, Retention::Temporary),
+        store.admit_recording("two", "radio:v1", 60, 600, Retention::Temporary, false),
         Err(Error::StorageQuota)
     ));
     assert!(store.capture("two")?.is_none());
     assert!(matches!(
-        store.admit_recording("one", "radio:v1", 61, 600, Retention::Temporary),
+        store.admit_recording("one", "radio:v1", 61, 600, Retention::Temporary, false),
         Err(Error::IdempotencyConflict)
     ));
     drop(store);
@@ -206,7 +207,7 @@ fn defaults_and_reservations_survive_restart_without_replay() -> TestResult {
     ));
     assert!(
         store
-            .admit_recording("one", "radio:v1", 60, 600, Retention::Temporary)?
+            .admit_recording("one", "radio:v1", 60, 600, Retention::Temporary, false)?
             .is_none()
     );
     assert_eq!(store.recording("one")?.state, "interrupted");
@@ -217,7 +218,7 @@ fn defaults_and_reservations_survive_restart_without_replay() -> TestResult {
     assert_eq!(store.dvr_status()?.charged_bytes, 0);
     assert!(
         store
-            .admit_recording("one", "radio:v1", 60, 600, Retention::Temporary)?
+            .admit_recording("one", "radio:v1", 60, 600, Retention::Temporary, false)?
             .is_none()
     );
     store.audit_captures()?;
@@ -237,7 +238,7 @@ fn concurrent_admission_cannot_overbook_storage() -> TestResult {
         let barrier = barrier.clone();
         workers.push(std::thread::spawn(move || {
             barrier.wait();
-            contender.admit_recording(id, "radio:v1", 60, 600, Retention::Temporary)
+            contender.admit_recording(id, "radio:v1", 60, 600, Retention::Temporary, false)
         }));
     }
     let mut admissions = 0;
@@ -260,7 +261,7 @@ fn publication_and_deletion_keep_exact_accounting_and_history() -> TestResult {
     let path = directory.path().join("catalog.sqlite3");
     let mut store = setup(&path, 1000)?;
     let job = store
-        .admit_recording("one", "radio:v1", 60, 600, Retention::Kept)?
+        .admit_recording("one", "radio:v1", 60, 600, Retention::Kept, false)?
         .ok_or("not admitted")?;
     assert!(store.begin_delete("one", false).is_err());
     assert!(
@@ -303,11 +304,11 @@ fn age_pressure_and_processing_never_evict_protected_or_active_media() -> TestRe
         ("d", Retention::Temporary),
     ] {
         let job = store
-            .admit_recording(id, "radio:v1", 60, 600, retention)?
+            .admit_recording(id, "radio:v1", 60, 600, retention, false)?
             .ok_or("not admitted")?;
         store.publish_recording(&job.version, &publication(100))?;
     }
-    store.admit_recording("active", "radio:v1", 60, 600, Retention::Temporary)?;
+    store.admit_recording("active", "radio:v1", 60, 600, Retention::Temporary, false)?;
     let now = now_ms()?;
     assert!(store.prune_candidates_at(false, now)?.is_empty());
     assert_eq!(

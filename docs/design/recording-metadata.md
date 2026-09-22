@@ -4,13 +4,13 @@ Updated: 2026-09-21. The HTTP audio export below is implemented. Other profiles 
 
 ## Common envelope
 
-`record metadata ID` emits UTF-8 JSON with `schema: "sigy.recording"` and `schema_version: 2`. The serializer types in `sigy-service::recordings::metadata` are the current export contract. There is no sidecar importer. Exported metadata does not grant permissions or authorize processing. Version 2 adds source redirect policy and optional HTTP response-route observations; earlier exports used version 1.
+`record metadata ID` emits UTF-8 JSON with `schema: "sigy.recording"`. The schema version is 2 when the recording has no ICY observations and 3 when it has them. The serializer types in `sigy-service::recordings::metadata` are the current export contract. There is no sidecar importer. Exported metadata does not grant permissions or authorize processing. Version 2 adds source redirect policy and optional HTTP response-route observations. Version 3 adds `capture.icy_observations` for an explicit `record start --icy` recording. Earlier exports used version 1.
 
 | Section | Current fields and meaning |
 | --- | --- |
 | Identity | Recording ID and independently versioned metadata schema |
 | Source | Immutable revision, acquisition adapter, original name, redacted origin, network scope and redirect policy |
-| Capture | Journal state, revision/generation, explicitly labeled planned UTC window, byte ceiling, end reason, bounded failure detail and optional HTTP origin/peer/status route |
+| Capture | Journal state, revision/generation, explicitly labeled planned UTC window, byte ceiling, end reason, bounded failure detail, optional HTTP origin/peer/status route, and optional untrusted ICY observations with an audio-byte offset |
 | Payload | Tagged `encoded_audio` variant, decoder format and decoded duration when validation succeeds |
 | Storage | Retention at export, retained byte count, SHA-256, storage state, explicit processing acknowledgment |
 

@@ -199,6 +199,7 @@ pub(crate) struct CaptureRequest {
     pub decoder: String,
     pub acquirer: HttpAcquirer,
     pub hls: bool,
+    pub icy: bool,
 }
 
 pub(crate) async fn capture(
@@ -213,6 +214,7 @@ pub(crate) async fn capture(
         decoder,
         acquirer,
         hls,
+        icy,
     } = request;
     let media = checked_directory(&directory, true)?;
     let part = object_path(&media, &key, "part")?;
@@ -230,7 +232,19 @@ pub(crate) async fn capture(
     let result = if hls {
         crate::sources::hls::record(&acquirer, &source, limits, &mut file, &mut stop).await
     } else {
-        acquirer.record(&source, limits, &mut file, &mut stop).await
+        acquirer
+            .record_with(
+                &source,
+                limits,
+                &mut file,
+                &mut stop,
+                if icy {
+                    crate::sources::icy::MetadataPolicy::Requested
+                } else {
+                    crate::sources::icy::MetadataPolicy::Off
+                },
+            )
+            .await
     };
     // The file and its quota stay owned even when transport fails or is cancelled.
     file.flush().await?;
@@ -275,6 +289,7 @@ pub(crate) async fn capture(
         format,
         decoded_microseconds,
         http_route: receipt.route,
+        observations: receipt.observations,
         end_reason: match receipt.end {
             TransferEnd::EndOfBody => "end_of_body",
             TransferEnd::ByteLimit => "byte_limit",

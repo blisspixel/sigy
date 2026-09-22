@@ -45,6 +45,15 @@ pub struct CaptureMetadata {
     pub end_reason: Option<String>,
     pub failure_detail: Option<String>,
     pub http_route: Option<Vec<HttpHop>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub icy_observations: Vec<IcyObservationMetadata>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IcyObservationMetadata {
+    pub audio_offset: u64,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,9 +84,14 @@ pub fn export(store: &Store, recording: &Recording) -> Result<RecordingEnvelope>
     let job = store
         .capture(&recording.id)?
         .ok_or(Error::CaptureIntegrity)?;
+    let icy_observations = store
+        .recording_observations(&recording.id)?
+        .into_iter()
+        .map(|(audio_offset, text)| IcyObservationMetadata { audio_offset, text })
+        .collect::<Vec<_>>();
     Ok(RecordingEnvelope {
         schema: "sigy.recording".into(),
-        schema_version: 2,
+        schema_version: if icy_observations.is_empty() { 2 } else { 3 },
         recording_id: recording.id.clone(),
         source: SourceMetadata {
             adapter: "http_audio".into(),
@@ -97,6 +111,7 @@ pub fn export(store: &Store, recording: &Recording) -> Result<RecordingEnvelope>
             end_reason: recording.end_reason.clone(),
             failure_detail: recording.failure_detail.clone(),
             http_route: store.recording_route(&recording.id)?,
+            icy_observations,
         },
         payload: PayloadMetadata::EncodedAudio {
             format: recording.format.clone(),

@@ -111,40 +111,14 @@ impl Actor {
                     command: super::DirectoryOperation::ClickStatus { id },
                 }
             }
-            Operation::Record {
-                command:
-                    RecordingOperation::Start {
-                        id,
-                        source_revision,
-                        seconds,
-                        maximum_bytes,
-                        retention,
-                    },
-            } => self.launch_recording(
-                id,
-                &source_revision,
-                seconds,
-                maximum_bytes,
-                retention,
-                false,
-            )?,
-            Operation::Record {
-                command:
-                    RecordingOperation::Hls {
-                        id,
-                        source_revision,
-                        seconds,
-                        maximum_bytes,
-                        retention,
-                    },
-            } => self.launch_recording(
-                id,
-                &source_revision,
-                seconds,
-                maximum_bytes,
-                retention,
-                true,
-            )?,
+            Operation::Record { command }
+                if matches!(
+                    command,
+                    RecordingOperation::Start { .. } | RecordingOperation::Hls { .. }
+                ) =>
+            {
+                self.launch_recording(RecordingLaunch::from_command(command)?)?
+            }
             Operation::Record {
                 command: RecordingOperation::Stop { id },
             } => {
@@ -187,30 +161,27 @@ impl Actor {
         Ok(snapshot)
     }
 
-    fn launch_recording(
-        &mut self,
-        id: String,
-        source_revision: &str,
-        seconds: u64,
-        maximum_bytes: u64,
-        retention: crate::storage::dvr::Retention,
-        hls: bool,
-    ) -> Result<Operation> {
-        self.start(&id, source_revision, seconds, maximum_bytes, retention, hls)?;
+    fn launch_recording(&mut self, request: RecordingLaunch) -> Result<Operation> {
+        let id = request.id.clone();
+        self.start(request)?;
         Ok(Operation::Record {
             command: RecordingOperation::Show { id },
         })
     }
 
-    fn start(
-        &mut self,
-        id: &str,
-        source_id: &str,
-        seconds: u64,
-        maximum: u64,
-        retention: crate::storage::dvr::Retention,
-        hls: bool,
-    ) -> Result<()> {
+    fn start(&mut self, request: RecordingLaunch) -> Result<()> {
+        let RecordingLaunch {
+            id,
+            source_revision,
+            seconds,
+            maximum_bytes: maximum,
+            retention,
+            hls,
+            icy,
+        } = request;
+        let id_owned = id;
+        let id = id_owned.as_str();
+        let source_id = source_revision.as_str();
         let source = self
             .library
             .store()
@@ -229,13 +200,13 @@ impl Actor {
         let mut admitted = self
             .library
             .store_mut()
-            .admit_recording(id, source_id, seconds, maximum, retention);
+            .admit_recording(id, source_id, seconds, maximum, retention, icy);
         if matches!(admitted, Err(Error::StorageQuota)) {
             self.reclaim(maximum)?;
             admitted = self
                 .library
                 .store_mut()
-                .admit_recording(id, source_id, seconds, maximum, retention);
+                .admit_recording(id, source_id, seconds, maximum, retention, icy);
         }
         let Some(job) = admitted? else {
             return Ok(());
@@ -270,6 +241,7 @@ impl Actor {
                         decoder,
                         acquirer,
                         hls,
+                        icy,
                     },
                     signal,
                 )
@@ -532,5 +504,54 @@ fn failure(error: &Error) -> Failure {
         }
         .into(),
         message: error.to_string(),
+    }
+}
+
+struct RecordingLaunch {
+    id: String,
+    source_revision: String,
+    seconds: u64,
+    maximum_bytes: u64,
+    retention: crate::storage::dvr::Retention,
+    hls: bool,
+    icy: bool,
+}
+
+impl RecordingLaunch {
+    fn from_command(command: RecordingOperation) -> Result<Self> {
+        Ok(match command {
+            RecordingOperation::Start {
+                id,
+                source_revision,
+                seconds,
+                maximum_bytes,
+                retention,
+                icy,
+            } => Self {
+                id,
+                source_revision,
+                seconds,
+                maximum_bytes,
+                retention,
+                hls: false,
+                icy,
+            },
+            RecordingOperation::Hls {
+                id,
+                source_revision,
+                seconds,
+                maximum_bytes,
+                retention,
+            } => Self {
+                id,
+                source_revision,
+                seconds,
+                maximum_bytes,
+                retention,
+                hls: true,
+                icy: false,
+            },
+            _ => return Err(Error::InvalidInput("recording command is not a start")),
+        })
     }
 }

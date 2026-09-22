@@ -83,6 +83,9 @@ pub enum RecordCommand {
         max_mib: u64,
         #[arg(long, default_value = "temporary")]
         retention: Retention,
+        /// Request interleaved ICY metadata. Off by default. Titles are observations, not audio.
+        #[arg(long, default_value_t = false)]
+        icy: bool,
     },
     /// Finish the received portion of a running recording and validate it.
     Stop {
@@ -155,6 +158,7 @@ impl RecordCommand {
                     seconds,
                     max_mib,
                     retention,
+                    icy,
                 } => RecordingOperation::Start {
                     id: id.clone(),
                     source_revision: source.clone(),
@@ -163,6 +167,7 @@ impl RecordCommand {
                         .checked_mul(1024 * 1024)
                         .ok_or("recording byte ceiling is too large")?,
                     retention: *retention,
+                    icy: *icy,
                 },
                 Self::Stop { id } => RecordingOperation::Stop { id: id.clone() },
                 Self::Metadata { id } => RecordingOperation::Metadata { id: id.clone() },
