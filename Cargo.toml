@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/sigy-core", "crates/sigy-service", "crates/sigy"]
+members = ["crates/sigy-core", "crates/sigy-service", "crates/sigy", "crates/sigy-xtask"]
 resolver = "3"
 exclude = ["vendor/libsqlite3-sys"]
 

@@ -3,6 +3,8 @@
 mod documents;
 mod resolver;
 
+pub(crate) use documents::PlaylistKind;
+
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use reqwest::{Client, StatusCode, header};
@@ -29,6 +31,16 @@ pub struct AcquisitionLimits {
 }
 
 impl AcquisitionLimits {
+    #[must_use]
+    pub const fn bytes(self) -> u64 {
+        self.bytes
+    }
+
+    #[must_use]
+    pub const fn duration(self) -> Duration {
+        self.duration
+    }
+
     /// # Errors
     /// Rejects zero or out-of-profile limits. Limits include connection setup.
     pub fn new(bytes: u64, duration: Duration) -> Result<Self> {
@@ -52,6 +64,19 @@ pub enum AudioContentType {
     Wave,
 }
 
+impl AudioContentType {
+    #[must_use]
+    pub const fn format_name(self) -> &'static str {
+        match self {
+            Self::Mpeg => "mp3",
+            Self::Aac => "aac",
+            Self::Flac => "flac",
+            Self::Ogg => "ogg",
+            Self::Wave => "wav",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferEnd {
     EndOfBody,
@@ -68,6 +93,30 @@ pub struct TransferReceipt {
     pub declared_content_type: AudioContentType,
     pub peer: SocketAddr,
     pub route: Vec<HttpHop>,
+}
+
+#[derive(Debug)]
+struct Opened {
+    response: reqwest::Response,
+    route: Vec<HttpHop>,
+    declared_content_type: AudioContentType,
+    peer: SocketAddr,
+}
+
+/// One admitted audio response. Dropping it releases the shared attempt slot.
+#[derive(Debug)]
+pub(crate) struct AudioDownload {
+    opened: Opened,
+    limits: AcquisitionLimits,
+    deadline: Instant,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl AudioDownload {
+    #[must_use]
+    pub(crate) fn format_name(&self) -> &'static str {
+        self.opened.declared_content_type.format_name()
+    }
 }
 
 /// Share one instance across acquisition workers. Clones share admission and
@@ -241,6 +290,56 @@ impl HttpAcquirer {
         Ok(response)
     }
 
+    /// Opens one direct audio response and keeps the shared attempt slot until copy finishes.
+    /// Header rejection, including playlist types and ICY metadata, happens before a body copy.
+    /// # Errors
+    /// Uses the same destination, header, and capacity checks as recording.
+    pub(crate) async fn open_audio(
+        &self,
+        source: &HttpSource,
+        limits: AcquisitionLimits,
+        stop: &mut tokio::sync::watch::Receiver<bool>,
+    ) -> Result<AudioDownload> {
+        let permit = self
+            .attempts
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::Acquisition("capacity reached"))?;
+        let deadline = Instant::now() + limits.duration;
+        let mut signal = Some(stop);
+        let opened = self.begin(source, limits, deadline, &mut signal).await?;
+        Ok(AudioDownload {
+            opened,
+            limits,
+            deadline,
+            _permit: permit,
+        })
+    }
+
+    /// Copies an opened audio body. The caller supplies a local sink, never a source URL.
+    /// # Errors
+    /// Fails closed on transport, time, stop, or sink errors. A stop before any byte is an error.
+    pub(crate) async fn copy_audio<W: AsyncWrite + Unpin>(
+        download: AudioDownload,
+        sink: &mut W,
+        stop: &mut tokio::sync::watch::Receiver<bool>,
+    ) -> Result<TransferReceipt> {
+        let deadline = download.deadline;
+        let mut signal = Some(stop);
+        timeout_at(
+            deadline + Duration::from_secs(5),
+            Self::pump(
+                download.opened,
+                download.limits,
+                sink,
+                deadline,
+                &mut signal,
+            ),
+        )
+        .await
+        .map_err(|_| Error::Acquisition("listen deadline reached"))?
+    }
+
     async fn transfer<W: AsyncWrite + Unpin>(
         &self,
         source: &HttpSource,
@@ -249,25 +348,57 @@ impl HttpAcquirer {
         deadline: Instant,
         mut stop: Option<&mut tokio::sync::watch::Receiver<bool>>,
     ) -> Result<TransferReceipt> {
-        let opened = self.open(
+        let opened = self.begin(source, limits, deadline, &mut stop).await?;
+        Self::pump(opened, limits, sink, deadline, &mut stop).await
+    }
+
+    async fn begin(
+        &self,
+        source: &HttpSource,
+        limits: AcquisitionLimits,
+        deadline: Instant,
+        stop: &mut Option<&mut tokio::sync::watch::Receiver<bool>>,
+    ) -> Result<Opened> {
+        let connecting = self.open(
             source,
             limits,
             deadline,
             "audio/mpeg, audio/aac, audio/flac, audio/ogg, audio/wav, application/ogg",
         );
-        let (mut response, route) = if let Some(signal) = stop.as_mut() {
+        let (response, route) = if let Some(signal) = stop.as_mut() {
             tokio::select! {
                 biased;
                 () = async { if !*signal.borrow() { let _ = signal.changed().await; } } => {
                     return Err(Error::Acquisition("stopped before receiving audio"));
                 }
-                result = opened => result?,
+                result = connecting => result?,
             }
         } else {
-            opened.await?
+            connecting.await?
         };
         let peer = response.remote_addr().ok_or(Error::DestinationDenied)?;
         let declared_content_type = validate_headers(response.headers())?;
+        Ok(Opened {
+            response,
+            route,
+            declared_content_type,
+            peer,
+        })
+    }
+
+    async fn pump<W: AsyncWrite + Unpin>(
+        opened: Opened,
+        limits: AcquisitionLimits,
+        sink: &mut W,
+        deadline: Instant,
+        stop: &mut Option<&mut tokio::sync::watch::Receiver<bool>>,
+    ) -> Result<TransferReceipt> {
+        let Opened {
+            mut response,
+            route,
+            declared_content_type,
+            peer,
+        } = opened;
         let mut bytes = 0;
         loop {
             if bytes == limits.bytes {

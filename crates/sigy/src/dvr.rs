@@ -60,6 +60,18 @@ impl DvrCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecordCommand {
+    /// Record one finite HLS media playlist through the service. Master playlists fail.
+    Hls {
+        id: String,
+        #[arg(long)]
+        source: String,
+        #[arg(long, default_value_t = 60)]
+        seconds: u64,
+        #[arg(long, default_value_t = 64)]
+        max_mib: u64,
+        #[arg(long, default_value = "temporary")]
+        retention: Retention,
+    },
     /// Start one finite recording owned by the service. Reuse the ID to reconcile.
     Start {
         id: String,
@@ -122,6 +134,21 @@ impl RecordCommand {
     pub fn operation(&self) -> Result<Operation, Box<dyn std::error::Error>> {
         Ok(Operation::Record {
             command: match self {
+                Self::Hls {
+                    id,
+                    source,
+                    seconds,
+                    max_mib,
+                    retention,
+                } => RecordingOperation::Hls {
+                    id: id.clone(),
+                    source_revision: source.clone(),
+                    seconds: *seconds,
+                    maximum_bytes: max_mib
+                        .checked_mul(1024 * 1024)
+                        .ok_or("recording byte ceiling is too large")?,
+                    retention: *retention,
+                },
                 Self::Start {
                     id,
                     source,

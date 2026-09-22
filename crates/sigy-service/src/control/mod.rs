@@ -5,6 +5,8 @@ mod discovery;
 mod dvr;
 mod endpoint;
 mod frame;
+mod listen;
+mod playlist;
 mod server;
 
 use serde::{Deserialize, Serialize};
@@ -18,9 +20,11 @@ use crate::{
 
 pub use discovery::{DirectoryOperation, StationPage};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
+pub use listen::{ListenOperation, ListenView};
+pub use playlist::{PlaylistOperation, PlaylistView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 11;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -76,6 +80,12 @@ pub enum Operation {
     ShowSource {
         revision_id: String,
     },
+    Playlist {
+        command: PlaylistOperation,
+    },
+    Listen {
+        command: ListenOperation,
+    },
 }
 
 impl std::fmt::Debug for Operation {
@@ -90,6 +100,8 @@ impl std::fmt::Debug for Operation {
             Self::RegisterSource { .. } => "register_source",
             Self::ListSources { .. } => "list_sources",
             Self::ShowSource { .. } => "show_source",
+            Self::Playlist { .. } => "playlist",
+            Self::Listen { .. } => "listen",
         };
         f.debug_struct("Operation")
             .field("kind", &kind)
@@ -147,6 +159,9 @@ pub struct Snapshot {
     pub recording_page: Option<RecordingPage>,
     pub dvr: Option<crate::storage::dvr::DvrStatus>,
     pub recording_metadata: Option<crate::recordings::metadata::RecordingEnvelope>,
+    pub playlist: Option<PlaylistView>,
+    pub directory_click: Option<crate::storage::ClickStatus>,
+    pub listen: Option<ListenView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,6 +217,8 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
     let mut recording_metadata = None;
     let source_page = match operation {
         Operation::Radio { command } => return discovery::apply(store, command),
+        Operation::Playlist { command } => return playlist::apply(store, command),
+        Operation::Listen { command } => return listen::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
                 recording_metadata = Some(crate::recordings::metadata::export(
@@ -314,6 +331,9 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         recording_page: None,
         dvr: None,
         recording_metadata: None,
+        playlist: None,
+        directory_click: None,
+        listen: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

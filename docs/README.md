@@ -16,6 +16,14 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Radio favorites](decisions/0008-radio-favorites.md) keeps saved station choices separate from refreshed directory metadata, with shared service/maintenance operations and filtered offline search.
 
+[Playlist resolution](decisions/0009-playlist-resolution.md) reads one playlist document on the shared acquirer and can register one accepted entry as an immutable audio revision. It does not play that entry or fetch nested documents.
+
+[Directory clicks](decisions/0010-directory-clicks.md) send one explicit counter request and discard the stream URL in the provider response. Refresh, search, and favorites do not send it.
+
+[Direct listen](decisions/0011-direct-listen.md) plays one audio revision through the shared acquirer and a private local pipe. The client decodes that pipe. The listen is not a recording.
+
+[HLS media playlists](decisions/0012-hls-media-playlist.md) record one finite media playlist through the shared acquirer and the existing recording path. A master playlist fails before a variant fetch. Playlist resolution still rejects HLS.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:

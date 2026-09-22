@@ -6,7 +6,7 @@ A CLI and TUI platform in development for discovering signals, recording them, u
 
 The planned complete CLI supports operation and automation. The optional TUI will add searchable, refreshable station catalogs, a rotatable terminal globe and day/night world map, source/activity visualizers, and DVR-style pause, rewind, scheduled recording, and replay within retained audio.
 
-**Status: early Rust implementation. Radio Browser refresh, cached search and favorites, finite service-owned audio recording, decoder validation, metadata export and rolling storage policy work through the CLI. Local Windows tests and a live directory check support this increment. Podcast subscriptions, integrated playback, TUI and model processing remain to build.**
+**Status: early Rust implementation. Radio Browser refresh, cached search and favorites, an explicit directory click, finite service-owned audio recording, retained-file playback, playlist resolution, a finite listen of one direct audio revision, finite HLS media-playlist recording, decoder validation, metadata export and rolling storage policy work through the CLI. Local Windows tests and a live directory check support this increment. The [roadmap build order](ROADMAP.md#build-order) is the path to the first complete release. The next operation keeps ICY metadata out of a recording. Podcast subscriptions, the TUI, and model processing remain to build.**
 
 The project is keeping the name Sigy. Further naming exploration is deferred. See [implementation progress](docs/development/progress.md), the [foundation decision](docs/decisions/0001-rust-foundation.md), and the [planning checkpoint](docs/planning/05-delivery-and-decisions.md#8-current-checkpoint-2026-09-20).
 
@@ -71,9 +71,28 @@ cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio search --favorite
 cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio unfavorite STATION_UUID
 ```
 
-[Favorites](docs/decisions/0008-radio-favorites.md) work offline and survive catalog updates and service restarts. Removing a favorite preserves the station, registered sources and recordings. Schema and IPC are now v7; stop an older service with its existing binary before updating, then restart it.
+[Favorites](docs/decisions/0008-radio-favorites.md) work offline and survive catalog updates and service restarts. Removing a favorite preserves the station, registered sources and recordings. Catalog schema remains v10 and local IPC is v11. Stop an older service with its existing binary before updating, then restart it.
 
-`radio add` preserves a metadata snapshot and registers the chosen public stream as an immutable source. Use `selected:v1` with `record start --source` below. The example explicitly permits at most three redirects to checked public-internet destinations. Omit `--redirects` to deny them, or choose `same-origin` to stay within the original scheme, host and port. HTTPS cannot downgrade to HTTP. Existing revisions retain their policy; choose a new revision key to change it. Playlist and HLS entries remain unsupported. See [directory behavior](docs/decisions/0006-radio-discovery.md) and [redirect policy](docs/decisions/0007-authorized-redirects.md).
+Report one directory click only when you mean to. The command does not play the station, and the stream address in the provider response is discarded:
+
+```text
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio click heard-001 --station STATION_UUID
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio click-status heard-001
+```
+
+Search, show, favorite, and refresh do not send this request. Reusing the click ID does not send it again. See [directory clicks](docs/decisions/0010-directory-clicks.md).
+
+`radio add` preserves a metadata snapshot and registers the chosen public stream as an immutable source. Use `selected:v1` with `record start --source` below. The example explicitly permits at most three redirects to checked public-internet destinations. Omit `--redirects` to deny them, or choose `same-origin` to stay within the original scheme, host and port. HTTPS cannot downgrade to HTTP. Existing revisions retain their policy; choose a new revision key to change it. See [directory behavior](docs/decisions/0006-radio-discovery.md) and [redirect policy](docs/decisions/0007-authorized-redirects.md).
+
+Resolve one playlist document only through the running service. The read uses the parent revision's redirect policy, allows at most 32 entries, and does not open those entries. HLS tags and a directory HLS flag fail the resolve. Accepting an index registers a new audio revision and does not connect:
+
+```text
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY source playlist resolve playlist-001 --revision playlist:v1
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY source playlist status playlist-001
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY source playlist accept playlist-001 --index 0 --revision chosen:v1 --name "Chosen stream"
+```
+
+Reusing the request ID does not fetch again. Reusing the same accept does not register again. Displayed playlist entries show origins only. Resolving or accepting a playlist does not play it. See [playlist resolution](docs/decisions/0009-playlist-resolution.md).
 
 ## Record and manage audio
 
@@ -90,13 +109,38 @@ cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY record keep morning-001
 cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY dvr status
 ```
 
-In PowerShell, `(Get-Command ffmpeg -CommandType Application).Source` locates an installed decoder. No executable is downloaded automatically. `record start` returns while the service continues working. Poll `record show` until completed or failed. `record path` prints a verified retained file's path for a media player; audible playback inside Sigy is not implemented yet. `record metadata` emits a versioned JSON sidecar snapshot. Reusing the same recording ID and parameters only reconciles the prior request; choose a new ID for another recording.
+Pass the installed FFmpeg executable to `dvr configure --decoder`. Sigy does not download it. `record start` returns while the service continues working. Poll `record show` until completed or failed. `record path` prints a verified retained file's path.
+
+`record hls` records one finite media playlist on the same service path. The document must include `#EXT-X-ENDLIST`. At most 32 segments share that recording's time and byte ceiling. The service publishes one local file through the same decoder check, hash, and quota. A master playlist fails before a variant request. A live playlist, encryption, a media map, a byte range, discontinuity, and partial segments are rejected. `source playlist resolve` still rejects HLS and stores no entries. The decoder receives the published file, not an `.m3u8` address. See [HLS media playlists](docs/decisions/0012-hls-media-playlist.md).
+
+```text
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY record hls segment-001 --source media:v1 --seconds 60 --max-mib 64
+```
+
+`listen file` plays a retained file in this client through the configured FFmpeg decoder:
+
+```text
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY listen file morning-001 --destination null
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY listen file morning-001 --destination system --seek-us 500000
+```
+
+`--destination null` discards samples and is the tested fixture path. `--destination system` uses a local audio output when that FFmpeg build has one, and fails when it does not. `--seek-us` starts inside the published duration. Run the command again to restart at another offset. Leaving it stops playback and leaves service-owned capture running. Playback does not stop a recording, change retention, or reserve quota. Partial files are not playable. `record metadata` emits a versioned JSON sidecar snapshot. Reusing the same recording ID and parameters only reconciles the prior request; choose a new ID for another recording.
+
+Listen to one registered direct audio revision through the running service. The service fetches the bytes. This client decodes a private local pipe and does not receive the source URL:
+
+```text
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY listen source live-001 --revision demo:v1 --destination null
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY listen status live-001
+cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY listen stop live-001
+```
+
+Reusing the listen ID does not open the source again. A playlist response or interleaved ICY metadata fails before decode. The session is not a recording and does not reserve quota. Restart marks a running listen interrupted and does not resume it. Stopping it does not stop a recording. See [direct listen](docs/decisions/0011-direct-listen.md).
 
 Default retention is 14 days with a 50 GB total managed-media quota. Temporary media expires or is evicted oldest-first under quota pressure. `record keep ID` and `record archive ID` protect it from automatic removal, while its bytes still count toward quota. Archive does not create a backup. New recordings fail clearly if protected media fills the allowance. `record temporary ID` restores rolling retention. `record processed ID --receipt RECEIPT_ID` acknowledges external processing and makes temporary media eligible for early cleanup; this does not run analysis. `dvr prune` reclaims eligible media, and `record delete ID` explicitly deletes inactive media even if protected, retaining catalog history.
 
-This initial recording profile accepts direct audio responses and explicitly permitted redirects, with up to two active attempts, 15 minutes and 256 MiB per attempt. Playlists/HLS, interleaved ICY metadata, continuous segmented DVR and podcast downloads are not yet qualified. Failed/partial bytes retain their reservation and are not offered as playable media. The decoder is supervised, but aggregate native-memory sandboxing and physical power-loss durability remain open. See [recording and retention](docs/decisions/0005-recording-and-retention.md) and the extensible [recording metadata design](docs/design/recording-metadata.md).
+This initial recording profile accepts direct audio responses, explicitly permitted redirects, and one finite HLS media playlist, with up to two active attempts, 15 minutes and 256 MiB per attempt. Playlist media types still fail on `record start`. Interleaved ICY metadata, continuous segmented DVR and podcast downloads are not yet qualified. Failed/partial bytes retain their reservation and are not offered as playable media. The decoder is supervised, but aggregate native-memory sandboxing and physical power-loss durability remain open. See [recording and retention](docs/decisions/0005-recording-and-retention.md) and the extensible [recording metadata design](docs/design/recording-metadata.md).
 
-Run `./scripts/verify.ps1` in PowerShell for native-source verification, formatting, tests, warnings-denied Clippy, build, and dependency auditing. It requires cargo-audit and fails if a check is unavailable. Run `./scripts/verify-media.ps1` separately with an installed FFmpeg for the real recording/decoder and process-kill tests. Builds use two jobs; tests run with bounded concurrency. Command examples in planning documents remain proposals unless implemented and documented here.
+From the repository root, run `cargo verify` for native-source verification, formatting, tests, warnings-denied Clippy, build, and dependency auditing. It requires cargo-audit and fails if a check is unavailable. A push to `main` runs that command on GitHub-hosted Windows. Run `cargo verify-media` with FFmpeg installed, or with `SIGY_TEST_FFMPEG` set to its path, for the real recording, decoder, and process-kill tests. That media check stays local. The repository Cargo configuration limits builds to two jobs. Command examples in planning documents remain proposals unless implemented and documented here.
 
 ## Lawful use and responsibility
 

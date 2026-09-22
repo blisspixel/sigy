@@ -2,7 +2,9 @@
 
 Reviewed: 2026-09-21. Implementation decisions, not broad radio interoperability claims.
 
-Radio Browser documents DNS/SRV mirror discovery, a descriptive user agent, stable station UUIDs and country codes. Its station search supports bounded results, offsets and filters; mirrors represent the same underlying catalog. The provider requests click reporting, which is a state-changing action. This increment reads metadata only and neither plays streams nor submits clicks or votes. Resolve listening telemetry before adding integrated playback. [API discovery](https://api.radio-browser.info/), [API fields and search](https://docs.radio-browser.info/).
+Radio Browser documents DNS/SRV mirror discovery, a descriptive user agent, stable station UUIDs and country codes. Its station search supports bounded results, offsets and filters; mirrors represent the same underlying catalog. The provider requests click reporting, which is a state-changing action. The metadata increment reads stations only and does not play streams or submit clicks or votes. [API discovery](https://api.radio-browser.info/), [API fields and search](https://docs.radio-browser.info/).
+
+On 2026-09-21 the station click counter was read from that same provider reference. The counted call is `GET /json/url/{stationuuid}`. Its JSON body includes a stream URL. The explicit click command discards that URL and does not request `/json/vote/`. Refresh, search, show, and favorite still do not send either call.
 
 The adapter uses SRV discovery and at most two validated HTTPS mirror attempts with a total deadline. An explicitly configured mirror is supported for self-hosted catalogs and local tests. Its exact-IP grant applies only to the mirror; returned station entries cannot acquire local-network permission. Redirects, automatic proxies, decompression and hidden retries remain disabled through the existing HTTP boundary.
 

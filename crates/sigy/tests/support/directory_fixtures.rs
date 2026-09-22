@@ -119,7 +119,10 @@ fn directory_jobs_cache_unicode_and_register_without_tuning() -> TestResult {
     let mut service = RunningChild::start(directory.path())?;
     success(directory.path(), &fixture.request("one"))?;
     let completed = wait_refresh(directory.path(), "one")?;
-    assert_eq!(completed["directory_refresh"]["state"], "completed");
+    assert_eq!(
+        completed["directory_refresh"]["state"], "completed",
+        "{completed}"
+    );
     assert_eq!(completed["directory_refresh"]["accepted"], 1);
     let found = success(
         directory.path(),
@@ -260,6 +263,153 @@ fn oversized_directory_response_fails_without_cache_changes() -> TestResult {
     assert_eq!(failed["directory_refresh"]["state"], "failed");
     assert_eq!(failed["directory"]["cached_stations"], 0);
     assert_eq!(fixture.hits.load(Ordering::Relaxed), 1);
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}
+
+struct ClickServer {
+    origin: String,
+    paths: Arc<std::sync::Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl ClickServer {
+    fn start(station_id: &str) -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let port = listener.local_addr()?.port();
+        let origin = format!("http://fixture.invalid:{port}");
+        let stop = Arc::new(AtomicBool::new(false));
+        let paths = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cancelled = stop.clone();
+        let recorded = paths.clone();
+        let station = station_id.to_owned();
+        let worker = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(20);
+            while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut socket, _)) => {
+                        socket.set_read_timeout(Some(Duration::from_secs(2)))?;
+                        socket.set_write_timeout(Some(Duration::from_secs(2)))?;
+                        let mut bytes = Vec::new();
+                        while bytes.len() < 4096 && !bytes.ends_with(b"\r\n\r\n") {
+                            let mut byte = [0];
+                            socket.read_exact(&mut byte)?;
+                            bytes.push(byte[0]);
+                        }
+                        let request = String::from_utf8_lossy(&bytes);
+                        let path = request.split_whitespace().nth(1).unwrap_or("").to_owned();
+                        if let Ok(mut paths) = recorded.lock() {
+                            paths.push(path);
+                        }
+                        let body = format!(
+                            r#"{{"ok":"true","message":"retrieved station url","stationuuid":"{station}","name":"Radio","url":"http://127.0.0.1:{port}/secret-stream"}}"#
+                        );
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        let _ = socket.write_all(response.as_bytes());
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            Ok(())
+        });
+        Ok(Self {
+            origin,
+            paths,
+            stop,
+            worker: Some(worker),
+        })
+    }
+}
+
+impl Drop for ClickServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn wait_click(
+    directory: &std::path::Path,
+    id: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let value = success(directory, &["radio", "click-status", id])?;
+        if value["directory_click"]["state"] != "running" {
+            return Ok(value);
+        }
+        assert!(Instant::now() < deadline, "click deadline");
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn explicit_click_is_one_request_and_discards_the_stream_url() -> TestResult {
+    const STATION: &str = "12345678-1234-1234-1234-123456789abc";
+    let directory = tempfile::tempdir()?;
+    let catalog = DirectoryServer::start(response(), Duration::ZERO)?;
+    success(directory.path(), &["library", "init"])?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(directory.path(), &catalog.request("cache"))?;
+    let cached = wait_refresh(directory.path(), "cache")?;
+    assert_eq!(
+        cached["directory_refresh"]["state"], "completed",
+        "{cached}"
+    );
+    success(directory.path(), &["radio", "search", "--name", "Québec"])?;
+    success(directory.path(), &["radio", "show", STATION])?;
+    success(directory.path(), &["radio", "favorite", STATION])?;
+    assert_eq!(catalog.hits.load(Ordering::Relaxed), 1);
+    let clicks = ClickServer::start(STATION)?;
+    let command = [
+        "radio",
+        "click",
+        "heard",
+        "--station",
+        STATION,
+        "--mirror",
+        clicks.origin.as_str(),
+        "--pin-address",
+        "127.0.0.1",
+    ];
+    success(directory.path(), &command)?;
+    success(directory.path(), &command)?;
+    let clicked = wait_click(directory.path(), "heard")?;
+    assert_eq!(clicked["directory_click"]["state"], "completed");
+    assert_eq!(clicked["directory_click"]["acknowledged"], true);
+    assert_eq!(clicked["directory_click"]["station_id"], STATION);
+    let rendered = clicked.to_string();
+    assert!(!rendered.contains("secret-stream"));
+    assert!(!rendered.contains("/json/vote/"));
+    let paths = clicks.paths.lock().map_err(|_| "click paths")?.clone();
+    assert_eq!(paths, vec![format!("/json/url/{STATION}")]);
+    let early = invoke(
+        directory.path(),
+        &[
+            "radio",
+            "click",
+            "again",
+            "--station",
+            STATION,
+            "--mirror",
+            &clicks.origin,
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    assert!(!early.status.success());
+    assert_eq!(clicks.paths.lock().map_err(|_| "click paths")?.len(), 1);
     success(directory.path(), &["service", "stop"])?;
     service.wait()?;
     Ok(())

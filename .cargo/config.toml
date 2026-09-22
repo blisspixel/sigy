@@ -1,3 +1,7 @@
 [build]
 # Keep local development usable on small hosts and during background capture.
 jobs = 2
+
+[alias]
+verify = "run --locked --package sigy-xtask -- verify"
+verify-media = "run --locked --package sigy-xtask -- verify-media"

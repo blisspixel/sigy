@@ -220,7 +220,10 @@ async fn unsupported_and_ambiguous_headers_fail_before_body_writes() -> TestResu
     for headers in [
         "Content-Type: text/html\r\n",
         "Content-Type: audio/x-mpegurl\r\n",
+        "Content-Type: audio/mpegurl\r\n",
+        "Content-Type: application/x-mpegurl\r\n",
         "Content-Type: application/vnd.apple.mpegurl\r\n",
+        "Content-Type: audio/x-scpls\r\n",
         "Content-Type: audio/mpeg\r\nContent-Encoding: gzip\r\n",
         "Content-Type: audio/mpeg\r\nContent-Type: text/html\r\n",
         "Content-Type: audio/mpeg\r\nicy-metaint: 100\r\n",

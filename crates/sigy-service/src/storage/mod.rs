@@ -7,12 +7,16 @@ use rusqlite::{Connection, TransactionBehavior};
 use crate::{Error, Result};
 
 pub mod captures;
+mod clicks;
 pub mod discovery;
 pub mod dvr;
 pub mod ledger;
+mod listens;
+mod playlists;
+pub use clicks::ClickStatus;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 10;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -85,6 +89,15 @@ impl Store {
         }
         if (0..=6).contains(&version) {
             transaction.execute_batch(include_str!("007-favorites.sql"))?;
+        }
+        if (0..=7).contains(&version) {
+            transaction.execute_batch(include_str!("008-playlists.sql"))?;
+        }
+        if (0..=8).contains(&version) {
+            transaction.execute_batch(include_str!("009-clicks.sql"))?;
+        }
+        if (0..=9).contains(&version) {
+            transaction.execute_batch(include_str!("010-listens.sql"))?;
         } else if version != i64::from(SCHEMA_VERSION) {
             return Err(Error::FutureSchema {
                 found: version,
@@ -106,6 +119,9 @@ impl Store {
         store.audit_sources()?;
         store.audit_dvr()?;
         store.audit_discovery()?;
+        store.audit_playlists()?;
+        store.audit_clicks()?;
+        store.audit_listens()?;
         Ok(store)
     }
 

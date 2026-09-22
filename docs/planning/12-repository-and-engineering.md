@@ -58,7 +58,7 @@ The dependency direction is executable composition to service/core, and service 
 
 A future client-only package or shared protocol package should be extracted when a real second client or build constraint needs it. Native dependencies and third-party workers use explicit versioned contracts; an unstable Rust dynamic-library ABI is not the extension contract. High-rate sample transport and low-rate control need separate resource and timing designs. [Architecture](02-architecture-and-data.md), [extension contracts](08-signal-extensions-and-workbench.md).
 
-If Go wins the evaluation, preserve these ownership boundaries in one module, using `cmd/sigy/` and private `internal/` packages. Do not imitate Cargo with needless Go modules. Future native/web clients are separate interfaces to the service; their frameworks remain undecided.
+Rust is the selected implementation language. The Go comparison remains historical context in the trade study. Future native and web clients are separate interfaces to the service; their frameworks remain undecided.
 
 ## 3. Provisional stack profile
 
@@ -69,7 +69,7 @@ If Go wins the evaluation, preserve these ownership boundaries in one module, us
 | CLI parsing | clap | Reuse commands and validation across interactive/noninteractive use |
 | Async I/O and supervision | Tokio | One runtime policy; CPU-heavy inference does not block control or capture |
 | Catalog and durable metadata | SQLite | One embedded transactional store; binding and search approach unresolved |
-| Media and speech | Maintained native engines, initially evaluated as supervised workers | FFmpeg and native speech engines are candidates, not approved defaults |
+| Media and speech | User-installed FFmpeg for the current decoder and retained-file player; speech engines remain unevaluated | FFmpeg is not a Cargo dependency and is not downloaded by Sigy. Replacing it requires a measured decision |
 | Text/model access | Typed adapters over one shared HTTP mechanism | Ollama and OpenRouter targets; no mandatory provider SDK or agent framework |
 
 These are candidates, not dependencies to add today. Choose exact stable versions, enabled features, supported targets, and replacement policies at G4/G5 after measurements. Rust itself does not guarantee a smaller dependency graph than Go. Count and inspect the assembled product, including codecs, drivers, native binaries, accelerator libraries, certificates, and model files.
@@ -86,9 +86,9 @@ Application data belongs in documented platform data/cache/config locations outs
 
 ## 5. Verification and supply-chain roadmap
 
-Current verification covers the Rust foundation, maintenance CLI, transactional ledger, and documentation. The shared PowerShell entry point checks native source hashes, formatting, tests, strict Clippy, build, and advisories. [AGENTS.md](../../AGENTS.md) points to the verified commands. Broader service, media, model, and platform evidence remains pending.
+Current local verification is `cargo verify` for native-source hashes, formatting, workspace tests, warnings-denied Clippy, build, and dependency advisories, plus `cargo verify-media` for installed-FFmpeg recording and retained-file playback. Both commands run the Rust `sigy-xtask` package. [AGENTS.md](../../AGENTS.md) points to those commands. Pushing `main` runs `cargo verify` on one standard GitHub-hosted Windows runner, using the account's included Actions minutes. The workflow does not raise the spending limit, install FFmpeg, or run `cargo verify-media`. A green run is not a platform matrix, a release, or a substitute for the local media check. Model quality, other operating systems, and release packaging remain pending.
 
-After stack selection, create one local verification entry point used by CI. For Rust, qualify formatting, compiler checks, warnings-denied Clippy, useful unit/integration tests, dependency/license/advisory review, and release build checks. Scope unsafe/FFI code explicitly and use suitable fuzzing, interpreter/sanitizer, concurrency, and native-worker checks where supported. If Go is selected, qualify formatting, compilation, tests, vet, mature static analysis, vulnerability checks, and race/fuzz tests. Add exact commands only against actual configuration and supported tool versions.
+Rust is the selected toolchain. Keep this one verification entry point, and keep CI calling it. Scope unsafe and FFI explicitly. Add fuzzing, sanitizers, concurrency checks, and native-worker checks when the change needs them. The Go comparison stays in the trade study; do not reopen it as an implementation path. Add exact commands only from the current manifests, `sigy-xtask`, and tool help.
 
 Cross-platform install/start/reconnect/stop/uninstall evidence, crash recovery, storage pressure, multilingual evaluations, spending faults, and slow-terminal rendering tests remain mandatory product assurance. CI success alone cannot qualify every device, language, throughput profile, or operating system.
 

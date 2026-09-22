@@ -118,7 +118,10 @@ pub(super) fn register_source_in(
     })
 }
 
-fn read_source(connection: &rusqlite::Connection, id: &str) -> Result<Option<SourceRevision>> {
+pub(super) fn read_source(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> Result<Option<SourceRevision>> {
     let raw = connection.query_row("SELECT kind, name, endpoint, network_scope, pinned_address, created_ms, redirect_policy FROM source_revisions WHERE id = ?1", [id], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, i64>(5)?, row.get::<_, String>(6)?))
     }).optional()?;

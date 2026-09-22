@@ -198,6 +198,14 @@ impl Store {
         if !found {
             return Err(Error::NotFound);
         }
+        let listening: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM listen_sessions WHERE source_revision = ?1 AND state = 'running')",
+            [source],
+            |row| row.get(0),
+        )?;
+        if listening {
+            return Err(Error::InvalidInput("source revision is in use"));
+        }
         let (quota, configured): (u64, bool) = tx.query_row(
             "SELECT quota_bytes, decoder IS NOT NULL FROM dvr_policy WHERE singleton = 1",
             [],

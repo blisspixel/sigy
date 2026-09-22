@@ -159,7 +159,7 @@ fn initialize(directory: &std::path::Path, fixture: &AudioServer) -> TestResult 
 }
 
 #[test]
-#[ignore = "requires SIGY_TEST_FFMPEG; run scripts/verify-media.ps1"]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
 fn redirected_recording_publishes_audio_and_route_together() -> TestResult {
     let directory = tempfile::tempdir()?;
     let bytes = wave();
@@ -220,7 +220,7 @@ fn redirected_recording_publishes_audio_and_route_together() -> TestResult {
 }
 
 #[test]
-#[ignore = "requires SIGY_TEST_FFMPEG; run scripts/verify-media.ps1"]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
 fn recording_is_service_owned_verified_exportable_and_prunable() -> TestResult {
     let directory = tempfile::tempdir()?;
     let bytes = wave();
@@ -291,7 +291,7 @@ fn recording_is_service_owned_verified_exportable_and_prunable() -> TestResult {
 }
 
 #[test]
-#[ignore = "requires SIGY_TEST_FFMPEG; run scripts/verify-media.ps1"]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
 fn non_audio_headers_do_not_make_a_playable_recording() -> TestResult {
     let directory = tempfile::tempdir()?;
     let mut fixture = AudioServer::start(b"not audio".to_vec())?;
@@ -338,7 +338,7 @@ fn non_audio_headers_do_not_make_a_playable_recording() -> TestResult {
 }
 
 #[test]
-#[ignore = "requires SIGY_TEST_FFMPEG; run scripts/verify-media.ps1"]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
 fn killed_capture_preserves_partial_bytes_and_never_replays() -> TestResult {
     let directory = tempfile::tempdir()?;
     let fixture = AudioServer::start_delayed(wave(), Duration::from_secs(2))?;
@@ -392,5 +392,347 @@ fn killed_capture_preserves_partial_bytes_and_never_replays() -> TestResult {
     assert!(!path.exists());
     success(directory.path(), &["service", "stop"])?;
     restarted.wait()?;
+    Ok(())
+}
+
+fn assert_charged(directory: &std::path::Path, charged: &serde_json::Value) -> TestResult {
+    assert_eq!(
+        &success(directory, &["dvr", "status"])?["dvr"]["charged_bytes"],
+        charged
+    );
+    Ok(())
+}
+
+fn assert_system_playback(directory: &std::path::Path) -> TestResult {
+    let system = invoke(
+        directory,
+        &[
+            "listen",
+            "file",
+            "played",
+            "--destination",
+            "system",
+            "--seek-us",
+            "900000",
+        ],
+    )?;
+    if system.status.success() {
+        let played: serde_json::Value = serde_json::from_slice(&system.stdout)?;
+        let playhead = played["playhead_us"].as_u64().ok_or("missing playhead")?;
+        assert!(playhead > 900_000 && playhead <= 1_000_000, "{played}");
+    } else {
+        let error = String::from_utf8_lossy(&system.stderr);
+        assert!(
+            error.contains("audio output") || error.contains("system audio"),
+            "{error}"
+        );
+    }
+    Ok(())
+}
+
+fn kill_running_playback(directory: &std::path::Path) -> TestResult {
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_sigy"))
+        .arg("--data-dir")
+        .arg(directory)
+        .args([
+            "listen",
+            "file",
+            "played",
+            "--destination",
+            "null",
+            "--seek-us",
+            "100000",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    thread::sleep(Duration::from_millis(200));
+    let _ = child.kill();
+    let _ = child.wait();
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
+fn retained_playback_seeks_without_changing_quota_or_capture() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut fixture = AudioServer::start(wave())?;
+    initialize(directory.path(), &fixture)?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &[
+            "record",
+            "start",
+            "played",
+            "--source",
+            "radio:v1",
+            "--seconds",
+            "3",
+            "--max-mib",
+            "1",
+        ],
+    )?;
+    let record = wait_recording(directory.path(), "played", "completed")?;
+    assert_eq!(record["storage_state"], "retained");
+    assert_eq!(record["decoded_microseconds"], 1_000_000);
+    fixture.finish()?;
+    let charged = success(directory.path(), &["dvr", "status"])?["dvr"]["charged_bytes"].clone();
+    assert!(
+        !invoke(
+            directory.path(),
+            &[
+                "listen",
+                "file",
+                "played",
+                "--destination",
+                "null",
+                "--seek-us",
+                "1000000",
+            ],
+        )?
+        .status
+        .success()
+    );
+    let played = success(
+        directory.path(),
+        &[
+            "listen",
+            "file",
+            "played",
+            "--destination",
+            "null",
+            "--seek-us",
+            "200000",
+        ],
+    )?;
+    assert_eq!(played["destination"], "null");
+    assert_eq!(played["progress_advanced"], true);
+    let playhead = played["playhead_us"].as_u64().ok_or("missing playhead")?;
+    assert!((200_001..=1_000_000).contains(&playhead), "{played}");
+    assert_charged(directory.path(), &charged)?;
+    assert_system_playback(directory.path())?;
+    assert_charged(directory.path(), &charged)?;
+    assert_eq!(
+        success(directory.path(), &["record", "show", "played"])?["recording_page"]["entries"][0]["state"],
+        "completed"
+    );
+    kill_running_playback(directory.path())?;
+    let shown = success(directory.path(), &["record", "show", "played"])?;
+    assert_eq!(
+        shown["recording_page"]["entries"][0]["storage_state"],
+        "retained"
+    );
+    assert_eq!(
+        success(directory.path(), &["dvr", "status"])?["dvr"]["charged_bytes"],
+        charged
+    );
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}
+
+struct HlsServer {
+    origin: String,
+    paths: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl HlsServer {
+    fn start(audio: Vec<u8>) -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let origin = format!("http://127.0.0.1:{}", listener.local_addr()?.port());
+        let stop = Arc::new(AtomicBool::new(false));
+        let paths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cancelled = stop.clone();
+        let recorded = paths.clone();
+        let worker = thread::spawn(move || {
+            hls_accept(&listener, cancelled.as_ref(), recorded.as_ref(), &audio)
+        });
+        Ok(Self {
+            origin,
+            paths,
+            stop,
+            worker: Some(worker),
+        })
+    }
+}
+
+impl Drop for HlsServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn hls_accept(
+    listener: &TcpListener,
+    cancelled: &AtomicBool,
+    recorded: &std::sync::Mutex<Vec<String>>,
+    audio: &[u8],
+) -> std::io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+                stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+                let mut request = Vec::new();
+                while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte)?;
+                    request.push(byte[0]);
+                }
+                let text = String::from_utf8_lossy(&request);
+                let path = text.split_whitespace().nth(1).unwrap_or("").to_owned();
+                if let Ok(mut paths) = recorded.lock() {
+                    paths.push(path.clone());
+                }
+                let (content_type, body) = hls_response(&path, audio);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )?;
+                stream.write_all(&body)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn hls_response(path: &str, audio: &[u8]) -> (&'static str, Vec<u8>) {
+    if path.starts_with("/master.m3u8") {
+        (
+            "application/vnd.apple.mpegurl",
+            b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=128000\nvariant.m3u8\n".to_vec(),
+        )
+    } else if path.starts_with("/media.m3u8") {
+        (
+            "application/vnd.apple.mpegurl",
+            b"#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nseg0\n#EXTINF:1,\nseg1\n#EXT-X-ENDLIST\n"
+                .to_vec(),
+        )
+    } else if path.starts_with("/seg0") {
+        ("audio/wav", audio[..audio.len() / 2].to_vec())
+    } else if path.starts_with("/seg1") {
+        ("audio/wav", audio[audio.len() / 2..].to_vec())
+    } else {
+        ("text/plain", b"unexpected".to_vec())
+    }
+}
+
+fn wait_terminal(
+    directory: &std::path::Path,
+    id: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let response = success(directory, &["record", "show", id])?;
+        let record = &response["recording_page"]["entries"][0];
+        let state = record["state"].as_str().unwrap_or("");
+        if matches!(state, "completed" | "failed" | "interrupted" | "cancelled") {
+            return Ok(record.clone());
+        }
+        assert!(Instant::now() < deadline, "{record}");
+        thread::sleep(Duration::from_millis(30));
+    }
+}
+
+#[test]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
+fn hls_media_playlist_publishes_audio_and_master_is_rejected() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let audio = wave();
+    let server = HlsServer::start(audio.clone())?;
+    let decoder = std::env::var("SIGY_TEST_FFMPEG")?;
+    success(directory.path(), &["library", "init"])?;
+    success(
+        directory.path(),
+        &["dvr", "configure", "--decoder", &decoder, "--quota-gb", "1"],
+    )?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &[
+            "source",
+            "add",
+            "master:v1",
+            "--name",
+            "Master",
+            "--url",
+            &format!("{}/master.m3u8", server.origin),
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    success(
+        directory.path(),
+        &[
+            "source",
+            "add",
+            "media:v1",
+            "--name",
+            "Media",
+            "--url",
+            &format!("{}/media.m3u8", server.origin),
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    success(
+        directory.path(),
+        &[
+            "record",
+            "hls",
+            "master-rec",
+            "--source",
+            "master:v1",
+            "--seconds",
+            "30",
+            "--max-mib",
+            "1",
+        ],
+    )?;
+    let failed = wait_terminal(directory.path(), "master-rec")?;
+    assert_eq!(failed["state"], "failed", "{failed}");
+    success(
+        directory.path(),
+        &[
+            "record",
+            "hls",
+            "media-rec",
+            "--source",
+            "media:v1",
+            "--seconds",
+            "30",
+            "--max-mib",
+            "1",
+        ],
+    )?;
+    let recorded = wait_terminal(directory.path(), "media-rec")?;
+    assert_eq!(recorded["state"], "completed", "{recorded}");
+    assert_eq!(recorded["media_bytes"], audio.len());
+    let path = success(directory.path(), &["record", "path", "media-rec"])?;
+    assert_eq!(
+        std::fs::read(path["path"].as_str().ok_or("missing path")?)?,
+        audio
+    );
+    let paths = server.paths.lock().map_err(|_| "hls paths")?.clone();
+    assert!(paths.iter().any(|path| path.starts_with("/master.m3u8")));
+    assert!(paths.iter().any(|path| path.starts_with("/seg0")));
+    assert!(paths.iter().any(|path| path.starts_with("/seg1")));
+    assert!(paths.iter().all(|path| !path.contains("variant")));
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
     Ok(())
 }

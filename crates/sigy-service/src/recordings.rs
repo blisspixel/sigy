@@ -1,7 +1,12 @@
 //! Owned media files. Only the library owner may publish or reclaim these paths.
 
 mod decoder;
+mod live;
 pub mod metadata;
+mod pipe;
+
+pub(crate) use live::stream_revision;
+pub(crate) use pipe::valid_listen_nonce as pipe_nonce_valid;
 
 use sha2::{Digest, Sha256};
 use std::{
@@ -20,6 +25,94 @@ use crate::{
     },
     storage::dvr::{Publication, hex, validate_object_key},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackDestination {
+    Null,
+    System,
+}
+
+impl PlaybackDestination {
+    /// # Errors
+    /// Returns an error when the destination name is not `null` or `system`.
+    pub fn parse(value: &str) -> std::result::Result<Self, &'static str> {
+        match value {
+            "null" => Ok(Self::Null),
+            "system" => Ok(Self::System),
+            _ => Err("destination: use null or system"),
+        }
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Null => "null",
+            Self::System => "system",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlaybackReport {
+    pub playhead_us: u64,
+    pub progress_advanced: bool,
+}
+
+/// Play one local published file in the calling process.
+///
+/// The decoder receives this path only. Playback does not reserve quota or open a source URL.
+///
+/// Decode one local pipe of bytes the service already fetched.
+///
+/// The decoder receives `pipe:0` only. This does not reserve quota or open a source URL.
+/// # Errors
+/// Rejects an unsupported format, a pipe that cannot be opened, or a decoder that cannot finish.
+pub async fn play_direct_listen(
+    executable: &str,
+    directory: &Path,
+    nonce: &str,
+    format: &str,
+    destination: PlaybackDestination,
+) -> Result<PlaybackReport> {
+    let input = pipe::connect_listen_pipe(directory, nonce).await?;
+    let report = decoder::play_reader(
+        executable,
+        input,
+        format,
+        destination == PlaybackDestination::System,
+    )
+    .await?;
+    Ok(PlaybackReport {
+        playhead_us: report.playhead_us,
+        progress_advanced: report.progress_advanced,
+    })
+}
+
+/// # Errors
+/// Rejects an unsupported format, a seek outside the published duration, a missing file,
+/// or a decoder that cannot finish.
+pub async fn play_retained_file(
+    executable: &str,
+    path: &Path,
+    format: &str,
+    destination: PlaybackDestination,
+    seek_us: u64,
+    decoded_us: u64,
+) -> Result<PlaybackReport> {
+    let report = decoder::play_file(
+        executable,
+        path,
+        format,
+        destination == PlaybackDestination::System,
+        seek_us,
+        decoded_us,
+    )
+    .await?;
+    Ok(PlaybackReport {
+        playhead_us: report.playhead_us,
+        progress_advanced: report.progress_advanced,
+    })
+}
 
 /// # Errors
 /// Rejects invalid keys and links at the owned media boundary.
@@ -98,15 +191,29 @@ fn sync_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
+pub(crate) struct CaptureRequest {
+    pub directory: PathBuf,
+    pub key: String,
+    pub source: HttpSource,
+    pub limits: AcquisitionLimits,
+    pub decoder: String,
+    pub acquirer: HttpAcquirer,
+    pub hls: bool,
+}
+
 pub(crate) async fn capture(
-    directory: PathBuf,
-    key: String,
-    source: HttpSource,
-    limits: AcquisitionLimits,
-    decoder: String,
-    acquirer: HttpAcquirer,
+    request: CaptureRequest,
     mut stop: tokio::sync::watch::Receiver<bool>,
 ) -> Result<Publication> {
+    let CaptureRequest {
+        directory,
+        key,
+        source,
+        limits,
+        decoder,
+        acquirer,
+        hls,
+    } = request;
     let media = checked_directory(&directory, true)?;
     let part = object_path(&media, &key, "part")?;
     let destination = object_path(&media, &key, "media")?;
@@ -120,7 +227,11 @@ pub(crate) async fn capture(
         options.mode(0o600);
     }
     let mut file = options.open(&part).await?;
-    let result = acquirer.record(&source, limits, &mut file, &mut stop).await;
+    let result = if hls {
+        crate::sources::hls::record(&acquirer, &source, limits, &mut file, &mut stop).await
+    } else {
+        acquirer.record(&source, limits, &mut file, &mut stop).await
+    };
     // The file and its quota stay owned even when transport fails or is cancelled.
     file.flush().await?;
     file.sync_all().await?;

@@ -1,6 +1,8 @@
 //! Validated source configurations. Discovery data never grants network access.
 
+pub(crate) mod hls;
 pub mod http;
+pub(crate) mod playlist;
 mod policy;
 mod redirects;
 

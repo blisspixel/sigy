@@ -9,12 +9,32 @@ use crate::{
 use std::{collections::HashMap, thread, time::Instant};
 use tokio::sync::{mpsc, oneshot, watch};
 
+mod click;
 mod discovery;
+mod listen;
+mod playlist;
 
 pub(super) enum Message {
     DirectoryFinished {
         id: String,
         result: Result<crate::discovery::RefreshBatch>,
+    },
+    PlaylistFinished {
+        id: String,
+        result: Result<crate::sources::playlist::ResolvedPlaylist>,
+    },
+    ClickFinished {
+        id: String,
+        result: Result<String>,
+    },
+    ListenReady {
+        id: String,
+        nonce: String,
+        format: String,
+    },
+    ListenFinished {
+        id: String,
+        result: Result<String>,
     },
     Sweep,
     Request {
@@ -45,17 +65,27 @@ impl Drop for AbortTask {
     }
 }
 
+struct LiveListen {
+    worker: Worker,
+    pipe_nonce: Option<String>,
+    format: Option<String>,
+}
+
 struct Actor {
     library: Library,
     runtime: tokio::runtime::Handle,
     sender: mpsc::WeakSender<Message>,
     workers: HashMap<String, Worker>,
     directory_worker: Option<Worker>,
+    playlist_worker: Option<Worker>,
+    click_worker: Option<Worker>,
+    listen_workers: HashMap<String, LiveListen>,
     acquirer: HttpAcquirer,
 }
 
 impl Actor {
     fn apply(&mut self, operation: Operation) -> Result<Snapshot> {
+        let mut created = None;
         let operation = match operation {
             Operation::Radio {
                 command: super::DirectoryOperation::Refresh { id, request },
@@ -63,6 +93,22 @@ impl Actor {
                 self.start_directory(&id, request)?;
                 Operation::Radio {
                     command: super::DirectoryOperation::RefreshStatus { id },
+                }
+            }
+            Operation::Playlist {
+                command: super::PlaylistOperation::Resolve { id, revision_id },
+            } => {
+                self.start_playlist(&id, &revision_id)?;
+                Operation::Playlist {
+                    command: super::PlaylistOperation::Status { id },
+                }
+            }
+            Operation::Radio {
+                command: super::DirectoryOperation::Click { id, request },
+            } => {
+                self.start_click(&id, request)?;
+                Operation::Radio {
+                    command: super::DirectoryOperation::ClickStatus { id },
                 }
             }
             Operation::Record {
@@ -74,12 +120,31 @@ impl Actor {
                         maximum_bytes,
                         retention,
                     },
-            } => {
-                self.start(&id, &source_revision, seconds, maximum_bytes, retention)?;
-                Operation::Record {
-                    command: RecordingOperation::Show { id },
-                }
-            }
+            } => self.launch_recording(
+                id,
+                &source_revision,
+                seconds,
+                maximum_bytes,
+                retention,
+                false,
+            )?,
+            Operation::Record {
+                command:
+                    RecordingOperation::Hls {
+                        id,
+                        source_revision,
+                        seconds,
+                        maximum_bytes,
+                        retention,
+                    },
+            } => self.launch_recording(
+                id,
+                &source_revision,
+                seconds,
+                maximum_bytes,
+                retention,
+                true,
+            )?,
             Operation::Record {
                 command: RecordingOperation::Stop { id },
             } => {
@@ -91,11 +156,50 @@ impl Actor {
                     command: RecordingOperation::Show { id },
                 }
             }
+            Operation::Listen {
+                command: super::ListenOperation::Start { id, revision_id },
+            } => {
+                created = Some(self.start_listen(&id, &revision_id)?);
+                Operation::Listen {
+                    command: super::ListenOperation::Status { id },
+                }
+            }
+            Operation::Listen {
+                command: super::ListenOperation::Stop { id },
+            } => {
+                self.stop_listen(&id)?;
+                Operation::Listen {
+                    command: super::ListenOperation::Status { id },
+                }
+            }
             other => other,
         };
         let mut snapshot = apply_library(&mut self.library, operation)?;
+        if let Some(listen) = snapshot.listen.as_mut() {
+            if let Some(created) = created {
+                listen.newly_started = Some(created);
+            }
+            if created != Some(false) {
+                self.attach_listen(listen);
+            }
+        }
         snapshot.captures.dispatch_available = self.library.store().dvr_status()?.decoder.is_some();
         Ok(snapshot)
+    }
+
+    fn launch_recording(
+        &mut self,
+        id: String,
+        source_revision: &str,
+        seconds: u64,
+        maximum_bytes: u64,
+        retention: crate::storage::dvr::Retention,
+        hls: bool,
+    ) -> Result<Operation> {
+        self.start(&id, source_revision, seconds, maximum_bytes, retention, hls)?;
+        Ok(Operation::Record {
+            command: RecordingOperation::Show { id },
+        })
     }
 
     fn start(
@@ -105,6 +209,7 @@ impl Actor {
         seconds: u64,
         maximum: u64,
         retention: crate::storage::dvr::Retention,
+        hls: bool,
     ) -> Result<()> {
         let source = self
             .library
@@ -156,7 +261,18 @@ impl Actor {
         let worker_id = id.to_owned();
         let worker = self.spawn_worker(
             move |signal| {
-                recordings::capture(directory, key, source, limits, decoder, acquirer, signal)
+                recordings::capture(
+                    recordings::CaptureRequest {
+                        directory,
+                        key,
+                        source,
+                        limits,
+                        decoder,
+                        acquirer,
+                        hls,
+                    },
+                    signal,
+                )
             },
             move |result| Message::Finished {
                 id: worker_id,
@@ -241,9 +357,39 @@ impl Actor {
         if let Some(worker) = &self.directory_worker {
             worker.stop.send_replace(true);
         }
+        if let Some(worker) = &self.playlist_worker {
+            worker.stop.send_replace(true);
+        }
+        if let Some(worker) = &self.click_worker {
+            worker.stop.send_replace(true);
+        }
+        for session in self.listen_workers.values() {
+            session.worker.stop.send_replace(true);
+        }
         for worker in self.workers.values() {
             worker.stop.send_replace(true);
         }
+    }
+
+    fn idle(&self) -> bool {
+        self.workers.is_empty()
+            && self.listen_workers.is_empty()
+            && self.directory_worker.is_none()
+            && self.playlist_worker.is_none()
+            && self.click_worker.is_none()
+    }
+}
+
+fn mark_failed(
+    actor: &mut Actor,
+    stopping: &watch::Sender<bool>,
+    stopped: &mut bool,
+    failed: bool,
+) {
+    if failed {
+        *stopped = true;
+        actor.stop();
+        stopping.send_replace(true);
     }
 }
 
@@ -258,6 +404,9 @@ pub(super) fn spawn(
         sender: sender.downgrade(),
         workers: HashMap::new(),
         directory_worker: None,
+        playlist_worker: None,
+        click_worker: None,
+        listen_workers: HashMap::new(),
         acquirer: HttpAcquirer::default(),
     };
     let thread = thread::Builder::new()
@@ -267,72 +416,105 @@ pub(super) fn spawn(
             let mut stopped = false;
             let mut shutdown = false;
             while let Some(message) = receiver.blocking_recv() {
-                match message {
-                    Message::DirectoryFinished { id, result } => {
-                        if actor.finish_directory(&id, result).is_err() {
-                            stopped = true;
-                            actor.stop();
-                            stopping.send_replace(true);
-                        }
-                    }
-                    Message::Sweep => {
-                        if !stopped && recordings::prune(&mut actor.library).is_err() {
-                            stopped = true;
-                            actor.stop();
-                            stopping.send_replace(true);
-                        }
-                    }
-                    Message::Shutdown => {
-                        stopped = true;
-                        shutdown = true;
-                        actor.stop();
-                    }
-                    Message::Finished {
-                        id,
-                        generation,
-                        result,
-                    } => {
-                        if actor.finish(&id, generation, result).is_err() {
-                            stopped = true;
-                            actor.stop();
-                            stopping.send_replace(true);
-                        }
-                    }
-                    Message::Request { operation, reply } => {
-                        let stop = matches!(operation, Operation::Stop {});
-                        let result = if stopped {
-                            Err(Error::ServiceStopped)
-                        } else {
-                            actor.apply(operation)
-                        };
-                        if stop && result.is_ok() {
-                            stopped = true;
-                            actor.stop();
-                            stopping.send_replace(true);
-                        }
-                        let result = result
-                            .map(|mut snapshot| {
-                                snapshot.service = Some(ServiceView {
-                                    process_id: std::process::id(),
-                                    uptime_seconds: started.elapsed().as_secs(),
-                                    stopping: stop,
-                                    maximum_clients: super::MAX_CLIENTS,
-                                });
-                                snapshot
-                            })
-                            .map_err(|error| failure(&error));
-                        let _ = reply.send(Response {
-                            version: PROTOCOL_VERSION,
-                            result,
-                        });
-                    }
-                }
-                if shutdown && actor.workers.is_empty() && actor.directory_worker.is_none() {
+                dispatch(
+                    &mut actor,
+                    message,
+                    &stopping,
+                    &mut stopped,
+                    &mut shutdown,
+                    started,
+                );
+                if shutdown && actor.idle() {
                     break;
                 }
             }
         })?;
     Ok((sender, thread))
+}
+
+fn dispatch(
+    actor: &mut Actor,
+    message: Message,
+    stopping: &watch::Sender<bool>,
+    stopped: &mut bool,
+    shutdown: &mut bool,
+    started: Instant,
+) {
+    match message {
+        Message::DirectoryFinished { id, result } => {
+            let failed = actor.finish_directory(&id, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::PlaylistFinished { id, result } => {
+            let failed = actor.finish_playlist(&id, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::ClickFinished { id, result } => {
+            let failed = actor.finish_click(&id, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::ListenReady { id, nonce, format } => actor.ready_listen(&id, nonce, format),
+        Message::ListenFinished { id, result } => {
+            let failed = actor.finish_listen(&id, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::Sweep => {
+            let failed = !*stopped && recordings::prune(&mut actor.library).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::Shutdown => {
+            *stopped = true;
+            *shutdown = true;
+            actor.stop();
+        }
+        Message::Finished {
+            id,
+            generation,
+            result,
+        } => {
+            let failed = actor.finish(&id, generation, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::Request { operation, reply } => {
+            answer(actor, operation, reply, stopping, stopped, started);
+        }
+    }
+}
+
+fn answer(
+    actor: &mut Actor,
+    operation: Operation,
+    reply: oneshot::Sender<Response>,
+    stopping: &watch::Sender<bool>,
+    stopped: &mut bool,
+    started: Instant,
+) {
+    let stop = matches!(operation, Operation::Stop {});
+    let result = if *stopped {
+        Err(Error::ServiceStopped)
+    } else {
+        actor.apply(operation)
+    };
+    if stop && result.is_ok() {
+        *stopped = true;
+        actor.stop();
+        stopping.send_replace(true);
+    }
+    let result = result
+        .map(|mut snapshot| {
+            snapshot.service = Some(ServiceView {
+                process_id: std::process::id(),
+                uptime_seconds: started.elapsed().as_secs(),
+                stopping: stop,
+                maximum_clients: super::MAX_CLIENTS,
+            });
+            snapshot
+        })
+        .map_err(|error| failure(&error));
+    let _ = reply.send(Response {
+        version: PROTOCOL_VERSION,
+        result,
+    });
 }
 
 fn failure(error: &Error) -> Failure {

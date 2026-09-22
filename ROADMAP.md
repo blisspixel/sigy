@@ -4,7 +4,7 @@ Last updated: 2026-09-21
 
 This roadmap is organized by evidence and exit criteria. It does not assign speculative completion dates. Implementation has begun on the Rust foundation; the complete release remains ahead. [Current evidence and active work](docs/development/progress.md) distinguish completed slices from these planned stages.
 
-The current increment adds explicit bounded HTTP redirects and retained response-route evidence to Radio Browser discovery and finite recording. Existing source permissions remain unchanged during migration. Local Windows fixtures cover permitted/denied redirects, loops, cancellation, publication and recovery; a prior live directory metadata check is recorded separately. Continuous segmented DVR, broad stream compatibility, podcasts and integrated playback remain open. No stage exit is implied by this increment.
+The current foundation is recorded in [implementation progress](docs/development/progress.md): the Rust service, exact ledger, Windows controller, capture journal, source authority, finite recording and retention, Radio Browser refresh, search, favorites, and authorized redirects. Local Windows fixtures cover that work. A prior live directory metadata check is recorded separately. The [build order](#build-order) is the sequence from this foundation through the first complete release. No stage below is exited.
 
 The product journey is to explore signals and discover their meaning in context. Each milestone must make the path from observation to interpretation inspectable, preserve uncertainty, and support learning and correction. These are planned acceptance requirements, not claims about the current implementation.
 
@@ -26,6 +26,140 @@ The product journey is to explore signals and discover their meaning in context.
 | 13. Additional clients | Evaluate native and/or web interfaces, remote-host operation, optional collaboration | Product demand established and access, media transport, and compatibility designs reviewed |
 
 Stages 3 through 6 are internal engineering milestones. An explorer-only build is not the first complete release. Internet radio and podcasts are prioritized before hardware; podcast ingestion has moved into stage 4. Music intelligence, broader text feeds and physical radios follow the first release. Post-release placement for stages 11 and 12 is a proposal pending scope review. Their order is flexible; file-based workbench features need not wait for hardware delivery.
+
+## Build order
+
+The implementation goal is the first complete release in stage 7: radio exploration, recordings, live translation, and bounded topic monitoring, with a complete CLI and an optional TUI, on declared profiles only. Reach that release by the operations below, in order. Stages 8 through 13 stay after it.
+
+Stage numbers are exit bars, not a claim that the code must be written in stage order. A passing operation does not exit a stage. Backup and power-loss evidence run once the segment and analysis-revision schema is the schema the release will restore. Stage 3 is exited only by that evidence. Stage 4 is exited only when listening, podcasts, segmented DVR, the list explorer, the globe, and the visualizers all meet their checks together.
+
+Every operation is verified with `cargo verify`. A media, decoder, or acquisition change is also verified with `cargo verify-media`. [Implementation progress](docs/development/progress.md) and the README status are updated in the same change, and they name only behavior those runs covered.
+
+These rules hold for every operation:
+
+- One HTTP acquisition path, one library lock, one capture journal, one ledger, and one controller supervisor. Playlists, HLS segments, enclosures, clicks, and any later proxy use that path. The decoder and the TUI do not open source URLs.
+- Redirects stay opt-in: deny, same-origin, or public, at most three hops, the original deadline, a destination check at every hop, no credential forwarding, and no HTTPS downgrade.
+- Money stays exact. Paid dispatch stays unavailable until the billing-fault operation. A zero limit fails closed. Local zero-cost work records an analysis decision and does not call `reserve` or weaken it.
+- Capture stays independent of playback, rendering, and analysis. Leaving a client stops listening and leaves service-owned capture running.
+- Favorites stay Radio Browser identities. A podcast subscription is a separate user intent. Cache maintenance preserves both.
+- Refresh, search, show, favorite, registration, playlist resolve, and listen do not report a click or a vote.
+- The configured FFmpeg executable remains the decoder and the player. The decoder receives local bytes or one pipe, with the existing protocol whitelist.
+
+### A. Direct listening
+
+`system` playback uses the configured binary's local audio output. `null` is the fixture and headless destination. If `system` cannot open, the session fails visibly. Schema and IPC stay at v7 for operation 1. The first durable listen, playlist, or click row advances both in one migration.
+
+1. **Play a retained recording.** Foreground playback of one published file: capture completed, storage retained, object key resolved through the media path, links rejected, and format taken from publication. The playhead lives in the client, as seek base plus decoder progress, clamped to the published duration. Pause and seek restart that local process. They do not stop a recording, change retention, or reserve quota. Client exit kills the player and leaves the file. Exit: media tests show advancing progress, seek inside the published duration, unchanged quota, and a killed client leaving the recording retained. Station playback stays unimplemented.
+
+2. **Resolve one playlist document and accept an entry.** One shared-acquirer read: 64 KiB, the directory document deadline, the revision's redirect policy, identity encoding, no cookies, and no retry. The final type is one of `audio/x-mpegurl`, `audio/mpegurl`, `application/x-mpegurl`, `application/vnd.apple.mpegurl`, or `audio/x-scpls`. At most 32 entries. Relative URLs resolve against the final response URL, then through the parent scope and redirect policy. Nested playlists are not fetched. An HLS marker or a directory HLS flag fails the resolve and stores no candidates. Accept registers a new immutable `http_audio` revision for one chosen index and records the parent, request, index, and document hash. The parent revision is unchanged. Accept performs no I/O. Replay does not fetch or register again. Exit: fixtures show no audio connection during resolve, redacted ordinary views, and the audio path still refusing playlist MIME.
+
+3. **Report a directory click only when asked.** One command sends one state-changing GET on the shared acquirer, with redirects denied and the body discarded. The response is not a source and not a stream. The provider path is taken from the provider document at implementation time. Replay does not send twice. Exit: the command produces one fixture request, and search, show, favorite, refresh, resolve, and listen produce none.
+
+4. **Listen to a direct audio revision.** The shared acquirer runs inside the existing supervisor. Bytes go to a private local pipe, and the client decodes that pipe. The service does not open the audio device. Admission stays 15 minutes and 256 MiB, with the existing attempt and HTTP slots. A listen receipt supports exact replay and is not a recording. Restart marks a running listen interrupted and does not resume it. A revision already held by a recording or a listen is refused. Stopping a listen does not stop a recording. Stopping the listen ends that session; buffered live pause waits for segmented playback. Exit: local fixture bytes reach decoder progress, service kill leaves no playable file and no reservation, replay does not reconnect, and a playlist or ICY response fails before decode.
+
+5. **Fetch an HLS media playlist on the same path.** This starts only after operation 2 is verified. A media playlist is a timed segment list fetched by the shared acquirer under the same redirect, byte, and deadline budget. Audio is published only through the existing recording path. There is no source revision per segment, and an `.m3u8` URL is not passed to FFmpeg. Master playlists stay rejected. Exit: a local media-playlist fixture publishes audio, and a master playlist fails closed.
+
+6. **Keep ICY metadata out of the audio hash.** The default remains metadata off, and an interleaved interval still fails before a body write. An explicit profile, default off, may request metadata. The reader splits blocks before the sink. Only audio bytes are hashed and published. Each block is capped and stored as a timed untrusted observation. It cannot rename a station, grant a URL, or reach the decoder. The recording envelope moves past v2 when those observations exist. Exit: a fixture shows the published hash matching the audio-only bytes while a hostile title remains an observation.
+
+7. **Record what this profile actually plays.** The local ladder is direct audio, one playlist entry, and a permitted redirect in front of a playlist. A public station check waits for a separate authorization, stays inside the existing caps, and is written as one dated observation. Exit: the README names only formats those runs decoded, on the OS that ran them. One smoke session is not a support matrix.
+
+### B. First terminal list
+
+8. **Choose a terminal stack by measurement.** Ratatui, Crossterm, and Termina stay candidates until measured. Before a crate is added, run one list and search workload on Windows Terminal at 80x24, 120x36, and a large size, including resize, combining marks, wide characters, reduced motion, no-color mode, paste as text, and restoration of terminal modes after exit and panic. Idle redraw is zero. Record key-to-frame latency. Use one backend. Exit: a written selection, the measurements, and the rejected alternative. The client still opens no second catalog.
+
+9. **Render the list explorer over operations that already exist.** Show service connection, partial cache, observation age, refresh outcome, search, favorites, source detail, recordings, quota, and the real playback session. Directory health stays labeled as directory health, separate from local playback and detected language. Selection starts no audio, capture, refresh, or click. Quit detaches the client and does not stop the service. Every mutation maps to a CLI operation. Reduced motion, linear order, and monochrome exist before any animation. Workspaces without operations stay visibly unavailable. Exit: state tests for focus, stale responses, disconnect, and quit during a recording; 80x24 keeps search, identity, playback state, and help; a Windows Terminal inspection records the terminal and font. The globe and stage 4 stay open.
+
+### C. Podcasts
+
+A subscription is not a favorite and not an `http_audio` revision. Feed text grants no network, retention, or playback authority. Subscribe and refresh write metadata only. The feed poll reuses the directory-refresh lifecycle: one active request, exact replay, and the last good snapshot kept.
+
+10. **Subscribe locally.** The migration adds feed storage and advances catalog and IPC together. The feed URL, scope, pin, and redirect policy are immutable. Unsubscribe stops future polls and deletes nothing. Exit: subscribe performs no DNS and creates no capture.
+
+11. **Refresh one RSS 2.0 document and list episodes.** One shared-acquirer call. Compressed body at most 2 MiB, decompressed at most 8 MiB, expansion ratio at most 16. At most 500 committed items; further items mark the snapshot truncated. Parser depth at most 32, with no DTD, external entities, or XInclude. Episode identity prefers the publisher guid inside that subscription. A missing guid may be derived only from a normalized enclosure URL plus a publication time, and that derivation is labeled. Titles never identify an episode. Omission from a later snapshot is not deletion. A failed document leaves the last good snapshot. Transcript and chapter URLs are stored and not fetched. A live item is counted and not opened. Exit: fixture feeds, including one at the scale of the inspected 239-item publisher document, list episodes offline, and hostile XML and private redirects fail closed.
+
+12. **Download one enclosure through the existing publication path.** The request is explicit. It registers an immutable audio revision for that enclosure URL and reserves the full episode ceiling before connect: at most 512 MiB and a transfer deadline of 30 minutes. Radio attempts stay 15 minutes and 256 MiB. A declared length above the cap is rejected before connect. A body that hits the ceiling without a clean end is not playable. Completeness requires a clean end, decode, and hash. Replay does not download twice. Exit: one fixture enclosure is a retained recording bound to that enclosure revision and visible to existing recording and retention commands.
+
+13. **Play that recording with operation 1.** The episode has no live edge. Subscribe and refresh still start neither download nor playback. Exit: subscribe, inspect, download one enclosure under the 14-day and 50 GB policy, and play the retained file.
+
+14. **Fetch publisher transcripts and chapters only when asked.** One asset per request, outside the media quota, with origin, type, language hint, document hash, and unverified alignment. Accept VTT, SRT, and the podcast-namespace JSON forms. Cue times are not media time, and the text is not an ASR row. Exit: refresh does not fetch the asset, and inspection shows unverified publisher text.
+
+Atom enclosure-only input, automatic metadata polling, range resume, images, private authorization headers, and article text wait. Article mining stays in stage 9.
+
+### D. Segmented recording
+
+A timeline is one capture with many immutable segments. It is not a series of unrelated finite recordings. One published finite file is a one-interval timeline. An interrupted finite file remains an unpublished reservation. The writer token is the job, the revision, and the generation. Seals use the whole token.
+
+15. **Project current rows onto intervals.** A completed file exposes measured publication bounds. The planned window and the part file are not airtime. Exit: store checks accept old and new rows.
+
+16. **Seal segments on one running job.** The open segment ceiling is 32 MiB, inside the 256 MiB absolute cap. The seal closes on that ceiling or on 5000 ms of receive time, whichever comes first. That 5000 ms bound is the candidate uncommitted window to implement, not a measured durability result. At admit, escrow the whole finite byte budget up front, in integers, with the same quota failures as today. Opening a segment assigns one ceiling out of the escrow. Sealing charges actual bytes and returns the unused difference to the escrow. The next segment opens only when a full ceiling remains. Renewal extends the lease on the same socket and does not open a second upstream request. A stale token cannot seal. Exit: a capture longer than one segment lists ordered published intervals, the job stays running across seals, and audit shows many segments with exactly one open reservation.
+
+17. **Journal gaps.** Disconnect, recovery, codec change, refused renewal, capture pause, and a backward clock each write a gap with a cause. Seek of that range fails. No silence file stands in for the hole. Exit: a fixture for each cause.
+
+18. **Play published segments from independent sessions.** Many playheads share one capture. Pause does not signal the worker. Seek lands only inside a retained published segment, and only inside decoded duration. Return to live parks at the end of the newest retained published segment. The open tail is visible and not readable. A slow session cannot stall capture. Client exit ends the session and leaves the capture. Exit: two clients, an expired paused position, and a capture that survives detach.
+
+19. **Hold, promote, and prune a running buffer.** Rolling segments age out of the retain window. Keep and Archive stay exempt and still count. Saving an interval protects the whole published segments the request intersects, in one transaction, and records internal gaps. The open tail is not pruned. Delete-before-release ordering stays. A processing receipt does not protect media and does not start analysis. Exit: promotion versus prune, shared bytes charged once, and a balanced quota after deletion.
+
+20. **Schedule by station and time.** One rule binds one source revision, an IANA zone, and a one-time, daily, or weekly recurrence. Each occurrence has a finite duration and a finite byte budget. Only the next occurrence is materialized. Replay and restart do not double-admit. A missed window stays missed and is not backfilled. A spring-forward civil time is missed. A fall-back civil time admits one occurrence on the earlier offset. Changing a rule does not rewrite an admitted plan. No analysis profile can be attached. Exit: daylight-saving fixtures, a late start that records the prefix gap, and no second job.
+
+21. **Refresh the directory on a saved policy.** One active refresh, visible age, and preserved favorites. An open client does not probe streams or send clicks. A failed refresh leaves the last usable cache. Exit: the existing refresh fixtures, plus a policy that does not run merely because a client is connected.
+
+The DVR portion of stage 4 is met when the CLI can show, for two simultaneous sources inside the existing slot cap, the timeline, sequence, bounds, decoded duration, gap cause, hold, checksum, writer generation, and any unpublished tail marked not playable.
+
+### E. Language on retained intervals
+
+Analysis reads published media and explicit gaps only. It does not open the live socket. The current processing receipt remains a cleanup mark, not a transcript and not a pin.
+
+22. **Bind analysis to published inputs.** Admit only a completed capture whose retained checksum matches. Time is media time tied to that hash. The uncovered planned window is a gap. The input pin is not the cleanup receipt. A stale worker cannot publish over a newer revision. Exit: unpublished and mismatched objects are refused, and the worker has no source URL.
+
+23. **Transcribe one published recording locally.** Store one original-script revision and a zero-USD analysis decision. Uncertain wording stays labeled. Replay and a crash before commit do not publish a second transcript. The global limit stays 0, and no paid request is reserved. Exit: ledger audit shows no new paid request.
+
+24. **Store language spans.** Mixed, unknown, unsupported, and detector failure stay distinct states. A directory language stays a hint. A block label is not stored as word-level spans. Exit: a mixed fixture keeps that uncertainty.
+
+25. **Store an English translation aligned to one transcript revision.** The original script stays intact. An untranslated span shows its reason. The translation is model output, not independent support for the claim it translates. Exit: the local path completes while the paid budget remains zero.
+
+26. **Configure providers while dispatch stays off.** Tasks, routes, and price snapshots can be stored. Secrets are references. A key together with a zero limit cannot submit. An unmeasured language pair stays unvalidated. Exit: exports contain no secrets, and reserve on the default global budget stays disabled.
+
+27. **Prove billing faults before any live provider.** Cover insufficient funds, frozen scopes, release before submit, replay that does not send, a crash after submit that keeps an uncertain liability, idempotent settle, and overload that does not open a paid route. Exit: those fixtures pass with no network.
+
+28. **Queue live work over committed segments.** Fairness and an older-work share have explicit bounds. The queue can report that it cannot catch up. Capture continues when translation pauses. A caption follows the selected mode. Exit: a fast source cannot starve the reserved share, and a zero paid budget still runs the local profile inside CPU and memory limits.
+
+29. **Correct by appending a revision.** Dependents become stale. Unaffected rows stay current. Two edits of the same expected revision conflict. An exhausted allowance does not dispatch. Expired input stays unresolved. Exit: the previous revision remains readable.
+
+Stage 5 is exited when operations 22 through 29 pass and the declared non-English profiles have measured quality and latency. Unmeasured pairs stay unvalidated.
+
+### F. Monitoring
+
+30. **Store monitor bounds and the decision record.** Source, time, and resource policy are versioned. An out-of-policy proposal is refused and kept. Every applied change records its basis, policy version, outcome, and either a reservation id or an explicit zero. Model text cannot change a budget. Exit: the same rows are visible after restart.
+
+31. **Schedule monitor work on the existing supervisor.** A missed window stays missed. Captured, decoded, transcribed, translated, and included durations stay separate, and gaps stay in the denominator. Restart does not create a second capture for the same id. Exit: those counters and the missed occurrence.
+
+32. **Publish a finding only when its citation range exists.** The finding points at one translation revision, one original transcript revision, and one retained interval, or it states that the original is expired or missing. Text inside a transcript cannot create a job. Exit: a missing range is rejected.
+
+33. **Brief without a classifier.** Support, contradiction, repetition, and unresolved independence are visible. Repetition does not increase corroboration. Missing classification is labeled off or pending. Exit: a fixture set with conflicting and repeated reports.
+
+34. **Keep projection history.** A new generation does not delete the previous one. A transcript correction marks dependent findings stale. A crash during an update does not duplicate findings or release uncertain funds. Exit: restart recovery, and an export that is redacted and is not the catalog.
+
+35. **Leave classification off.** Operation 33 still passes with no classifier. A later profile, if enabled, uses its own allowance, may abstain, and pausing it leaves transcripts and coverage available.
+
+Stage 6 is exited when operations 30 through 35 pass, including finding-to-original navigation, correction propagation, and ledger reconciliation.
+
+### G. Terminal geography
+
+36. **Render the globe and the day/night map from offline geometry.** Repeat the terminal measurement with capture running before treating the stack as fit for this surface. A search page is not the world. Unknown locations stay unmapped. Directory coordinates are labeled as directory coordinates. Day and night use one explicit UTC instant, and changing that instant does not change schedules or invent historical positions. Reduced motion keeps geographic commands and freezes automatic rotation. Exit: solar fixtures, poles, the antimeridian, clustering, and map/list agreement on one filter.
+
+37. **Draw only measurements the service produced.** A meter is decoded amplitude over a stated interval. An audio spectrum is not RF occupancy. The timeline shows captured intervals and gaps. A bounded sample subscription cannot stall acquisition, and a slow terminal drops frames. The CLI exposes the same summary. Exit: capture bytes survive a slowed subscriber.
+
+Stage 4 is exited when parts A through D, operation 9, and operations 36 and 37 meet their checks together.
+
+### H. Release evidence
+
+38. **Back up and restore the release schema.** Take a consistent catalog snapshot, media manifest, and referenced objects. Restore onto a clean host, refuse a writable library with missing media, and do not resume stale schedules or paid work. An interrupted migration recovers a documented state or the tested restore. Exit: checksum comparison and a failed-migration recovery. A backup of the pre-segment catalog does not satisfy this operation.
+
+39. **Record power-loss behavior for a segment seal.** Process-kill evidence stays necessary and is not sufficient. State the filesystem assumption and the result for the uncommitted tail. Publish the 5000 ms window as a measured guarantee only if this evidence exists. Exit: that fault record, plus crash, restart, disk pressure, and concurrent reservation rerun against segments, playheads, and schedules. Stage 3 is exited here on the platforms that passed.
+
+40. **Resolve routing in writing.** Either qualify optional proxy profiles on the existing HTTP client, with separate proxy and target grants, explicit DNS trust, truthful peer evidence, and no direct fallback, or state that the release is direct-connection only and leave proxy code disabled. This follows the direct stream and enclosure evidence above.
+
+41. **Qualify the release.** Prove Unix parent-death and peer checks before listing Linux or macOS. Prove native memory and CPU bounds and a decoder fault corpus before calling an unattended stream profile supported. Add OS startup only for modes the release claims, and only after schedules record missed occurrences. Installers, migration, long-running tests, and newcomer and experienced-user reviews of the trace, correct, coverage, decision, and learning journeys then run on both clients. Stage 7 is the first complete release, on declared profiles only, with the measured limitations stated. Music identity, article mining, hardware, the workbench, modern cryptography, and further clients remain stages 8 through 13.
 
 Temporary capture is part of processing: bounded live buffers and durable short segments support language detection, transcription, translation, music identification and retries. Processing receipts can make temporary media eligible for early cleanup. Retained findings must disclose when their originals have expired. Keep/Archive protections and exact storage admission apply across source types. The current manual processing acknowledgment does not imply an implemented analysis worker.
 
@@ -49,7 +183,7 @@ Verify these as complete CLI and TUI journeys using multilingual passages, ambig
 
 ## Near-future watchlist
 
-Plan optional [network routing](docs/design/network-routing.md) alongside internet-source compatibility: user-configured proxies, explicit DNS behavior and no silent direct fallback. Keep the same service usable on a personal machine or server; qualify unattended deployment and remote access separately. Reuse the existing HTTP boundary and user-managed VPNs without building a VPN service or proxy marketplace. D-34 resolves the first supported profile and release placement; R-58 requires connection, DNS, credential and recovery evidence. This capability remains unimplemented.
+Optional [network routing](docs/design/network-routing.md) is operation 40. It does not replace the listening, podcast, or DVR operations above. The design remains user-configured proxies, explicit DNS behavior, and no direct fallback from a required proxy. Keep the same service usable on a personal machine or server; qualify unattended deployment and remote access separately. Reuse the existing HTTP boundary and user-managed VPNs without building a VPN service or proxy marketplace. D-34 resolves the first supported profile and release placement; R-58 requires connection, DNS, credential and recovery evidence. This capability remains unimplemented.
 
 Revisit multilingual speech models, regional music coverage, local acceleration backends, TUI library compatibility, provider billing controls, hardware APIs, and cryptographic standards/errata at each relevant selection gate. Prefer replaceable interfaces and measured upgrades over dependencies on announced features or expected model improvements.
 

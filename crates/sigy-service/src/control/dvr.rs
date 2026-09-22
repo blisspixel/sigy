@@ -32,6 +32,14 @@ pub enum RecordingOperation {
         maximum_bytes: u64,
         retention: Retention,
     },
+    /// Record one finite HLS media playlist. A master playlist is rejected.
+    Hls {
+        id: String,
+        source_revision: String,
+        seconds: u64,
+        maximum_bytes: u64,
+        retention: Retention,
+    },
     Stop {
         id: String,
     },
@@ -67,7 +75,9 @@ pub struct RecordingPage {
 
 pub(super) fn apply(store: &mut Store, operation: RecordingOperation) -> Result<RecordingPage> {
     let id = match operation {
-        RecordingOperation::Start { .. } | RecordingOperation::Stop { .. } => {
+        RecordingOperation::Start { .. }
+        | RecordingOperation::Hls { .. }
+        | RecordingOperation::Stop { .. } => {
             return Err(Error::ServiceRequired);
         }
         RecordingOperation::Delete { .. } => {

@@ -65,30 +65,60 @@ impl RefreshRequest {
         if !(1..=MAX_REFRESH_ROWS).contains(&self.limit) || self.offset > 100_000 {
             return Err(Error::InvalidInput("catalog page bounds"));
         }
-        match &self.mirror {
-            Some(origin) => {
-                let source = HttpSource::new("Radio Browser", origin, self.network)?;
-                let url = reqwest::Url::parse(source.endpoint())
-                    .map_err(|_| Error::InvalidInput("mirror origin"))?;
-                if url.path() != "/"
-                    || url.query().is_some()
-                    || (url.scheme() != "https"
-                        && matches!(self.network, NetworkScope::PublicInternet {}))
-                {
-                    return Err(Error::InvalidInput(
-                        "mirror must be an HTTPS origin, or an explicitly pinned HTTP origin",
-                    ));
-                }
-            }
-            None if self.network != NetworkScope::PublicInternet {} => {
+        validate_mirror_origin(self.mirror.as_deref(), self.network)
+    }
+}
+
+/// One explicit click. The provider's returned stream URL is not part of this request.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClickRequest {
+    pub station_id: String,
+    pub mirror: Option<String>,
+    pub network: NetworkScope,
+}
+
+impl std::fmt::Debug for ClickRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ClickRequest")
+            .field("station_id", &self.station_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ClickRequest {
+    /// # Errors
+    /// Rejects a malformed station UUID or an implicit local mirror.
+    pub fn validate(&self) -> Result<()> {
+        validate_station_id(&self.station_id)?;
+        validate_mirror_origin(self.mirror.as_deref(), self.network)
+    }
+}
+
+pub(crate) fn validate_mirror_origin(mirror: Option<&str>, network: NetworkScope) -> Result<()> {
+    match mirror {
+        Some(origin) => {
+            let source = HttpSource::new("Radio Browser", origin, network)?;
+            let url = reqwest::Url::parse(source.endpoint())
+                .map_err(|_| Error::InvalidInput("mirror origin"))?;
+            if url.path() != "/"
+                || url.query().is_some()
+                || (url.scheme() != "https" && matches!(network, NetworkScope::PublicInternet {}))
+            {
                 return Err(Error::InvalidInput(
-                    "address pin requires an explicit mirror",
+                    "mirror must be an HTTPS origin, or an explicitly pinned HTTP origin",
                 ));
             }
-            None => (),
         }
-        Ok(())
+        None if network != NetworkScope::PublicInternet {} => {
+            return Err(Error::InvalidInput(
+                "address pin requires an explicit mirror",
+            ));
+        }
+        None => (),
     }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

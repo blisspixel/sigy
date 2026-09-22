@@ -1,9 +1,9 @@
-//! The first directory adapter. Mirror reads never report clicks or votes.
+//! The first directory adapter. Clicks are a separate explicit command and never a vote.
 
-use super::{Candidate, RefreshBatch, RefreshRequest, Station};
+use super::{Candidate, ClickRequest, RefreshBatch, RefreshRequest, Station};
 use crate::{
     Error, Result,
-    sources::{HttpSource, NetworkScope, http::HttpAcquirer},
+    sources::{HttpSource, NetworkScope, RedirectPolicy, http::HttpAcquirer},
 };
 use serde::Deserialize;
 use std::{collections::HashSet, time::Duration};
@@ -61,6 +61,123 @@ pub(crate) async fn refresh(
     })
     .await
     .map_err(|_| Error::Acquisition("directory refresh deadline"))?
+}
+
+/// One click on one mirror. The returned stream URL is dropped before this returns.
+/// # Errors
+/// Returns acquisition or acknowledgement errors. A vote endpoint is never requested.
+pub(crate) async fn click(acquirer: &HttpAcquirer, request: &ClickRequest) -> Result<String> {
+    request.validate()?;
+    let mirrors = click_mirrors(acquirer, request).await?;
+    let mirror = mirrors
+        .first()
+        .ok_or(Error::Acquisition("no supported directory mirrors"))?;
+    let source = click_source(&request.station_id, mirror, request.network)?;
+    let bytes = acquirer.acknowledgement(&source).await?;
+    acknowledge(&request.station_id, &bytes)?;
+    Ok(source.origin())
+}
+
+async fn click_mirrors(acquirer: &HttpAcquirer, request: &ClickRequest) -> Result<Vec<String>> {
+    if let Some(mirror) = &request.mirror {
+        return Ok(vec![mirror.clone()]);
+    }
+    let mut hosts = acquirer
+        .service_hosts("_api._tcp.radio-browser.info.")
+        .await?;
+    hosts.retain(|name| {
+        name.ends_with(".api.radio-browser.info") && !name.contains('/') && !name.contains(':')
+    });
+    hosts.sort();
+    hosts.dedup();
+    if hosts.is_empty() {
+        return Err(Error::Acquisition("no supported directory mirrors"));
+    }
+    let mut random = [0_u8; 8];
+    getrandom::fill(&mut random).map_err(|_| Error::Acquisition("mirror selection entropy"))?;
+    let index = usize::try_from(u64::from_le_bytes(random) % hosts.len() as u64)
+        .map_err(|_| Error::Acquisition("mirror selection"))?;
+    Ok(vec![format!("https://{}", hosts[index])])
+}
+
+pub(crate) fn click_source(
+    station_id: &str,
+    mirror: &str,
+    network: NetworkScope,
+) -> Result<HttpSource> {
+    super::validate_station_id(station_id)?;
+    let mut url = reqwest::Url::parse(mirror).map_err(|_| Error::InvalidInput("mirror URL"))?;
+    url.set_path(&format!("/json/url/{station_id}"));
+    if url.path().contains("/vote/") {
+        return Err(Error::InvalidInput("directory click path"));
+    }
+    HttpSource::new("Radio Browser click", url.as_str(), network)?
+        .with_redirects(RedirectPolicy::Deny)
+}
+
+fn acknowledge(station_id: &str, bytes: &[u8]) -> Result<()> {
+    #[derive(Deserialize)]
+    struct Body {
+        ok: Acknowledgement,
+        stationuuid: String,
+        #[serde(default)]
+        url: String,
+        #[serde(default)]
+        message: String,
+    }
+    let body: Body = serde_json::from_slice(bytes)
+        .map_err(|_| Error::Acquisition("directory click was not acknowledged"))?;
+    if !body.ok.accepted()
+        || !body.stationuuid.eq_ignore_ascii_case(station_id)
+        || body.url.contains(' ')
+        || body.message.len() > 256
+    {
+        return Err(Error::Acquisition("directory click was not acknowledged"));
+    }
+    Ok(())
+}
+
+enum Acknowledgement {
+    Bool(bool),
+    Text(String),
+}
+
+impl Acknowledgement {
+    const fn accepted(&self) -> bool {
+        match self {
+            Self::Bool(value) => *value,
+            Self::Text(value) => {
+                value.len() == 4 && matches!(value.as_bytes(), b"true" | b"TRUE" | b"True")
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Acknowledgement {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = Acknowledgement;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a boolean acknowledgement")
+            }
+            fn visit_bool<E: serde::de::Error>(
+                self,
+                value: bool,
+            ) -> std::result::Result<Self::Value, E> {
+                Ok(Acknowledgement::Bool(value))
+            }
+            fn visit_str<E: serde::de::Error>(
+                self,
+                value: &str,
+            ) -> std::result::Result<Self::Value, E> {
+                Ok(Acknowledgement::Text(value.to_owned()))
+            }
+        }
+        deserializer.deserialize_any(Visitor)
+    }
 }
 
 fn query_source(mirror: &str, request: &RefreshRequest) -> Result<HttpSource> {
@@ -229,5 +346,27 @@ impl<'de> serde::de::Visitor<'de> for PageVisitor {
             return Err(A::Error::custom("station page limit"));
         }
         Ok((candidates, skipped))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::click_source;
+    use crate::sources::{NetworkScope, RedirectPolicy};
+
+    #[test]
+    fn click_uses_the_counter_path_and_refuses_redirects() -> crate::Result<()> {
+        let source = click_source(
+            "12345678-1234-1234-1234-123456789abc",
+            "https://example.test",
+            NetworkScope::PublicInternet {},
+        )?;
+        assert_eq!(
+            source.endpoint(),
+            "https://example.test/json/url/12345678-1234-1234-1234-123456789abc"
+        );
+        assert_eq!(source.redirects(), RedirectPolicy::Deny);
+        assert!(!source.endpoint().contains("/vote/"));
+        Ok(())
     }
 }

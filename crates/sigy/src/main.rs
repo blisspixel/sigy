@@ -12,6 +12,7 @@ use sigy_service::{
 };
 
 mod dvr;
+mod listen;
 mod radio;
 mod service;
 mod sources;
@@ -65,6 +66,11 @@ enum Command {
     Budget {
         #[command(subcommand)]
         command: BudgetCommand,
+    },
+    /// Play retained audio in this client. Capture continues in the service.
+    Listen {
+        #[command(subcommand)]
+        command: listen::ListenCommand,
     },
 }
 
@@ -129,6 +135,9 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
 }
 
 async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    if let Command::Listen { command } = &cli.command {
+        return listen::execute(&cli.data_dir, command, cli.json).await;
+    }
     let Some(view) = execute(cli).await? else {
         return Ok(());
     };
@@ -171,54 +180,64 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         dvr::render_policy(&mut stdout, &policy)?;
     } else if let Some(page) = view.recording_page {
         dvr::render_records(&mut stdout, &page)?;
-    } else if let Some(page) = view.source_page {
-        sources::render(&mut stdout, page)?;
+    } else if view.playlist.is_some() || view.source_page.is_some() {
+        if let Some(playlist) = &view.playlist {
+            sources::render_playlist(&mut stdout, playlist)?;
+        }
+        if let Some(page) = &view.source_page {
+            sources::render(&mut stdout, page)?;
+        }
     } else if view.directory.is_some() {
         radio::render(&mut stdout, &view)?;
     } else {
-        if let Some(service) = view.service {
-            writeln!(
-                stdout,
-                "Service {}: {}, uptime {} seconds.",
-                service.process_id,
-                if service.stopping {
-                    "stopping"
-                } else {
-                    "running"
-                },
-                service.uptime_seconds
-            )?;
-        }
+        render_status(&mut stdout, &view)?;
+    }
+    Ok(())
+}
+
+fn render_status(stdout: &mut impl Write, view: &Snapshot) -> io::Result<()> {
+    if let Some(service) = &view.service {
         writeln!(
             stdout,
-            "Library ready. SQLite {}. Provider dispatch is not implemented.",
-            view.sqlite_version
-        )?;
-        writeln!(
-            stdout,
-            "Capture jobs: {} scheduled, {} active, {} interrupted, {} terminal. Recording dispatch: {}.",
-            view.captures.scheduled,
-            view.captures.active,
-            view.captures.interrupted,
-            view.captures.terminal,
-            if view.captures.dispatch_available {
-                "available"
+            "Service {}: {}, uptime {} seconds.",
+            service.process_id,
+            if service.stopping {
+                "stopping"
             } else {
-                "requires running service and configured DVR"
-            }
+                "running"
+            },
+            service.uptime_seconds
         )?;
-        for budget in view.budgets {
-            writeln!(
-                stdout,
-                "{}: limit ${}, settled ${}, reserved ${}, available ${}{}",
-                budget.scope,
-                budget.limit_usd,
-                budget.settled_usd,
-                budget.reserved_usd,
-                budget.available_usd,
-                if budget.frozen { " (frozen)" } else { "" }
-            )?;
+    }
+    writeln!(
+        stdout,
+        "Library ready. SQLite {}. Provider dispatch is not implemented.",
+        view.sqlite_version
+    )?;
+    writeln!(
+        stdout,
+        "Capture jobs: {} scheduled, {} active, {} interrupted, {} terminal. Recording dispatch: {}.",
+        view.captures.scheduled,
+        view.captures.active,
+        view.captures.interrupted,
+        view.captures.terminal,
+        if view.captures.dispatch_available {
+            "available"
+        } else {
+            "requires running service and configured DVR"
         }
+    )?;
+    for budget in &view.budgets {
+        writeln!(
+            stdout,
+            "{}: limit ${}, settled ${}, reserved ${}, available ${}{}",
+            budget.scope,
+            budget.limit_usd,
+            budget.settled_usd,
+            budget.reserved_usd,
+            budget.available_usd,
+            if budget.frozen { " (frozen)" } else { "" }
+        )?;
     }
     Ok(())
 }

@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 use sigy_service::{
     control::{DirectoryOperation, Operation, Snapshot},
-    discovery::{RefreshRequest, StationFilter},
+    discovery::{ClickRequest, RefreshRequest, StationFilter},
     sources::{NetworkScope, RedirectPolicy},
 };
 use std::{
@@ -82,6 +82,22 @@ pub enum RadioCommand {
     Favorite { id: String },
     /// Remove a favorite without deleting the station, source or recordings.
     Unfavorite { id: String },
+    /// Report one directory click. This does not play, record, or vote.
+    Click {
+        /// Unique request ID. Reuse does not send the click again.
+        id: String,
+        /// Cached station UUID.
+        #[arg(long)]
+        station: String,
+        /// Explicit mirror origin. Omit to choose one public mirror.
+        #[arg(long)]
+        mirror: Option<String>,
+        /// Explicit exact-IP grant for this mirror only.
+        #[arg(long, requires = "mirror")]
+        pin_address: Option<IpAddr>,
+    },
+    /// Inspect one click request. The provider stream URL is not shown.
+    ClickStatus { id: String },
     /// Register a selected station as an immutable public-internet source revision.
     Add {
         id: String,
@@ -137,6 +153,22 @@ impl RadioCommand {
                 id: id.clone(),
                 favorite: false,
             },
+            Self::Click {
+                id,
+                station,
+                mirror,
+                pin_address,
+            } => DirectoryOperation::Click {
+                id: id.clone(),
+                request: ClickRequest {
+                    station_id: station.clone(),
+                    mirror: mirror.clone(),
+                    network: pin_address.map_or(NetworkScope::PublicInternet {}, |address| {
+                        NetworkScope::PinnedAddress { address }
+                    }),
+                },
+            },
+            Self::ClickStatus { id } => DirectoryOperation::ClickStatus { id: id.clone() },
             Self::Add {
                 id,
                 revision,
@@ -175,6 +207,19 @@ pub fn render(writer: &mut impl Write, view: &Snapshot) -> io::Result<()> {
             if let Some(failure) = &refresh.failure {
                 writeln!(writer, "Reason: {failure}")?;
             }
+        }
+    }
+    if let Some(click) = &view.directory_click {
+        writeln!(
+            writer,
+            "Click {}: {} | station {} | acknowledged {}",
+            click.id,
+            click.state,
+            click.station_id,
+            if click.acknowledged { "yes" } else { "no" }
+        )?;
+        if let Some(failure) = &click.failure {
+            writeln!(writer, "Reason: {failure}")?;
         }
     }
     if let Some(page) = &view.station_page {

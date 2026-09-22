@@ -38,6 +38,13 @@ pub enum DirectoryOperation {
         #[serde(default)]
         redirects: RedirectPolicy,
     },
+    Click {
+        id: String,
+        request: crate::discovery::ClickRequest,
+    },
+    ClickStatus {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,9 +74,14 @@ impl StationPage {
 pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Snapshot> {
     let mut view = super::snapshot(store)?;
     match command {
-        DirectoryOperation::Refresh { .. } => return Err(Error::ServiceRequired),
+        DirectoryOperation::Refresh { .. } | DirectoryOperation::Click { .. } => {
+            return Err(Error::ServiceRequired);
+        }
         DirectoryOperation::RefreshStatus { id } => {
             view.directory_refresh = Some(store.directory_refresh(&id)?);
+        }
+        DirectoryOperation::ClickStatus { id } => {
+            view.directory_click = Some(store.directory_click(&id)?);
         }
         DirectoryOperation::Status {} => (),
         DirectoryOperation::Search {
