@@ -13,6 +13,7 @@ use std::{
 struct DirectoryServer {
     origin: String,
     hits: Arc<AtomicUsize>,
+    connections: Arc<AtomicUsize>,
     stop: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<std::io::Result<()>>>,
 }
@@ -24,13 +25,16 @@ impl DirectoryServer {
         let origin = format!("http://fixture.invalid:{}", listener.local_addr()?.port());
         let stop = Arc::new(AtomicBool::new(false));
         let hits = Arc::new(AtomicUsize::new(0));
+        let connections = Arc::new(AtomicUsize::new(0));
         let cancelled = stop.clone();
         let counter = hits.clone();
+        let counter_all = connections.clone();
         let worker = thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(20);
+            let deadline = Instant::now() + Duration::from_secs(60);
             while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut socket, _)) => {
+                        counter_all.fetch_add(1, Ordering::Relaxed);
                         socket.set_nonblocking(false)?;
                         socket.set_read_timeout(Some(Duration::from_secs(15)))?;
                         socket.set_write_timeout(Some(Duration::from_secs(15)))?;
@@ -72,9 +76,18 @@ impl DirectoryServer {
         Ok(Self {
             origin,
             hits,
+            connections,
             stop,
             worker: Some(worker),
         })
+    }
+
+    fn hits(&self) -> usize {
+        self.hits.load(Ordering::Relaxed)
+    }
+
+    fn connections(&self) -> usize {
+        self.connections.load(Ordering::Relaxed)
     }
 
     fn request<'a>(&'a self, id: &'a str) -> Vec<&'a str> {
@@ -424,4 +437,102 @@ fn explicit_click_is_one_request_and_discards_the_stream_url() -> TestResult {
     success(directory.path(), &["service", "stop"])?;
     service.wait()?;
     Ok(())
+}
+
+#[test]
+fn saved_policy_does_not_run_because_a_client_is_connected() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let fixture = DirectoryServer::start(response(), Duration::from_millis(20))?;
+    success(directory.path(), &["library", "init"])?;
+    let mut service = RunningChild::start(directory.path())?;
+    let created = success(
+        directory.path(),
+        &[
+            "radio",
+            "policy",
+            "set",
+            "french",
+            "--mirror",
+            &fixture.origin,
+            "--pin-address",
+            "127.0.0.1",
+            "--name",
+            "Québec",
+            "--every-hours",
+            "1",
+            "--limit",
+            "10",
+        ],
+    )?;
+    assert_eq!(created["directory_policy"]["disposition"], "created");
+    let status = success(directory.path(), &["radio", "status"])?;
+    assert!(status["directory_refresh"].is_null(), "{status}");
+    success(directory.path(), &["radio", "search", "--name", "Québec"])?;
+    assert_eq!(fixture.connections(), 0);
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    shift_policy(directory.path())?;
+    let mut service = RunningChild::start(directory.path())?;
+    wait_policy(directory.path())?;
+    assert_eq!(fixture.connections(), 1);
+    assert_eq!(fixture.hits(), 1);
+    let found = success(directory.path(), &["radio", "search", "--name", "Québec"])?;
+    let id = found["station_page"]["entries"][0]["id"]
+        .as_str()
+        .ok_or("cached station missing")?;
+    success(directory.path(), &["radio", "favorite", id])?;
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    let mut service = RunningChild::start(directory.path())?;
+    thread::sleep(Duration::from_millis(400));
+    let favorites = success(directory.path(), &["radio", "search", "--favorites"])?;
+    let entries = favorites["station_page"]["entries"]
+        .as_array()
+        .ok_or("favorites missing")?;
+    assert_eq!(entries.len(), 1);
+    assert_eq!(fixture.connections(), 1);
+    assert_eq!(fixture.hits(), 1);
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}
+
+fn shift_policy(directory: &std::path::Path) -> TestResult {
+    let connection = rusqlite::Connection::open(directory.join("catalog.sqlite3"))?;
+    let request: String = connection.query_row(
+        "SELECT request_json FROM directory_refresh_policies WHERE id = 'french'",
+        [],
+        |row| row.get(0),
+    )?;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis();
+    let started = i64::try_from(now_ms)? - 3_600_000;
+    let removed = connection.execute(
+        "DELETE FROM directory_refresh_policies WHERE id = 'french'",
+        [],
+    )?;
+    assert_eq!(removed, 1);
+    connection.execute(
+        "INSERT INTO directory_refresh_policies(id, request_json, interval_ms, revision, created_ms, updated_ms) VALUES ('french', ?1, 3600000, 1, ?2, ?2)",
+        rusqlite::params![request, started],
+    )?;
+    Ok(())
+}
+
+fn wait_policy(directory: &std::path::Path) -> TestResult {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let value = success(directory, &["radio", "policy", "show", "french"])?;
+        let state = value["directory_policy"]["policies"][0]["last_refresh"]["state"].as_str();
+        if state == Some("completed") {
+            return Ok(());
+        }
+        assert!(
+            state != Some("failed") && state != Some("interrupted"),
+            "{value}"
+        );
+        assert!(Instant::now() < deadline, "policy refresh deadline");
+        thread::sleep(Duration::from_millis(20));
+    }
 }

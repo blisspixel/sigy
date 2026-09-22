@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 `--data-dir` is required except for `sigy update`, help, and version. Use a private directory outside the checkout. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v20 and local IPC is v21. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v21 and local IPC is v22. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Update
 
@@ -71,6 +71,14 @@ sigy --data-dir PATH_TO_LIBRARY radio add STATION_UUID --revision selected:v1 --
 ```
 
 Wait until the refresh status is completed, then replace `STATION_UUID` with an id from search. Search supports `--name`, `--country`, `--language`, `--tag`, `--healthy`, and pagination. It reads the partial local cache and does not use the network. Refresh uses the network only when requested. Choose a new refresh id to fetch again. Refresh and registration do not contact station streams, play audio, or run analysis.
+
+```text
+sigy --data-dir PATH_TO_LIBRARY radio policy set french-news --language french --tag news --every-hours 24
+sigy --data-dir PATH_TO_LIBRARY radio policy show french-news
+sigy --data-dir PATH_TO_LIBRARY radio policy clear french-news
+```
+
+A saved policy is one bounded page. The interval is 1 to 168 hours, and the first fetch waits for that interval. The service admits the current slot. A missed slot is not backfilled. A completed, failed, or interrupted slot is not fetched again. One refresh runs at a time. Opening the command line or the list explorer does not fetch a page, probe a station stream, or send a click. A failed refresh leaves the last usable cache. Favorites stay. `sigy doctor` reports age and does not run the policy. See [directory refresh policy](decisions/0030-directory-refresh-policy.md).
 
 Observation age and directory health are separate from stream compatibility. Directory languages are hints, not detected speech. No broadcast detector is implemented. See [broadcast analysis](design/broadcast-analysis.md) for the planned contract.
 

@@ -17,10 +17,11 @@ pub(crate) mod podcast_feeds;
 pub(crate) mod podcast_text;
 pub mod podcasts;
 pub use clicks::ClickStatus;
+pub(crate) mod directory_policy;
 pub(crate) mod schedules;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 20;
+pub const SCHEMA_VERSION: u32 = 21;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -176,6 +177,9 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     }
     if (0..=19).contains(&version) {
         transaction.execute_batch(include_str!("020-schedules.sql"))?;
+    }
+    if (0..=20).contains(&version) {
+        transaction.execute_batch(include_str!("021-directory-policy.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

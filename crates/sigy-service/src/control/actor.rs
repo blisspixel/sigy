@@ -494,6 +494,22 @@ impl Actor {
         Ok(())
     }
 
+    /// A local due check. It fetches only when a saved directory slot is due.
+    fn reconcile_directory(&mut self) -> Result<()> {
+        let now = crate::storage::now_ms()?;
+        let Some(due) = self.library.store().due_directory_policy(now)? else {
+            return Ok(());
+        };
+        match self.start_directory(&due.id, due.request) {
+            Ok(())
+            | Err(Error::InvalidInput(
+                "directory refresh interval is at least two seconds"
+                | "directory refresh capacity reached",
+            )) => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
     fn spawn_scheduled(&mut self, launch: &ScheduleLaunch) -> Result<()> {
         let source = self
             .library
@@ -766,7 +782,7 @@ pub(super) fn spawn(
             let started = Instant::now();
             let mut stopped = false;
             let mut shutdown = false;
-            if actor.reconcile_schedules().is_err() {
+            if actor.reconcile_schedules().is_err() || actor.reconcile_directory().is_err() {
                 stopped = true;
                 actor.stop();
                 let _ = stopping.send_replace(true);
@@ -827,7 +843,8 @@ fn dispatch(
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::Schedules => {
-            let failed = !*stopped && actor.reconcile_schedules().is_err();
+            let failed = !*stopped
+                && (actor.reconcile_schedules().is_err() || actor.reconcile_directory().is_err());
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::Shutdown => {

@@ -108,6 +108,38 @@ pub enum RadioCommand {
         #[arg(long, default_value = "deny")]
         redirects: RedirectPolicy,
     },
+    /// Save one directory page for the service to refresh. An open client does not run it.
+    Policy {
+        #[command(subcommand)]
+        command: PolicyCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PolicyCommand {
+    /// Store one bounded page and an interval of 1 to 168 hours. This does not fetch.
+    Set {
+        id: String,
+        #[command(flatten)]
+        filters: Filters,
+        #[arg(long, default_value_t = 100)]
+        limit: u32,
+        #[arg(long, default_value_t = 0)]
+        offset: u32,
+        /// Explicit mirror origin. Omit to discover public Radio Browser mirrors when the slot is due.
+        #[arg(long)]
+        mirror: Option<String>,
+        /// Explicit exact-IP grant for this mirror only, not its station entries.
+        #[arg(long, requires = "mirror")]
+        pin_address: Option<IpAddr>,
+        /// Hours between attempts. The first attempt waits this long.
+        #[arg(long, default_value_t = 24, value_parser = 1..=168)]
+        every_hours: i64,
+    },
+    /// Show one saved policy, or every saved policy when the id is omitted.
+    Show { id: Option<String> },
+    /// Remove a saved policy. Cached stations, favorites, and refresh history stay.
+    Clear { id: String },
 }
 
 impl RadioCommand {
@@ -179,9 +211,39 @@ impl RadioCommand {
                 revision_id: revision.clone(),
                 redirects: *redirects,
             },
+            Self::Policy { command } => return policy_operation(command),
         }
         .into()
     }
+}
+
+fn policy_operation(command: &PolicyCommand) -> Operation {
+    match command {
+        PolicyCommand::Set {
+            id,
+            filters,
+            limit,
+            offset,
+            mirror,
+            pin_address,
+            every_hours,
+        } => DirectoryOperation::SetPolicy {
+            id: id.clone(),
+            request: RefreshRequest {
+                filter: filters.filter(),
+                limit: *limit,
+                offset: *offset,
+                mirror: mirror.clone(),
+                network: pin_address.map_or(NetworkScope::PublicInternet {}, |address| {
+                    NetworkScope::PinnedAddress { address }
+                }),
+            },
+            interval_ms: *every_hours * 3_600_000,
+        },
+        PolicyCommand::Show { id } => DirectoryOperation::ShowPolicy { id: id.clone() },
+        PolicyCommand::Clear { id } => DirectoryOperation::ClearPolicy { id: id.clone() },
+    }
+    .into()
 }
 
 pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<()> {
@@ -249,10 +311,74 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
             )?;
         }
     }
+    if let Some(page) = &view.directory_policy
+        && (page.listed || page.disposition.is_some())
+    {
+        write_policies(writer, page, ink)?;
+    }
     if let Some(page) = &view.station_page {
         write_stations(writer, page, ink)?;
     }
     Ok(())
+}
+
+fn write_policies(
+    writer: &mut impl Write,
+    page: &sigy_service::control::DirectoryPolicyPage,
+    ink: Ink,
+) -> io::Result<()> {
+    let disposition = match page.disposition {
+        Some(sigy_service::control::PolicyDisposition::Created) => {
+            "Policy saved. The service refreshes it when the interval has elapsed."
+        }
+        Some(sigy_service::control::PolicyDisposition::Unchanged) => "Policy unchanged.",
+        Some(sigy_service::control::PolicyDisposition::Revised) => {
+            "Policy revised. The next interval starts now."
+        }
+        None => "Saved directory policies. An open client does not refresh them.",
+    };
+    writeln!(writer, "{disposition}")?;
+    if page.policies.is_empty() {
+        writeln!(writer, "No saved directory policy.")?;
+    }
+    for policy in &page.policies {
+        let hours = policy.interval_ms / 3_600_000;
+        writeln!(
+            writer,
+            "{}: every {hours} h | revision {} | {}",
+            policy.id,
+            policy.revision,
+            ink.tint(Tone::Warn, &next_due(policy.next_due_ms))
+        )?;
+        if let Some(refresh) = &policy.last_refresh {
+            writeln!(
+                writer,
+                "  Last attempt {}: {}.",
+                refresh.id,
+                ink.tint(tone_for_state(&refresh.state), &refresh.state)
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn next_due(next_due_ms: i64) -> String {
+    let Some(now_ms) = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()
+        .and_then(|now| i64::try_from(now.as_millis()).ok())
+    else {
+        return "due time unknown".into();
+    };
+    if next_due_ms <= now_ms {
+        return "due".into();
+    }
+    let minutes = (next_due_ms - now_ms) / 60_000;
+    if minutes < 60 {
+        format!("due in {minutes}m")
+    } else {
+        format!("due in {}h", minutes / 60)
+    }
 }
 
 fn write_stations(

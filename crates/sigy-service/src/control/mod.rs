@@ -22,7 +22,7 @@ use crate::{
     storage::{Store, sources::SourceRevision},
 };
 
-pub use discovery::{DirectoryOperation, StationPage};
+pub use discovery::{DirectoryOperation, DirectoryPolicyPage, PolicyDisposition, StationPage};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use listen::{ListenOperation, ListenView};
@@ -35,7 +35,7 @@ pub use podcast::{
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 21;
+pub const PROTOCOL_VERSION: u32 = 22;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -199,6 +199,8 @@ pub struct Snapshot {
     pub doctor: Option<DoctorReport>,
     #[serde(default)]
     pub schedule: Option<SchedulePage>,
+    #[serde(default)]
+    pub directory_policy: Option<DirectoryPolicyPage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -383,6 +385,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         publisher_text: None,
         doctor: None,
         schedule: None,
+        directory_policy: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

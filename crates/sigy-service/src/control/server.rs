@@ -42,6 +42,8 @@ pub async fn run(mut library: Library, shutdown: impl Future<Output = ()>) -> Re
     let mut clients = JoinSet::new();
     let mut retention_tick = tokio::time::interval(std::time::Duration::from_secs(60));
     retention_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Local due checks for recording schedules and a saved directory page.
+    // The directory fetch starts only when that page's slot is due.
     let mut schedule_tick = tokio::time::interval(std::time::Duration::from_secs(1));
     schedule_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     tokio::pin!(shutdown);

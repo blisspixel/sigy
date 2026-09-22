@@ -415,7 +415,10 @@ mod tests {
             ),
             Operation::Radio { command } => matches!(
                 command,
-                DirectoryOperation::Refresh { .. } | DirectoryOperation::Click { .. }
+                DirectoryOperation::Refresh { .. }
+                    | DirectoryOperation::Click { .. }
+                    | DirectoryOperation::SetPolicy { .. }
+                    | DirectoryOperation::ClearPolicy { .. }
             ),
             Operation::Status {}
             | Operation::SetBudget { .. }

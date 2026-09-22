@@ -3,7 +3,11 @@ use crate::{
     Error, Result,
     discovery::{RefreshRequest, Station, StationFilter},
     sources::RedirectPolicy,
-    storage::Store,
+    storage::{
+        Store,
+        directory_policy::{DirectoryPolicyRecord, PolicyDraft, SaveResult},
+        discovery::RefreshStatus,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +49,49 @@ pub enum DirectoryOperation {
     ClickStatus {
         id: String,
     },
+    /// Store one bounded page. Saving it does not fetch.
+    SetPolicy {
+        id: String,
+        request: RefreshRequest,
+        interval_ms: i64,
+    },
+    ShowPolicy {
+        id: Option<String>,
+    },
+    /// Remove the saved page. History and favorites stay.
+    ClearPolicy {
+        id: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyDisposition {
+    Created,
+    Unchanged,
+    Revised,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DirectoryPolicyView {
+    pub id: String,
+    pub interval_ms: i64,
+    pub revision: i64,
+    pub updated_ms: i64,
+    pub next_due_ms: i64,
+    pub request: RefreshRequest,
+    pub last_refresh: Option<RefreshStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DirectoryPolicyPage {
+    pub policies: Vec<DirectoryPolicyView>,
+    pub disposition: Option<PolicyDisposition>,
+    /// True for status and policy commands. Search does not repeat this block.
+    #[serde(default)]
+    pub listed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,17 +120,26 @@ impl StationPage {
 
 pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Snapshot> {
     let mut view = super::snapshot(store)?;
-    match command {
+    let listed = matches!(
+        &command,
+        DirectoryOperation::Status {}
+            | DirectoryOperation::ShowPolicy { .. }
+            | DirectoryOperation::SetPolicy { .. }
+            | DirectoryOperation::ClearPolicy { .. }
+    );
+    let (disposition, selected) = match command {
         DirectoryOperation::Refresh { .. } | DirectoryOperation::Click { .. } => {
             return Err(Error::ServiceRequired);
         }
         DirectoryOperation::RefreshStatus { id } => {
             view.directory_refresh = Some(store.directory_refresh(&id)?);
+            (None, None)
         }
         DirectoryOperation::ClickStatus { id } => {
             view.directory_click = Some(store.directory_click(&id)?);
+            (None, None)
         }
-        DirectoryOperation::Status {} => (),
+        DirectoryOperation::Status {} => (None, None),
         DirectoryOperation::Search {
             filter,
             favorites_only,
@@ -102,13 +158,16 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
                 None
             };
             view.station_page = Some(StationPage::new(store, entries, next_after)?);
+            (None, None)
         }
         DirectoryOperation::Show { id } => {
             view.station_page = Some(StationPage::new(store, vec![store.station(&id)?], None)?);
+            (None, None)
         }
         DirectoryOperation::SetFavorite { id, favorite } => {
             store.set_station_favorite(&id, favorite)?;
             view.station_page = Some(StationPage::new(store, vec![store.station(&id)?], None)?);
+            (None, None)
         }
         DirectoryOperation::Add {
             id,
@@ -121,10 +180,76 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
                 next_after: None,
                 newly_created: Some(admission.newly_created),
             });
+            (None, None)
         }
-    }
+        DirectoryOperation::SetPolicy {
+            id,
+            request,
+            interval_ms,
+        } => {
+            let draft = PolicyDraft {
+                id,
+                request,
+                interval_ms,
+            };
+            let saved = store.save_directory_policy_at(&draft, crate::storage::now_ms()?)?;
+            (Some(map_save(saved)), None)
+        }
+        DirectoryOperation::ShowPolicy { id } => (None, id),
+        DirectoryOperation::ClearPolicy { id } => {
+            store.clear_directory_policy(&id)?;
+            (None, None)
+        }
+    };
+    attach_policies(&mut view, store, disposition, selected.as_deref(), listed)?;
     view.directory = Some(store.directory_status()?);
     Ok(view)
+}
+
+fn map_save(result: SaveResult) -> PolicyDisposition {
+    match result {
+        SaveResult::Created => PolicyDisposition::Created,
+        SaveResult::Unchanged => PolicyDisposition::Unchanged,
+        SaveResult::Revised => PolicyDisposition::Revised,
+    }
+}
+
+fn attach_policies(
+    view: &mut Snapshot,
+    store: &Store,
+    disposition: Option<PolicyDisposition>,
+    selected: Option<&str>,
+    listed: bool,
+) -> Result<()> {
+    let records = store.directory_policies(crate::storage::now_ms()?)?;
+    if let Some(id) = selected
+        && !records.iter().any(|record| record.id == id)
+    {
+        return Err(Error::NotFound);
+    }
+    let policies = records
+        .into_iter()
+        .filter(|record| selected.is_none_or(|id| record.id == id))
+        .map(policy_view)
+        .collect();
+    view.directory_policy = Some(DirectoryPolicyPage {
+        policies,
+        disposition,
+        listed,
+    });
+    Ok(())
+}
+
+fn policy_view(record: DirectoryPolicyRecord) -> DirectoryPolicyView {
+    DirectoryPolicyView {
+        id: record.id,
+        interval_ms: record.interval_ms,
+        revision: record.revision,
+        updated_ms: record.updated_ms,
+        next_due_ms: record.next_due_ms,
+        request: record.request,
+        last_refresh: record.last_refresh,
+    }
 }
 
 impl From<DirectoryOperation> for Operation {
