@@ -11,6 +11,7 @@ use sigy_service::{
     library::Library,
 };
 
+mod analysis;
 mod dvr;
 mod explorer;
 mod listen;
@@ -52,6 +53,11 @@ enum Command {
     Schedule {
         #[command(subcommand)]
         command: schedule::ScheduleCommand,
+    },
+    /// Pin a published recording for analysis. No source URL is attached.
+    Analysis {
+        #[command(subcommand)]
+        command: analysis::AnalysisCommand,
     },
     /// Configure rolling retention, storage quota and media validation.
     Dvr {
@@ -176,6 +182,8 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         command.operation()?
     } else if let Command::Schedule { command } = &cli.command {
         command.operation()?
+    } else if let Command::Analysis { command } = &cli.command {
+        command.operation()
     } else if let Command::Dvr { command } = &cli.command {
         command.operation()?
     } else if matches!(cli.command, Command::Doctor { .. }) {
@@ -246,6 +254,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         dvr::render_records(&mut stdout, &page, ink)?;
     } else if let Some(page) = view.schedule {
         schedule::render(&mut stdout, &page)?;
+    } else if let Some(page) = &view.analysis {
+        analysis::render(&mut stdout, page, ink)?;
     } else if view.playlist.is_some() || view.source_page.is_some() {
         if let Some(playlist) = &view.playlist {
             sources::render_playlist(&mut stdout, playlist)?;

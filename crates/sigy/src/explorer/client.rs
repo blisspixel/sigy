@@ -408,7 +408,8 @@ mod tests {
             | Operation::Listen { .. }
             | Operation::Playback { .. }
             | Operation::Podcast { .. }
-            | Operation::Schedule { .. } => true,
+            | Operation::Schedule { .. }
+            | Operation::Analysis { .. } => true,
             Operation::Record { command } => !matches!(
                 command,
                 RecordingOperation::List { .. } | RecordingOperation::Show { .. }

@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 `--data-dir` is required except for `sigy update`, help, and version. Use a private directory outside the checkout. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v21 and local IPC is v22. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v22 and local IPC is v23. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Update
 
@@ -204,6 +204,17 @@ sigy --data-dir PATH_TO_LIBRARY schedule show morning
 ```
 
 A rule binds one source revision, one IANA time zone, and one civil clock. The recurrence is once, daily, or weekly. Duration and bytes stay inside the radio ceiling of 15 minutes and 256 MiB. Only the next occurrence is stored. The service admits that occurrence when its window is open and a decoder file is configured. A second admit does not create another job. A window that has already ended stays missed and is not backfilled. A civil time that does not exist, such as a spring-forward hour, is missed. A repeated fall-back hour uses the earlier offset once. Changing a rule does not rewrite an occurrence that was already admitted. A late admit records a prefix gap for the missed start and keeps the original plan bounds. No analysis profile can be attached. See [recording schedules](decisions/0029-recording-schedules.md).
+
+## Analysis
+
+```text
+sigy --data-dir PATH_TO_LIBRARY analysis admit pin-001 --recording RECORDING
+sigy --data-dir PATH_TO_LIBRARY analysis show pin-001
+sigy --data-dir PATH_TO_LIBRARY analysis publish pin-001 --revision 1
+sigy --data-dir PATH_TO_LIBRARY analysis admit pin-001 --recording RECORDING --replace-worker
+```
+
+`analysis admit` pins one completed recording. The pin stores the retained checksum and the media clock. Published intervals keep their bounds. A capture gap stays a gap, and planned time with no audio is an uncovered gap. The pin does not include a source URL. `record processed` records a cleanup receipt and does not create this pin. An unpublished recording, or a checksum that does not match the published interval, is refused. `--replace-worker` retires an unpublished revision. Publishing that older revision fails. This command does not transcribe and does not reserve a paid budget. See [analysis inputs](decisions/0031-analysis-inputs.md).
 
 ## Listening
 

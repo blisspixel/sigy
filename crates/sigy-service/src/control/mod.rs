@@ -1,6 +1,7 @@
 //! Versioned, bounded local control. The catalog actor owns all durable mutations.
 
 mod actor;
+mod analysis;
 mod discovery;
 pub(crate) mod doctor;
 mod dvr;
@@ -22,6 +23,7 @@ use crate::{
     storage::{Store, sources::SourceRevision},
 };
 
+pub use analysis::{AnalysisDisposition, AnalysisOperation, AnalysisPage};
 pub use discovery::{DirectoryOperation, DirectoryPolicyPage, PolicyDisposition, StationPage};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
@@ -35,7 +37,7 @@ pub use podcast::{
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 22;
+pub const PROTOCOL_VERSION: u32 = 23;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -107,6 +109,10 @@ pub enum Operation {
     Schedule {
         command: ScheduleOperation,
     },
+    /// Pin one published recording. The worker input has no source URL.
+    Analysis {
+        command: AnalysisOperation,
+    },
     /// Read-only preflight. It does not refresh, delete, or contact a network.
     Doctor {},
 }
@@ -128,6 +134,7 @@ impl std::fmt::Debug for Operation {
             Self::Playback { .. } => "playback",
             Self::Podcast { .. } => "podcast",
             Self::Schedule { .. } => "schedule",
+            Self::Analysis { .. } => "analysis",
             Self::Doctor {} => "doctor",
         };
         f.debug_struct("Operation")
@@ -201,6 +208,8 @@ pub struct Snapshot {
     pub schedule: Option<SchedulePage>,
     #[serde(default)]
     pub directory_policy: Option<DirectoryPolicyPage>,
+    #[serde(default)]
+    pub analysis: Option<AnalysisPage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +273,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         }
         Operation::Podcast { command } => return podcast::apply(store, command),
         Operation::Schedule { command } => return schedule::apply(store, command),
+        Operation::Analysis { command } => return analysis::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
                 recording_metadata = Some(crate::recordings::metadata::export(
@@ -386,6 +396,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         doctor: None,
         schedule: None,
         directory_policy: None,
+        analysis: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,
