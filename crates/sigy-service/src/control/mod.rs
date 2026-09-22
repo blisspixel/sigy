@@ -23,7 +23,10 @@ use crate::{
     storage::{Store, sources::SourceRevision},
 };
 
-pub use analysis::{AnalysisDisposition, AnalysisOperation, AnalysisPage};
+pub use analysis::{
+    AnalysisDecisionView, AnalysisDisposition, AnalysisGapView, AnalysisIntervalView,
+    AnalysisOperation, AnalysisPage, AnalysisView, TranscriptCueView, TranscriptView,
+};
 pub use discovery::{DirectoryOperation, DirectoryPolicyPage, PolicyDisposition, StationPage};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
@@ -37,7 +40,7 @@ pub use podcast::{
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 23;
+pub const PROTOCOL_VERSION: u32 = 24;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;

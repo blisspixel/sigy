@@ -21,8 +21,9 @@ pub(crate) mod analysis;
 pub(crate) mod directory_policy;
 pub(crate) mod schedules;
 pub mod sources;
+pub(crate) mod transcripts;
 
-pub const SCHEMA_VERSION: u32 = 22;
+pub const SCHEMA_VERSION: u32 = 23;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -96,6 +97,7 @@ impl Store {
         store.audit_listens()?;
         store.audit_podcasts()?;
         store.audit_schedules()?;
+        store.audit_transcripts()?;
         Ok(store)
     }
 
@@ -184,6 +186,9 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     }
     if (0..=21).contains(&version) {
         transaction.execute_batch(include_str!("022-analysis-inputs.sql"))?;
+    }
+    if (0..=22).contains(&version) {
+        transaction.execute_batch(include_str!("023-transcripts.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

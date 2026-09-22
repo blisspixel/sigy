@@ -1,9 +1,12 @@
 use super::{Operation, Snapshot};
 use crate::{
-    Result,
+    Error, Result,
+    domain::money::Usd,
+    library::Library,
     storage::{
         Store,
         analysis::{AdmitOutcome, AnalysisHole, AnalysisRecord, AnalysisSpan},
+        transcripts::{LocalTranscript, TranscriptOutcome},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -26,6 +29,11 @@ pub enum AnalysisOperation {
         id: String,
         revision: i64,
     },
+    /// Store one local original-script revision. No paid request is reserved.
+    Transcribe {
+        id: String,
+        revision: i64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +42,8 @@ pub enum AnalysisDisposition {
     Created,
     Unchanged,
     Replaced,
+    Transcribed,
+    TranscriptUnchanged,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,9 +79,39 @@ pub struct AnalysisView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct TranscriptCueView {
+    pub ordinal: u32,
+    pub start_us: u64,
+    pub end_us: u64,
+    pub script: String,
+    pub wording: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranscriptView {
+    pub revision: i64,
+    pub role: String,
+    pub profile: String,
+    pub cues: Vec<TranscriptCueView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnalysisDecisionView {
+    pub amount_usd: String,
+    pub paid_request: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AnalysisPage {
     pub input: AnalysisView,
     pub disposition: Option<AnalysisDisposition>,
+    #[serde(default)]
+    pub transcript: Option<TranscriptView>,
+    #[serde(default)]
+    pub decision: Option<AnalysisDecisionView>,
 }
 
 pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Snapshot> {
@@ -90,13 +130,59 @@ pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Sna
         AnalysisOperation::Publish { id, revision } => {
             (None, store.publish_analysis(&id, revision)?)
         }
+        AnalysisOperation::Transcribe { .. } => {
+            return Err(Error::InvalidInput(
+                "transcription requires library ownership",
+            ));
+        }
     };
+    finish(store, record, disposition)
+}
+
+/// Hash the retained files, then store one original-script revision and a zero-USD decision.
+/// # Errors
+/// Returns validation or catalog errors. Does not reserve a paid request.
+pub(super) fn transcribe(library: &mut Library, id: &str, revision: i64) -> Result<Snapshot> {
+    let directory = library.directory().to_path_buf();
+    let now = crate::storage::now_ms()?;
+    let (outcome, _) = library
+        .store_mut()
+        .commit_local_transcript(&directory, id, revision, now)?;
+    let disposition = match outcome {
+        TranscriptOutcome::Created => AnalysisDisposition::Transcribed,
+        TranscriptOutcome::Unchanged => AnalysisDisposition::TranscriptUnchanged,
+    };
+    let record = library.store().published_analysis(id, revision)?;
+    finish(library.store(), record, Some(disposition))
+}
+
+fn finish(
+    store: &Store,
+    record: AnalysisRecord,
+    disposition: Option<AnalysisDisposition>,
+) -> Result<Snapshot> {
+    let analysis = page(store, record, disposition)?;
     let mut view = super::snapshot(store)?;
-    view.analysis = Some(AnalysisPage {
+    view.analysis = Some(analysis);
+    Ok(view)
+}
+
+fn page(
+    store: &Store,
+    record: AnalysisRecord,
+    disposition: Option<AnalysisDisposition>,
+) -> Result<AnalysisPage> {
+    let stored = store.local_transcript(&record.id, record.revision)?;
+    let (transcript, decision) = match stored {
+        Some(value) => (Some(transcript_view(&value)), Some(decision_view(&value)?)),
+        None => (None, None),
+    };
+    Ok(AnalysisPage {
         input: view_from(record),
         disposition,
-    });
-    Ok(view)
+        transcript,
+        decision,
+    })
 }
 
 fn map_outcome(outcome: AdmitOutcome) -> AnalysisDisposition {
@@ -136,6 +222,35 @@ fn gap_view(gap: AnalysisHole) -> AnalysisGapView {
         start_us: gap.start_us,
         end_us: gap.end_us,
     }
+}
+
+fn transcript_view(value: &LocalTranscript) -> TranscriptView {
+    TranscriptView {
+        revision: value.revision,
+        role: value.role.clone(),
+        profile: value.profile.clone(),
+        cues: value
+            .cues
+            .iter()
+            .map(|cue| TranscriptCueView {
+                ordinal: cue.ordinal,
+                start_us: cue.start_us,
+                end_us: cue.end_us,
+                script: cue.script.clone(),
+                wording: cue.wording.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn decision_view(value: &LocalTranscript) -> Result<AnalysisDecisionView> {
+    if value.amount_micros != 0 {
+        return Err(Error::StorageIntegrity);
+    }
+    Ok(AnalysisDecisionView {
+        amount_usd: Usd::from_micros(value.amount_micros)?.to_string(),
+        paid_request: false,
+    })
 }
 
 impl From<AnalysisOperation> for Operation {

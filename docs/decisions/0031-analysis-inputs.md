@@ -1,6 +1,6 @@
 # 0031: Bind analysis to a published recording
 
-Date: 2026-09-22. Status: implemented for one input pin. Transcription, translation, and topic monitors stay open.
+Date: 2026-09-22. Status: implemented for one input pin. Language spans, translation, and topic monitors stay open. One local transcript is [0032](0032-local-transcripts.md).
 
 ## Decision
 
@@ -10,4 +10,4 @@ An unpublished recording is refused. A retained checksum that does not match the
 
 ## Consequences
 
-Catalog schema is v22. Local IPC is v23. Stop an older service before replacing its binary. This does not transcribe, translate, or exit stage 4 or stage 5.
+Catalog schema is v22. Local IPC is v23. Stop an older service before replacing its binary. The pin itself does not transcribe. One local transcript of a published pin is recorded in [0032](0032-local-transcripts.md). This decision does not store language spans, translate, or exit stage 4 or stage 5.

@@ -141,6 +141,24 @@ impl Store {
         self.analysis_revision(id, revision)
     }
 
+    pub(crate) fn published_analysis(&self, id: &str, revision: i64) -> Result<AnalysisRecord> {
+        validate_key(id, "analysis input ID")?;
+        let row = self.analysis_row(id, revision)?.ok_or(Error::NotFound)?;
+        if row.state != "published" {
+            return Err(Error::InvalidInput("analysis revision is not published"));
+        }
+        let latest = self.latest_analysis(id)?.ok_or(Error::NotFound)?;
+        if latest.revision != revision {
+            return Err(Error::InvalidInput("stale analysis revision"));
+        }
+        let binding = bind_recording(&self.recording(&row.recording_id)?)?;
+        let timeline_json = serde_json::to_string(&binding.timeline)?;
+        if binding.media_sha256 != row.media_sha256 || timeline_json != row.timeline_json {
+            return Err(Error::InvalidInput("retained checksum does not match"));
+        }
+        record_from(id, &row)
+    }
+
     pub(crate) fn analysis_input(&self, id: &str) -> Result<AnalysisRecord> {
         validate_key(id, "analysis input ID")?;
         let latest = self.latest_analysis(id)?.ok_or(Error::NotFound)?;

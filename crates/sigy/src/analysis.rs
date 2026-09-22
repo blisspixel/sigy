@@ -22,6 +22,13 @@ pub enum AnalysisCommand {
         #[arg(long)]
         revision: i64,
     },
+    /// Store one local original-script revision. Uncertain wording stays labeled.
+    Transcribe {
+        id: String,
+        /// Published analysis revision. An older revision is refused.
+        #[arg(long)]
+        revision: i64,
+    },
 }
 
 impl AnalysisCommand {
@@ -42,6 +49,10 @@ impl AnalysisCommand {
                 id: id.clone(),
                 revision: *revision,
             },
+            Self::Transcribe { id, revision } => AnalysisOperation::Transcribe {
+                id: id.clone(),
+                revision: *revision,
+            },
         }
         .into()
     }
@@ -53,6 +64,8 @@ pub fn render(writer: &mut impl Write, page: &AnalysisPage, ink: Ink) -> io::Res
         Some(AnalysisDisposition::Created) => "Analysis pin created.",
         Some(AnalysisDisposition::Unchanged) => "Analysis pin unchanged.",
         Some(AnalysisDisposition::Replaced) => "Analysis worker replaced.",
+        Some(AnalysisDisposition::Transcribed) => "Local transcript stored.",
+        Some(AnalysisDisposition::TranscriptUnchanged) => "Local transcript unchanged.",
         None => "Analysis pin.",
     };
     writeln!(writer, "{disposition}")?;
@@ -82,5 +95,89 @@ pub fn render(writer: &mut impl Write, page: &AnalysisPage, ink: Ink) -> io::Res
             gap.ordinal, gap.cause, gap.start_us, gap.end_us
         )?;
     }
+    if let (Some(transcript), Some(decision)) = (&page.transcript, &page.decision) {
+        let kind = if transcript.role == "original" {
+            "Original script."
+        } else {
+            "Transcript role is not original."
+        };
+        let request = if decision.paid_request {
+            "Paid request recorded."
+        } else {
+            "No paid request."
+        };
+        writeln!(
+            writer,
+            "{kind} Profile {}. Decision {} USD. {request}",
+            transcript.profile, decision.amount_usd
+        )?;
+        for cue in &transcript.cues {
+            write!(
+                writer,
+                "Cue {}: {} to {} us. Wording {}.",
+                cue.ordinal,
+                cue.start_us,
+                cue.end_us,
+                ink.tint(Tone::Warn, &cue.wording)
+            )?;
+            if cue.script.is_empty() {
+                writeln!(writer)?;
+            } else {
+                writeln!(writer, " {}", cue.script)?;
+            }
+        }
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sigy_service::control::{
+        AnalysisDecisionView, AnalysisView, TranscriptCueView, TranscriptView,
+    };
+
+    #[test]
+    fn uncertain_wording_is_labeled_and_no_paid_request_is_claimed()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let page = AnalysisPage {
+            input: AnalysisView {
+                id: "pin".into(),
+                revision: 1,
+                recording_id: "one".into(),
+                media_sha256: "ab".repeat(32),
+                state: "published".into(),
+                planned_us: 1_000_000,
+                intervals: Vec::new(),
+                gaps: Vec::new(),
+            },
+            disposition: Some(AnalysisDisposition::Transcribed),
+            transcript: Some(TranscriptView {
+                revision: 1,
+                role: "original".into(),
+                profile: "local-unmeasured".into(),
+                cues: vec![TranscriptCueView {
+                    ordinal: 0,
+                    start_us: 0,
+                    end_us: 1_000_000,
+                    script: String::new(),
+                    wording: "uncertain".into(),
+                }],
+            }),
+            decision: Some(AnalysisDecisionView {
+                amount_usd: "0.000000".into(),
+                paid_request: false,
+            }),
+        };
+        let mut buffer = Vec::new();
+        render(&mut buffer, &page, Ink::stdout(true))?;
+        let text = String::from_utf8(buffer)?;
+        assert!(text.contains("Local transcript stored."));
+        assert!(text.contains("Original script."));
+        assert!(text.contains("Decision 0.000000 USD."));
+        assert!(text.contains("No paid request."));
+        assert!(text.contains("Wording uncertain."));
+        assert!(!text.contains("example.com"));
+        Ok(())
+    }
 }

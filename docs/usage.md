@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 `--data-dir` is required except for `sigy update`, help, and version. Use a private directory outside the checkout. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v22 and local IPC is v23. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v23 and local IPC is v24. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Update
 
@@ -212,9 +212,12 @@ sigy --data-dir PATH_TO_LIBRARY analysis admit pin-001 --recording RECORDING
 sigy --data-dir PATH_TO_LIBRARY analysis show pin-001
 sigy --data-dir PATH_TO_LIBRARY analysis publish pin-001 --revision 1
 sigy --data-dir PATH_TO_LIBRARY analysis admit pin-001 --recording RECORDING --replace-worker
+sigy --data-dir PATH_TO_LIBRARY analysis transcribe pin-001 --revision 1
 ```
 
-`analysis admit` pins one completed recording. The pin stores the retained checksum and the media clock. Published intervals keep their bounds. A capture gap stays a gap, and planned time with no audio is an uncovered gap. The pin does not include a source URL. `record processed` records a cleanup receipt and does not create this pin. An unpublished recording, or a checksum that does not match the published interval, is refused. `--replace-worker` retires an unpublished revision. Publishing that older revision fails. This command does not transcribe and does not reserve a paid budget. See [analysis inputs](decisions/0031-analysis-inputs.md).
+`analysis admit` pins one completed recording. The pin stores the retained checksum and the media clock. Published intervals keep their bounds. A capture gap stays a gap, and planned time with no audio is an uncovered gap. The pin does not include a source URL. `record processed` records a cleanup receipt and does not create this pin. An unpublished recording, or a checksum that does not match the published interval, is refused. `--replace-worker` retires an unpublished revision. Publishing that older revision fails. `analysis admit` does not transcribe and does not reserve a paid budget. See [analysis inputs](decisions/0031-analysis-inputs.md).
+
+`analysis transcribe` reads one published pin and hashes the retained local files. It does not open a source URL. No measured recognizer is selected, so the original-script revision has an empty cue script and the wording label `uncertain`. A gap has no cue. The decision is 0 USD and has no request id. Replay returns the same revision. The global limit stays unchanged, and no paid request is reserved. See [local transcripts](decisions/0032-local-transcripts.md).
 
 ## Listening
 

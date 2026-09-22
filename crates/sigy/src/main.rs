@@ -54,7 +54,7 @@ enum Command {
         #[command(subcommand)]
         command: schedule::ScheduleCommand,
     },
-    /// Pin a published recording for analysis. No source URL is attached.
+    /// Pin a published recording, or transcribe that pin locally. No source URL is attached.
     Analysis {
         #[command(subcommand)]
         command: analysis::AnalysisCommand,
