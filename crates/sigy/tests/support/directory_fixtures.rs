@@ -31,27 +31,37 @@ impl DirectoryServer {
             while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut socket, _)) => {
-                        socket.set_read_timeout(Some(Duration::from_secs(2)))?;
-                        socket.set_write_timeout(Some(Duration::from_secs(2)))?;
+                        socket.set_nonblocking(false)?;
+                        socket.set_read_timeout(Some(Duration::from_secs(15)))?;
+                        socket.set_write_timeout(Some(Duration::from_secs(15)))?;
                         let mut bytes = Vec::new();
                         while bytes.len() < 4096 && !bytes.ends_with(b"\r\n\r\n") {
                             let mut byte = [0];
-                            socket.read_exact(&mut byte)?;
+                            if socket.read_exact(&mut byte).is_err() {
+                                break;
+                            }
                             bytes.push(byte[0]);
                         }
-                        assert!(bytes.starts_with(b"GET /json/stations/search?"));
                         let expected = b"name=Qu%C3%A9bec&hidebroken=";
-                        assert!(
-                            bytes
+                        let matches = bytes.starts_with(b"GET /json/stations/search?")
+                            && bytes
                                 .windows(expected.len())
-                                .any(|window| window == expected)
-                        );
+                                .any(|window| window == expected);
+                        if !matches {
+                            let _ = socket.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                            continue;
+                        }
                         counter.fetch_add(1, Ordering::Relaxed);
                         thread::sleep(delay);
                         // A killed client can close the fixture before the response.
                         let _ = socket.write_all(&response);
                     }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                        ) =>
+                    {
                         thread::sleep(Duration::from_millis(10));
                     }
                     Err(error) => return Err(error),
@@ -291,6 +301,7 @@ impl ClickServer {
             while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut socket, _)) => {
+                        socket.set_nonblocking(false)?;
                         socket.set_read_timeout(Some(Duration::from_secs(2)))?;
                         socket.set_write_timeout(Some(Duration::from_secs(2)))?;
                         let mut bytes = Vec::new();

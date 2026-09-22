@@ -79,6 +79,7 @@ fn accept_loop(listener: &TcpListener, shared: &Shared) -> std::io::Result<()> {
     while !shared.stop.load(Ordering::Relaxed) && Instant::now() < deadline {
         match listener.accept() {
             Ok((socket, _)) => {
+                socket.set_nonblocking(false)?;
                 let shared = shared.clone();
                 threads.push(thread::spawn(move || {
                     let _ = answer(socket, &shared);

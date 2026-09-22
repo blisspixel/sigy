@@ -42,6 +42,7 @@ impl CountingServer {
             while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut socket, _)) => {
+                        socket.set_nonblocking(false)?;
                         socket.set_read_timeout(Some(Duration::from_secs(2)))?;
                         socket.set_write_timeout(Some(Duration::from_secs(2)))?;
                         let mut bytes = Vec::new();
@@ -135,6 +136,7 @@ impl JsonMirror {
             while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut socket, _)) => {
+                        socket.set_nonblocking(false)?;
                         socket.set_read_timeout(Some(Duration::from_secs(2)))?;
                         socket.set_write_timeout(Some(Duration::from_secs(2)))?;
                         let mut bytes = Vec::new();
