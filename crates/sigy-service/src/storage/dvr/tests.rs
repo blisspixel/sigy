@@ -485,3 +485,70 @@ fn icy_migration_preserves_v10_and_rolls_back_conflicts() -> TestResult {
     }
     Ok(())
 }
+
+#[test]
+fn published_file_is_one_measured_interval_and_old_rows_project() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog.sqlite3");
+    let mut store = setup(&path, 10_000)?;
+    let published = store
+        .admit_recording("done", "radio:v1", 60, 600, Retention::Temporary, false)?
+        .ok_or("not admitted")?;
+    store.publish_recording(&published.version, &publication(100))?;
+    store.admit_recording("open", "radio:v1", 60, 600, Retention::Temporary, false)?;
+    assert_measured_interval(&store, "done", 1_000_000, 100)?;
+    assert_no_interval(&store, "open")?;
+    if store
+        .connection
+        .execute(
+            "INSERT INTO recording_intervals(recording_id, ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end) VALUES ('open', 0, 0, 60000000, 0, 600)",
+            [],
+        )
+        .is_ok()
+    {
+        return Err("an unpublished reservation became an interval".into());
+    }
+    drop(store);
+    let connection = rusqlite::Connection::open(&path)?;
+    connection.execute_batch("DROP TABLE recording_intervals; PRAGMA user_version = 15;")?;
+    drop(connection);
+    let store = Store::open(&path)?;
+    assert_measured_interval(&store, "done", 1_000_000, 100)?;
+    assert_no_interval(&store, "open")?;
+    let planned: i64 = store.connection.query_row(
+        "SELECT duration_seconds FROM recordings WHERE id = 'done'",
+        [],
+        |row| row.get(0),
+    )?;
+    if planned != 60 {
+        return Err("the planned window was rewritten".into());
+    }
+    store.audit_dvr()?;
+    Ok(())
+}
+
+fn assert_measured_interval(store: &Store, id: &str, end_us: i64, end_byte: i64) -> TestResult {
+    let (start_us, measured_us, start_byte, measured_byte): (i64, i64, i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT decoded_start_us, decoded_end_us, byte_start, byte_end FROM recording_intervals WHERE recording_id = ?1 AND ordinal = 0",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+    if (start_us, measured_us, start_byte, measured_byte) != (0, end_us, 0, end_byte) {
+        return Err("interval bounds are not the measured publication".into());
+    }
+    Ok(())
+}
+
+fn assert_no_interval(store: &Store, id: &str) -> TestResult {
+    let count: i64 = store.connection.query_row(
+        "SELECT count(*) FROM recording_intervals WHERE recording_id = ?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    if count != 0 {
+        return Err("unpublished bytes were projected as airtime".into());
+    }
+    Ok(())
+}

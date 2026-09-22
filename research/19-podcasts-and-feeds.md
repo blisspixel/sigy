@@ -1,6 +1,6 @@
 # Podcasts, RSS, and Atom for automated insight
 
-Reviewed: 2026-09-20; priority updated 2026-09-21. Podcasts are now prioritized with internet radio before hardware. Broader RSS/Atom text analysis remains later work. Local subscribe and one bounded RSS 2.0 refresh are implemented. Episode downloads are not. [Follow-up research](26-recording-discovery-and-rf.md) records a bounded publisher-feed inspection and corrected namespace semantics.
+Reviewed: 2026-09-20; priority updated 2026-09-21; implementation status updated 2026-09-22. Podcasts are prioritized with internet radio before hardware. Broader RSS and Atom text analysis remains later work. Local subscribe, one bounded RSS 2.0 refresh, one explicit enclosure download, retained playback of that file, and one explicit publisher transcript or chapter fetch are implemented. [Follow-up research](26-recording-discovery-and-rf.md) records a bounded publisher-feed inspection and corrected namespace semantics.
 
 ## Fit
 

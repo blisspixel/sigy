@@ -305,6 +305,9 @@ impl Store {
         if route_json.len() > 8192 {
             return Err(Error::StorageIntegrity);
         }
+        let bytes = i64::try_from(publication.bytes).map_err(|_| Error::StorageIntegrity)?;
+        let decoded =
+            i64::try_from(publication.decoded_microseconds).map_err(|_| Error::StorageIntegrity)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -321,7 +324,7 @@ impl Store {
         {
             return Err(Error::StorageIntegrity);
         }
-        let changed = tx.execute("UPDATE recordings SET storage_state = 'retained', charged_bytes = ?2, media_bytes = ?2, sha256 = ?3, format = ?4, decoded_microseconds = ?5, end_reason = ?6, http_route_json = ?7 WHERE id = ?1 AND storage_state = 'reserved' AND charged_bytes >= ?2", params![expected.id(), i64::try_from(publication.bytes).map_err(|_| Error::StorageIntegrity)?, publication.sha256, publication.format, i64::try_from(publication.decoded_microseconds).map_err(|_| Error::StorageIntegrity)?, publication.end_reason, route_json])?;
+        let changed = tx.execute("UPDATE recordings SET storage_state = 'retained', charged_bytes = ?2, media_bytes = ?2, sha256 = ?3, format = ?4, decoded_microseconds = ?5, end_reason = ?6, http_route_json = ?7 WHERE id = ?1 AND storage_state = 'reserved' AND charged_bytes >= ?2", params![expected.id(), bytes, publication.sha256, publication.format, decoded, publication.end_reason, route_json])?;
         if changed != 1 {
             return Err(Error::StorageIntegrity);
         }
@@ -338,6 +341,10 @@ impl Store {
             expected.id(),
             publication.bytes,
             &publication.observations,
+        )?;
+        tx.execute(
+            "INSERT INTO recording_intervals(recording_id, ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end) VALUES (?1, 0, 0, ?2, 0, ?3)",
+            params![expected.id(), decoded, bytes],
         )?;
         let now = now_ms()?;
         let stopped = journal::transition(&tx, job, CaptureEvent::Stop, "media_received", now)?;
@@ -505,6 +512,19 @@ impl Store {
             |row| row.get(0),
         )?;
         if ceiling_mismatch {
+            return Err(Error::StorageIntegrity);
+        }
+        self.published_intervals_match()?;
+        Ok(())
+    }
+
+    fn published_intervals_match(&self) -> Result<()> {
+        let broken: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM recordings r WHERE r.media_bytes IS NOT NULL AND NOT EXISTS (SELECT 1 FROM recording_intervals i WHERE i.recording_id = r.id AND i.ordinal = 0 AND i.decoded_start_us = 0 AND i.byte_start = 0 AND i.decoded_end_us = r.decoded_microseconds AND i.byte_end = r.media_bytes)) OR EXISTS(SELECT 1 FROM recording_intervals i LEFT JOIN recordings r ON r.id = i.recording_id WHERE r.id IS NULL OR r.media_bytes IS NULL OR (i.decoded_end_us = r.duration_seconds * 1000000 AND i.decoded_end_us != r.decoded_microseconds))",
+            [],
+            |row| row.get(0),
+        )?;
+        if broken {
             return Err(Error::StorageIntegrity);
         }
         Ok(())
