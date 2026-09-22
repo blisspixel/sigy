@@ -189,10 +189,35 @@ pub(crate) fn delete(library: &mut Library, id: &str, pruning: bool) -> Result<(
 }
 
 pub(crate) fn prune(library: &mut Library) -> Result<()> {
+    release_segments(library, false)?;
     for id in library.store().prune_candidates(false)? {
         delete(library, &id, true)?;
     }
     Ok(())
+}
+
+pub(crate) fn release_segments(library: &mut Library, pressure: bool) -> Result<bool> {
+    let now = crate::storage::Store::clock_ms()?;
+    release_segments_at(library, now, pressure)
+}
+
+pub(crate) fn release_segments_at(library: &mut Library, now: i64, pressure: bool) -> Result<bool> {
+    let Some(release) = library.store().next_segment_release(pressure, now)? else {
+        return Ok(false);
+    };
+    let media = checked_directory(library.directory(), true)?;
+    for extension in ["media", "part"] {
+        let path = object_path(&media, &release.object_key, extension)?;
+        match fs::remove_file(path) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    #[cfg(unix)]
+    sync_directory(&media)?;
+    library.store_mut().mark_segment_released(&release)?;
+    Ok(true)
 }
 
 pub(crate) fn recover_deletions(library: &mut Library) -> Result<()> {

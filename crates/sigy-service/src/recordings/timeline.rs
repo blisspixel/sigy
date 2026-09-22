@@ -35,6 +35,7 @@ pub fn live_edge(intervals: &[RecordingInterval]) -> Option<u64> {
 pub fn earliest_retained(intervals: &[RecordingInterval]) -> Option<u64> {
     intervals
         .iter()
+        .filter(|interval| !interval.released)
         .map(|interval| interval.decoded_start_us)
         .min()
 }
@@ -57,10 +58,11 @@ pub fn locate(
     if let Some(gap) = blocking_gap(gaps, seek_us) {
         return Located::Gap { cause: gap.cause };
     }
-    if let Some(interval) = intervals
-        .iter()
-        .find(|interval| seek_us >= interval.decoded_start_us && seek_us < interval.decoded_end_us)
-    {
+    if let Some(interval) = intervals.iter().find(|interval| {
+        !interval.released
+            && seek_us >= interval.decoded_start_us
+            && seek_us < interval.decoded_end_us
+    }) {
         let Some(file_seek_us) = seek_us.checked_sub(interval.decoded_start_us) else {
             return Located::Outside {
                 live_us: interval.decoded_end_us,
@@ -108,6 +110,7 @@ mod tests {
             sha256: "ab".repeat(32),
             format: "wav".into(),
             ceiling_bytes: 32 * 1024 * 1024,
+            released: false,
         }
     }
 
@@ -173,6 +176,14 @@ mod tests {
         }
         if !matches!(locate(&[], &[], true, 0), Located::Unpublished) {
             return Err("unpublished tail was playable".into());
+        }
+        let mut expired = intervals.clone();
+        expired[0].released = true;
+        if earliest_retained(&expired) != Some(1_000_000)
+            || !position_expired(0, earliest_retained(&expired))
+            || !matches!(locate(&expired, &[], false, 0), Located::Outside { .. })
+        {
+            return Err("a released segment still counted as retained".into());
         }
         if live_edge(&intervals) != Some(2_000_000) || earliest_retained(&intervals) != Some(0) {
             return Err("edge".into());

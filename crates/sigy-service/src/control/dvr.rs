@@ -69,6 +69,12 @@ pub enum RecordingOperation {
     Delete {
         id: String,
     },
+    /// Protect every published segment that intersects the range. The open tail stays temporary.
+    Hold {
+        id: String,
+        start_us: u64,
+        end_us: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +102,14 @@ pub(super) fn apply(store: &mut Store, operation: RecordingOperation) -> Result<
         }
         RecordingOperation::Processed { id, receipt } => {
             store.acknowledge_processing(&id, &receipt)?;
+            id
+        }
+        RecordingOperation::Hold {
+            id,
+            start_us,
+            end_us,
+        } => {
+            store.hold_range(&id, start_us, end_us)?;
             id
         }
         RecordingOperation::List { after, limit } => {

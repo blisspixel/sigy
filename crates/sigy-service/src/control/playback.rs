@@ -237,9 +237,11 @@ mod tests {
                 object_key: "c".repeat(32),
                 sha256: "ab".repeat(32),
                 format: "wav".into(),
+                released: false,
                 ceiling_bytes: 32 * 1024 * 1024,
             }],
             gaps: Vec::new(),
+            holds: Vec::new(),
         }
     }
 

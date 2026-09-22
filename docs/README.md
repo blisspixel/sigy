@@ -50,7 +50,7 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Capture gaps](decisions/0026-capture-gaps.md) record a hole with a cause. A seek inside that range fails, and no silence file fills it.
 
-[Segment playback](decisions/0027-segment-playback.md) gives each listener a playhead over sealed segments. Pausing a playhead or leaving `listen play` does not stop the capture.
+[Segment playback](decisions/0027-segment-playback.md) gives each listener a playhead over sealed segments. Pausing a playhead or leaving `listen play` does not stop the capture. [Segment retention](decisions/0028-segment-retention.md) lets a saved range protect those segments while aged temporary files are deleted.
 
 
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.

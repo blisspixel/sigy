@@ -120,6 +120,8 @@ pub struct Recording {
     pub lease_renewals: u64,
     pub intervals: Vec<RecordingInterval>,
     pub gaps: Vec<RecordingGap>,
+    #[serde(default)]
+    pub holds: Vec<RecordingHold>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -230,6 +232,23 @@ pub(in crate::storage) fn journal_suffix_gap(
     Ok(true)
 }
 
+fn unreleased_bytes(tx: &rusqlite::Transaction<'_>, id: &str, sealed: i64) -> Result<i64> {
+    let released: i64 = tx.query_row(
+        "SELECT COALESCE(SUM(byte_length), 0) FROM recording_releases WHERE recording_id = ?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    sealed.checked_sub(released).ok_or(Error::StorageIntegrity)
+}
+
+fn note_segment_clock(tx: &rusqlite::Transaction<'_>, id: &str, ordinal: i64) -> Result<()> {
+    tx.execute(
+        "INSERT INTO recording_segment_clocks(recording_id, ordinal, sealed_ms) VALUES (?1, ?2, ?3)",
+        params![id, ordinal, now_ms()?],
+    )?;
+    Ok(())
+}
+
 fn end_with_gap(
     tx: &rusqlite::Transaction<'_>,
     job: CaptureJob,
@@ -259,6 +278,19 @@ pub struct RecordingInterval {
     pub sha256: String,
     pub format: String,
     pub ceiling_bytes: u64,
+    /// The file has been deleted. The interval row remains.
+    #[serde(default)]
+    pub released: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordingHold {
+    pub ordinal: u32,
+    pub start_us: u64,
+    pub end_us: u64,
+    pub segments: Vec<u32>,
+    pub gaps: Vec<u32>,
 }
 
 #[derive(Debug)]
@@ -283,6 +315,14 @@ pub(crate) enum SegmentOpen {
     BudgetHeld,
 }
 
+pub(crate) struct SegmentRelease {
+    pub id: String,
+    pub ordinal: i64,
+    pub object_key: String,
+    pub byte_length: i64,
+    pub storage_state: String,
+}
+
 pub(crate) struct SegmentSeal {
     pub bytes: u64,
     pub sha256: String,
@@ -291,6 +331,10 @@ pub(crate) struct SegmentSeal {
 }
 
 impl Store {
+    pub(crate) fn clock_ms() -> Result<i64> {
+        now_ms()
+    }
+
     /// # Errors
     /// Rejects invalid policy or inconsistent accounting.
     pub fn dvr_status(&self) -> Result<DvrStatus> {
@@ -421,6 +465,7 @@ impl Store {
             lease_renewals: unsigned(row, 19)?,
             intervals: Vec::new(),
             gaps: Vec::new(),
+            holds: Vec::new(),
         };
         validate_object_key(&record.object_key)?;
         if let Some(key) = &record.open_object_key {
@@ -431,6 +476,7 @@ impl Store {
         let mut record = record;
         record.intervals = self.recording_intervals(id)?;
         record.gaps = self.recording_gaps(id)?;
+        record.holds = self.recording_holds(id)?;
         if record.failure_detail.as_ref().is_some_and(|text| {
             text.len() > 256 || !text.is_ascii() || text.chars().any(char::is_control)
         }) {
@@ -440,7 +486,7 @@ impl Store {
     }
 
     fn recording_intervals(&self, id: &str) -> Result<Vec<RecordingInterval>> {
-        let mut statement = self.connection.prepare("SELECT ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end, object_key, sha256, format, ceiling_bytes FROM recording_intervals WHERE recording_id = ?1 ORDER BY ordinal")?;
+        let mut statement = self.connection.prepare("SELECT i.ordinal, i.decoded_start_us, i.decoded_end_us, i.byte_start, i.byte_end, i.object_key, i.sha256, i.format, i.ceiling_bytes, EXISTS(SELECT 1 FROM recording_releases AS x WHERE x.recording_id = i.recording_id AND x.segment_ordinal = i.ordinal) FROM recording_intervals AS i WHERE i.recording_id = ?1 ORDER BY i.ordinal")?;
         let rows = statement
             .query_map([id], |row| {
                 Ok((
@@ -453,6 +499,7 @@ impl Store {
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
                     row.get::<_, i64>(8)?,
+                    row.get::<_, i64>(9)?,
                 ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -472,6 +519,7 @@ impl Store {
                 sha256: row.6,
                 format: row.7,
                 ceiling_bytes: u64::try_from(row.8).map_err(|_| Error::StorageIntegrity)?,
+                released: row.9 != 0,
             };
             validate_object_key(&interval.object_key)?;
             if interval.decoded_end_us <= interval.decoded_start_us
@@ -522,6 +570,54 @@ impl Store {
             });
         }
         Ok(gaps)
+    }
+
+    fn recording_holds(&self, id: &str) -> Result<Vec<RecordingHold>> {
+        let mut statement = self.connection.prepare(
+            "SELECT ordinal, start_us, end_us FROM recording_holds WHERE recording_id = ?1 ORDER BY ordinal",
+        )?;
+        let rows = statement
+            .query_map([id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut holds = Vec::with_capacity(rows.len());
+        for (index, row) in rows.into_iter().enumerate() {
+            let ordinal = u32::try_from(row.0).map_err(|_| Error::StorageIntegrity)?;
+            if usize::try_from(ordinal).map_err(|_| Error::StorageIntegrity)? != index {
+                return Err(Error::StorageIntegrity);
+            }
+            holds.push(RecordingHold {
+                ordinal,
+                start_us: u64::try_from(row.1).map_err(|_| Error::StorageIntegrity)?,
+                end_us: u64::try_from(row.2).map_err(|_| Error::StorageIntegrity)?,
+                segments: self.hold_ordinals(
+                    "SELECT segment_ordinal FROM recording_hold_segments WHERE recording_id = ?1 AND hold_ordinal = ?2 ORDER BY segment_ordinal",
+                    id,
+                    row.0,
+                )?,
+                gaps: self.hold_ordinals(
+                    "SELECT gap_ordinal FROM recording_hold_gaps WHERE recording_id = ?1 AND hold_ordinal = ?2 ORDER BY gap_ordinal",
+                    id,
+                    row.0,
+                )?,
+            });
+        }
+        Ok(holds)
+    }
+
+    fn hold_ordinals(&self, sql: &str, id: &str, hold: i64) -> Result<Vec<u32>> {
+        let mut statement = self.connection.prepare(sql)?;
+        let rows = statement
+            .query_map(params![id, hold], |row| row.get::<_, i64>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|value| u32::try_from(value).map_err(|_| Error::StorageIntegrity))
+            .collect()
     }
 
     /// # Errors
@@ -617,6 +713,7 @@ impl Store {
             "INSERT INTO recording_intervals(recording_id, ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end, object_key, sha256, format, ceiling_bytes) SELECT ?1, 0, 0, ?2, 0, ?3, object_key, ?4, ?5, byte_ceiling FROM recordings WHERE id = ?1",
             params![expected.id(), decoded, bytes, publication.sha256, publication.format],
         )?;
+        note_segment_clock(&tx, expected.id(), 0)?;
         let now = now_ms()?;
         let stopped = journal::transition(&tx, job, CaptureEvent::Stop, "media_received", now)?;
         journal::transition(
@@ -791,6 +888,7 @@ impl Store {
                 open_ceiling,
             ],
         )?;
+        note_segment_clock(&tx, job.version.id(), ordinal)?;
         if tx.execute(
             "UPDATE recordings SET escrow_bytes = escrow_bytes + open_ceiling - ?2, open_ceiling = 0, open_object_key = NULL WHERE id = ?1 AND open_ceiling >= ?2",
             params![job.version.id(), bytes],
@@ -930,11 +1028,12 @@ impl Store {
         {
             return Err(Error::StorageIntegrity);
         }
+        let charge = unreleased_bytes(&tx, job.version.id(), sealed)?;
         if tx.execute(
             "UPDATE recordings SET storage_state = 'retained', charged_bytes = ?2, media_bytes = ?2, sha256 = ?3, format = ?4, decoded_microseconds = ?5, end_reason = ?6, http_route_json = ?7, escrow_bytes = 0, open_ceiling = 0, open_object_key = NULL WHERE id = ?1 AND storage_state = 'reserved' AND open_ceiling = 0",
             params![
                 job.version.id(),
-                bytes,
+                charge,
                 publication.sha256,
                 publication.format,
                 decoded,
@@ -1096,6 +1195,67 @@ impl Store {
         Ok(())
     }
 
+    /// Protects every published segment the range intersects. The open tail is not a segment.
+    /// # Errors
+    /// Rejects an empty range, a missing recording, or a range with no retained segment.
+    pub fn hold_range(&mut self, id: &str, start_us: u64, end_us: u64) -> Result<()> {
+        validate_key(id, "recording ID")?;
+        if start_us >= end_us {
+            return Err(Error::InvalidInput("hold range is empty"));
+        }
+        let record = self.recording(id)?;
+        if record.storage_state == "deleted" || record.storage_state == "deleting" {
+            return Err(Error::RequestState);
+        }
+        let segments: Vec<u32> = record
+            .intervals
+            .iter()
+            .filter(|interval| {
+                !interval.released
+                    && interval.decoded_start_us < end_us
+                    && start_us < interval.decoded_end_us
+            })
+            .map(|interval| interval.ordinal)
+            .collect();
+        if segments.is_empty() {
+            return Err(Error::InvalidInput(
+                "hold does not intersect retained audio",
+            ));
+        }
+        let gaps: Vec<u32> = record
+            .gaps
+            .iter()
+            .filter(|gap| gap.start_us < end_us && start_us < gap.end_us)
+            .map(|gap| gap.ordinal)
+            .collect();
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let ordinal: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(ordinal) + 1, 0) FROM recording_holds WHERE recording_id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
+        tx.execute(
+            "INSERT INTO recording_holds(recording_id, ordinal, start_us, end_us) VALUES (?1, ?2, ?3, ?4)",
+            params![id, ordinal, i64::try_from(start_us).map_err(|_| Error::StorageIntegrity)?, i64::try_from(end_us).map_err(|_| Error::StorageIntegrity)?],
+        )?;
+        for segment in segments {
+            tx.execute(
+                "INSERT INTO recording_hold_segments(recording_id, hold_ordinal, segment_ordinal) VALUES (?1, ?2, ?3)",
+                params![id, ordinal, segment],
+            )?;
+        }
+        for gap in gaps {
+            tx.execute(
+                "INSERT INTO recording_hold_gaps(recording_id, hold_ordinal, gap_ordinal) VALUES (?1, ?2, ?3)",
+                params![id, ordinal, gap],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Records explicit user acknowledgment, not a claim of automatic analysis.
     /// # Errors
     /// Requires a retained verified recording and a bounded receipt identifier.
@@ -1160,6 +1320,55 @@ impl Store {
             .collect::<std::result::Result<_, _>>()?)
     }
 
+    pub(crate) fn next_segment_release(
+        &self,
+        pressure: bool,
+        now: i64,
+    ) -> Result<Option<SegmentRelease>> {
+        let cutoff = now.saturating_sub(i64::from(self.dvr_status()?.retention_days) * 86_400_000);
+        let row = self.connection.query_row(
+            "SELECT r.id, i.ordinal, i.object_key, i.byte_end - i.byte_start, r.storage_state FROM recording_intervals AS i JOIN recordings AS r ON r.id = i.recording_id JOIN recording_segment_clocks AS k ON k.recording_id = i.recording_id AND k.ordinal = i.ordinal WHERE r.retention = 'temporary' AND r.storage_state IN ('reserved', 'retained') AND NOT EXISTS (SELECT 1 FROM recording_releases AS x WHERE x.recording_id = i.recording_id AND x.segment_ordinal = i.ordinal) AND NOT EXISTS (SELECT 1 FROM recording_hold_segments AS h WHERE h.recording_id = i.recording_id AND h.segment_ordinal = i.ordinal) AND (r.open_object_key IS NULL OR r.open_object_key != i.object_key) AND ((?1 AND r.storage_state = 'retained') OR (NOT ?1 AND k.sealed_ms <= ?2)) ORDER BY k.sealed_ms, r.id, i.ordinal LIMIT 1",
+            params![pressure, cutoff],
+            |row| {
+                Ok(SegmentRelease {
+                    id: row.get(0)?,
+                    ordinal: row.get(1)?,
+                    object_key: row.get(2)?,
+                    byte_length: row.get(3)?,
+                    storage_state: row.get(4)?,
+                })
+            },
+        );
+        match row {
+            Ok(release) => Ok(Some(release)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(crate) fn mark_segment_released(&mut self, release: &SegmentRelease) -> Result<()> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if tx.execute(
+            "INSERT INTO recording_releases(recording_id, segment_ordinal, byte_length) VALUES (?1, ?2, ?3)",
+            params![release.id, release.ordinal, release.byte_length],
+        )? != 1
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        if release.storage_state == "retained"
+            && tx.execute(
+                "UPDATE recordings SET charged_bytes = charged_bytes - ?2, media_bytes = media_bytes - ?2 WHERE id = ?1 AND storage_state = 'retained' AND retention = 'temporary' AND charged_bytes >= ?2 AND media_bytes >= ?2",
+                params![release.id, release.byte_length],
+            )? != 1
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub(crate) fn prune_candidates(&self, pressure: bool) -> Result<Vec<String>> {
         self.prune_candidates_at(pressure, now_ms()?)
     }
@@ -1188,6 +1397,19 @@ impl Store {
         }
         self.published_intervals_match()?;
         self.recorded_gaps_match()?;
+        self.segment_retention_matches()?;
+        Ok(())
+    }
+
+    fn segment_retention_matches(&self) -> Result<()> {
+        let broken: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM recording_releases AS x LEFT JOIN recording_intervals AS i ON i.recording_id = x.recording_id AND i.ordinal = x.segment_ordinal WHERE i.recording_id IS NULL OR x.byte_length != i.byte_end - i.byte_start) OR EXISTS(SELECT 1 FROM recording_hold_segments AS h LEFT JOIN recording_intervals AS i ON i.recording_id = h.recording_id AND i.ordinal = h.segment_ordinal WHERE i.recording_id IS NULL) OR EXISTS(SELECT 1 FROM recording_hold_gaps AS g LEFT JOIN recording_gaps AS q ON q.recording_id = g.recording_id AND q.ordinal = g.gap_ordinal WHERE q.recording_id IS NULL)",
+            [],
+            |row| row.get(0),
+        )?;
+        if broken {
+            return Err(Error::StorageIntegrity);
+        }
         Ok(())
     }
 
@@ -1214,7 +1436,7 @@ impl Store {
             return Err(Error::StorageIntegrity);
         }
         let intervals: bool = self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM recording_intervals i LEFT JOIN recordings r ON r.id = i.recording_id WHERE r.id IS NULL OR (i.ordinal = 0 AND (i.byte_start != 0 OR i.decoded_start_us != 0)) OR (i.ordinal > 0 AND (i.byte_start != (SELECT p.byte_end FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1) OR i.decoded_start_us != (SELECT p.decoded_end_us FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1))) OR (r.media_bytes IS NOT NULL AND (r.media_bytes != (SELECT COALESCE(SUM(q.byte_end - q.byte_start), 0) FROM recording_intervals q WHERE q.recording_id = r.id) OR r.decoded_microseconds != (SELECT MAX(q.decoded_end_us) FROM recording_intervals q WHERE q.recording_id = r.id))) OR (r.media_bytes IS NULL AND r.storage_state = 'retained') OR (r.decoded_microseconds IS NOT NULL AND i.decoded_end_us = r.duration_seconds * 1000000 AND i.decoded_end_us != r.decoded_microseconds))",
+            "SELECT EXISTS(SELECT 1 FROM recording_intervals i LEFT JOIN recordings r ON r.id = i.recording_id WHERE r.id IS NULL OR (i.ordinal = 0 AND (i.byte_start != 0 OR i.decoded_start_us != 0)) OR (i.ordinal > 0 AND (i.byte_start != (SELECT p.byte_end FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1) OR i.decoded_start_us != (SELECT p.decoded_end_us FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1))) OR (r.media_bytes IS NOT NULL AND (r.media_bytes + COALESCE((SELECT SUM(x.byte_length) FROM recording_releases x WHERE x.recording_id = r.id), 0) != (SELECT COALESCE(SUM(q.byte_end - q.byte_start), 0) FROM recording_intervals q WHERE q.recording_id = r.id) OR r.decoded_microseconds != (SELECT MAX(q.decoded_end_us) FROM recording_intervals q WHERE q.recording_id = r.id))) OR (r.media_bytes IS NULL AND r.storage_state = 'retained') OR (r.decoded_microseconds IS NOT NULL AND i.decoded_end_us = r.duration_seconds * 1000000 AND i.decoded_end_us != r.decoded_microseconds))",
             [],
             |row| row.get(0),
         )?;

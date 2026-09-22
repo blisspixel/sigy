@@ -535,6 +535,11 @@ impl Actor {
             if self.library.store().dvr_status()?.available_bytes >= requested {
                 return Ok(());
             }
+            if recordings::release_segments(&mut self.library, true)?
+                && self.library.store().dvr_status()?.available_bytes >= requested
+            {
+                return Ok(());
+            }
             let candidates = self.library.store().prune_candidates(true)?;
             if candidates.is_empty() {
                 return Err(Error::StorageQuota);

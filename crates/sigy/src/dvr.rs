@@ -119,6 +119,14 @@ pub enum RecordCommand {
     },
     /// Explicitly remove inactive media, including kept/archived media. Keep its history.
     Delete { id: String },
+    /// Protect every published segment the range intersects. The open tail stays temporary.
+    Hold {
+        id: String,
+        #[arg(long)]
+        start_us: u64,
+        #[arg(long)]
+        end_us: u64,
+    },
 }
 
 impl RecordCommand {
@@ -184,6 +192,15 @@ impl RecordCommand {
                     receipt: receipt.clone(),
                 },
                 Self::Delete { id } => RecordingOperation::Delete { id: id.clone() },
+                Self::Hold {
+                    id,
+                    start_us,
+                    end_us,
+                } => RecordingOperation::Hold {
+                    id: id.clone(),
+                    start_us: *start_us,
+                    end_us: *end_us,
+                },
             },
         })
     }
@@ -258,6 +275,29 @@ pub fn render_records(writer: &mut impl Write, page: &RecordingPage, ink: Ink) -
                 gap.cause.as_str(),
                 gap.start_us,
                 gap.end_us
+            )?;
+        }
+        for interval in &record.intervals {
+            if interval.released {
+                writeln!(
+                    writer,
+                    "  Released segment {}: no audio file.",
+                    interval.ordinal
+                )?;
+            }
+        }
+        for hold in &record.holds {
+            writeln!(
+                writer,
+                "  Hold {}: {} to {} us. Segments {}.",
+                hold.ordinal,
+                hold.start_us,
+                hold.end_us,
+                hold.segments
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )?;
         }
         if record.open_ceiling > 0 && record.open_object_key.is_some() {

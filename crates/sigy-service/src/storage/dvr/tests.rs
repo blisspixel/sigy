@@ -511,7 +511,7 @@ fn published_file_is_one_measured_interval_and_old_rows_project() -> TestResult 
     }
     drop(store);
     let connection = rusqlite::Connection::open(&path)?;
-    connection.execute_batch("DROP TABLE IF EXISTS recording_gaps; DROP TABLE recording_intervals; DROP INDEX IF EXISTS recording_open_object_keys; ALTER TABLE recordings DROP COLUMN lease_renewals; ALTER TABLE recordings DROP COLUMN lease_expires_ms; ALTER TABLE recordings DROP COLUMN open_object_key; ALTER TABLE recordings DROP COLUMN open_ceiling; ALTER TABLE recordings DROP COLUMN escrow_bytes; PRAGMA user_version = 15;")?;
+    connection.execute_batch("DROP TABLE IF EXISTS recording_releases; DROP TABLE IF EXISTS recording_hold_gaps; DROP TABLE IF EXISTS recording_hold_segments; DROP TABLE IF EXISTS recording_holds; DROP TABLE IF EXISTS recording_segment_clocks; DROP TABLE IF EXISTS recording_gaps; DROP TABLE recording_intervals; DROP INDEX IF EXISTS recording_open_object_keys; ALTER TABLE recordings DROP COLUMN lease_renewals; ALTER TABLE recordings DROP COLUMN lease_expires_ms; ALTER TABLE recordings DROP COLUMN open_object_key; ALTER TABLE recordings DROP COLUMN open_ceiling; ALTER TABLE recordings DROP COLUMN escrow_bytes; PRAGMA user_version = 15;")?;
     drop(connection);
     let store = Store::open(&path)?;
     assert_measured_interval(&store, "done", 1_000_000, 100)?;
@@ -866,6 +866,157 @@ fn backward_clock_journals_a_gap_without_recording_the_earlier_time() -> TestRes
         return Err("backward timestamp was stored".into());
     }
     store.audit_dvr()?;
+    Ok(())
+}
+
+#[test]
+fn hold_records_the_gap_inside_the_saved_range() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(
+        &directory.path().join("catalog.sqlite3"),
+        OPEN_SEGMENT_CEILING,
+    )?;
+    let version = running(&mut store, "saved", OPEN_SEGMENT_CEILING)?;
+    let SegmentOpen::Opened { version, .. } = store.open_segment(&version)? else {
+        return Err("segment did not open".into());
+    };
+    let version = store.seal_segment(&version, &seal(1_000, 1_000_000, "aa"))?;
+    store.fail_recording(
+        &version,
+        &Error::Acquisition("body interrupted; partial body is unverified"),
+    )?;
+    store.hold_range("saved", 0, 1_000_001)?;
+    let record = store.recording("saved")?;
+    let hold = record.holds.first().ok_or("missing hold")?;
+    if hold.segments != [0] || hold.gaps != [0] || record.intervals[0].released {
+        return Err(format!("hold did not keep the segment and the gap: {hold:?}").into());
+    }
+    store.audit_dvr()?;
+    Ok(())
+}
+
+#[test]
+fn prune_releases_one_unprotected_segment_and_keeps_the_held_bytes() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut library = crate::library::Library::open(directory.path(), true)?;
+    let executable = std::env::current_exe()?;
+    let quota = OPEN_SEGMENT_CEILING * 4;
+    library.store_mut().configure_dvr(
+        quota,
+        64 * 1024 * 1024,
+        14,
+        executable
+            .to_str()
+            .ok_or(Error::InvalidInput("test executable"))?,
+    )?;
+    library.store_mut().register_source(
+        "radio:v1",
+        &HttpSource::new(
+            "Test radio",
+            "https://example.com/audio",
+            NetworkScope::PublicInternet {},
+        )?,
+    )?;
+    let budget = OPEN_SEGMENT_CEILING * 3;
+    let version = running(library.store_mut(), "roll", budget)?;
+    let SegmentOpen::Opened { version, .. } = library.store_mut().open_segment(&version)? else {
+        return Err("first segment did not open".into());
+    };
+    let version = library
+        .store_mut()
+        .seal_segment(&version, &seal(OPEN_SEGMENT_CEILING, 1_000_000, "aa"))?;
+    let SegmentOpen::Opened { version, .. } = library.store_mut().open_segment(&version)? else {
+        return Err("second segment did not open".into());
+    };
+    let version = library
+        .store_mut()
+        .seal_segment(&version, &seal(OPEN_SEGMENT_CEILING, 1_000_000, "bb"))?;
+    let SegmentOpen::Opened {
+        version,
+        object_key: tail,
+        ..
+    } = library.store_mut().open_segment(&version)?
+    else {
+        return Err("open tail did not open".into());
+    };
+    library
+        .store_mut()
+        .hold_range("roll", 1_000_000, 2_000_000)?;
+    let record = library.store().recording("roll")?;
+    let media = directory.path().join("media");
+    std::fs::create_dir(&media)?;
+    for interval in &record.intervals {
+        std::fs::write(
+            media.join(format!("{}.media", interval.object_key)),
+            b"audio",
+        )?;
+    }
+    std::fs::write(media.join(format!("{tail}.part")), b"tail")?;
+    let later = Store::clock_ms()? + 15 * 86_400_000;
+    let mut released = 0_u32;
+    while crate::recordings::release_segments_at(&mut library, later, false)? {
+        released += 1;
+    }
+    if released != 1 {
+        return Err(format!("released {released} segments").into());
+    }
+    let record = library.store().recording("roll")?;
+    if !record.intervals[0].released || record.intervals[1].released {
+        return Err("the held segment was released".into());
+    }
+    let old = media.join(format!("{}.media", record.intervals[0].object_key));
+    let kept = media.join(format!("{}.media", record.intervals[1].object_key));
+    let tail_path = media.join(format!("{tail}.part"));
+    if old.exists() || !kept.exists() || !tail_path.exists() {
+        return Err("delete-before-release touched the hold or the open tail".into());
+    }
+    if record.charged_bytes != budget {
+        return Err("a running reservation changed before completion".into());
+    }
+    finish_held_recording(&mut library, &version, later)
+}
+
+fn finish_held_recording(
+    library: &mut crate::library::Library,
+    version: &CaptureVersion,
+    later: i64,
+) -> TestResult {
+    library.store_mut().release_open_segment(version)?;
+    let mut done = publication(OPEN_SEGMENT_CEILING * 2);
+    done.segments_sealed = true;
+    done.decoded_microseconds = 2_000_000;
+    library.store_mut().publish_recording(version, &done)?;
+    let finished = library.store().recording("roll")?;
+    if finished.charged_bytes != OPEN_SEGMENT_CEILING
+        || finished.media_bytes != Some(OPEN_SEGMENT_CEILING)
+    {
+        return Err(format!(
+            "shared bytes were charged twice: {} {:?}",
+            finished.charged_bytes, finished.media_bytes
+        )
+        .into());
+    }
+    let again = crate::recordings::release_segments_at(library, later, false)?;
+    if again || library.store().recording("roll")?.charged_bytes != OPEN_SEGMENT_CEILING {
+        return Err("a second prune charged the held segment again".into());
+    }
+    library
+        .store_mut()
+        .acknowledge_processing("roll", "receipt-1")?;
+    if crate::recordings::release_segments_at(library, later, false)? {
+        return Err("a processing receipt protected or deleted the held segment".into());
+    }
+    library
+        .store_mut()
+        .retain_recording("roll", Retention::Kept)?;
+    if crate::recordings::release_segments_at(library, later, true)? {
+        return Err("keep did not exempt the recording".into());
+    }
+    library.store().audit_dvr()?;
+    let status = library.store().dvr_status()?;
+    if status.charged_bytes + status.available_bytes != status.quota_bytes {
+        return Err("quota was not balanced after deletion".into());
+    }
     Ok(())
 }
 
