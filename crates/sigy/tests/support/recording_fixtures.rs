@@ -782,6 +782,17 @@ impl Drop for IcyServer {
     }
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    use std::fmt::Write;
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .fold(String::with_capacity(64), |mut output, byte| {
+            let _ = write!(output, "{byte:02x}");
+            output
+        })
+}
+
 fn icy_body(audio: &[u8], title: &str) -> std::io::Result<(u64, Vec<u8>)> {
     let mut block = title.as_bytes().to_vec();
     let size = block.len().div_ceil(16) * 16;
@@ -925,9 +936,11 @@ fn icy_metadata_stays_out_of_the_audio_hash() -> TestResult {
     let headers = server.headers.lock().map_err(|_| "icy headers")?.clone();
     assert_eq!(paths, vec!["/audio".to_owned(), "/audio".to_owned()]);
     assert_eq!(headers, vec!["0".to_owned(), "1".to_owned()]);
-    let digest = metadata["storage"]["sha256"].as_str().unwrap_or("");
-    assert_eq!(digest.len(), 64);
-    assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    let digest = metadata["storage"]["sha256"]
+        .as_str()
+        .ok_or("missing audio hash")?;
+    assert_eq!(digest, sha256_hex(&audio));
+    assert_eq!(digest, sha256_hex(&published));
     success(directory.path(), &["service", "stop"])?;
     service.wait()?;
     Ok(())

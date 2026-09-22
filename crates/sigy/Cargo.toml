@@ -23,6 +23,7 @@ winsafe.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

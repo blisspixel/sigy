@@ -323,3 +323,150 @@ fn age_pressure_and_processing_never_evict_protected_or_active_media() -> TestRe
     assert!(store.acknowledge_processing("active", "premature").is_err());
     Ok(())
 }
+
+#[test]
+fn icy_observations_do_not_change_the_source_or_the_audio_hash() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog.sqlite3"), 2_000)?;
+    let title = "StreamTitle='Owned Station';StreamUrl='http://127.0.0.1/secret-stream';";
+    let denied = store
+        .admit_recording("plain", "radio:v1", 60, 600, Retention::Temporary, false)?
+        .ok_or("not admitted")?;
+    let mut hidden = publication(20);
+    hidden
+        .observations
+        .push(crate::sources::icy::IcyObservation {
+            audio_offset: 20,
+            text: title.to_owned(),
+        });
+    assert!(store.publish_recording(&denied.version, &hidden).is_err());
+    assert_eq!(store.recording("plain")?.storage_state, "reserved");
+    assert!(store.recording_observations("plain")?.is_empty());
+    assert!(matches!(
+        store.admit_recording("plain", "radio:v1", 60, 600, Retention::Temporary, true),
+        Err(Error::IdempotencyConflict)
+    ));
+    let job = store
+        .admit_recording("titled", "radio:v1", 60, 600, Retention::Temporary, true)?
+        .ok_or("not admitted")?;
+    assert!(
+        store
+            .admit_recording("titled", "radio:v1", 60, 600, Retention::Temporary, true)?
+            .is_none()
+    );
+    let mut unsafe_text = publication(20);
+    unsafe_text
+        .observations
+        .push(crate::sources::icy::IcyObservation {
+            audio_offset: 20,
+            text: "bad\nname".to_owned(),
+        });
+    assert!(store.publish_recording(&job.version, &unsafe_text).is_err());
+    let mut beyond = publication(20);
+    beyond
+        .observations
+        .push(crate::sources::icy::IcyObservation {
+            audio_offset: 21,
+            text: title.to_owned(),
+        });
+    assert!(store.publish_recording(&job.version, &beyond).is_err());
+    assert_eq!(store.recording("titled")?.storage_state, "reserved");
+    let mut published = publication(20);
+    published.sha256 = "b".repeat(64);
+    published
+        .observations
+        .push(crate::sources::icy::IcyObservation {
+            audio_offset: 20,
+            text: title.to_owned(),
+        });
+    store.publish_recording(&job.version, &published)?;
+    assert_eq!(
+        store.recording_observations("titled")?,
+        vec![(20_u64, title.to_owned())]
+    );
+    assert_eq!(
+        store
+            .source("radio:v1")?
+            .ok_or("missing source")?
+            .source
+            .name(),
+        "Test radio"
+    );
+    let recording = store.recording("titled")?;
+    let envelope = crate::recordings::metadata::export(&store, &recording)?;
+    assert_eq!(envelope.schema_version, 3);
+    assert_eq!(envelope.capture.icy_observations.len(), 1);
+    assert_eq!(envelope.capture.icy_observations[0].text, title);
+    assert_eq!(envelope.capture.icy_observations[0].audio_offset, 20);
+    assert_eq!(
+        envelope.storage.sha256.as_deref(),
+        Some(published.sha256.as_str())
+    );
+    assert_eq!(envelope.source.name, "Test radio");
+    store.audit_dvr()?;
+    let plain = crate::recordings::metadata::export(&store, &store.recording("plain")?)?;
+    assert_eq!(plain.schema_version, 2);
+    assert!(plain.capture.icy_observations.is_empty());
+    Ok(())
+}
+
+#[test]
+fn icy_migration_preserves_v10_and_rolls_back_conflicts() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    for fail in [false, true] {
+        let path = directory
+            .path()
+            .join(if fail { "bad.sqlite3" } else { "good.sqlite3" });
+        let connection = rusqlite::Connection::open(&path)?;
+        for sql in [
+            include_str!("../001-foundation.sql"),
+            include_str!("../002-captures.sql"),
+            include_str!("../003-sources.sql"),
+            include_str!("../004-dvr.sql"),
+            include_str!("../005-discovery.sql"),
+            include_str!("../006-redirects.sql"),
+            include_str!("../007-favorites.sql"),
+            include_str!("../008-playlists.sql"),
+            include_str!("../009-clicks.sql"),
+            include_str!("../010-listens.sql"),
+        ] {
+            connection.execute_batch(sql)?;
+        }
+        connection.execute("UPDATE budgets SET limit_micros = 4242", [])?;
+        connection.execute(
+            "INSERT INTO source_revisions(id, kind, name, endpoint, network_scope, created_ms, redirect_policy) VALUES ('radio:v1', 'http_audio', 'Radio', 'https://example.com/audio', 'public_internet', 1, 'deny')",
+            [],
+        )?;
+        if fail {
+            connection.execute("CREATE TABLE recording_observations(existing TEXT)", [])?;
+        }
+        let opened = Store::open(&path);
+        let version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if fail {
+            assert!(opened.is_err());
+            assert_eq!(version, 10);
+            let column: u32 = connection.query_row(
+                "SELECT count(*) FROM pragma_table_info('recordings') WHERE name = 'metadata_requested'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert_eq!(column, 0);
+        } else {
+            let store = opened?;
+            assert_eq!(version, super::super::SCHEMA_VERSION);
+            assert_eq!(store.budget("global")?.limit().micros(), 4242);
+            let column: i64 = store.connection.query_row(
+                "SELECT count(*) FROM pragma_table_info('recordings') WHERE name = 'metadata_requested'",
+                [],
+                |row| row.get(0),
+            )?;
+            let table: i64 = store.connection.query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name = 'recording_observations'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert_eq!((column, table), (1, 1));
+        }
+    }
+    Ok(())
+}

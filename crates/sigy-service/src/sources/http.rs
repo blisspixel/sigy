@@ -465,10 +465,9 @@ impl HttpAcquirer {
                 };
                 if let Some(chunk) = end {
                     chunk
+                } else if carried.bytes == 0 {
+                    return Err(Error::Acquisition("empty timed recording"));
                 } else {
-                    if carried.bytes == 0 {
-                        return Err(Error::Acquisition("empty timed recording"));
-                    }
                     return close_transfer(sink, carried, TransferEnd::DurationLimit, false).await;
                 }
             } else {
@@ -533,8 +532,7 @@ async fn close_transfer<W: AsyncWrite + Unpin>(
         observations: carried
             .splitter
             .take()
-            .map(IcySplitter::into_observations)
-            .unwrap_or_default(),
+            .map_or(Vec::new(), IcySplitter::into_observations),
     })
 }
 
@@ -582,5 +580,95 @@ fn validate_headers(headers: &header::HeaderMap) -> Result<AudioContentType> {
         "audio/ogg" | "application/ogg" => Ok(AudioContentType::Ogg),
         "audio/wav" | "audio/wave" | "audio/x-wav" => Ok(AudioContentType::Wave),
         _ => Err(Error::Acquisition("unsupported audio content type")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AcquisitionLimits, HttpAcquirer, MetadataPolicy, TransferEnd};
+    use crate::sources::{HttpSource, NetworkScope};
+    use sha2::{Digest, Sha256};
+    use std::time::Duration;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    #[tokio::test]
+    async fn requested_metadata_is_hashed_as_audio_only() -> crate::Result<()> {
+        let audio = b"abcdefghijklmnop";
+        let title = "StreamTitle='Owned';StreamUrl='http://evil.example/secret';";
+        let mut block = title.as_bytes().to_vec();
+        let size = block.len().div_ceil(16) * 16;
+        block.resize(size, 0);
+        let chunks = u8::try_from(
+            size.checked_div(16)
+                .ok_or(crate::Error::Acquisition("icy block"))?,
+        )
+        .map_err(|_| crate::Error::Acquisition("icy block"))?;
+        let mut body = audio.to_vec();
+        body.push(chunks);
+        body.extend(block);
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nicy-metaint: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            audio.len(),
+            body.len()
+        );
+        let server = tokio::spawn(async move {
+            let mut request = Vec::new();
+            let accepted = tokio::time::timeout(Duration::from_secs(2), listener.accept()).await;
+            let Ok(Ok((mut socket, _))) = accepted else {
+                return request;
+            };
+            while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+                match socket.read_u8().await {
+                    Ok(byte) => request.push(byte),
+                    Err(_) => return request,
+                }
+            }
+            if socket.write_all(response.as_bytes()).await.is_err()
+                || socket.write_all(&body).await.is_err()
+            {
+                return request;
+            }
+            request
+        });
+        let source = HttpSource::new(
+            "Icy",
+            &format!("http://fixture.invalid:{}/audio", address.port()),
+            NetworkScope::PinnedAddress {
+                address: address.ip(),
+            },
+        )?;
+        let mut received = Vec::new();
+        let (_stop, mut signal) = tokio::sync::watch::channel(false);
+        let receipt = HttpAcquirer::default()
+            .record_with(
+                &source,
+                AcquisitionLimits::new(1024, Duration::from_secs(2))?,
+                &mut received,
+                &mut signal,
+                MetadataPolicy::Requested,
+            )
+            .await?;
+        assert_eq!(received, audio);
+        assert_eq!(
+            receipt.bytes,
+            u64::try_from(audio.len()).map_err(|_| crate::Error::StorageIntegrity)?
+        );
+        assert_eq!(receipt.end, TransferEnd::EndOfBody);
+        assert_eq!(Sha256::digest(&received), Sha256::digest(audio));
+        assert_eq!(receipt.observations.len(), 1);
+        assert_eq!(receipt.observations[0].text, title);
+        assert_eq!(receipt.observations[0].audio_offset, receipt.bytes);
+        let request = server
+            .await
+            .map_err(|_| crate::Error::Acquisition("icy fixture failed"))?;
+        let text = String::from_utf8_lossy(&request);
+        assert!(text.to_ascii_lowercase().contains("icy-metadata: 1"));
+        assert!(!text.contains("evil.example"));
+        Ok(())
     }
 }

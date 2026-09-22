@@ -60,10 +60,11 @@ five-second ceiling. The current Hyper HTTP/1 parser has a finite buffer limit;
 Sigy also caps response header count at 64 and tests oversized headers.
 
 HTTP 200 and a supported declared audio content type are required. Redirects,
-playlists, encoded HTTP bodies, interleaved ICY metadata and ambiguous content
-types fail before body writes. TLS uses offline WebPKI verification with explicit
-Mozilla roots from `webpki-root-certs` 1.0.9, preserving chain, validity and
-hostname checks. Platform verification can retrieve certificate-supplied URLs
+playlists, encoded HTTP bodies and ambiguous content types fail before body
+writes. Interleaved ICY metadata also fails before a body write unless the
+recording explicitly requests it. See [ICY observations](0013-icy-observations.md).
+TLS uses offline WebPKI verification with explicit Mozilla roots from
+`webpki-root-certs` 1.0.9, preserving chain, validity and hostname checks. Platform verification can retrieve certificate-supplied URLs
 outside the source policy, so this adapter deliberately does not use it. A
 loopback fixture tests rejection of a self-signed certificate. Bundled roots
 require timely dependency updates; OS-local enterprise roots and online

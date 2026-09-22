@@ -71,7 +71,7 @@ cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio search --favorite
 cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY radio unfavorite STATION_UUID
 ```
 
-[Favorites](docs/decisions/0008-radio-favorites.md) work offline and survive catalog updates and service restarts. Removing a favorite preserves the station, registered sources and recordings. Catalog schema remains v10 and local IPC is v11. Stop an older service with its existing binary before updating, then restart it.
+[Favorites](docs/decisions/0008-radio-favorites.md) work offline and survive catalog updates and service restarts. Removing a favorite preserves the station, registered sources and recordings. Catalog schema is v11 and local IPC is v12. Stop an older service with its existing binary before updating, then restart it.
 
 Report one directory click only when you mean to. The command does not play the station, and the stream address in the provider response is discarded:
 

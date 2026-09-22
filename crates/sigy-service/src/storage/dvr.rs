@@ -532,7 +532,7 @@ impl Store {
 
     pub(crate) fn audit_dvr(&self) -> Result<()> {
         self.dvr_status()?;
-        let invalid: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.charged_bytes > c.maximum_bytes OR (r.storage_state = 'reserved' AND r.charged_bytes != c.maximum_bytes) OR (r.media_bytes IS NOT NULL AND c.state != 'completed')) OR EXISTS(SELECT 1 FROM capture_jobs c WHERE c.state = 'completed' AND NOT EXISTS(SELECT 1 FROM recordings r WHERE r.id = c.id AND r.media_bytes IS NOT NULL))", [], |r| r.get(0))?;
+        let invalid: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.charged_bytes > c.maximum_bytes OR (r.storage_state = 'reserved' AND r.charged_bytes != c.maximum_bytes) OR (r.media_bytes IS NOT NULL AND c.state != 'completed')) OR EXISTS(SELECT 1 FROM capture_jobs c WHERE c.state = 'completed' AND NOT EXISTS(SELECT 1 FROM recordings r WHERE r.id = c.id AND r.media_bytes IS NOT NULL)) OR EXISTS(SELECT 1 FROM recording_observations o LEFT JOIN recordings r ON r.id = o.recording_id WHERE r.id IS NULL OR r.metadata_requested != 1 OR r.media_bytes IS NULL OR o.audio_offset > r.media_bytes)", [], |r| r.get(0))?;
         if invalid {
             return Err(Error::StorageIntegrity);
         }
@@ -552,6 +552,22 @@ impl Store {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        let media_limit = if rows.is_empty() {
+            None
+        } else {
+            let (requested, media): (i64, Option<i64>) = self.connection.query_row(
+                "SELECT metadata_requested, media_bytes FROM recordings WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            if requested != 1 {
+                return Err(Error::StorageIntegrity);
+            }
+            Some(
+                u64::try_from(media.ok_or(Error::StorageIntegrity)?)
+                    .map_err(|_| Error::StorageIntegrity)?,
+            )
+        };
         let mut previous = None;
         let mut observations = Vec::with_capacity(rows.len());
         for (offset, text) in rows {
@@ -559,6 +575,7 @@ impl Store {
             if text.is_empty()
                 || text.len() > crate::sources::icy::MAX_ICY_BLOCK
                 || text.chars().any(crate::sources::unsafe_display)
+                || media_limit.is_some_and(|limit| offset > limit)
                 || previous.is_some_and(|previous: u64| offset <= previous)
             {
                 return Err(Error::StorageIntegrity);
