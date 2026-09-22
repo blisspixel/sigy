@@ -15,6 +15,8 @@ mod directory_fixtures;
 mod listen_fixtures;
 #[path = "support/playlist_fixtures.rs"]
 mod playlist_fixtures;
+#[path = "support/podcast_fixtures.rs"]
+mod podcast_fixtures;
 #[path = "support/recording_fixtures.rs"]
 mod recording_fixtures;
 

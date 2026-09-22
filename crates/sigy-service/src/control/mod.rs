@@ -23,10 +23,13 @@ pub use discovery::{DirectoryOperation, StationPage};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use listen::{ListenOperation, ListenView};
 pub use playlist::{PlaylistOperation, PlaylistView};
-pub use podcast::{PodcastOperation, PodcastPage, PodcastView};
+pub use podcast::{
+    PodcastEpisodeView, PodcastFeedView, PodcastIdentityKind, PodcastOperation, PodcastPage,
+    PodcastView,
+};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 13;
+pub const PROTOCOL_VERSION: u32 = 14;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -169,6 +172,7 @@ pub struct Snapshot {
     pub directory_click: Option<crate::storage::ClickStatus>,
     pub listen: Option<ListenView>,
     pub podcast_page: Option<PodcastPage>,
+    pub podcast_feed: Option<PodcastFeedView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -343,6 +347,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         directory_click: None,
         listen: None,
         podcast_page: None,
+        podcast_feed: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

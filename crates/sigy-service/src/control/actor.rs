@@ -13,6 +13,7 @@ mod click;
 mod discovery;
 mod listen;
 mod playlist;
+mod podcast;
 
 pub(super) enum Message {
     DirectoryFinished {
@@ -26,6 +27,10 @@ pub(super) enum Message {
     ClickFinished {
         id: String,
         result: Result<String>,
+    },
+    PodcastFinished {
+        id: String,
+        result: Result<crate::podcast::FeedCommit>,
     },
     ListenReady {
         id: String,
@@ -79,6 +84,7 @@ struct Actor {
     directory_worker: Option<Worker>,
     playlist_worker: Option<Worker>,
     click_worker: Option<Worker>,
+    podcast_worker: Option<Worker>,
     listen_workers: HashMap<String, LiveListen>,
     acquirer: HttpAcquirer,
 }
@@ -101,6 +107,18 @@ impl Actor {
                 self.start_playlist(&id, &revision_id)?;
                 Operation::Playlist {
                     command: super::PlaylistOperation::Status { id },
+                }
+            }
+            Operation::Podcast {
+                command:
+                    super::PodcastOperation::Refresh {
+                        id,
+                        subscription_id,
+                    },
+            } => {
+                self.start_podcast_refresh(&id, &subscription_id)?;
+                Operation::Podcast {
+                    command: super::PodcastOperation::RefreshStatus { id },
                 }
             }
             Operation::Radio {
@@ -335,6 +353,9 @@ impl Actor {
         if let Some(worker) = &self.click_worker {
             worker.stop.send_replace(true);
         }
+        if let Some(worker) = &self.podcast_worker {
+            worker.stop.send_replace(true);
+        }
         for session in self.listen_workers.values() {
             session.worker.stop.send_replace(true);
         }
@@ -349,6 +370,7 @@ impl Actor {
             && self.directory_worker.is_none()
             && self.playlist_worker.is_none()
             && self.click_worker.is_none()
+            && self.podcast_worker.is_none()
     }
 }
 
@@ -378,6 +400,7 @@ pub(super) fn spawn(
         directory_worker: None,
         playlist_worker: None,
         click_worker: None,
+        podcast_worker: None,
         listen_workers: HashMap::new(),
         acquirer: HttpAcquirer::default(),
     };
@@ -423,6 +446,10 @@ fn dispatch(
         }
         Message::ClickFinished { id, result } => {
             let failed = actor.finish_click(&id, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::PodcastFinished { id, result } => {
+            let failed = actor.finish_podcast(&id, result).is_err();
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::ListenReady { id, nonce, format } => actor.ready_listen(&id, nonce, format),

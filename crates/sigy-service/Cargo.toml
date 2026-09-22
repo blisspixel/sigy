@@ -22,6 +22,7 @@ webpki-root-certs.workspace = true
 hickory-resolver.workspace = true
 sha2.workspace = true
 fs4.workspace = true
+flate2.workspace = true
 process-wrap.workspace = true
 
 [target.'cfg(windows)'.dependencies]

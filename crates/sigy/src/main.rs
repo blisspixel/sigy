@@ -54,7 +54,7 @@ enum Command {
         #[command(subcommand)]
         command: sources::SourceCommand,
     },
-    /// Subscribe to a podcast feed locally. Does not fetch, resolve DNS, or record.
+    /// Store a podcast subscription and refresh one RSS document. Refresh does not download enclosures.
     Podcast {
         #[command(subcommand)]
         command: podcast::PodcastCommand,
@@ -214,8 +214,13 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(page) = &view.source_page {
             sources::render(&mut stdout, page)?;
         }
-    } else if let Some(page) = &view.podcast_page {
-        podcast::render(&mut stdout, page)?;
+    } else if view.podcast_page.is_some() || view.podcast_feed.is_some() {
+        if let Some(page) = &view.podcast_page {
+            podcast::render(&mut stdout, page)?;
+        }
+        if let Some(feed) = &view.podcast_feed {
+            podcast::render_feed(&mut stdout, feed)?;
+        }
     } else if view.directory.is_some() {
         radio::render(&mut stdout, &view)?;
     } else {

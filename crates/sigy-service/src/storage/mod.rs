@@ -13,11 +13,12 @@ pub mod dvr;
 pub mod ledger;
 mod listens;
 mod playlists;
+pub(crate) mod podcast_feeds;
 pub mod podcasts;
 pub use clicks::ClickStatus;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 12;
+pub const SCHEMA_VERSION: u32 = 13;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -70,47 +71,7 @@ impl Store {
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let version: i64 =
             transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version == 0 {
-            transaction.execute_batch(include_str!("001-foundation.sql"))?;
-        }
-        if (0..=1).contains(&version) {
-            transaction.execute_batch(include_str!("002-captures.sql"))?;
-        }
-        if (0..=2).contains(&version) {
-            transaction.execute_batch(include_str!("003-sources.sql"))?;
-        }
-        if (0..=3).contains(&version) {
-            transaction.execute_batch(include_str!("004-dvr.sql"))?;
-        }
-        if (0..=4).contains(&version) {
-            transaction.execute_batch(include_str!("005-discovery.sql"))?;
-        }
-        if (0..=5).contains(&version) {
-            transaction.execute_batch(include_str!("006-redirects.sql"))?;
-        }
-        if (0..=6).contains(&version) {
-            transaction.execute_batch(include_str!("007-favorites.sql"))?;
-        }
-        if (0..=7).contains(&version) {
-            transaction.execute_batch(include_str!("008-playlists.sql"))?;
-        }
-        if (0..=8).contains(&version) {
-            transaction.execute_batch(include_str!("009-clicks.sql"))?;
-        }
-        if (0..=9).contains(&version) {
-            transaction.execute_batch(include_str!("010-listens.sql"))?;
-        }
-        if (0..=10).contains(&version) {
-            transaction.execute_batch(include_str!("011-icy.sql"))?;
-        }
-        if (0..=11).contains(&version) {
-            transaction.execute_batch(include_str!("012-podcasts.sql"))?;
-        } else if version != i64::from(SCHEMA_VERSION) {
-            return Err(Error::FutureSchema {
-                found: version,
-                supported: i64::from(SCHEMA_VERSION),
-            });
-        }
+        migrate(&transaction, version)?;
         transaction.commit()?;
         let store = Self { connection };
         let foreign_key_errors: i64 = store.connection.query_row(
@@ -140,6 +101,54 @@ impl Store {
             .connection
             .query_row("SELECT sqlite_version()", [], |row| row.get(0))?)
     }
+}
+
+fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> {
+    if version == 0 {
+        transaction.execute_batch(include_str!("001-foundation.sql"))?;
+    }
+    if (0..=1).contains(&version) {
+        transaction.execute_batch(include_str!("002-captures.sql"))?;
+    }
+    if (0..=2).contains(&version) {
+        transaction.execute_batch(include_str!("003-sources.sql"))?;
+    }
+    if (0..=3).contains(&version) {
+        transaction.execute_batch(include_str!("004-dvr.sql"))?;
+    }
+    if (0..=4).contains(&version) {
+        transaction.execute_batch(include_str!("005-discovery.sql"))?;
+    }
+    if (0..=5).contains(&version) {
+        transaction.execute_batch(include_str!("006-redirects.sql"))?;
+    }
+    if (0..=6).contains(&version) {
+        transaction.execute_batch(include_str!("007-favorites.sql"))?;
+    }
+    if (0..=7).contains(&version) {
+        transaction.execute_batch(include_str!("008-playlists.sql"))?;
+    }
+    if (0..=8).contains(&version) {
+        transaction.execute_batch(include_str!("009-clicks.sql"))?;
+    }
+    if (0..=9).contains(&version) {
+        transaction.execute_batch(include_str!("010-listens.sql"))?;
+    }
+    if (0..=10).contains(&version) {
+        transaction.execute_batch(include_str!("011-icy.sql"))?;
+    }
+    if (0..=11).contains(&version) {
+        transaction.execute_batch(include_str!("012-podcasts.sql"))?;
+    }
+    if (0..=12).contains(&version) {
+        transaction.execute_batch(include_str!("013-podcast-feeds.sql"))?;
+    } else if version != i64::from(SCHEMA_VERSION) {
+        return Err(Error::FutureSchema {
+            found: version,
+            supported: i64::from(SCHEMA_VERSION),
+        });
+    }
+    Ok(())
 }
 
 fn validate_key(value: &str, field: &'static str) -> Result<()> {

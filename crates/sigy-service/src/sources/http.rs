@@ -25,6 +25,22 @@ pub const MAXIMUM_BODY_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAXIMUM_DURATION: Duration = Duration::from_mins(15);
 const MAX_ATTEMPTS: usize = 2;
 
+/// Audio and directory reads stay identity-only. A feed may ask for compression.
+#[derive(Clone, Copy)]
+pub(crate) enum AcceptEncoding {
+    Identity,
+    Feed,
+}
+
+impl AcceptEncoding {
+    const fn header(self) -> &'static str {
+        match self {
+            Self::Identity => "identity",
+            Self::Feed => "gzip, deflate, identity",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct AcquisitionLimits {
     bytes: u64,
@@ -210,6 +226,7 @@ impl HttpAcquirer {
         limits: AcquisitionLimits,
         deadline: Instant,
         accept: &'static str,
+        encoding: AcceptEncoding,
         metadata: MetadataPolicy,
     ) -> Result<(reqwest::Response, Vec<HttpHop>)> {
         let mut current = source.clone();
@@ -217,7 +234,7 @@ impl HttpAcquirer {
         let mut route = Vec::new();
         loop {
             let response = self
-                .open_once(&current, limits, deadline, accept, metadata)
+                .open_once(&current, limits, deadline, accept, encoding, metadata)
                 .await?;
             route.push(HttpHop {
                 origin: current.origin(),
@@ -261,6 +278,7 @@ impl HttpAcquirer {
         limits: AcquisitionLimits,
         deadline: Instant,
         accept: &'static str,
+        encoding: AcceptEncoding,
         metadata: MetadataPolicy,
     ) -> Result<reqwest::Response> {
         // Platform verification can retrieve certificate-supplied AIA/OCSP URLs
@@ -293,7 +311,7 @@ impl HttpAcquirer {
         let request = client
             .get(source.url.clone())
             .header(header::ACCEPT, accept)
-            .header(header::ACCEPT_ENCODING, "identity")
+            .header(header::ACCEPT_ENCODING, encoding.header())
             .header(
                 "icy-metadata",
                 match metadata {
@@ -395,6 +413,7 @@ impl HttpAcquirer {
             limits,
             deadline,
             "audio/mpeg, audio/aac, audio/flac, audio/ogg, audio/wav, application/ogg",
+            AcceptEncoding::Identity,
             metadata,
         );
         let (response, route) = if let Some(signal) = stop.as_mut() {

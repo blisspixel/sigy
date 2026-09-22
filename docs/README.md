@@ -32,6 +32,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Local podcast subscriptions](decisions/0017-local-podcast-subscriptions.md) store one feed URL, scope, pin, and redirect policy. Subscribe does not resolve DNS or start a capture. Unsubscribe stops future polls and deletes nothing.
 
+[RSS feed refresh](decisions/0018-rss-feed-refresh.md) reads one RSS 2.0 document on the shared acquirer and lists episodes. It does not download enclosures. A failed document leaves the last good snapshot.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:

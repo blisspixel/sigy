@@ -191,7 +191,21 @@ impl Store {
         for id in ids {
             read_subscription(&tx, &id)?.ok_or(Error::PodcastIntegrity)?;
         }
-        Ok(())
+        drop(tx);
+        self.audit_podcast_feeds()
+    }
+
+    pub(crate) fn podcast_authority(&self, id: &str) -> Result<Option<(PodcastPolls, HttpSource)>> {
+        validate_key(id, "podcast subscription ID")?;
+        let Some(subscription) = read_subscription(&self.connection, id)? else {
+            return Ok(None);
+        };
+        let source = feed_authority(
+            &subscription.endpoint,
+            subscription.network,
+            subscription.redirects,
+        )?;
+        Ok(Some((subscription.polls, source)))
     }
 }
 
