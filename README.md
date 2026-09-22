@@ -1,8 +1,10 @@
 # Sigy
 
-Sigy is a local-first application for exploring the world's signals and understanding what they mean. The first complete release is world radio, organized recordings, live translation, and bounded topic monitoring: find a station, listen, keep several recordings, and follow a subject across languages, with the original evidence still attached and the unresolved parts left visible. Most expected speech and music are non-English. English is the primary translation target.
+Sigy is practical signals intelligence for everyday use. One local-first application discovers a signal, listens to it or inspects it, captures what matters, decodes and translates it, and explains what it means. The original observation stays attached to every interpretation, including mixed languages, uncertainty, and later corrections. Speech and music are expected to be mostly non-English. English is the primary translation target.
 
-The command line is the complete interface. The optional list explorer is another view of the same library. A background service continues admitted work after the client exits. Local processing is the default, and paid processing stays off until a finite budget is set. This checkout is an early build toward that release.
+That library is the home for internet radio and podcasts, a listening desk with a list, a globe, and a dial, rolling recordings, live translation, and topic monitoring. Music identification, wider text feeds, receive-only radio hardware, packets and telemetry, Morse, historical ciphers, and supplied-key cryptography follow on the same evidence model. A scanner, a spectrum view, or a cipher workbench is another instrument on that library. Curiosity belongs here: unfamiliar music, a practice signal, and a historical cipher are part of the product.
+
+The first complete release is the listening desk: world radio, organized recordings, live translation, and bounded topic monitoring. The command line can do that work alone. The list explorer is another view of the same library, and the globe and map join it. A background service continues admitted work after the client exits. Local processing is the default, and paid processing stays off until a finite budget is set. This checkout is an early build of that desk. The [roadmap](ROADMAP.md) holds the rest of the product.
 
 ## List explorer
 
