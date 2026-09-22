@@ -1364,7 +1364,7 @@ fn serve_enclosure(
     port: u16,
     body: Vec<u8>,
 ) -> std::io::Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(60);
     while !stop.load(Ordering::Relaxed) && Instant::now() < deadline {
         match listener.accept() {
             Ok((mut socket, _)) => {
@@ -1404,10 +1404,10 @@ fn serve_enclosure(
     Ok(())
 }
 
-fn wait_episode_feed(directory: &std::path::Path) -> TestResult {
+fn wait_episode_feed(directory: &std::path::Path, id: &str) -> TestResult {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let status = success(directory, &["podcast", "refresh-status", "feed:v1"])?;
+        let status = success(directory, &["podcast", "refresh-status", id])?;
         if status["podcast_feed"]["refresh"]["state"] != "running" {
             assert_eq!(
                 status["podcast_feed"]["refresh"]["state"], "completed",
@@ -1511,7 +1511,7 @@ fn episode_enclosure_is_one_retained_recording() -> TestResult {
         directory.path(),
         &["podcast", "refresh", "show:v1", "--id", "feed:v1"],
     )?;
-    wait_episode_feed(directory.path())?;
+    wait_episode_feed(directory.path(), "feed:v1")?;
     let episodes = success(directory.path(), &["podcast", "episodes", "show:v1"])?;
     let episode_id = episodes["podcast_feed"]["episodes"][0]["id"]
         .as_str()
@@ -1573,4 +1573,237 @@ fn episode_enclosure_is_one_retained_recording() -> TestResult {
     success(directory.path(), &["service", "stop"])?;
     service.wait()?;
     Ok(())
+}
+
+#[test]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
+fn retained_episode_plays_under_the_default_policy_without_a_live_edge() -> TestResult {
+    let bytes = wave();
+    let server = EnclosureHost::start(bytes.clone())?;
+    let directory = tempfile::tempdir()?;
+    subscribe_default_episode(directory.path(), &server)?;
+    let mut service = RunningChild::start(directory.path())?;
+    let decoded = download_inspected_episode(directory.path(), &server, &bytes)?;
+    play_retained_episode(directory.path(), &bytes, decoded)?;
+    assert_episode_has_no_live_edge(directory.path(), &server, bytes.len())?;
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}
+
+fn subscribe_default_episode(directory: &std::path::Path, server: &EnclosureHost) -> TestResult {
+    let ffmpeg = std::env::var("SIGY_TEST_FFMPEG")?;
+    success(directory, &["library", "init"])?;
+    success(directory, &["dvr", "configure", "--decoder", &ffmpeg])?;
+    let policy = success(directory, &["dvr", "status"])?;
+    assert_eq!(policy["dvr"]["retention_days"], 14);
+    assert_eq!(policy["dvr"]["quota_bytes"], 50_000_000_000_u64);
+    assert_eq!(policy["dvr"]["charged_bytes"], 0);
+    assert_eq!(
+        policy["schema_version"],
+        sigy_service::storage::SCHEMA_VERSION
+    );
+    success(
+        directory,
+        &[
+            "podcast",
+            "subscribe",
+            "show:v1",
+            "--url",
+            &server.feed_url(),
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    let shown = success(directory, &["podcast", "show", "show:v1"])?;
+    assert_eq!(shown["podcast_page"]["entries"][0]["polls"], "active");
+    assert_eq!(shown["captures"]["scheduled"], 0);
+    assert_eq!(shown["captures"]["active"], 0);
+    assert!(shown["source_page"].is_null());
+    assert_no_recordings(directory)
+}
+
+fn download_inspected_episode(
+    directory: &std::path::Path,
+    server: &EnclosureHost,
+    bytes: &[u8],
+) -> Result<u64, Box<dyn std::error::Error>> {
+    success(
+        directory,
+        &["podcast", "refresh", "show:v1", "--id", "feed:v1"],
+    )?;
+    wait_episode_feed(directory, "feed:v1")?;
+    let episodes = success(directory, &["podcast", "episodes", "show:v1"])?;
+    let episode_id = episodes["podcast_feed"]["episodes"][0]["id"]
+        .as_str()
+        .ok_or("episode id")?
+        .to_owned();
+    assert_eq!(episodes["podcast_feed"]["episodes"][0]["enclosure"], true);
+    assert_eq!(episodes["captures"]["active"], 0);
+    assert_eq!(episodes["captures"]["scheduled"], 0);
+    assert!(!episodes.to_string().contains("token=hidden"));
+    assert_no_recordings(directory)?;
+    assert_eq!(enclosure_hits(server, "/episode.wav")?, 0);
+    let early = invoke(
+        directory,
+        &["listen", "file", "episode:v1", "--destination", "null"],
+    )?;
+    assert!(!early.status.success());
+    success(
+        directory,
+        &[
+            "podcast",
+            "download",
+            "show:v1",
+            "--episode",
+            &episode_id,
+            "--id",
+            "episode:v1",
+            "--revision",
+            "enc:v1",
+        ],
+    )?;
+    let record = wait_recording(directory, "episode:v1", "completed")?;
+    assert_eq!(record["profile"], "episode");
+    assert_eq!(record["retention"], "temporary");
+    assert_eq!(record["storage_state"], "retained");
+    assert_eq!(record["end_reason"], "end_of_body");
+    assert_eq!(record["media_bytes"], bytes.len());
+    let decoded = record["decoded_microseconds"]
+        .as_u64()
+        .filter(|value| *value > 200_000)
+        .ok_or("decoded duration")?;
+    let charged = success(directory, &["dvr", "status"])?;
+    assert_eq!(charged["dvr"]["retention_days"], 14);
+    assert_eq!(charged["dvr"]["quota_bytes"], 50_000_000_000_u64);
+    assert_eq!(charged["dvr"]["charged_bytes"], bytes.len());
+    assert_eq!(charged["dvr"]["reserved_bytes"], 0);
+    assert_eq!(enclosure_hits(server, "/episode.wav")?, 1);
+    Ok(decoded)
+}
+
+fn play_retained_episode(directory: &std::path::Path, bytes: &[u8], decoded: u64) -> TestResult {
+    let outside = invoke(
+        directory,
+        &[
+            "listen",
+            "file",
+            "episode:v1",
+            "--destination",
+            "null",
+            "--seek-us",
+            &decoded.to_string(),
+        ],
+    )?;
+    assert!(!outside.status.success());
+    let played = success(
+        directory,
+        &[
+            "listen",
+            "file",
+            "episode:v1",
+            "--destination",
+            "null",
+            "--seek-us",
+            "200000",
+        ],
+    )?;
+    assert_eq!(played["id"], "episode:v1");
+    assert_eq!(played["destination"], "null");
+    assert_eq!(played["progress_advanced"], true);
+    let playhead = played["playhead_us"].as_u64().ok_or("missing playhead")?;
+    assert!((200_001..=decoded).contains(&playhead), "{played}");
+    let after = success(directory, &["dvr", "status"])?;
+    assert_eq!(after["dvr"]["charged_bytes"], bytes.len());
+    assert_eq!(after["dvr"]["reserved_bytes"], 0);
+    let shown = success(directory, &["record", "show", "episode:v1"])?;
+    assert_eq!(
+        shown["recording_page"]["entries"][0]["retention"],
+        "temporary"
+    );
+    assert_eq!(
+        shown["recording_page"]["entries"][0]["storage_state"],
+        "retained"
+    );
+    Ok(())
+}
+
+fn assert_episode_has_no_live_edge(
+    directory: &std::path::Path,
+    server: &EnclosureHost,
+    media_bytes: usize,
+) -> TestResult {
+    assert_eq!(enclosure_hits(server, "/episode.wav")?, 1);
+    let live = invoke(
+        directory,
+        &[
+            "listen",
+            "source",
+            "live",
+            "--revision",
+            "enc:v1",
+            "--destination",
+            "null",
+        ],
+    )?;
+    assert!(!live.status.success());
+    let stderr = String::from_utf8_lossy(&live.stderr);
+    assert!(stderr.contains("episode has no live edge"), "{stderr}");
+    assert!(!stderr.contains("token=hidden"));
+    thread::sleep(Duration::from_millis(400));
+    assert_eq!(enclosure_hits(server, "/episode.wav")?, 1);
+    let missing = invoke(directory, &["listen", "status", "live"])?;
+    assert!(!missing.status.success());
+    let feed_hits = enclosure_hits(server, "/feed.xml")?;
+    success(
+        directory,
+        &["podcast", "refresh", "show:v1", "--id", "feed:v1"],
+    )?;
+    thread::sleep(Duration::from_millis(400));
+    assert_eq!(enclosure_hits(server, "/feed.xml")?, feed_hits);
+    thread::sleep(Duration::from_secs(3));
+    success(
+        directory,
+        &["podcast", "refresh", "show:v1", "--id", "feed:v2"],
+    )?;
+    wait_episode_feed(directory, "feed:v2")?;
+    assert_eq!(enclosure_hits(server, "/episode.wav")?, 1);
+    let paths = server.paths.lock().map_err(|_| "path lock")?;
+    assert!(
+        paths.iter().all(|path| !path.contains("notes.vtt")),
+        "{paths:?}"
+    );
+    drop(paths);
+    let listed = success(directory, &["record", "list"])?;
+    let entries = listed["recording_page"]["entries"]
+        .as_array()
+        .ok_or("records")?;
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["id"], "episode:v1");
+    let policy = success(directory, &["dvr", "status"])?;
+    assert_eq!(policy["dvr"]["charged_bytes"], media_bytes);
+    assert_eq!(policy["dvr"]["retention_days"], 14);
+    Ok(())
+}
+
+fn assert_no_recordings(directory: &std::path::Path) -> TestResult {
+    let listed = success(directory, &["record", "list"])?;
+    let entries = listed["recording_page"]["entries"]
+        .as_array()
+        .ok_or("records")?;
+    assert!(entries.is_empty(), "{listed}");
+    Ok(())
+}
+
+fn enclosure_hits(
+    server: &EnclosureHost,
+    prefix: &str,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    Ok(server
+        .paths
+        .lock()
+        .map_err(|_| "path lock")?
+        .iter()
+        .filter(|path| path.starts_with(prefix))
+        .count())
 }

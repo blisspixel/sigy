@@ -19,7 +19,7 @@ pub enum ListenCommand {
         #[arg(long, default_value_t = 0)]
         seek_us: u64,
     },
-    /// Listen to one direct audio revision. The service fetches; this process decodes a local pipe.
+    /// Listen to one direct audio revision. An episode enclosure has no live edge.
     Source {
         id: String,
         /// Immutable `http_audio` revision. This command does not accept a URL.

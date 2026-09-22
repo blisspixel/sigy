@@ -19,7 +19,8 @@ pub struct ListenStatus {
 impl Store {
     /// Returns whether a new session should open the source. An existing id does not.
     /// # Errors
-    /// Rejects an unknown revision, a conflicting replay, a held revision, or admission limits.
+    /// Rejects an unknown revision, a conflicting replay, a held revision, an episode
+    /// enclosure, or admission limits.
     pub(crate) fn begin_listen(&mut self, id: &str, revision: &str) -> Result<bool> {
         validate_key(id, "listen ID")?;
         validate_key(revision, "source revision")?;
@@ -47,6 +48,9 @@ impl Store {
         )?;
         if !found {
             return Err(Error::NotFound);
+        }
+        if episode_revision(&tx, revision)? {
+            return Err(Error::InvalidInput("episode has no live edge"));
         }
         if revision_held(&tx, revision)? {
             return Err(Error::InvalidInput("source revision is in use"));
@@ -160,7 +164,7 @@ impl Store {
 
     pub(crate) fn audit_listens(&self) -> Result<()> {
         let invalid: bool = self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM listen_sessions WHERE (state = 'completed' AND (format IS NULL OR failure IS NOT NULL OR completed_ms IS NULL)) OR (state = 'failed' AND (failure IS NULL OR format IS NOT NULL)) OR (state = 'running' AND (completed_ms IS NOT NULL OR format IS NOT NULL OR failure IS NOT NULL)) OR (state = 'interrupted' AND failure IS NULL))",
+            "SELECT EXISTS(SELECT 1 FROM listen_sessions WHERE (state = 'completed' AND (format IS NULL OR failure IS NOT NULL OR completed_ms IS NULL)) OR (state = 'failed' AND (failure IS NULL OR format IS NOT NULL)) OR (state = 'running' AND (completed_ms IS NOT NULL OR format IS NOT NULL OR failure IS NOT NULL)) OR (state = 'interrupted' AND failure IS NULL)) OR EXISTS(SELECT 1 FROM listen_sessions s JOIN podcast_downloads d ON d.source_revision = s.source_revision)",
             [],
             |row| row.get(0),
         )?;
@@ -169,6 +173,15 @@ impl Store {
         }
         Ok(())
     }
+}
+
+fn episode_revision(tx: &rusqlite::Transaction<'_>, revision: &str) -> Result<bool> {
+    let bound: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM podcast_downloads WHERE source_revision = ?1)",
+        [revision],
+        |row| row.get(0),
+    )?;
+    Ok(bound)
 }
 
 fn revision_held(tx: &rusqlite::Transaction<'_>, revision: &str) -> Result<bool> {

@@ -14,6 +14,6 @@ A body that reaches the ceiling without a clean end is not playable. Duration an
 
 Ordinary recording and retention commands show the result. The tested retention is temporary, then `record keep`. The export stays envelope v2 and omits the enclosure path and query. Transcript and chapter URLs are not fetched. The download does not request ICY metadata.
 
-This does not exit stage 4. Playback of the retained file is the next operation. Range resume, Atom-only input, and automatic polling remain out of scope.
+Playback of that retained file is [retained episode playback](0020-retained-episode-playback.md). This does not exit stage 4. Range resume, Atom-only input, and automatic polling remain out of scope.
 
 Verification covers the fixed ceilings, v13 migration and rollback, a private enclosure URL denied before a recording exists, an RSS length above 512 MiB with no second connection, an HTTP `Content-Length` above the ceiling with an empty sink, refusal to publish a byte-limit end, and one local WAV fixture. That fixture contacts only 127.0.0.1. The published bytes match the fixture, the recording is retained under the enclosure revision, replay and a second id do not fetch again, and `record list`, `record path`, `record keep`, and `dvr status` see it.

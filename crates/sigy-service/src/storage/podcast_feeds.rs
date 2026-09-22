@@ -1247,6 +1247,45 @@ mod tests {
     }
 
     #[test]
+    fn episode_revision_has_no_live_edge() -> TestResult {
+        let (_directory, mut store) = open()?;
+        configure(&mut store)?;
+        store.subscribe_podcast(
+            "show:v1",
+            "https://show.example/feed.xml",
+            PUBLIC,
+            RedirectPolicy::Deny,
+        )?;
+        commit_at(
+            &mut store,
+            "refresh:v1",
+            "show:v1",
+            &document(
+                r#"<item><guid>ep-1</guid><enclosure url="https://cdn.example/a.mp3" length="12" type="audio/mpeg"/></item>"#,
+            ),
+            5_000,
+        )?;
+        let episode = episode_id(&store, "ep-1")?;
+        let started = store.begin_episode_download("episode:v1", "show:v1", &episode, "enc:v1")?;
+        assert!(matches!(
+            started,
+            crate::storage::podcast_feeds::EpisodeAdmission::Started(_)
+        ));
+        assert!(matches!(
+            store.begin_listen("live", "enc:v1"),
+            Err(Error::InvalidInput("episode has no live edge"))
+        ));
+        assert!(matches!(store.listen("live"), Err(Error::NotFound)));
+        assert_eq!(count(&store, "SELECT count(*) FROM listen_sessions")?, 0);
+        let radio = crate::sources::HttpSource::new("Radio", "https://example.com/audio", PUBLIC)?;
+        store.register_source("radio:v1", &radio)?;
+        assert!(store.begin_listen("hear", "radio:v1")?);
+        assert_eq!(store.listen("hear")?.state, "running");
+        store.audit_listens()?;
+        Ok(())
+    }
+
+    #[test]
     fn migration_preserves_v13_recordings_and_rolls_back_conflicts() -> TestResult {
         let directory = tempfile::tempdir()?;
         for fail in [false, true] {
