@@ -14,6 +14,7 @@ use sigy_service::{
 mod dvr;
 mod explorer;
 mod listen;
+mod mcp;
 mod podcast;
 mod radio;
 mod service;
@@ -79,6 +80,8 @@ enum Command {
         #[command(subcommand)]
         command: listen::ListenCommand,
     },
+    /// Speak MCP 2026-07-28 on stdin and stdout for one configured library.
+    Mcp,
     /// Open the list explorer. Selection does not start audio, capture, refresh, or a click.
     Tui {
         /// Freeze decorative motion. No animation is drawn in this explorer.
@@ -279,6 +282,9 @@ fn render_status(stdout: &mut impl Write, view: &Snapshot) -> io::Result<()> {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        if matches!(cli.command, Command::Mcp) {
+            return mcp::serve(&cli.data_dir);
+        }
         if let Command::Tui {
             reduced_motion,
             linear,

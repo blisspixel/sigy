@@ -104,6 +104,8 @@ cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY podcast download show:v
 cargo run --locked -p sigy -- --data-dir PATH_TO_LIBRARY listen file episode:v1 --destination null
 ```
 
+Agents use the same commands through `sigy mcp`, which speaks MCP 2026-07-28 on stdio. The portable package is `agent-plugin/`, in the Agent Plugins 1.0.0 layout. The server library is the `--data-dir` from startup. A tool cannot point at another directory, change a budget, or run a shell command. See [agent plugin](docs/decisions/0021-agent-plugin.md).
+
 See [local podcast subscriptions](docs/decisions/0017-local-podcast-subscriptions.md), [RSS feed refresh](docs/decisions/0018-rss-feed-refresh.md), [episode enclosure download](docs/decisions/0019-episode-enclosure.md), and [retained episode playback](docs/decisions/0020-retained-episode-playback.md). Catalog schema is v14 and local IPC is v15. Stop an older service with its existing binary before updating, then restart it.
 
 Report one directory click only when you mean to. The command does not play the station, and the stream address in the provider response is discarded:

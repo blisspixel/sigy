@@ -38,6 +38,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Retained episode playback](decisions/0020-retained-episode-playback.md) plays that file with `listen file`. The episode has no live edge. Subscribe and refresh do not start playback.
 
+[Agent plugin](decisions/0021-agent-plugin.md) exposes those commands over MCP 2026-07-28. The package is Agent Plugins 1.0.0. A tool cannot choose another library or change a budget.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:

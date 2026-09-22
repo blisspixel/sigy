@@ -1,6 +1,6 @@
 # Agentic analysis and insight generation
 
-Reviewed: 2026-09-20. Status: research supporting proposed application contracts. No agent framework or protocol selected.
+Reviewed: 2026-09-20. Status: research supporting proposed application contracts. No agent framework was selected for the monitor loop. On 2026-09-22 the local `sigy mcp` server and Agent Plugins 1.0.0 package were added for existing commands. They do not implement the monitor loop below.
 
 ## Current capabilities and evidence
 

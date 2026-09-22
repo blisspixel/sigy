@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "sigy": {
+      "type": "stdio",
+      "command": "sigy",
+      "args": ["--data-dir", "${PLUGIN_DATA}/library", "mcp"]
+    }
+  }
+}

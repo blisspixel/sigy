@@ -71,7 +71,7 @@ The free-space floor cannot reserve space against other programs. Catalog/WAL, m
 
 ## Next bounded work
 
-The active goal is roadmap operation 14: fetch publisher transcripts and chapters only when asked. Operation 13 plays one retained enclosure and does not exit stage 4. A public station check waits for separate authorization. The full order through the first complete release is the [build order](../../ROADMAP.md#build-order). Do not skip ahead.
+The active goal is roadmap operation 14: fetch publisher transcripts and chapters only when asked. `sigy mcp` and the Agent Plugins 1.0.0 package expose existing commands over MCP 2026-07-28. A tool cannot select another library, change a budget, or pass a shell command. `cargo verify` passed formatting, workspace tests, warnings-denied Clippy, build, and dependency auditing of 286 crate dependencies against 1,261 advisories. No application dependency was added. That interface does not exit a stage. Operation 13 plays one retained enclosure and does not exit stage 4. A public station check waits for separate authorization. The full order through the first complete release is the [build order](../../ROADMAP.md#build-order). Do not skip ahead.
 
 Operation 1 is in place. `listen file` plays one retained recording in the client through the configured FFmpeg decoder, with a file protocol whitelist and no source URL. The tested path is `--destination null`, including a seek inside the published duration, unchanged quota, and a killed client leaving the recording retained. `--destination system` fails when that FFmpeg build has no local audio output device. The installed FFmpeg 9.0.1 build on this Windows host has no such device, and the media test observes that failure.
 
