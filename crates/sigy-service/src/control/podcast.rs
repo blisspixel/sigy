@@ -56,6 +56,17 @@ pub enum PodcastOperation {
         episode_id: String,
         revision_id: String,
     },
+    /// Fetch one stored transcript or chapter document. Replay does not fetch again.
+    Text {
+        id: String,
+        subscription_id: String,
+        episode_id: String,
+        kind: String,
+        index: u32,
+    },
+    TextShow {
+        id: String,
+    },
 }
 
 /// Ordinary subscription view. The feed path and query stay in the catalog.
@@ -128,12 +139,56 @@ pub struct PodcastEpisodeView {
     pub in_latest: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublisherCueView {
+    pub publisher_start_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher_end_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<String>,
+    pub text: String,
+}
+
+/// One fetched publisher document. Cue times are not media time and the text is not ASR.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublisherTextView {
+    pub id: String,
+    pub subscription_id: String,
+    pub episode_id: String,
+    pub kind: String,
+    pub asset_index: u32,
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_sha256: Option<String>,
+    pub alignment: String,
+    pub attribution: String,
+    pub cues: Vec<PublisherCueView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
 pub(super) fn apply(store: &mut Store, command: PodcastOperation) -> Result<Snapshot> {
     if matches!(
         command,
-        PodcastOperation::Refresh { .. } | PodcastOperation::Download { .. }
+        PodcastOperation::Refresh { .. }
+            | PodcastOperation::Download { .. }
+            | PodcastOperation::Text { .. }
     ) {
         return Err(Error::ServiceRequired);
+    }
+    if let PodcastOperation::TextShow { id } = &command {
+        let text = text_view(store.publisher_text(id)?);
+        let mut view = super::snapshot(store)?;
+        view.publisher_text = Some(text);
+        return Ok(view);
     }
     if let Some(feed) = feed_view(store, &command)? {
         let mut view = super::snapshot(store)?;
@@ -170,8 +225,10 @@ pub(super) fn apply(store: &mut Store, command: PodcastOperation) -> Result<Snap
         }
         PodcastOperation::Refresh { .. }
         | PodcastOperation::Download { .. }
+        | PodcastOperation::Text { .. }
         | PodcastOperation::RefreshStatus { .. }
-        | PodcastOperation::Episodes { .. } => return Err(Error::InvalidInput("podcast command")),
+        | PodcastOperation::Episodes { .. }
+        | PodcastOperation::TextShow { .. } => return Err(Error::InvalidInput("podcast command")),
         PodcastOperation::List { after, limit } => {
             let entries = store.podcast_subscriptions(after.as_deref(), limit)?;
             let next_after = if let Some(last) = entries.last()
@@ -238,6 +295,35 @@ fn feed_view(store: &Store, command: &PodcastOperation) -> Result<Option<Podcast
             }))
         }
         _ => Ok(None),
+    }
+}
+
+fn text_view(text: crate::storage::podcast_text::TextFetch) -> PublisherTextView {
+    let completed = text.state == "completed";
+    PublisherTextView {
+        id: text.id,
+        subscription_id: text.subscription_id,
+        episode_id: text.episode_id,
+        kind: text.kind,
+        asset_index: text.asset_index,
+        state: text.state,
+        origin: text.origin,
+        media_type: text.media_type,
+        language_hint: text.language_hint,
+        document_sha256: text.document_sha256,
+        alignment: if completed { "unverified" } else { "" }.to_owned(),
+        attribution: if completed { "publisher" } else { "" }.to_owned(),
+        cues: text
+            .cues
+            .into_iter()
+            .map(|cue| PublisherCueView {
+                publisher_start_ms: cue.publisher_start_ms,
+                publisher_end_ms: cue.publisher_end_ms,
+                speaker: cue.speaker,
+                text: cue.text,
+            })
+            .collect(),
+        failure: text.failure,
     }
 }
 

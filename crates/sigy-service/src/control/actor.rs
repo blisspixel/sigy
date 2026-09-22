@@ -38,6 +38,10 @@ pub(super) enum Message {
         id: String,
         result: Result<crate::podcast::FeedCommit>,
     },
+    PublisherTextFinished {
+        id: String,
+        result: Result<crate::storage::podcast_text::TextDocument>,
+    },
     ListenReady {
         id: String,
         nonce: String,
@@ -91,6 +95,7 @@ struct Actor {
     playlist_worker: Option<Worker>,
     click_worker: Option<Worker>,
     podcast_worker: Option<Worker>,
+    text_worker: Option<Worker>,
     listen_workers: HashMap<String, LiveListen>,
     acquirer: HttpAcquirer,
 }
@@ -115,31 +120,15 @@ impl Actor {
                     command: super::PlaylistOperation::Status { id },
                 }
             }
-            Operation::Podcast {
-                command:
-                    super::PodcastOperation::Refresh {
-                        id,
-                        subscription_id,
-                    },
-            } => {
-                self.start_podcast_refresh(&id, &subscription_id)?;
-                Operation::Podcast {
-                    command: super::PodcastOperation::RefreshStatus { id },
-                }
-            }
-            Operation::Podcast {
-                command:
-                    super::PodcastOperation::Download {
-                        id,
-                        subscription_id,
-                        episode_id,
-                        revision_id,
-                    },
-            } => {
-                self.start_episode(&id, &subscription_id, &episode_id, &revision_id)?;
-                Operation::Record {
-                    command: RecordingOperation::Show { id },
-                }
+            Operation::Podcast { command }
+                if matches!(
+                    command,
+                    super::PodcastOperation::Refresh { .. }
+                        | super::PodcastOperation::Download { .. }
+                        | super::PodcastOperation::Text { .. }
+                ) =>
+            {
+                self.stage_podcast(command)?
             }
             Operation::Radio {
                 command: super::DirectoryOperation::Click { id, request },
@@ -197,6 +186,44 @@ impl Actor {
         }
         snapshot.captures.dispatch_available = self.library.store().dvr_status()?.decoder.is_some();
         Ok(snapshot)
+    }
+
+    fn stage_podcast(&mut self, command: super::PodcastOperation) -> Result<Operation> {
+        match command {
+            super::PodcastOperation::Refresh {
+                id,
+                subscription_id,
+            } => {
+                self.start_podcast_refresh(&id, &subscription_id)?;
+                Ok(Operation::Podcast {
+                    command: super::PodcastOperation::RefreshStatus { id },
+                })
+            }
+            super::PodcastOperation::Download {
+                id,
+                subscription_id,
+                episode_id,
+                revision_id,
+            } => {
+                self.start_episode(&id, &subscription_id, &episode_id, &revision_id)?;
+                Ok(Operation::Record {
+                    command: RecordingOperation::Show { id },
+                })
+            }
+            super::PodcastOperation::Text {
+                id,
+                subscription_id,
+                episode_id,
+                kind,
+                index,
+            } => {
+                self.start_publisher_text(&id, &subscription_id, &episode_id, &kind, index)?;
+                Ok(Operation::Podcast {
+                    command: super::PodcastOperation::TextShow { id },
+                })
+            }
+            _ => Err(Error::InvalidInput("podcast command")),
+        }
     }
 
     fn launch_recording(&mut self, request: RecordingLaunch) -> Result<Operation> {
@@ -452,6 +479,9 @@ impl Actor {
         if let Some(worker) = &self.podcast_worker {
             worker.stop.send_replace(true);
         }
+        if let Some(worker) = &self.text_worker {
+            worker.stop.send_replace(true);
+        }
         for session in self.listen_workers.values() {
             session.worker.stop.send_replace(true);
         }
@@ -467,6 +497,7 @@ impl Actor {
             && self.playlist_worker.is_none()
             && self.click_worker.is_none()
             && self.podcast_worker.is_none()
+            && self.text_worker.is_none()
     }
 }
 
@@ -497,6 +528,7 @@ pub(super) fn spawn(
         playlist_worker: None,
         click_worker: None,
         podcast_worker: None,
+        text_worker: None,
         listen_workers: HashMap::new(),
         acquirer: HttpAcquirer::default(),
     };
@@ -546,6 +578,10 @@ fn dispatch(
         }
         Message::PodcastFinished { id, result } => {
             let failed = actor.finish_podcast(&id, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::PublisherTextFinished { id, result } => {
+            let failed = actor.finish_publisher_text(&id, result).is_err();
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::ListenReady { id, nonce, format } => actor.ready_listen(&id, nonce, format),

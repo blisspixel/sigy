@@ -265,7 +265,10 @@ fn rss_refresh_lists_a_large_feed_offline_and_keeps_omissions() -> TestResult {
     assert_eq!(completed["podcast_feed"]["refresh"]["live_count"], 1);
     assert_eq!(completed["podcast_feed"]["refresh"]["skipped_items"], 1);
     assert_eq!(completed["podcast_feed"]["refresh"]["truncated"], false);
-    assert_eq!(completed["schema_version"], 14);
+    assert_eq!(
+        completed["schema_version"],
+        sigy_service::storage::SCHEMA_VERSION
+    );
     success(
         directory.path(),
         &["podcast", "refresh", "show:v1", "--id", "feed:v1"],
@@ -586,4 +589,308 @@ fn declared_enclosure_length_above_the_cap_does_not_connect() -> TestResult {
     success(directory.path(), &["service", "stop"])?;
     service.wait()?;
     Ok(())
+}
+
+#[test]
+fn publisher_text_is_fetched_only_when_asked_and_stays_unverified() -> TestResult {
+    let server = TextServer::start()?;
+    let directory = tempfile::tempdir()?;
+    success(directory.path(), &["library", "init"])?;
+    let feed = server.feed_url();
+    success(
+        directory.path(),
+        &[
+            "podcast",
+            "subscribe",
+            "show:v1",
+            "--url",
+            &feed,
+            "--pin-address",
+            "127.0.0.1",
+            "--redirects",
+            "deny",
+        ],
+    )?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &["podcast", "refresh", "show:v1", "--id", "feed:v1"],
+    )?;
+    let _ = wait_refresh(directory.path(), "feed:v1")?;
+    assert!(
+        server
+            .paths()
+            .iter()
+            .all(|path| path.starts_with("/feed.xml"))
+    );
+    let episode = episode_id(directory.path())?;
+    let charged = success(directory.path(), &["dvr", "status"])?;
+    assert_eq!(charged["dvr"]["charged_bytes"], 0);
+    fetch_text(directory.path(), &episode, "transcript", "0", "text:v1")?;
+    let shown = wait_text(directory.path(), "text:v1")?;
+    assert_eq!(shown["publisher_text"]["alignment"], "unverified");
+    assert_eq!(shown["publisher_text"]["attribution"], "publisher");
+    assert_eq!(shown["publisher_text"]["language_hint"], "en");
+    assert_eq!(
+        shown["publisher_text"]["cues"][0]["publisher_start_ms"],
+        1_000
+    );
+    assert_eq!(shown["publisher_text"]["cues"][0]["text"], "Hello there");
+    assert!(
+        shown["publisher_text"]["cues"][0]
+            .get("media_start_ms")
+            .is_none()
+    );
+    assert!(!shown.to_string().contains("asr"));
+    assert!(!shown.to_string().contains("token=hidden"));
+    assert_eq!(
+        server
+            .paths()
+            .iter()
+            .filter(|path| path.starts_with("/notes.vtt"))
+            .count(),
+        1
+    );
+    assert!(
+        server
+            .paths()
+            .iter()
+            .all(|path| !path.contains("page.html"))
+    );
+    assert_later_requests_leave_the_transcript(directory.path(), &server, &episode)?;
+    let after = success(directory.path(), &["dvr", "status"])?;
+    assert_eq!(after["dvr"]["charged_bytes"], 0);
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}
+
+fn assert_later_requests_leave_the_transcript(
+    directory: &std::path::Path,
+    server: &TextServer,
+    episode: &str,
+) -> TestResult {
+    fetch_text(directory, episode, "transcript", "0", "text:v1")?;
+    assert_eq!(
+        server
+            .paths()
+            .iter()
+            .filter(|path| path.starts_with("/notes.vtt"))
+            .count(),
+        1
+    );
+    let html = invoke(
+        directory,
+        &[
+            "podcast",
+            "text",
+            "show:v1",
+            "--episode",
+            episode,
+            "--kind",
+            "transcript",
+            "--index",
+            "1",
+            "--id",
+            "text:v2",
+        ],
+    )?;
+    assert!(!html.status.success());
+    assert!(
+        server
+            .paths()
+            .iter()
+            .all(|path| !path.contains("page.html"))
+    );
+    thread::sleep(Duration::from_secs(3));
+    success(
+        directory,
+        &["podcast", "refresh", "show:v1", "--id", "feed:v2"],
+    )?;
+    let _ = wait_refresh(directory, "feed:v2")?;
+    assert_eq!(
+        server
+            .paths()
+            .iter()
+            .filter(|path| path.starts_with("/notes.vtt"))
+            .count(),
+        1
+    );
+    fetch_text(directory, episode, "chapters", "0", "chapters:v1")?;
+    let chapters = wait_text(directory, "chapters:v1")?;
+    assert_eq!(chapters["publisher_text"]["cues"][0]["text"], "Intro");
+    assert_eq!(chapters["publisher_text"]["alignment"], "unverified");
+    assert!(
+        server
+            .paths()
+            .iter()
+            .all(|path| !path.contains("secret.png"))
+    );
+    Ok(())
+}
+
+fn episode_id(directory: &std::path::Path) -> Result<String, Box<dyn std::error::Error>> {
+    let episodes = success(directory, &["podcast", "episodes", "show:v1"])?;
+    episodes["podcast_feed"]["episodes"][0]["id"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "episode id".into())
+}
+
+fn fetch_text(
+    directory: &std::path::Path,
+    episode: &str,
+    kind: &str,
+    index: &str,
+    id: &str,
+) -> TestResult {
+    success(
+        directory,
+        &[
+            "podcast",
+            "text",
+            "show:v1",
+            "--episode",
+            episode,
+            "--kind",
+            kind,
+            "--index",
+            index,
+            "--id",
+            id,
+        ],
+    )?;
+    Ok(())
+}
+
+fn wait_text(
+    directory: &std::path::Path,
+    id: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let value = success(directory, &["podcast", "text-show", id])?;
+        if value["publisher_text"]["state"] != "running" {
+            assert_eq!(value["publisher_text"]["state"], "completed", "{value}");
+            return Ok(value);
+        }
+        assert!(Instant::now() < deadline, "{value}");
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+struct TextServer {
+    origin: String,
+    paths: Arc<Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl TextServer {
+    fn start() -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let port = listener.local_addr()?.port();
+        let origin = format!("http://fixture.invalid:{port}");
+        let stop = Arc::new(AtomicBool::new(false));
+        let paths = Arc::new(Mutex::new(Vec::new()));
+        let cancelled = stop.clone();
+        let recorded = paths.clone();
+        let worker = thread::spawn(move || text_serve(&listener, port, &cancelled, &recorded));
+        Ok(Self {
+            origin,
+            paths,
+            stop,
+            worker: Some(worker),
+        })
+    }
+
+    fn feed_url(&self) -> String {
+        format!("{}/feed.xml?token=hidden", self.origin)
+    }
+
+    fn paths(&self) -> Vec<String> {
+        self.paths
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for TextServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn text_serve(
+    listener: &TcpListener,
+    port: u16,
+    stop: &AtomicBool,
+    paths: &Mutex<Vec<String>>,
+) -> std::io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !stop.load(Ordering::Relaxed) && Instant::now() < deadline {
+        match listener.accept() {
+            Ok((mut socket, _)) => {
+                socket.set_nonblocking(false)?;
+                let _ = socket.set_read_timeout(Some(Duration::from_secs(2)));
+                let _ = socket.set_write_timeout(Some(Duration::from_secs(2)));
+                let mut bytes = Vec::new();
+                while bytes.len() < 4096 && !bytes.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    if socket.read_exact(&mut byte).is_err() {
+                        break;
+                    }
+                    bytes.push(byte[0]);
+                }
+                let path = request_path(&bytes);
+                if let Ok(mut guard) = paths.lock() {
+                    guard.push(path.clone());
+                }
+                let _ = socket.write_all(&text_response(&path, port));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn text_response(path: &str, port: u16) -> Vec<u8> {
+    if path.starts_with("/feed.xml") {
+        let body = format!(
+            r#"<?xml version="1.0"?><rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><item><guid>ep-1</guid><title>Episode</title><enclosure url="http://fixture.invalid:{port}/episode.mp3?token=hidden" length="4" type="audio/mpeg"/><podcast:transcript url="http://fixture.invalid:{port}/notes.vtt?token=hidden" type="text/vtt" language="en"/><podcast:transcript url="http://fixture.invalid:{port}/page.html?token=hidden" type="text/html"/><podcast:chapters url="http://fixture.invalid:{port}/chapters.json?token=hidden" type="application/json+chapters"/></item></channel></rss>"#
+        );
+        return http_body(
+            "200 OK",
+            "Content-Type: application/rss+xml; charset=utf-8\r\n",
+            body.as_bytes(),
+        );
+    }
+    if path.starts_with("/notes.vtt") {
+        return http_body(
+            "200 OK",
+            "Content-Type: text/vtt; charset=utf-8\r\n",
+            b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Ada>Hello there\n",
+        );
+    }
+    if path.starts_with("/chapters.json") {
+        return http_body(
+            "200 OK",
+            "Content-Type: application/json+chapters\r\n",
+            br#"{"version":"1.2.0","chapters":[{"startTime":0,"title":"Intro","img":"https://cdn.example/secret.png"}]}"#,
+        );
+    }
+    http_body("404 Not Found", "Content-Type: text/plain\r\n", b"missing")
 }

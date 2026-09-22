@@ -14,11 +14,12 @@ pub mod ledger;
 mod listens;
 mod playlists;
 pub(crate) mod podcast_feeds;
+pub(crate) mod podcast_text;
 pub mod podcasts;
 pub use clicks::ClickStatus;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 14;
+pub const SCHEMA_VERSION: u32 = 15;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -145,6 +146,9 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     }
     if (0..=13).contains(&version) {
         transaction.execute_batch(include_str!("014-enclosures.sql"))?;
+    }
+    if (0..=14).contains(&version) {
+        transaction.execute_batch(include_str!("015-publisher-text.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

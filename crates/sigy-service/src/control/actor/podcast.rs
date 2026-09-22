@@ -31,6 +31,70 @@ impl Actor {
         Ok(())
     }
 
+    pub(super) fn start_publisher_text(
+        &mut self,
+        id: &str,
+        subscription_id: &str,
+        episode_id: &str,
+        kind: &str,
+        index: u32,
+    ) -> Result<()> {
+        if self.text_worker.is_some() {
+            return Err(Error::InvalidInput("publisher text is already running"));
+        }
+        let kind = crate::podcast::TextKind::parse(kind)?;
+        let admission = self.library.store_mut().begin_publisher_text(
+            id,
+            subscription_id,
+            episode_id,
+            kind,
+            index,
+        )?;
+        let crate::storage::podcast_text::TextAdmission::Fetch { source, media_type } = admission
+        else {
+            return Ok(());
+        };
+        let owned = id.to_owned();
+        let fetch_id = owned.clone();
+        let acquirer = self.acquirer.clone();
+        match self.spawn_worker(
+            move |mut stop| async move {
+                tokio::select! {
+                    biased;
+                    _ = stop.changed() => Err(Error::Acquisition("publisher text stopped")),
+                    result = crate::podcast::fetch_text(&acquirer, &source, kind, &media_type) => result,
+                }
+            },
+            move |result| Message::PublisherTextFinished { id: owned, result },
+        ) {
+            Ok(worker) => {
+                self.text_worker = Some(worker);
+                Ok(())
+            }
+            Err(error) => {
+                self.library
+                    .store_mut()
+                    .fail_publisher_text(&fetch_id, &error)?;
+                Err(error)
+            }
+        }
+    }
+
+    pub(super) fn finish_publisher_text(
+        &mut self,
+        id: &str,
+        result: Result<crate::storage::podcast_text::TextDocument>,
+    ) -> Result<()> {
+        self.text_worker.take();
+        match result {
+            Ok(document) => self
+                .library
+                .store_mut()
+                .finish_publisher_text(id, &document),
+            Err(error) => self.library.store_mut().fail_publisher_text(id, &error),
+        }
+    }
+
     pub(super) fn finish_podcast(
         &mut self,
         id: &str,

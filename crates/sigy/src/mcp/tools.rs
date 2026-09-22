@@ -446,6 +446,22 @@ const TOOLS: &[Tool] = &[
         timeout: SHORT,
     },
     Tool {
+        name: "podcast_text_show",
+        description: "Show one fetched publisher transcript or chapter document. Cue times are publisher times, not media time, and the text is not an ASR row.",
+        hints: HINT_QUERY,
+        words: &["podcast", "text-show"],
+        slots: &[pos("id", "Publisher text request id.")],
+        timeout: SHORT,
+    },
+    Tool {
+        name: "podcast_text",
+        description: "Fetch one stored transcript or chapter document. Refresh does not do this. The recording quota does not change. Replay of the same id does not fetch again.",
+        hints: HINT_NETWORK,
+        words: &["podcast", "text"],
+        slots: TEXT,
+        timeout: SHORT,
+    },
+    Tool {
         name: "podcast_download",
         description: "Download one stored enclosure through the recording path. Reserves 512 MiB and 30 minutes before connect. Replay of the same recording id does not download again.",
         hints: HINT_NETWORK,
@@ -558,6 +574,24 @@ const fn count(
     }
 }
 
+const fn required_count(
+    key: &'static str,
+    flag: &'static str,
+    minimum: u64,
+    maximum: u64,
+    description: &'static str,
+) -> Slot {
+    Slot {
+        key,
+        kind: Field::Count,
+        flag,
+        required: true,
+        minimum,
+        maximum,
+        description,
+    }
+}
+
 const fn flag(key: &'static str, cli: &'static str, description: &'static str) -> Slot {
     Slot {
         key,
@@ -635,6 +669,24 @@ const REFRESH: &[Slot] = &[
         "--id",
         true,
         "New refresh id. Reuse does not fetch again.",
+    ),
+];
+
+const TEXT: &[Slot] = &[
+    pos("subscription", "Subscription id."),
+    text(
+        "episode",
+        "--episode",
+        true,
+        "Episode id from podcast_episodes.",
+    ),
+    text("kind", "--kind", true, "transcript or chapters."),
+    required_count("index", "--index", 0, 7, "Zero-based asset index."),
+    text(
+        "id",
+        "--id",
+        true,
+        "Request id. Reuse does not fetch again.",
     ),
 ];
 

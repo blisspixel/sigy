@@ -53,6 +53,23 @@ pub enum PodcastCommand {
         #[arg(long, default_value_t = 16)]
         limit: u32,
     },
+    /// Fetch one stored transcript or chapter document. Does not change the recording quota.
+    Text {
+        subscription: String,
+        #[arg(long)]
+        episode: String,
+        /// `transcript` or `chapters`.
+        #[arg(long)]
+        kind: String,
+        /// Zero-based index among that episode's stored assets of this kind.
+        #[arg(long)]
+        index: u32,
+        /// Request id. Reuse does not fetch again.
+        #[arg(long)]
+        id: String,
+    },
+    /// Show one fetched publisher document. Cue times are not media time.
+    TextShow { id: String },
     /// Download one enclosure. Reserves 512 MiB and 30 minutes before connecting.
     Download {
         /// Subscription that stored the episode.
@@ -127,6 +144,21 @@ impl PodcastCommand {
                 revision_id: revision.clone(),
             }
             .into(),
+            Self::Text {
+                subscription,
+                episode,
+                kind,
+                index,
+                id,
+            } => PodcastOperation::Text {
+                id: id.clone(),
+                subscription_id: subscription.clone(),
+                episode_id: episode.clone(),
+                kind: kind.clone(),
+                index: *index,
+            }
+            .into(),
+            Self::TextShow { id } => PodcastOperation::TextShow { id: id.clone() }.into(),
         }
     }
 }
@@ -170,6 +202,24 @@ pub fn render(writer: &mut impl Write, page: &PodcastPage) -> io::Result<()> {
     }
     if let Some(after) = &page.next_after {
         writeln!(writer, "Continue with podcast list --after {after}")?;
+    }
+    Ok(())
+}
+
+pub fn render_text(
+    writer: &mut impl Write,
+    text: &sigy_service::control::PublisherTextView,
+) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Publisher text {}: {} | {} | alignment {} | attribution {}",
+        text.id, text.state, text.kind, text.alignment, text.attribution
+    )?;
+    if let Some(failure) = &text.failure {
+        writeln!(writer, "Reason: {failure}")?;
+    }
+    for cue in &text.cues {
+        writeln!(writer, "{} ms: {}", cue.publisher_start_ms, cue.text)?;
     }
     Ok(())
 }

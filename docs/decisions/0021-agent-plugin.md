@@ -8,4 +8,4 @@ The package at `agent-plugin/` is an [Agent Plugins 1.0.0](https://agent-plugins
 
 Tools are the existing commands. A call runs `sigy --data-dir LIBRARY --json` with a fixed argument list. The model cannot pass a shell command, another library path, a budget change, or a recording deletion. Subscribe, refresh, download, and record start still use the service rules: no DNS on subscribe, no enclosure fetch on refresh, a 512 MiB and 30 minute reservation before an enclosure connect, and radio attempts inside 15 minutes and 256 MiB. `listen_file` requires a destination and stops after 120 seconds, leaving the recording in place. The process allows 60 tool calls in 60 seconds.
 
-This surface does not add a catalog, an HTTP stack, or a paid provider. It does not exit a roadmap stage. Publisher transcripts remain operation 14.
+This surface does not add a catalog, an HTTP stack, or a paid provider. It does not exit a roadmap stage. `podcast_text` fetches one publisher document when asked. See [publisher text](0022-publisher-text.md).

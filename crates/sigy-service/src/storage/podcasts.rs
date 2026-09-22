@@ -192,7 +192,8 @@ impl Store {
             read_subscription(&tx, &id)?.ok_or(Error::PodcastIntegrity)?;
         }
         drop(tx);
-        self.audit_podcast_feeds()
+        self.audit_podcast_feeds()?;
+        self.audit_publisher_text()
     }
 
     pub(crate) fn podcast_authority(&self, id: &str) -> Result<Option<(PodcastPolls, HttpSource)>> {

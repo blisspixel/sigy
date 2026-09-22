@@ -15,6 +15,7 @@ Sigy is a local catalog. The MCP server runs the same commands as the CLI agains
 - `budget_show` reports limits. There is no tool that changes them or enables a paid provider.
 - `podcast_subscribe` stores a feed. It does not resolve DNS or download. The URL, pin, and redirect policy are immutable for that subscription id.
 - `podcast_refresh` fetches one RSS document. It does not download enclosures, transcripts, or chapters.
+- `podcast_text` fetches one stored transcript or chapter document. The cues are unverified publisher text. Their times are not media time. It does not change the recording quota. Restart marks a running fetch interrupted and keeps the previous snapshot.
 - `podcast_download` is explicit. It reserves 512 MiB and 30 minutes before connecting. Reusing the recording id does not download again.
 - `record_start` records an already registered source revision. It does not accept a URL. Radio attempts stay within 15 minutes and 256 MiB.
 - `listen_file` plays a retained file. Pass `destination` `null` unless the user asked for speakers. An episode enclosure has no live listen: do not call a live listen on that revision.

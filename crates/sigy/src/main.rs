@@ -224,6 +224,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(feed) = &view.podcast_feed {
             podcast::render_feed(&mut stdout, feed)?;
         }
+    } else if let Some(text) = &view.publisher_text {
+        podcast::render_text(&mut stdout, text)?;
     } else if view.directory.is_some() {
         radio::render(&mut stdout, &view)?;
     } else {

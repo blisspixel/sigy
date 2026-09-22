@@ -29,6 +29,7 @@ pub async fn run(mut library: Library, shutdown: impl Future<Output = ()>) -> Re
     while library.store_mut().recover_captures()? != 0 {}
     library.store_mut().recover_directory_refreshes()?;
     library.store_mut().recover_podcast_refreshes()?;
+    library.store_mut().recover_publisher_text()?;
     library.store_mut().recover_playlist_resolves()?;
     library.store_mut().recover_clicks()?;
     library.store_mut().recover_listens()?;

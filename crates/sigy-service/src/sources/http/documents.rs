@@ -36,6 +36,10 @@ const MAX_FEED_DOCUMENT: usize = 8 * 1024 * 1024;
 const MAX_FEED_EXPANSION: usize = 16;
 const PLAYLIST_ACCEPT: &str = "audio/x-mpegurl, audio/mpegurl, application/x-mpegurl, application/vnd.apple.mpegurl, audio/x-scpls";
 const FEED_ACCEPT: &str = "application/rss+xml, application/xml, text/xml";
+const TEXT_ACCEPT: &str =
+    "text/vtt, application/x-subrip, application/srt, application/json, application/json+chapters";
+const MAX_TEXT_DOCUMENT: usize = 1024 * 1024;
+const MAX_ENCODED_TEXT: usize = 256 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlaylistKind {
@@ -273,6 +277,82 @@ impl HttpAcquirer {
         .await
         .map_err(|_| Error::Acquisition("feed deadline"))?
     }
+
+    /// Reads one publisher transcript or chapter file. It is not a recording.
+    /// # Errors
+    /// Fails closed on capacity, type, compression, size, or deadline.
+    pub(crate) async fn publisher_text(
+        &self,
+        source: &HttpSource,
+    ) -> Result<(Vec<u8>, reqwest::Url, String)> {
+        let _slot = self
+            .attempts
+            .try_acquire()
+            .map_err(|_| Error::Acquisition("capacity reached"))?;
+        let limits = AcquisitionLimits::new(MAX_TEXT_DOCUMENT as u64, DOCUMENT_DEADLINE)?;
+        let deadline = Instant::now() + limits.duration;
+        let body = timeout_at(
+            deadline,
+            read_publisher_text(self, source, limits, deadline),
+        )
+        .await;
+        body.map_err(|_| Error::Acquisition("publisher text deadline"))?
+    }
+}
+
+async fn read_publisher_text(
+    acquirer: &HttpAcquirer,
+    source: &HttpSource,
+    limits: AcquisitionLimits,
+    deadline: Instant,
+) -> Result<(Vec<u8>, reqwest::Url, String)> {
+    let (mut response, _) = acquirer
+        .open(
+            source,
+            limits,
+            deadline,
+            TEXT_ACCEPT,
+            super::AcceptEncoding::Feed,
+            crate::sources::icy::MetadataPolicy::Off,
+        )
+        .await?;
+    if response.headers().contains_key("icy-metaint") {
+        return Err(Error::Acquisition(
+            "interleaved ICY metadata is unsupported",
+        ));
+    }
+    let encoding = feed_encoding(response.headers())?;
+    let media_type = text_content_type(response.headers())?;
+    let wire_cap = match encoding {
+        FeedEncoding::Identity => MAX_TEXT_DOCUMENT,
+        FeedEncoding::Gzip | FeedEncoding::Deflate => MAX_ENCODED_TEXT,
+    };
+    if response
+        .content_length()
+        .is_some_and(|bytes| bytes > wire_cap as u64)
+    {
+        return Err(Error::Acquisition("publisher text size limit"));
+    }
+    let final_url = response.url().clone();
+    let mut wire = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| Error::Acquisition("publisher text interrupted"))?
+    {
+        if chunk.len() > wire_cap.saturating_sub(wire.len()) {
+            return Err(Error::Acquisition("publisher text size limit"));
+        }
+        wire.extend_from_slice(&chunk);
+    }
+    if wire.is_empty() {
+        return Err(Error::Acquisition("empty publisher text"));
+    }
+    let document = decode_feed(&wire, encoding)?;
+    if document.len() > MAX_TEXT_DOCUMENT {
+        return Err(Error::Acquisition("publisher text size limit"));
+    }
+    Ok((document, final_url, media_type))
 }
 
 fn feed_encoding(headers: &reqwest::header::HeaderMap) -> Result<FeedEncoding> {
@@ -330,6 +410,42 @@ fn feed_content_type(headers: &reqwest::header::HeaderMap) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn text_content_type(headers: &reqwest::header::HeaderMap) -> Result<String> {
+    let types = headers.get_all(reqwest::header::CONTENT_TYPE);
+    if types.iter().count() != 1 {
+        return Err(Error::Acquisition("expected publisher text"));
+    }
+    let raw = types
+        .iter()
+        .next()
+        .and_then(|value| value.to_str().ok())
+        .ok_or(Error::Acquisition("expected publisher text"))?;
+    let mut parts = raw.split(';');
+    let mime = parts.next().map_or("", str::trim).to_ascii_lowercase();
+    if !matches!(
+        mime.as_str(),
+        "text/vtt"
+            | "application/x-subrip"
+            | "application/srt"
+            | "application/json"
+            | "application/json+chapters"
+    ) {
+        return Err(Error::Acquisition("expected publisher text"));
+    }
+    for parameter in parts {
+        let Some((name, value)) = parameter.trim().split_once('=') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case("charset") {
+            let charset = value.trim().trim_matches('"');
+            if !charset.eq_ignore_ascii_case("utf-8") && !charset.eq_ignore_ascii_case("us-ascii") {
+                return Err(Error::Acquisition("publisher text is not UTF-8"));
+            }
+        }
+    }
+    Ok(mime)
 }
 
 fn decode_feed(wire: &[u8], encoding: FeedEncoding) -> Result<Vec<u8>> {

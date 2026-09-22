@@ -25,11 +25,11 @@ pub use listen::{ListenOperation, ListenView};
 pub use playlist::{PlaylistOperation, PlaylistView};
 pub use podcast::{
     PodcastEpisodeView, PodcastFeedView, PodcastIdentityKind, PodcastOperation, PodcastPage,
-    PodcastView,
+    PodcastView, PublisherTextView,
 };
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 15;
+pub const PROTOCOL_VERSION: u32 = 16;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -173,6 +173,8 @@ pub struct Snapshot {
     pub listen: Option<ListenView>,
     pub podcast_page: Option<PodcastPage>,
     pub podcast_feed: Option<PodcastFeedView>,
+    #[serde(default)]
+    pub publisher_text: Option<PublisherTextView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -348,6 +350,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         listen: None,
         podcast_page: None,
         podcast_feed: None,
+        publisher_text: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,
