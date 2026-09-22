@@ -1,8 +1,8 @@
 # Sigy
 
-Sigy is a local-first application for finding signals, recording them, and keeping the evidence of what was received. The command line is the complete interface. The optional list explorer is another view of the same library. A background service continues admitted work after the client exits.
+Sigy is a local-first application for exploring the world's signals and understanding what they mean. The first complete release is world radio, organized recordings, live translation, and bounded topic monitoring: find a station, listen, keep several recordings, and follow a subject across languages, with the original evidence still attached and the unresolved parts left visible. Most expected speech and music are non-English. English is the primary translation target.
 
-The first complete release is intended to cover world radio, organized recordings, live translation, and bounded topic monitoring. Most expected speech and music are non-English. English is the primary translation target. Local processing is the default, and paid processing stays off until a finite budget is set. This checkout is not a release.
+The command line is the complete interface. The optional list explorer is another view of the same library. A background service continues admitted work after the client exits. Local processing is the default, and paid processing stays off until a finite budget is set. This checkout is an early build toward that release.
 
 ## List explorer
 

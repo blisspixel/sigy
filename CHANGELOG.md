@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Stated the product goal in the README opening: explore the world's signals and understand them. The first complete release is world radio, organized recordings, live translation, and bounded topic monitoring.
 - Colored the list explorer and human command output with the terminal palette. Cyan, green, yellow, and red reinforce connection, health, favorites, and failures. The words stay. `NO_COLOR`, `--monochrome`, `--linear`, `TERM=dumb`, a pipe, and `--json` stay plain. `NO_COLOR` wins over `FORCE_COLOR`.
 - Added a GitHub CLI one-command install and `sigy update`. The installer builds the latest `main` commit. A logged-in GitHub CLI supplies Git credentials for that private repository. `sigy update --check` reports the recorded commit and exits with an error when the install is missing or older. This is not a release binary and not `cargo verify`.
 - Played one sealed segment at a time from independent in-memory playheads. Playback pause does not stop the capture. Seek stays inside a published segment and fails in a gap or the open tail. Return to live parks at the newest published end. Leaving `listen play` drops that playhead and leaves the capture running. Catalog schema stays v18. Local IPC is v19.
