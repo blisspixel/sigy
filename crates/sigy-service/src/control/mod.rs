@@ -7,6 +7,7 @@ mod dvr;
 mod endpoint;
 mod frame;
 mod listen;
+mod playback;
 mod playlist;
 mod podcast;
 mod server;
@@ -24,6 +25,7 @@ pub use discovery::{DirectoryOperation, StationPage};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use listen::{ListenOperation, ListenView};
+pub use playback::{PlaybackOperation, PlaybackView};
 pub use playlist::{PlaylistOperation, PlaylistView};
 pub use podcast::{
     PodcastEpisodeView, PodcastFeedView, PodcastIdentityKind, PodcastOperation, PodcastPage,
@@ -31,7 +33,7 @@ pub use podcast::{
 };
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 18;
+pub const PROTOCOL_VERSION: u32 = 19;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -93,6 +95,9 @@ pub enum Operation {
     Listen {
         command: ListenOperation,
     },
+    Playback {
+        command: PlaybackOperation,
+    },
     Podcast {
         command: PodcastOperation,
     },
@@ -114,6 +119,7 @@ impl std::fmt::Debug for Operation {
             Self::ShowSource { .. } => "show_source",
             Self::Playlist { .. } => "playlist",
             Self::Listen { .. } => "listen",
+            Self::Playback { .. } => "playback",
             Self::Podcast { .. } => "podcast",
             Self::Doctor {} => "doctor",
         };
@@ -176,6 +182,8 @@ pub struct Snapshot {
     pub playlist: Option<PlaylistView>,
     pub directory_click: Option<crate::storage::ClickStatus>,
     pub listen: Option<ListenView>,
+    #[serde(default)]
+    pub playback: Option<PlaybackView>,
     pub podcast_page: Option<PodcastPage>,
     pub podcast_feed: Option<PodcastFeedView>,
     #[serde(default)]
@@ -240,6 +248,9 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         Operation::Radio { command } => return discovery::apply(store, command),
         Operation::Playlist { command } => return playlist::apply(store, command),
         Operation::Listen { command } => return listen::apply(store, command),
+        Operation::Playback { .. } => {
+            return Err(Error::ServiceRequired);
+        }
         Operation::Podcast { command } => return podcast::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
@@ -356,6 +367,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         playlist: None,
         directory_click: None,
         listen: None,
+        playback: None,
         podcast_page: None,
         podcast_feed: None,
         publisher_text: None,

@@ -842,21 +842,21 @@ impl Store {
             |row| row.get(0),
         )?;
         let now = now_ms()?;
-        if current.is_some_and(|expires| expires < now) {
-            let recorded = job.updated_ms;
-            end_with_gap(
-                &tx,
-                job,
-                GapCause::RefusedRenewal,
-                CaptureEvent::Fail,
-                "refused_renewal",
-                recorded,
-            )?;
-            tx.commit()?;
-            return Err(Error::InvalidInput("segment lease renewal was refused"));
-        }
         let proposed = lease_deadline(now, job.plan.ends_ms())?;
         if current.is_some_and(|current| proposed <= current) {
+            if current.is_some_and(|current| current >= job.plan.ends_ms()) {
+                let recorded = job.updated_ms;
+                end_with_gap(
+                    &tx,
+                    job,
+                    GapCause::RefusedRenewal,
+                    CaptureEvent::Fail,
+                    "refused_renewal",
+                    recorded,
+                )?;
+                tx.commit()?;
+                return Err(Error::InvalidInput("segment lease renewal was refused"));
+            }
             return Err(Error::RequestState);
         }
         if tx.execute(

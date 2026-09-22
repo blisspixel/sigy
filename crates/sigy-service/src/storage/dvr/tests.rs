@@ -809,7 +809,7 @@ fn expired_lease_refuses_renewal_and_journals_a_gap() -> TestResult {
     let mut store = setup(&directory.path().join("catalog.sqlite3"), 10_000)?;
     let version = running(&mut store, "lease", 1024)?;
     store.connection.execute(
-        "UPDATE recordings SET lease_expires_ms = 1 WHERE id = 'lease'",
+        "UPDATE recordings SET lease_expires_ms = (SELECT ends_ms FROM capture_jobs WHERE id = 'lease') WHERE id = 'lease'",
         [],
     )?;
     assert!(matches!(

@@ -1985,6 +1985,7 @@ fn running_capture_seals_ordered_segments_on_one_socket() -> TestResult {
         intervals[1]["decoded_start_us"],
         intervals[0]["decoded_end_us"]
     );
+    play_two_segments_without_stopping_capture(directory.path(), intervals)?;
     server.finish()?;
     let done = wait_recording(directory.path(), "segments", "completed")?;
     assert_eq!(server.hits(), 1);
@@ -2017,6 +2018,83 @@ fn hex_encode(bytes: &[u8]) -> String {
         let _ = write!(output, "{byte:02x}");
         output
     })
+}
+
+fn play_two_segments_without_stopping_capture(
+    directory: &std::path::Path,
+    intervals: &[serde_json::Value],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let played = success(
+        directory,
+        &[
+            "listen",
+            "file",
+            "segments",
+            "--destination",
+            "null",
+            "--seek-us",
+            "200000",
+        ],
+    )?;
+    if played["segment_ordinal"] != 0 {
+        return Err(format!("segment 0 was not played: {played}").into());
+    }
+    let second_start = intervals[1]["decoded_start_us"].as_u64().ok_or("start")?;
+    let second = success(
+        directory,
+        &[
+            "listen",
+            "file",
+            "segments",
+            "--destination",
+            "null",
+            "--seek-us",
+            &second_start.to_string(),
+        ],
+    )?;
+    if second["segment_ordinal"] != 1 {
+        return Err(format!("segment 1 was not played: {second}").into());
+    }
+    let live = intervals[1]["decoded_end_us"].as_u64().ok_or("live")?;
+    let tail = super::invoke(
+        directory,
+        &[
+            "listen",
+            "file",
+            "segments",
+            "--destination",
+            "null",
+            "--seek-us",
+            &live.to_string(),
+        ],
+    )?;
+    let tail_error = String::from_utf8_lossy(&tail.stderr);
+    if tail.status.success() || !tail_error.contains("open tail") {
+        return Err(format!("open tail was readable: {tail_error}").into());
+    }
+    success(
+        directory,
+        &["listen", "attach", "listener-a", "--recording", "segments"],
+    )?;
+    success(directory, &["listen", "pause", "listener-a"])?;
+    success(
+        directory,
+        &["listen", "attach", "listener-b", "--recording", "segments"],
+    )?;
+    success(directory, &["listen", "detach", "listener-a"])?;
+    let still = success(directory, &["record", "show", "segments"])?;
+    let still = &still["recording_page"]["entries"][0];
+    if still["state"] != "running" {
+        return Err(format!("capture stopped: {still}").into());
+    }
+    if still["gaps"]
+        .as_array()
+        .is_some_and(|gaps| !gaps.is_empty())
+    {
+        return Err("playback pause wrote a gap".into());
+    }
+    success(directory, &["listen", "detach", "listener-b"])?;
+    Ok(())
 }
 
 fn wait_segments(

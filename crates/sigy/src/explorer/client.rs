@@ -404,7 +404,10 @@ mod tests {
 
     fn forbidden(operation: &Operation) -> bool {
         match operation {
-            Operation::Stop {} | Operation::Listen { .. } | Operation::Podcast { .. } => true,
+            Operation::Stop {}
+            | Operation::Listen { .. }
+            | Operation::Playback { .. }
+            | Operation::Podcast { .. } => true,
             Operation::Record { command } => !matches!(
                 command,
                 RecordingOperation::List { .. } | RecordingOperation::Show { .. }

@@ -255,6 +255,9 @@ pub fn render_records(writer: &mut impl Write, page: &RecordingPage) -> io::Resu
                 gap.end_us
             )?;
         }
+        if record.open_ceiling > 0 && record.open_object_key.is_some() {
+            writeln!(writer, "  Open tail: not playable.")?;
+        }
     }
     if page.entries.is_empty() {
         writeln!(writer, "No recordings on this page.")?;

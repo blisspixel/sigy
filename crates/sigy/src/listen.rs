@@ -29,6 +29,21 @@ pub enum ListenCommand {
         #[arg(long, default_value = "system")]
         destination: String,
     },
+    /// Attach a playhead to one capture. This does not start or stop capture.
+    Attach {
+        session: String,
+        /// Recording id. Not a source URL.
+        #[arg(long)]
+        recording: String,
+    },
+    /// Pause this playhead. The capture worker keeps running.
+    Pause { session: String },
+    /// Park at the end of the newest published segment. The open tail is not read.
+    Live { session: String },
+    /// Drop this playhead. The capture continues.
+    Detach { session: String },
+    /// Show one playhead. No source URL or media path is included.
+    Session { session: String },
     /// End one listen. This does not stop a recording.
     Stop { id: String },
     /// Show one listen receipt. No source URL is included.
@@ -53,6 +68,57 @@ pub async fn execute(
             revision,
             destination,
         } => play_source(directory, id, revision, destination, json).await,
+        ListenCommand::Attach { session, recording } => {
+            playback(
+                directory,
+                control::PlaybackOperation::Attach {
+                    id: session.clone(),
+                    recording_id: recording.clone(),
+                },
+                json,
+            )
+            .await
+        }
+        ListenCommand::Pause { session } => {
+            playback(
+                directory,
+                control::PlaybackOperation::Pause {
+                    id: session.clone(),
+                },
+                json,
+            )
+            .await
+        }
+        ListenCommand::Live { session } => {
+            playback(
+                directory,
+                control::PlaybackOperation::Live {
+                    id: session.clone(),
+                },
+                json,
+            )
+            .await
+        }
+        ListenCommand::Detach { session } => {
+            playback(
+                directory,
+                control::PlaybackOperation::Detach {
+                    id: session.clone(),
+                },
+                json,
+            )
+            .await
+        }
+        ListenCommand::Session { session } => {
+            playback(
+                directory,
+                control::PlaybackOperation::Show {
+                    id: session.clone(),
+                },
+                json,
+            )
+            .await
+        }
         ListenCommand::Stop { id } => {
             let snapshot = view(
                 directory,
@@ -106,6 +172,12 @@ async fn play_file(
         .recording_page
         .and_then(|page| page.entries.into_iter().next())
         .ok_or("recording not found")?;
+    let one_file = record.state == "completed"
+        && record.storage_state == "retained"
+        && record.intervals.len() <= 1;
+    if !one_file {
+        return play_segment(directory, id, &decoder, destination, seek_us, &record, json).await;
+    }
     if let Some(gap) = sigy_service::storage::dvr::blocking_gap(&record.gaps, seek_us) {
         return Err(gap.cause.seek_denial().into());
     }
@@ -157,6 +229,84 @@ async fn play_file(
         )?;
     }
     Ok(())
+}
+
+async fn play_segment(
+    directory: &Path,
+    id: &str,
+    decoder: &str,
+    destination: PlaybackDestination,
+    seek_us: u64,
+    record: &sigy_service::storage::dvr::Recording,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let tail_open =
+        record.state == "running" && record.open_ceiling > 0 && record.open_object_key.is_some();
+    let located = recordings::locate(&record.intervals, &record.gaps, tail_open, seek_us);
+    let recordings::Located::Segment {
+        ordinal,
+        object_key,
+        format,
+        file_seek_us,
+        file_decoded_us,
+    } = located
+    else {
+        return Err(segment_refusal(&located).into());
+    };
+    let path = recordings::media_path(directory, &object_key)?;
+    if !path.is_file() {
+        return Err("retained media is missing".into());
+    }
+    let report = recordings::play_retained_file(
+        decoder,
+        &path,
+        &format,
+        destination,
+        file_seek_us,
+        file_decoded_us,
+    )
+    .await?;
+    let playhead_us = record
+        .intervals
+        .iter()
+        .find(|interval| interval.ordinal == ordinal)
+        .map_or(report.playhead_us, |interval| {
+            interval.decoded_start_us.saturating_add(report.playhead_us)
+        });
+    let mut stdout = std::io::stdout().lock();
+    if json {
+        serde_json::to_writer(
+            &mut stdout,
+            &serde_json::json!({
+                "id": id,
+                "destination": destination.as_str(),
+                "seek_us": seek_us,
+                "playhead_us": playhead_us,
+                "segment_ordinal": ordinal,
+                "progress_advanced": report.progress_advanced,
+            }),
+        )?;
+        writeln!(stdout)?;
+    } else {
+        writeln!(
+            stdout,
+            "Playing segment {ordinal} of recording {id} to {}.",
+            destination.as_str()
+        )?;
+        writeln!(stdout, "Playhead {playhead_us} microseconds.")?;
+    }
+    Ok(())
+}
+
+fn segment_refusal(located: &recordings::Located) -> &'static str {
+    match located {
+        recordings::Located::Gap { cause } => cause.seek_denial(),
+        recordings::Located::OpenTail { .. } => "open tail is not playable",
+        recordings::Located::Outside { .. } => "seek is outside the retained audio",
+        recordings::Located::Unpublished | recordings::Located::Segment { .. } => {
+            "recording has no verified retained media"
+        }
+    }
 }
 
 async fn play_source(
@@ -334,6 +484,33 @@ fn write_snapshot(
     )?;
     if let Some(failure) = &listen.failure {
         writeln!(stdout, "Reason: {failure}")?;
+    }
+    Ok(())
+}
+
+async fn playback(
+    directory: &Path,
+    command: control::PlaybackOperation,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let snapshot = view(directory, Operation::Playback { command }).await?;
+    let session = snapshot.playback.ok_or("playback session is missing")?;
+    let mut stdout = std::io::stdout().lock();
+    if json {
+        serde_json::to_writer(&mut stdout, &session)?;
+        writeln!(stdout)?;
+    } else {
+        writeln!(
+            stdout,
+            "Playhead {} on {} is {}. Position {} us.",
+            session.id, session.recording_id, session.state, session.playhead_us
+        )?;
+        if session.open_tail {
+            writeln!(stdout, "Open tail: not playable.")?;
+        }
+        if session.state == "expired" {
+            writeln!(stdout, "Paused position expired.")?;
+        }
     }
     Ok(())
 }

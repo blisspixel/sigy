@@ -6,10 +6,12 @@ pub mod metadata;
 mod pipe;
 mod seal;
 mod segment;
+mod timeline;
 
 pub(crate) use live::stream_revision;
 pub(crate) use pipe::valid_listen_nonce as pipe_nonce_valid;
 pub(crate) use seal::{SealAction, SealReply};
+pub use timeline::{Located, earliest_retained, live_edge, locate, position_expired};
 
 use sha2::{Digest, Sha256};
 use std::{

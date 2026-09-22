@@ -106,6 +106,7 @@ struct Actor {
     podcast_worker: Option<Worker>,
     text_worker: Option<Worker>,
     listen_workers: HashMap<String, LiveListen>,
+    playback: super::playback::PlaySessions,
     acquirer: HttpAcquirer,
 }
 
@@ -194,6 +195,7 @@ impl Actor {
                     command: super::ListenOperation::Status { id },
                 }
             }
+            Operation::Playback { command } => return self.playback(command),
             other => other,
         };
         let mut snapshot = apply_library(&mut self.library, operation)?;
@@ -207,6 +209,62 @@ impl Actor {
         }
         snapshot.captures.dispatch_available = self.library.store().dvr_status()?.decoder.is_some();
         Ok(snapshot)
+    }
+
+    fn playback(&mut self, command: super::PlaybackOperation) -> Result<Snapshot> {
+        use super::playback::PlaybackOperation;
+        let id = match command {
+            PlaybackOperation::Attach { id, recording_id } => {
+                let record = self.library.store().recording(&recording_id)?;
+                let playhead = crate::recordings::live_edge(&record.intervals).unwrap_or(0);
+                self.playback.open(&id, &recording_id, playhead)?;
+                id
+            }
+            PlaybackOperation::Pause { id } => {
+                self.playback.pause(&id)?;
+                id
+            }
+            PlaybackOperation::Live { id } => {
+                let recording_id = self.playback_recording(&id)?;
+                let record = self.library.store().recording(&recording_id)?;
+                let live = crate::recordings::live_edge(&record.intervals)
+                    .ok_or(Error::InvalidInput("no published segment"))?;
+                if record.state != "running" {
+                    return Err(Error::InvalidInput("capture is not running"));
+                }
+                self.playback.park(&id, live)?;
+                id
+            }
+            PlaybackOperation::Show { id } => id,
+            PlaybackOperation::Detach { id } => {
+                self.playback.close(&id)?;
+                let mut snapshot = apply_library(&mut self.library, Operation::Status {})?;
+                snapshot.playback = Some(super::PlaybackView {
+                    id,
+                    recording_id: String::new(),
+                    state: "closed".into(),
+                    playhead_us: 0,
+                    live_us: None,
+                    earliest_us: None,
+                    open_tail: false,
+                });
+                return Ok(snapshot);
+            }
+        };
+        let recording_id = self.playback_recording(&id)?;
+        let record = self.library.store().recording(&recording_id)?;
+        let session = self.playback.refresh(&id, &record)?;
+        let view = super::playback::describe(&session, &record);
+        let mut snapshot = apply_library(&mut self.library, Operation::Status {})?;
+        snapshot.playback = Some(view);
+        Ok(snapshot)
+    }
+
+    fn playback_recording(&self, id: &str) -> Result<String> {
+        self.playback
+            .recording_id(id)
+            .map(str::to_owned)
+            .ok_or(Error::NotFound)
     }
 
     fn stage_podcast(&mut self, command: super::PodcastOperation) -> Result<Operation> {
@@ -606,6 +664,7 @@ pub(super) fn spawn(
         podcast_worker: None,
         text_worker: None,
         listen_workers: HashMap::new(),
+        playback: super::playback::PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
     };
     let thread = thread::Builder::new()
