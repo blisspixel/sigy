@@ -106,6 +106,9 @@ async fn play_file(
         .recording_page
         .and_then(|page| page.entries.into_iter().next())
         .ok_or("recording not found")?;
+    if let Some(gap) = sigy_service::storage::dvr::blocking_gap(&record.gaps, seek_us) {
+        return Err(gap.cause.seek_denial().into());
+    }
     if record.state != "completed" || record.storage_state != "retained" {
         return Err("recording has no verified retained media".into());
     }

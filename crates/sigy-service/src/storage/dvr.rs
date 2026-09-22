@@ -119,6 +119,132 @@ pub struct Recording {
     pub open_object_key: Option<String>,
     pub lease_renewals: u64,
     pub intervals: Vec<RecordingInterval>,
+    pub gaps: Vec<RecordingGap>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GapCause {
+    Disconnect,
+    Recovery,
+    CodecChange,
+    RefusedRenewal,
+    CapturePause,
+    BackwardClock,
+}
+
+impl GapCause {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Disconnect => "disconnect",
+            Self::Recovery => "recovery",
+            Self::CodecChange => "codec_change",
+            Self::RefusedRenewal => "refused_renewal",
+            Self::CapturePause => "capture_pause",
+            Self::BackwardClock => "backward_clock",
+        }
+    }
+
+    #[must_use]
+    pub const fn seek_denial(self) -> &'static str {
+        match self {
+            Self::Disconnect => "seek is inside a disconnect gap",
+            Self::Recovery => "seek is inside a recovery gap",
+            Self::CodecChange => "seek is inside a codec change gap",
+            Self::RefusedRenewal => "seek is inside a refused renewal gap",
+            Self::CapturePause => "seek is inside a capture pause gap",
+            Self::BackwardClock => "seek is inside a backward clock gap",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "disconnect" => Ok(Self::Disconnect),
+            "recovery" => Ok(Self::Recovery),
+            "codec_change" => Ok(Self::CodecChange),
+            "refused_renewal" => Ok(Self::RefusedRenewal),
+            "capture_pause" => Ok(Self::CapturePause),
+            "backward_clock" => Ok(Self::BackwardClock),
+            _ => Err(Error::StorageIntegrity),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordingGap {
+    pub ordinal: u32,
+    pub cause: GapCause,
+    pub start_us: u64,
+    pub end_us: u64,
+}
+
+#[must_use]
+pub fn blocking_gap(gaps: &[RecordingGap], seek_us: u64) -> Option<&RecordingGap> {
+    gaps.iter()
+        .find(|gap| seek_us >= gap.start_us && seek_us < gap.end_us)
+}
+
+pub(in crate::storage) fn journal_suffix_gap(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+    cause: GapCause,
+) -> Result<bool> {
+    let planned_seconds: Option<i64> = tx
+        .query_row(
+            "SELECT duration_seconds FROM recordings WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(planned_seconds) = planned_seconds else {
+        return Ok(false);
+    };
+    let planned_us = planned_seconds
+        .checked_mul(1_000_000)
+        .ok_or(Error::StorageIntegrity)?;
+    let interval_end: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(decoded_end_us), 0) FROM recording_intervals WHERE recording_id = ?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    let gap_end: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(end_us), 0) FROM recording_gaps WHERE recording_id = ?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    let start_us = interval_end.max(gap_end);
+    if planned_us <= start_us {
+        return Ok(false);
+    }
+    let ordinal: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(ordinal) + 1, 0) FROM recording_gaps WHERE recording_id = ?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    tx.execute(
+        "INSERT INTO recording_gaps(recording_id, ordinal, cause, start_us, end_us) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, ordinal, cause.as_str(), start_us, planned_us],
+    )?;
+    Ok(true)
+}
+
+fn end_with_gap(
+    tx: &rusqlite::Transaction<'_>,
+    job: CaptureJob,
+    cause: GapCause,
+    event: CaptureEvent,
+    reason: &str,
+    recorded_ms: i64,
+) -> Result<()> {
+    journal_suffix_gap(tx, job.version.id(), cause)?;
+    tx.execute(
+        "UPDATE recordings SET escrow_bytes = escrow_bytes + open_ceiling, open_ceiling = 0, open_object_key = NULL WHERE id = ?1 AND open_ceiling > 0",
+        [job.version.id()],
+    )?;
+    journal::transition(tx, job, event, reason, recorded_ms)?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -294,6 +420,7 @@ impl Store {
             open_object_key: row.get(18)?,
             lease_renewals: unsigned(row, 19)?,
             intervals: Vec::new(),
+            gaps: Vec::new(),
         };
         validate_object_key(&record.object_key)?;
         if let Some(key) = &record.open_object_key {
@@ -303,6 +430,7 @@ impl Store {
         drop(statement);
         let mut record = record;
         record.intervals = self.recording_intervals(id)?;
+        record.gaps = self.recording_gaps(id)?;
         if record.failure_detail.as_ref().is_some_and(|text| {
             text.len() > 256 || !text.is_ascii() || text.chars().any(char::is_control)
         }) {
@@ -359,6 +487,41 @@ impl Store {
             intervals.push(interval);
         }
         Ok(intervals)
+    }
+
+    fn recording_gaps(&self, id: &str) -> Result<Vec<RecordingGap>> {
+        let mut statement = self.connection.prepare(
+            "SELECT ordinal, cause, start_us, end_us FROM recording_gaps WHERE recording_id = ?1 ORDER BY ordinal",
+        )?;
+        let rows = statement
+            .query_map([id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut gaps = Vec::with_capacity(rows.len());
+        for (index, row) in rows.into_iter().enumerate() {
+            let ordinal = u32::try_from(row.0).map_err(|_| Error::StorageIntegrity)?;
+            if usize::try_from(ordinal).map_err(|_| Error::StorageIntegrity)? != index {
+                return Err(Error::StorageIntegrity);
+            }
+            let start_us = u64::try_from(row.2).map_err(|_| Error::StorageIntegrity)?;
+            let end_us = u64::try_from(row.3).map_err(|_| Error::StorageIntegrity)?;
+            if end_us <= start_us {
+                return Err(Error::StorageIntegrity);
+            }
+            gaps.push(RecordingGap {
+                ordinal,
+                cause: GapCause::parse(&row.1)?,
+                start_us,
+                end_us,
+            });
+        }
+        Ok(gaps)
     }
 
     /// # Errors
@@ -544,6 +707,7 @@ impl Store {
         expected: &CaptureVersion,
         segment: &SegmentSeal,
     ) -> Result<CaptureVersion> {
+        self.note_clock(expected.id(), now_ms()?)?;
         if segment.bytes == 0
             || segment.decoded_microseconds == 0
             || segment.sha256.len() != 64
@@ -584,6 +748,34 @@ impl Store {
         let decoded_end = decoded_start
             .checked_add(decoded)
             .ok_or(Error::StorageIntegrity)?;
+        let previous_format: Option<String> = tx
+            .query_row(
+                "SELECT format FROM recording_intervals WHERE recording_id = ?1 ORDER BY ordinal DESC LIMIT 1",
+                [job.version.id()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let covered_by_gap: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM recording_gaps WHERE recording_id = ?1 AND start_us < ?3 AND ?2 < end_us)",
+            params![job.version.id(), decoded_start, decoded_end],
+            |row| row.get(0),
+        )?;
+        if covered_by_gap {
+            return Err(Error::StorageIntegrity);
+        }
+        if previous_format.is_some_and(|format| format != segment.format) {
+            let recorded = job.updated_ms;
+            end_with_gap(
+                &tx,
+                job,
+                GapCause::CodecChange,
+                CaptureEvent::Fail,
+                "codec_change",
+                recorded,
+            )?;
+            tx.commit()?;
+            return Err(Error::InvalidInput("codec change is a gap"));
+        }
         tx.execute(
             "INSERT INTO recording_intervals(recording_id, ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end, object_key, sha256, format, ceiling_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
@@ -636,6 +828,7 @@ impl Store {
         &mut self,
         expected: &CaptureVersion,
     ) -> Result<CaptureVersion> {
+        self.note_clock(expected.id(), now_ms()?)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -649,6 +842,19 @@ impl Store {
             |row| row.get(0),
         )?;
         let now = now_ms()?;
+        if current.is_some_and(|expires| expires < now) {
+            let recorded = job.updated_ms;
+            end_with_gap(
+                &tx,
+                job,
+                GapCause::RefusedRenewal,
+                CaptureEvent::Fail,
+                "refused_renewal",
+                recorded,
+            )?;
+            tx.commit()?;
+            return Err(Error::InvalidInput("segment lease renewal was refused"));
+        }
         let proposed = lease_deadline(now, job.plan.ends_ms())?;
         if current.is_some_and(|current| proposed <= current) {
             return Err(Error::RequestState);
@@ -789,6 +995,62 @@ impl Store {
         Ok(Some(route))
     }
 
+    pub(crate) fn note_clock(&mut self, id: &str, observed_ms: i64) -> Result<()> {
+        validate_key(id, "capture ID")?;
+        let updated: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT updated_ms FROM capture_jobs WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(updated) = updated else {
+            return Err(Error::NotFound);
+        };
+        if observed_ms >= updated {
+            return Ok(());
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let job = journal::read_job(&tx, id)?.ok_or(Error::NotFound)?;
+        if !job.state.is_active() {
+            return Err(Error::RequestState);
+        }
+        end_with_gap(
+            &tx,
+            job,
+            GapCause::BackwardClock,
+            CaptureEvent::Fail,
+            "backward_clock",
+            updated,
+        )?;
+        tx.commit()?;
+        Err(Error::InvalidInput("clock moved backward"))
+    }
+
+    pub(crate) fn pause_capture(&mut self, id: &str) -> Result<()> {
+        validate_key(id, "capture ID")?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let job = journal::read_job(&tx, id)?.ok_or(Error::NotFound)?;
+        if job.state != CaptureState::Running {
+            return Err(Error::RequestState);
+        }
+        end_with_gap(
+            &tx,
+            job,
+            GapCause::CapturePause,
+            CaptureEvent::Lost,
+            "capture_pause",
+            now_ms()?,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub(crate) fn fail_recording(
         &mut self,
         expected: &CaptureVersion,
@@ -812,6 +1074,9 @@ impl Store {
             "UPDATE recordings SET failure_detail = ?2, escrow_bytes = escrow_bytes + open_ceiling, open_ceiling = 0 WHERE id = ?1",
             params![expected.id(), detail],
         )?;
+        if detail == "body interrupted; partial body is unverified" {
+            journal_suffix_gap(&tx, expected.id(), GapCause::Disconnect)?;
+        }
         journal::transition(
             &tx,
             job,
@@ -922,6 +1187,19 @@ impl Store {
             return Err(Error::StorageIntegrity);
         }
         self.published_intervals_match()?;
+        self.recorded_gaps_match()?;
+        Ok(())
+    }
+
+    fn recorded_gaps_match(&self) -> Result<()> {
+        let broken: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM recording_gaps AS g LEFT JOIN recordings AS r ON r.id = g.recording_id WHERE r.id IS NULL OR g.end_us <= g.start_us OR EXISTS(SELECT 1 FROM recording_intervals AS i WHERE i.recording_id = g.recording_id AND i.decoded_start_us < g.end_us AND g.start_us < i.decoded_end_us))",
+            [],
+            |row| row.get(0),
+        )?;
+        if broken {
+            return Err(Error::StorageIntegrity);
+        }
         Ok(())
     }
 

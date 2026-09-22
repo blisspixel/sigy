@@ -166,6 +166,18 @@ impl Actor {
                     command: RecordingOperation::Show { id },
                 }
             }
+            Operation::Record {
+                command: RecordingOperation::Pause { id },
+            } => {
+                self.library.store().recording(&id)?;
+                if let Some(worker) = self.workers.get(&id) {
+                    worker.stop.send_replace(true);
+                }
+                self.library.store_mut().pause_capture(&id)?;
+                Operation::Record {
+                    command: RecordingOperation::Show { id },
+                }
+            }
             Operation::Listen {
                 command: super::ListenOperation::Start { id, revision_id },
             } => {

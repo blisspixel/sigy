@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 `--data-dir` is required. Use a private directory outside the checkout. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v17 and local IPC is v17. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v18 and local IPC is v18. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Doctor
 
@@ -153,6 +153,12 @@ sigy --data-dir PATH_TO_LIBRARY record hls segment-001 --source media:v1 --secon
 `record hls` records one finite media playlist. The document must include `#EXT-X-ENDLIST`. At most 32 segments share that recording's time and byte ceiling. The service publishes one local file through the same decoder check, hash, and quota. A master playlist fails before a variant request. A live playlist, encryption, a media map, a byte range, discontinuity, and partial segments are rejected. The decoder receives the published file, not an `.m3u8` address. See [HLS media playlists](decisions/0012-hls-media-playlist.md).
 
 A published file has one measured interval: decoded duration and published byte length, both starting at zero. The requested window stays the plan. A recording that has not been published has no interval. See [measured intervals](decisions/0023-recording-intervals.md).
+
+```text
+sigy --data-dir PATH_TO_LIBRARY record pause morning-001
+```
+
+`record pause` stops a running capture. The part of the plan with no published audio becomes a gap. A disconnect, service recovery, codec change, refused segment renewal, and a backward clock write a gap with that cause. A gap is not a silence file. `listen file` refuses a seek inside a gap and still plays a seek in published audio. See [capture gaps](decisions/0026-capture-gaps.md).
 
 Default retention is 14 days and 50 GB of managed media. A temporary recording may stay while it is processed. `record keep` and `record archive` keep it, and those bytes still count toward the quota. Archive does not create a backup. New recordings fail when protected media fills the allowance. `record temporary` restores rolling retention. `record processed ID --receipt RECEIPT_ID` records that processing finished. It does not run analysis. The service sweep then deletes that temporary file. The same sweep deletes other temporary recordings older than the retention window. Quota pressure removes the oldest temporary recordings sooner. `dvr prune` runs that same reclaim. `record delete` deletes inactive media even when it is protected and keeps the catalog history.
 

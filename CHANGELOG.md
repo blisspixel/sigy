@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Journaled capture gaps for disconnect, recovery, codec change, refused renewal, capture pause, and a backward clock. A gap has no audio file. Seeking inside it fails. Catalog schema is v18 and local IPC is v18.
 - Sealed segments on one running radio capture. The open ceiling is 32 MiB, or 5000 ms of receive time, whichever comes first. That 5000 ms bound is the candidate uncommitted window, not a measured durability result. The whole byte budget stays one escrow. A stale token cannot seal, and renewal stays on the same socket. Catalog schema is v17 and local IPC is v17.
 - Added `sigy doctor`, a read-only preflight for catalog integrity, the decoder, quota, directory cache age, and podcast snapshot age. It does not refresh or use the network. Stations older than 24 hours stay cached, including a row with no observation time. `radio status` shows how many cached stations are stale. Recording refuses to start when the configured decoder is not a file.
 

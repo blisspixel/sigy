@@ -89,6 +89,8 @@ pub enum RecordCommand {
     },
     /// Finish the received portion of a running recording and validate it.
     Stop { id: String },
+    /// Stop receiving. The uncovered plan is a gap, not a silence file.
+    Pause { id: String },
     /// List recordings, including failed, interrupted, and deleted history.
     List {
         #[arg(long)]
@@ -155,6 +157,7 @@ impl RecordCommand {
                     icy: *icy,
                 },
                 Self::Stop { id } => RecordingOperation::Stop { id: id.clone() },
+                Self::Pause { id } => RecordingOperation::Pause { id: id.clone() },
                 Self::Metadata { id } => RecordingOperation::Metadata { id: id.clone() },
                 Self::Show { id } | Self::Path { id } => {
                     RecordingOperation::Show { id: id.clone() }
@@ -240,6 +243,16 @@ pub fn render_records(writer: &mut impl Write, page: &RecordingPage) -> io::Resu
                 interval.byte_end,
                 interval.decoded_start_us,
                 interval.decoded_end_us
+            )?;
+        }
+        for gap in &record.gaps {
+            writeln!(
+                writer,
+                "  Gap {}: {} from {} to {} us. No audio file.",
+                gap.ordinal,
+                gap.cause.as_str(),
+                gap.start_us,
+                gap.end_us
             )?;
         }
     }

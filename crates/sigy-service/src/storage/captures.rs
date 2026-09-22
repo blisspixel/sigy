@@ -213,6 +213,7 @@ impl Store {
         for id in &ids {
             let job = journal::read_job(&tx, id)?.ok_or(Error::CaptureIntegrity)?;
             journal::transition(&tx, job, CaptureEvent::Lost, "service_recovery", recorded)?;
+            super::dvr::journal_suffix_gap(&tx, id, super::dvr::GapCause::Recovery)?;
             tx.execute(
                 "UPDATE recordings SET escrow_bytes = escrow_bytes + open_ceiling, open_ceiling = 0 WHERE id = ?1 AND open_ceiling > 0",
                 [id],

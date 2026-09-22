@@ -526,6 +526,14 @@ const TOOLS: &[Tool] = &[
         timeout: SHORT,
     },
     Tool {
+        name: "record_pause",
+        description: "Stop one running capture and record the uncovered plan as a gap. Does not write a silence file.",
+        hints: HINT_CHANGE,
+        words: &["record", "pause"],
+        slots: &[pos("id", "Recording id.")],
+        timeout: SHORT,
+    },
+    Tool {
         name: "record_keep",
         description: "Protect one recording from automatic expiration. This is not a backup.",
         hints: HINT_CHANGE,

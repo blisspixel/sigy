@@ -19,7 +19,7 @@ pub mod podcasts;
 pub use clicks::ClickStatus;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 17;
+pub const SCHEMA_VERSION: u32 = 18;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -165,6 +165,9 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     }
     if (0..=16).contains(&version) {
         transaction.execute_batch(include_str!("017-segment-seals.sql"))?;
+    }
+    if (0..=17).contains(&version) {
+        transaction.execute_batch(include_str!("018-recording-gaps.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

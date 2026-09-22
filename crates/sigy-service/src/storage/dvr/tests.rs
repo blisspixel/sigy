@@ -511,7 +511,7 @@ fn published_file_is_one_measured_interval_and_old_rows_project() -> TestResult 
     }
     drop(store);
     let connection = rusqlite::Connection::open(&path)?;
-    connection.execute_batch("DROP TABLE recording_intervals; DROP INDEX IF EXISTS recording_open_object_keys; ALTER TABLE recordings DROP COLUMN lease_renewals; ALTER TABLE recordings DROP COLUMN lease_expires_ms; ALTER TABLE recordings DROP COLUMN open_object_key; ALTER TABLE recordings DROP COLUMN open_ceiling; ALTER TABLE recordings DROP COLUMN escrow_bytes; PRAGMA user_version = 15;")?;
+    connection.execute_batch("DROP TABLE IF EXISTS recording_gaps; DROP TABLE recording_intervals; DROP INDEX IF EXISTS recording_open_object_keys; ALTER TABLE recordings DROP COLUMN lease_renewals; ALTER TABLE recordings DROP COLUMN lease_expires_ms; ALTER TABLE recordings DROP COLUMN open_object_key; ALTER TABLE recordings DROP COLUMN open_ceiling; ALTER TABLE recordings DROP COLUMN escrow_bytes; PRAGMA user_version = 15;")?;
     drop(connection);
     let store = Store::open(&path)?;
     assert_measured_interval(&store, "done", 1_000_000, 100)?;
@@ -717,10 +717,154 @@ fn recovery_returns_an_open_ceiling_to_the_escrow() -> TestResult {
     assert_eq!(record.escrow_bytes, budget);
     assert_eq!(record.charged_bytes, budget);
     assert!(record.intervals.is_empty());
+    assert_eq!(record.media_bytes, None);
+    assert_hole(&record, GapCause::Recovery, 0)?;
     assert!(matches!(
         store.seal_segment(&admitted, &seal(1, 1, "aa")),
         Err(Error::StaleCapture)
     ));
+    store.audit_dvr()?;
+    Ok(())
+}
+
+fn running(
+    store: &mut Store,
+    id: &str,
+    bytes: u64,
+) -> std::result::Result<CaptureVersion, Box<dyn std::error::Error + Send + Sync>> {
+    let admitted = store
+        .admit_recording(id, "radio:v1", 60, bytes, Retention::Temporary, false)?
+        .ok_or("not admitted")?;
+    Ok(store.connect_recording(&admitted.version)?)
+}
+
+fn assert_hole(record: &Recording, cause: GapCause, start_us: u64) -> TestResult {
+    let gap = record.gaps.first().ok_or("missing gap")?;
+    if record.gaps.len() != 1
+        || gap.cause != cause
+        || gap.start_us != start_us
+        || gap.end_us != 60_000_000
+        || blocking_gap(&record.gaps, start_us).is_none()
+        || blocking_gap(&record.gaps, gap.end_us).is_some()
+    {
+        return Err(format!("gap did not block its range: {gap:?}").into());
+    }
+    Ok(())
+}
+
+#[test]
+fn disconnect_journals_a_gap_without_a_silence_file() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog.sqlite3"), 10_000)?;
+    let dropped = running(&mut store, "drop", 1024)?;
+    store.fail_recording(
+        &dropped,
+        &Error::Acquisition("body interrupted; partial body is unverified"),
+    )?;
+    let record = store.recording("drop")?;
+    assert_eq!(record.state, "failed");
+    assert_eq!(record.media_bytes, None);
+    assert!(record.intervals.is_empty());
+    assert_hole(&record, GapCause::Disconnect, 0)?;
+    let other = running(&mut store, "other", 1024)?;
+    store.fail_recording(&other, &Error::Acquisition("deadline reached"))?;
+    assert!(store.recording("other")?.gaps.is_empty());
+    store.audit_dvr()?;
+    Ok(())
+}
+
+#[test]
+fn codec_change_journals_a_gap_instead_of_another_file() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let budget = OPEN_SEGMENT_CEILING * 2;
+    let mut store = setup(&directory.path().join("catalog.sqlite3"), budget + 1_000)?;
+    let version = running(&mut store, "codec", budget)?;
+    let SegmentOpen::Opened { version, .. } = store.open_segment(&version)? else {
+        return Err("segment did not open".into());
+    };
+    store.seal_segment(&version, &seal(1_000, 1_000_000, "ab"))?;
+    let SegmentOpen::Opened { version, .. } = store.open_segment(&version)? else {
+        return Err("second segment did not open".into());
+    };
+    let rejected = SegmentSeal {
+        format: "mp3",
+        ..seal(1_000, 1_000_000, "cd")
+    };
+    assert!(matches!(
+        store.seal_segment(&version, &rejected),
+        Err(Error::InvalidInput("codec change is a gap"))
+    ));
+    let record = store.recording("codec")?;
+    assert_eq!(record.state, "failed");
+    assert_eq!(record.intervals.len(), 1);
+    assert_eq!(record.media_bytes, None);
+    assert_hole(&record, GapCause::CodecChange, 1_000_000)?;
+    store.audit_dvr()?;
+    Ok(())
+}
+
+#[test]
+fn expired_lease_refuses_renewal_and_journals_a_gap() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog.sqlite3"), 10_000)?;
+    let version = running(&mut store, "lease", 1024)?;
+    store.connection.execute(
+        "UPDATE recordings SET lease_expires_ms = 1 WHERE id = 'lease'",
+        [],
+    )?;
+    assert!(matches!(
+        store.renew_segment_lease(&version),
+        Err(Error::InvalidInput("segment lease renewal was refused"))
+    ));
+    let record = store.recording("lease")?;
+    assert_eq!(record.state, "failed");
+    assert_eq!(record.lease_renewals, 0);
+    assert_eq!(record.media_bytes, None);
+    assert_hole(&record, GapCause::RefusedRenewal, 0)?;
+    store.audit_dvr()?;
+    Ok(())
+}
+
+#[test]
+fn capture_pause_journals_a_gap_and_interrupts() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog.sqlite3"), 10_000)?;
+    let version = running(&mut store, "pause", 1024)?;
+    store.pause_capture("pause")?;
+    let record = store.recording("pause")?;
+    assert_eq!(record.state, "interrupted");
+    assert_eq!(record.media_bytes, None);
+    assert!(record.intervals.is_empty());
+    assert_hole(&record, GapCause::CapturePause, 0)?;
+    assert!(matches!(
+        store.seal_segment(&version, &seal(1, 1, "aa")),
+        Err(Error::StaleCapture)
+    ));
+    store.audit_dvr()?;
+    Ok(())
+}
+
+#[test]
+fn backward_clock_journals_a_gap_without_recording_the_earlier_time() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog.sqlite3"), 10_000)?;
+    running(&mut store, "clock", 1024)?;
+    assert!(matches!(
+        store.note_clock("clock", 0),
+        Err(Error::InvalidInput("clock moved backward"))
+    ));
+    let record = store.recording("clock")?;
+    assert_eq!(record.state, "failed");
+    assert_eq!(record.media_bytes, None);
+    assert_hole(&record, GapCause::BackwardClock, 0)?;
+    let updated: i64 = store.connection.query_row(
+        "SELECT updated_ms FROM capture_jobs WHERE id = 'clock'",
+        [],
+        |row| row.get(0),
+    )?;
+    if updated == 0 {
+        return Err("backward timestamp was stored".into());
+    }
     store.audit_dvr()?;
     Ok(())
 }

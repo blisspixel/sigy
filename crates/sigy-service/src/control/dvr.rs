@@ -44,6 +44,10 @@ pub enum RecordingOperation {
     Stop {
         id: String,
     },
+    /// Stop receiving and record the uncovered plan as a pause gap. No silence file is written.
+    Pause {
+        id: String,
+    },
     List {
         after: Option<String>,
         limit: u32,
@@ -78,7 +82,8 @@ pub(super) fn apply(store: &mut Store, operation: RecordingOperation) -> Result<
     let id = match operation {
         RecordingOperation::Start { .. }
         | RecordingOperation::Hls { .. }
-        | RecordingOperation::Stop { .. } => {
+        | RecordingOperation::Stop { .. }
+        | RecordingOperation::Pause { .. } => {
             return Err(Error::ServiceRequired);
         }
         RecordingOperation::Delete { .. } => {

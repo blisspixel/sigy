@@ -48,6 +48,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Segment seals](decisions/0025-segment-seals.md) close a running radio capture at 32 MiB or 5000 ms of receive time. The 5000 ms bound is not a measured durability result.
 
+[Capture gaps](decisions/0026-capture-gaps.md) record a hole with a cause. A seek inside that range fails, and no silence file fills it.
+
 
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
