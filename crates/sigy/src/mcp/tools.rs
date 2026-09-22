@@ -278,6 +278,14 @@ const PLAY: Duration = Duration::from_secs(120);
 
 const TOOLS: &[Tool] = &[
     Tool {
+        name: "doctor",
+        description: "Check the library, decoder, quota, and cache age. Does not refresh, delete, or use the network.",
+        hints: HINT_QUERY,
+        words: &["doctor"],
+        slots: &[],
+        timeout: SHORT,
+    },
+    Tool {
         name: "library_status",
         description: "Show the catalog state for the configured library. Does not create it.",
         hints: HINT_QUERY,

@@ -231,6 +231,17 @@ pub fn render_records(writer: &mut impl Write, page: &RecordingPage) -> io::Resu
         if let Some(detail) = &record.failure_detail {
             writeln!(writer, "  Failure: {detail}")?;
         }
+        for interval in &record.intervals {
+            writeln!(
+                writer,
+                "  Interval {}: bytes {}-{}, decoded {}-{} us.",
+                interval.ordinal,
+                interval.byte_start,
+                interval.byte_end,
+                interval.decoded_start_us,
+                interval.decoded_end_us
+            )?;
+        }
     }
     if page.entries.is_empty() {
         writeln!(writer, "No recordings on this page.")?;

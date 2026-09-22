@@ -19,6 +19,25 @@ use crate::{
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
+pub const DIRECTORY_FRESH_MS: i64 = 24 * 60 * 60 * 1000;
+
+#[cfg(test)]
+impl Store {
+    pub(crate) fn set_cached_observation_age(&mut self, observed_ms: i64) -> Result<()> {
+        self.connection.execute(
+            "UPDATE directory_stations SET metadata_json = json_set(metadata_json, '$.observed_ms', ?1)",
+            [observed_ms],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn set_decoder_path(&mut self, path: &str) -> Result<()> {
+        self.connection
+            .execute("UPDATE dvr_policy SET decoder = ?1", [path])?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RefreshStatus {
@@ -39,6 +58,9 @@ pub struct DirectoryStatus {
     pub cached_stations: u32,
     pub favorite_stations: u32,
     pub maximum_stations: u32,
+    pub oldest_observed_ms: Option<i64>,
+    pub newest_observed_ms: Option<i64>,
+    pub stale_stations: u32,
     pub latest_refresh: Option<RefreshStatus>,
 }
 
@@ -47,7 +69,12 @@ impl Store {
         self.begin_refresh_at(id, request, now_ms()?)
     }
 
-    fn begin_refresh_at(&mut self, id: &str, request: &RefreshRequest, now: i64) -> Result<bool> {
+    pub(crate) fn begin_refresh_at(
+        &mut self,
+        id: &str,
+        request: &RefreshRequest,
+        now: i64,
+    ) -> Result<bool> {
         validate_key(id, "refresh ID")?;
         request.validate()?;
         let json = serde_json::to_string(request)?;
@@ -113,6 +140,12 @@ impl Store {
         let cached_stations =
             self.connection
                 .query_row("SELECT count(*) FROM directory_stations", [], |r| r.get(0))?;
+        let cutoff = now_ms()?.saturating_sub(DIRECTORY_FRESH_MS);
+        let (oldest_observed_ms, newest_observed_ms, stale_stations): (Option<i64>, Option<i64>, u32) = self.connection.query_row(
+            "SELECT min(json_extract(metadata_json, '$.observed_ms')), max(json_extract(metadata_json, '$.observed_ms')), coalesce(sum(json_extract(metadata_json, '$.observed_ms') < ?1), 0) FROM directory_stations",
+            [cutoff],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
         let id: Option<String> = self
             .connection
             .query_row(
@@ -129,6 +162,9 @@ impl Store {
                 |r| r.get(0),
             )?,
             maximum_stations: MAX_CACHED_STATIONS,
+            oldest_observed_ms,
+            newest_observed_ms,
+            stale_stations,
             latest_refresh: id.map(|id| self.directory_refresh(&id)).transpose()?,
         })
     }

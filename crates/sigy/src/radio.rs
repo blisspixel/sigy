@@ -187,9 +187,20 @@ pub fn render(writer: &mut impl Write, view: &Snapshot) -> io::Result<()> {
     if let Some(status) = &view.directory {
         writeln!(
             writer,
-            "Radio Browser cache: {} / {} stations | favorites: {}. Partial observations, not the complete world catalog.",
-            status.cached_stations, status.maximum_stations, status.favorite_stations
+            "Radio Browser cache: {} / {} stations | favorites: {} | stale: {}. Partial observations, not the complete world catalog.",
+            status.cached_stations,
+            status.maximum_stations,
+            status.favorite_stations,
+            status.stale_stations
         )?;
+        if status.cached_stations == 0 || status.stale_stations > 0 {
+            writeln!(
+                writer,
+                "Cache needs a newer page. Favorites and unseen stations stay. Next: radio refresh NEW_ID --limit 100"
+            )?;
+        } else if let Some(newest) = status.newest_observed_ms {
+            writeln!(writer, "Newest directory observation: {}.", age(newest))?;
+        }
         if let Some(refresh) = view
             .directory_refresh
             .as_ref()

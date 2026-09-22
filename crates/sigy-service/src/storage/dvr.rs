@@ -14,6 +14,12 @@ use super::{
 };
 use crate::{Error, Result};
 
+/// Bytes assigned to the one open segment. The radio cap stays 256 MiB.
+pub(crate) const OPEN_SEGMENT_CEILING: u64 = 32 * 1024 * 1024;
+/// Candidate uncommitted receive window. Not a measured durability result.
+pub(crate) const SEGMENT_RECEIVE_WINDOW: std::time::Duration =
+    std::time::Duration::from_millis(5_000);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Retention {
@@ -108,6 +114,25 @@ pub struct Recording {
     pub processing_receipt: Option<String>,
     pub failure_detail: Option<String>,
     pub profile: RecordingProfile,
+    pub escrow_bytes: u64,
+    pub open_ceiling: u64,
+    pub open_object_key: Option<String>,
+    pub lease_renewals: u64,
+    pub intervals: Vec<RecordingInterval>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordingInterval {
+    pub ordinal: u32,
+    pub decoded_start_us: u64,
+    pub decoded_end_us: u64,
+    pub byte_start: u64,
+    pub byte_end: u64,
+    pub object_key: String,
+    pub sha256: String,
+    pub format: String,
+    pub ceiling_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -119,6 +144,24 @@ pub(crate) struct Publication {
     pub end_reason: &'static str,
     pub http_route: Vec<crate::sources::HttpHop>,
     pub observations: Vec<crate::sources::icy::IcyObservation>,
+    pub segments_sealed: bool,
+}
+
+pub(crate) enum SegmentOpen {
+    Opened {
+        version: CaptureVersion,
+        object_key: String,
+        ceiling: u64,
+        ordinal: u32,
+    },
+    BudgetHeld,
+}
+
+pub(crate) struct SegmentSeal {
+    pub bytes: u64,
+    pub sha256: String,
+    pub format: &'static str,
+    pub decoded_microseconds: u64,
 }
 
 impl Store {
@@ -225,7 +268,7 @@ impl Store {
     /// Rejects malformed identifiers or corrupt stored records.
     pub fn recording(&self, id: &str) -> Result<Recording> {
         validate_key(id, "recording ID")?;
-        let mut statement = self.connection.prepare("SELECT c.source_revision, c.state, r.object_key, r.duration_seconds, c.maximum_bytes, r.retention, r.storage_state, r.charged_bytes, r.media_bytes, r.sha256, r.format, r.decoded_microseconds, r.end_reason, r.processing_receipt, r.failure_detail, r.profile FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1")?;
+        let mut statement = self.connection.prepare("SELECT c.source_revision, c.state, r.object_key, r.duration_seconds, c.maximum_bytes, r.retention, r.storage_state, r.charged_bytes, r.media_bytes, r.sha256, r.format, r.decoded_microseconds, r.end_reason, r.processing_receipt, r.failure_detail, r.profile, r.escrow_bytes, r.open_ceiling, r.open_object_key, r.lease_renewals FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1")?;
         let mut rows = statement.query([id])?;
         let row = rows.next()?.ok_or(Error::NotFound)?;
         let record = Recording {
@@ -246,14 +289,76 @@ impl Store {
             processing_receipt: row.get(13)?,
             failure_detail: row.get(14)?,
             profile: row.get::<_, String>(15)?.parse()?,
+            escrow_bytes: unsigned(row, 16)?,
+            open_ceiling: unsigned(row, 17)?,
+            open_object_key: row.get(18)?,
+            lease_renewals: unsigned(row, 19)?,
+            intervals: Vec::new(),
         };
         validate_object_key(&record.object_key)?;
+        if let Some(key) = &record.open_object_key {
+            validate_object_key(key)?;
+        }
+        drop(rows);
+        drop(statement);
+        let mut record = record;
+        record.intervals = self.recording_intervals(id)?;
         if record.failure_detail.as_ref().is_some_and(|text| {
             text.len() > 256 || !text.is_ascii() || text.chars().any(char::is_control)
         }) {
             return Err(Error::StorageIntegrity);
         }
         Ok(record)
+    }
+
+    fn recording_intervals(&self, id: &str) -> Result<Vec<RecordingInterval>> {
+        let mut statement = self.connection.prepare("SELECT ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end, object_key, sha256, format, ceiling_bytes FROM recording_intervals WHERE recording_id = ?1 ORDER BY ordinal")?;
+        let rows = statement
+            .query_map([id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, i64>(8)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut intervals = Vec::with_capacity(rows.len());
+        for (index, row) in rows.into_iter().enumerate() {
+            let ordinal = u32::try_from(row.0).map_err(|_| Error::StorageIntegrity)?;
+            if usize::try_from(ordinal).map_err(|_| Error::StorageIntegrity)? != index {
+                return Err(Error::StorageIntegrity);
+            }
+            let interval = RecordingInterval {
+                ordinal,
+                decoded_start_us: u64::try_from(row.1).map_err(|_| Error::StorageIntegrity)?,
+                decoded_end_us: u64::try_from(row.2).map_err(|_| Error::StorageIntegrity)?,
+                byte_start: u64::try_from(row.3).map_err(|_| Error::StorageIntegrity)?,
+                byte_end: u64::try_from(row.4).map_err(|_| Error::StorageIntegrity)?,
+                object_key: row.5,
+                sha256: row.6,
+                format: row.7,
+                ceiling_bytes: u64::try_from(row.8).map_err(|_| Error::StorageIntegrity)?,
+            };
+            validate_object_key(&interval.object_key)?;
+            if interval.decoded_end_us <= interval.decoded_start_us
+                || interval.byte_end <= interval.byte_start
+                || interval.byte_end - interval.byte_start > interval.ceiling_bytes
+                || !matches!(
+                    interval.format.as_str(),
+                    "mp3" | "aac" | "flac" | "ogg" | "wav"
+                )
+            {
+                return Err(Error::StorageIntegrity);
+            }
+            intervals.push(interval);
+        }
+        Ok(intervals)
     }
 
     /// # Errors
@@ -281,6 +386,9 @@ impl Store {
         expected: &CaptureVersion,
         publication: &Publication,
     ) -> Result<()> {
+        if publication.segments_sealed {
+            return self.complete_segmented_recording(expected, publication);
+        }
         if publication.bytes == 0
             || publication.decoded_microseconds == 0
             || publication.sha256.len() != 64
@@ -324,7 +432,7 @@ impl Store {
         {
             return Err(Error::StorageIntegrity);
         }
-        let changed = tx.execute("UPDATE recordings SET storage_state = 'retained', charged_bytes = ?2, media_bytes = ?2, sha256 = ?3, format = ?4, decoded_microseconds = ?5, end_reason = ?6, http_route_json = ?7 WHERE id = ?1 AND storage_state = 'reserved' AND charged_bytes >= ?2", params![expected.id(), bytes, publication.sha256, publication.format, decoded, publication.end_reason, route_json])?;
+        let changed = tx.execute("UPDATE recordings SET storage_state = 'retained', charged_bytes = ?2, media_bytes = ?2, sha256 = ?3, format = ?4, decoded_microseconds = ?5, end_reason = ?6, http_route_json = ?7, escrow_bytes = 0, open_ceiling = 0, open_object_key = NULL WHERE id = ?1 AND storage_state = 'reserved' AND charged_bytes >= ?2 AND open_ceiling = 0", params![expected.id(), bytes, publication.sha256, publication.format, decoded, publication.end_reason, route_json])?;
         if changed != 1 {
             return Err(Error::StorageIntegrity);
         }
@@ -343,8 +451,8 @@ impl Store {
             &publication.observations,
         )?;
         tx.execute(
-            "INSERT INTO recording_intervals(recording_id, ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end) VALUES (?1, 0, 0, ?2, 0, ?3)",
-            params![expected.id(), decoded, bytes],
+            "INSERT INTO recording_intervals(recording_id, ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end, object_key, sha256, format, ceiling_bytes) SELECT ?1, 0, 0, ?2, 0, ?3, object_key, ?4, ?5, byte_ceiling FROM recordings WHERE id = ?1",
+            params![expected.id(), decoded, bytes, publication.sha256, publication.format],
         )?;
         let now = now_ms()?;
         let stopped = journal::transition(&tx, job, CaptureEvent::Stop, "media_received", now)?;
@@ -353,6 +461,305 @@ impl Store {
             stopped,
             CaptureEvent::Finalized,
             "media_decoded_and_synced",
+            now,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn connect_recording(
+        &mut self,
+        expected: &CaptureVersion,
+    ) -> Result<CaptureVersion> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let job = locked_job(&tx, expected)?;
+        if job.state != CaptureState::Starting {
+            return Err(Error::StorageIntegrity);
+        }
+        let now = now_ms()?;
+        let job = journal::transition(&tx, job, CaptureEvent::Connected, "socket_open", now)?;
+        let lease = lease_deadline(now, job.plan.ends_ms())?;
+        if tx.execute(
+            "UPDATE recordings SET lease_expires_ms = ?2 WHERE id = ?1 AND open_ceiling = 0",
+            params![job.version.id(), lease],
+        )? != 1
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        tx.commit()?;
+        Ok(job.version)
+    }
+
+    pub(crate) fn open_segment(&mut self, expected: &CaptureVersion) -> Result<SegmentOpen> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let job = locked_job(&tx, expected)?;
+        if job.state != CaptureState::Running {
+            return Err(Error::StorageIntegrity);
+        }
+        let (escrow, open_ceiling, object_key): (i64, i64, String) = tx.query_row(
+            "SELECT escrow_bytes, open_ceiling, object_key FROM recordings WHERE id = ?1 AND storage_state = 'reserved'",
+            [job.version.id()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        if open_ceiling != 0 {
+            return Err(Error::StorageIntegrity);
+        }
+        let ceiling = i64::try_from(OPEN_SEGMENT_CEILING).map_err(|_| Error::StorageIntegrity)?;
+        if escrow < ceiling {
+            return Ok(SegmentOpen::BudgetHeld);
+        }
+        let ordinal: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(ordinal) + 1, 0) FROM recording_intervals WHERE recording_id = ?1",
+            [job.version.id()],
+            |row| row.get(0),
+        )?;
+        let segment_key = if ordinal == 0 {
+            object_key
+        } else {
+            fresh_object_key(&tx)?
+        };
+        if tx.execute(
+            "UPDATE recordings SET escrow_bytes = escrow_bytes - ?2, open_ceiling = ?2, open_object_key = ?3 WHERE id = ?1 AND open_ceiling = 0 AND escrow_bytes >= ?2",
+            params![job.version.id(), ceiling, segment_key],
+        )? != 1
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        let ordinal = u32::try_from(ordinal).map_err(|_| Error::StorageIntegrity)?;
+        tx.commit()?;
+        Ok(SegmentOpen::Opened {
+            version: job.version,
+            object_key: segment_key,
+            ceiling: OPEN_SEGMENT_CEILING,
+            ordinal,
+        })
+    }
+
+    pub(crate) fn seal_segment(
+        &mut self,
+        expected: &CaptureVersion,
+        segment: &SegmentSeal,
+    ) -> Result<CaptureVersion> {
+        if segment.bytes == 0
+            || segment.decoded_microseconds == 0
+            || segment.sha256.len() != 64
+            || !segment
+                .sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || !matches!(segment.format, "mp3" | "aac" | "flac" | "ogg" | "wav")
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let job = locked_job(&tx, expected)?;
+        if job.state != CaptureState::Running {
+            return Err(Error::StorageIntegrity);
+        }
+        let (open_ceiling, open_key): (i64, Option<String>) = tx.query_row(
+            "SELECT open_ceiling, open_object_key FROM recordings WHERE id = ?1 AND storage_state = 'reserved'",
+            [job.version.id()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let bytes = i64::try_from(segment.bytes).map_err(|_| Error::StorageIntegrity)?;
+        let decoded =
+            i64::try_from(segment.decoded_microseconds).map_err(|_| Error::StorageIntegrity)?;
+        if open_ceiling < bytes || open_key.is_none() {
+            return Err(Error::StorageIntegrity);
+        }
+        let (byte_start, decoded_start, ordinal): (i64, i64, i64) = tx.query_row(
+            "SELECT COALESCE(MAX(byte_end), 0), COALESCE(MAX(decoded_end_us), 0), COALESCE(MAX(ordinal) + 1, 0) FROM recording_intervals WHERE recording_id = ?1",
+            [job.version.id()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        let byte_end = byte_start
+            .checked_add(bytes)
+            .ok_or(Error::StorageIntegrity)?;
+        let decoded_end = decoded_start
+            .checked_add(decoded)
+            .ok_or(Error::StorageIntegrity)?;
+        tx.execute(
+            "INSERT INTO recording_intervals(recording_id, ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end, object_key, sha256, format, ceiling_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                job.version.id(),
+                ordinal,
+                decoded_start,
+                decoded_end,
+                byte_start,
+                byte_end,
+                open_key,
+                segment.sha256,
+                segment.format,
+                open_ceiling,
+            ],
+        )?;
+        if tx.execute(
+            "UPDATE recordings SET escrow_bytes = escrow_bytes + open_ceiling - ?2, open_ceiling = 0, open_object_key = NULL WHERE id = ?1 AND open_ceiling >= ?2",
+            params![job.version.id(), bytes],
+        )? != 1
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        tx.commit()?;
+        Ok(job.version)
+    }
+
+    pub(crate) fn release_open_segment(
+        &mut self,
+        expected: &CaptureVersion,
+    ) -> Result<CaptureVersion> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let job = locked_job(&tx, expected)?;
+        if job.state != CaptureState::Running {
+            return Err(Error::StorageIntegrity);
+        }
+        if tx.execute(
+            "UPDATE recordings SET escrow_bytes = escrow_bytes + open_ceiling, open_ceiling = 0, open_object_key = NULL WHERE id = ?1 AND open_ceiling > 0",
+            [job.version.id()],
+        )? != 1
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        tx.commit()?;
+        Ok(job.version)
+    }
+
+    pub(crate) fn renew_segment_lease(
+        &mut self,
+        expected: &CaptureVersion,
+    ) -> Result<CaptureVersion> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let job = locked_job(&tx, expected)?;
+        if job.state != CaptureState::Running {
+            return Err(Error::StorageIntegrity);
+        }
+        let current: Option<i64> = tx.query_row(
+            "SELECT lease_expires_ms FROM recordings WHERE id = ?1",
+            [job.version.id()],
+            |row| row.get(0),
+        )?;
+        let now = now_ms()?;
+        let proposed = lease_deadline(now, job.plan.ends_ms())?;
+        if current.is_some_and(|current| proposed <= current) {
+            return Err(Error::RequestState);
+        }
+        if tx.execute(
+            "UPDATE recordings SET lease_expires_ms = ?2, lease_renewals = lease_renewals + 1 WHERE id = ?1",
+            params![job.version.id(), proposed],
+        )? != 1
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        tx.commit()?;
+        Ok(job.version)
+    }
+
+    fn complete_segmented_recording(
+        &mut self,
+        expected: &CaptureVersion,
+        publication: &Publication,
+    ) -> Result<()> {
+        if publication.bytes == 0
+            || publication.decoded_microseconds == 0
+            || publication.sha256.len() != 64
+            || !publication
+                .sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        let source_id = self
+            .capture(expected.id())?
+            .ok_or(Error::NotFound)?
+            .plan
+            .source_revision()
+            .to_owned();
+        self.source(&source_id)?
+            .ok_or(Error::SourceIntegrity)?
+            .source
+            .validate_route(&publication.http_route)?;
+        let route_json = serde_json::to_string(&publication.http_route)?;
+        if route_json.len() > 8192 {
+            return Err(Error::StorageIntegrity);
+        }
+        let bytes = i64::try_from(publication.bytes).map_err(|_| Error::StorageIntegrity)?;
+        let decoded =
+            i64::try_from(publication.decoded_microseconds).map_err(|_| Error::StorageIntegrity)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let job = locked_job(&tx, expected)?;
+        if job.state != CaptureState::Running {
+            return Err(Error::StorageIntegrity);
+        }
+        let (escrow, open_ceiling, open_key, maximum): (i64, i64, Option<String>, i64) = tx
+            .query_row(
+                "SELECT r.escrow_bytes, r.open_ceiling, r.open_object_key, c.maximum_bytes FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1 AND r.storage_state = 'reserved'",
+                [job.version.id()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?;
+        if open_ceiling != 0 || open_key.is_some() {
+            return Err(Error::StorageIntegrity);
+        }
+        let (sealed, measured, mismatched): (i64, i64, bool) = tx.query_row(
+            "SELECT COALESCE(SUM(byte_end - byte_start), 0), COALESCE(MAX(decoded_end_us), 0), EXISTS(SELECT 1 FROM recording_intervals WHERE recording_id = ?1 AND format != ?2) FROM recording_intervals WHERE recording_id = ?1",
+            params![job.version.id(), publication.format],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        if mismatched
+            || sealed != bytes
+            || measured != decoded
+            || escrow.checked_add(sealed) != Some(maximum)
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        if tx.execute(
+            "UPDATE recordings SET storage_state = 'retained', charged_bytes = ?2, media_bytes = ?2, sha256 = ?3, format = ?4, decoded_microseconds = ?5, end_reason = ?6, http_route_json = ?7, escrow_bytes = 0, open_ceiling = 0, open_object_key = NULL WHERE id = ?1 AND storage_state = 'reserved' AND open_ceiling = 0",
+            params![
+                job.version.id(),
+                bytes,
+                publication.sha256,
+                publication.format,
+                decoded,
+                publication.end_reason,
+                route_json,
+            ],
+        )? != 1
+        {
+            return Err(Error::StorageIntegrity);
+        }
+        let requested: i64 = tx.query_row(
+            "SELECT metadata_requested FROM recordings WHERE id = ?1",
+            [job.version.id()],
+            |row| row.get(0),
+        )?;
+        if requested == 0 && !publication.observations.is_empty() {
+            return Err(Error::StorageIntegrity);
+        }
+        store_observations(
+            &tx,
+            job.version.id(),
+            publication.bytes,
+            &publication.observations,
+        )?;
+        let now = now_ms()?;
+        let stopped = journal::transition(&tx, job, CaptureEvent::Stop, "media_received", now)?;
+        journal::transition(
+            &tx,
+            stopped,
+            CaptureEvent::Finalized,
+            "segments_sealed",
             now,
         )?;
         tx.commit()?;
@@ -402,7 +809,7 @@ impl Store {
             return Err(Error::StaleCapture);
         }
         tx.execute(
-            "UPDATE recordings SET failure_detail = ?2 WHERE id = ?1",
+            "UPDATE recordings SET failure_detail = ?2, escrow_bytes = escrow_bytes + open_ceiling, open_ceiling = 0 WHERE id = ?1",
             params![expected.id(), detail],
         )?;
         journal::transition(
@@ -462,7 +869,7 @@ impl Store {
         if job.state.is_active() {
             return Err(Error::RequestState);
         }
-        if tx.execute("UPDATE recordings SET storage_state = 'deleted', charged_bytes = 0 WHERE id = ?1 AND storage_state IN ('deleting', 'deleted')", [id])? != 1 { return Err(Error::RequestState); }
+        if tx.execute("UPDATE recordings SET storage_state = 'deleted', charged_bytes = 0, escrow_bytes = 0, open_ceiling = 0 WHERE id = ?1 AND storage_state IN ('deleting', 'deleted')", [id])? != 1 { return Err(Error::RequestState); }
         if matches!(
             job.state,
             CaptureState::Scheduled | CaptureState::Interrupted
@@ -519,12 +926,21 @@ impl Store {
     }
 
     fn published_intervals_match(&self) -> Result<()> {
+        let ceiling = i64::try_from(OPEN_SEGMENT_CEILING).map_err(|_| Error::StorageIntegrity)?;
         let broken: bool = self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM recordings r WHERE r.media_bytes IS NOT NULL AND NOT EXISTS (SELECT 1 FROM recording_intervals i WHERE i.recording_id = r.id AND i.ordinal = 0 AND i.decoded_start_us = 0 AND i.byte_start = 0 AND i.decoded_end_us = r.decoded_microseconds AND i.byte_end = r.media_bytes)) OR EXISTS(SELECT 1 FROM recording_intervals i LEFT JOIN recordings r ON r.id = i.recording_id WHERE r.id IS NULL OR r.media_bytes IS NULL OR (i.decoded_end_us = r.duration_seconds * 1000000 AND i.decoded_end_us != r.decoded_microseconds))",
-            [],
+            "SELECT EXISTS(SELECT 1 FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE (r.storage_state = 'reserved' AND r.escrow_bytes + r.open_ceiling + COALESCE((SELECT SUM(i.byte_end - i.byte_start) FROM recording_intervals i WHERE i.recording_id = r.id), 0) != c.maximum_bytes) OR (r.storage_state = 'retained' AND (r.escrow_bytes != 0 OR r.open_ceiling != 0 OR r.open_object_key IS NOT NULL)) OR (r.open_ceiling != 0 AND (r.open_ceiling != ?1 OR r.open_object_key IS NULL OR c.state != 'running')) OR (r.storage_state = 'deleted' AND (r.escrow_bytes != 0 OR r.open_ceiling != 0)))",
+            [ceiling],
             |row| row.get(0),
         )?;
         if broken {
+            return Err(Error::StorageIntegrity);
+        }
+        let intervals: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM recording_intervals i LEFT JOIN recordings r ON r.id = i.recording_id WHERE r.id IS NULL OR (i.ordinal = 0 AND (i.byte_start != 0 OR i.decoded_start_us != 0)) OR (i.ordinal > 0 AND (i.byte_start != (SELECT p.byte_end FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1) OR i.decoded_start_us != (SELECT p.decoded_end_us FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1))) OR (r.media_bytes IS NOT NULL AND (r.media_bytes != (SELECT COALESCE(SUM(q.byte_end - q.byte_start), 0) FROM recording_intervals q WHERE q.recording_id = r.id) OR r.decoded_microseconds != (SELECT MAX(q.decoded_end_us) FROM recording_intervals q WHERE q.recording_id = r.id))) OR (r.media_bytes IS NULL AND r.storage_state = 'retained') OR (r.decoded_microseconds IS NOT NULL AND i.decoded_end_us = r.duration_seconds * 1000000 AND i.decoded_end_us != r.decoded_microseconds))",
+            [],
+            |row| row.get(0),
+        )?;
+        if intervals {
             return Err(Error::StorageIntegrity);
         }
         Ok(())
@@ -652,7 +1068,7 @@ pub(crate) fn admit_recording_in(
         .map_err(|_| Error::InvalidInput("secure random source unavailable"))?;
     let key = hex(&random);
     tx.execute(
-        "INSERT INTO recordings(id, object_key, duration_seconds, initial_retention, retention, storage_state, charged_bytes, metadata_requested, profile, byte_ceiling) VALUES (?1, ?2, ?3, ?4, ?4, 'reserved', ?5, ?6, ?7, ?5)",
+        "INSERT INTO recordings(id, object_key, duration_seconds, initial_retention, retention, storage_state, charged_bytes, metadata_requested, profile, byte_ceiling, escrow_bytes) VALUES (?1, ?2, ?3, ?4, ?4, 'reserved', ?5, ?6, ?7, ?5, ?5)",
         params![
             request.id,
             key,
@@ -671,6 +1087,36 @@ pub(crate) fn admit_recording_in(
         now,
     )?;
     Ok(Some(job))
+}
+
+fn locked_job(connection: &rusqlite::Connection, expected: &CaptureVersion) -> Result<CaptureJob> {
+    let job = journal::read_job(connection, expected.id())?.ok_or(Error::NotFound)?;
+    if job.version != *expected {
+        return Err(Error::StaleCapture);
+    }
+    Ok(job)
+}
+
+fn lease_deadline(now: i64, ends_ms: i64) -> Result<i64> {
+    let window =
+        i64::try_from(SEGMENT_RECEIVE_WINDOW.as_millis()).map_err(|_| Error::StorageIntegrity)?;
+    Ok(now.saturating_add(window).min(ends_ms))
+}
+
+fn fresh_object_key(connection: &rusqlite::Connection) -> Result<String> {
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random)
+        .map_err(|_| Error::InvalidInput("secure random source unavailable"))?;
+    let key = hex(&random);
+    let taken: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM recordings WHERE object_key = ?1 OR open_object_key = ?1) OR EXISTS(SELECT 1 FROM recording_intervals WHERE object_key = ?1)",
+        [&key],
+        |row| row.get(0),
+    )?;
+    if taken {
+        return Err(Error::StorageIntegrity);
+    }
+    Ok(key)
 }
 
 fn profile_limits(

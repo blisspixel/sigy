@@ -2,6 +2,7 @@
 
 mod actor;
 mod discovery;
+pub(crate) mod doctor;
 mod dvr;
 mod endpoint;
 mod frame;
@@ -20,6 +21,7 @@ use crate::{
 };
 
 pub use discovery::{DirectoryOperation, StationPage};
+pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use listen::{ListenOperation, ListenView};
 pub use playlist::{PlaylistOperation, PlaylistView};
@@ -29,7 +31,7 @@ pub use podcast::{
 };
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 17;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -94,6 +96,8 @@ pub enum Operation {
     Podcast {
         command: PodcastOperation,
     },
+    /// Read-only preflight. It does not refresh, delete, or contact a network.
+    Doctor {},
 }
 
 impl std::fmt::Debug for Operation {
@@ -111,6 +115,7 @@ impl std::fmt::Debug for Operation {
             Self::Playlist { .. } => "playlist",
             Self::Listen { .. } => "listen",
             Self::Podcast { .. } => "podcast",
+            Self::Doctor {} => "doctor",
         };
         f.debug_struct("Operation")
             .field("kind", &kind)
@@ -175,6 +180,8 @@ pub struct Snapshot {
     pub podcast_feed: Option<PodcastFeedView>,
     #[serde(default)]
     pub publisher_text: Option<PublisherTextView>,
+    #[serde(default)]
+    pub doctor: Option<DoctorReport>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,6 +236,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
     let mut dvr_status = None;
     let mut recording_metadata = None;
     let source_page = match operation {
+        Operation::Doctor {} => return doctor::apply(store),
         Operation::Radio { command } => return discovery::apply(store, command),
         Operation::Playlist { command } => return playlist::apply(store, command),
         Operation::Listen { command } => return listen::apply(store, command),
@@ -351,6 +359,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         podcast_page: None,
         podcast_feed: None,
         publisher_text: None,
+        doctor: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

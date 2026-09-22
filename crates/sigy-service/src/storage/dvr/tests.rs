@@ -46,6 +46,7 @@ fn publication(bytes: u64) -> Publication {
             status: 200,
         }],
         observations: Vec::new(),
+        segments_sealed: false,
     }
 }
 
@@ -510,7 +511,7 @@ fn published_file_is_one_measured_interval_and_old_rows_project() -> TestResult 
     }
     drop(store);
     let connection = rusqlite::Connection::open(&path)?;
-    connection.execute_batch("DROP TABLE recording_intervals; PRAGMA user_version = 15;")?;
+    connection.execute_batch("DROP TABLE recording_intervals; DROP INDEX IF EXISTS recording_open_object_keys; ALTER TABLE recordings DROP COLUMN lease_renewals; ALTER TABLE recordings DROP COLUMN lease_expires_ms; ALTER TABLE recordings DROP COLUMN open_object_key; ALTER TABLE recordings DROP COLUMN open_ceiling; ALTER TABLE recordings DROP COLUMN escrow_bytes; PRAGMA user_version = 15;")?;
     drop(connection);
     let store = Store::open(&path)?;
     assert_measured_interval(&store, "done", 1_000_000, 100)?;
@@ -551,4 +552,184 @@ fn assert_no_interval(store: &Store, id: &str) -> TestResult {
         return Err("unpublished bytes were projected as airtime".into());
     }
     Ok(())
+}
+
+#[test]
+fn sealed_segments_keep_one_reservation_and_reject_a_stale_token() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog.sqlite3");
+    let budget = OPEN_SEGMENT_CEILING * 2;
+    let mut store = setup(&path, budget + 1_000)?;
+    let admitted = store
+        .admit_recording("job", "radio:v1", 60, budget, Retention::Temporary, false)?
+        .ok_or("not admitted")?;
+    let stale = admitted.version.clone();
+    let running = store.connect_recording(&admitted.version)?;
+    assert!(matches!(
+        store.open_segment(&stale),
+        Err(Error::StaleCapture)
+    ));
+    let SegmentOpen::Opened {
+        version,
+        ceiling,
+        ordinal,
+        ..
+    } = store.open_segment(&running)?
+    else {
+        return Err("first segment did not open".into());
+    };
+    assert_eq!((ceiling, ordinal), (OPEN_SEGMENT_CEILING, 0));
+    store.seal_segment(&version, &seal(1_000, 1_000_000, "ab"))?;
+    assert!(matches!(
+        store.seal_segment(&stale, &seal(1, 1, "ab")),
+        Err(Error::StaleCapture)
+    ));
+    let record = store.recording("job")?;
+    assert_eq!(record.state, "running");
+    assert_eq!(record.escrow_bytes, budget - 1_000);
+    assert_eq!(record.open_ceiling, 0);
+    assert_eq!(record.charged_bytes, budget);
+    assert_eq!(record.intervals.len(), 1);
+    store.renew_segment_lease(&version)?;
+    assert_eq!(store.recording("job")?.lease_renewals, 1);
+    assert_eq!(
+        store
+            .capture("job")?
+            .ok_or("missing job")?
+            .version
+            .generation(),
+        running.generation()
+    );
+    let SegmentOpen::Opened { version, .. } = store.open_segment(&version)? else {
+        return Err("second segment did not open".into());
+    };
+    store.seal_segment(&version, &seal(2_000, 1_500_000, "cd"))?;
+    let SegmentOpen::Opened {
+        version, ceiling, ..
+    } = store.open_segment(&version)?
+    else {
+        return Err("third segment did not open".into());
+    };
+    assert_eq!(ceiling, OPEN_SEGMENT_CEILING);
+    let record = store.recording("job")?;
+    assert_eq!(record.intervals.len(), 2);
+    assert_eq!(
+        (
+            record.intervals[0].byte_end,
+            record.intervals[1].byte_start,
+            record.intervals[1].byte_end
+        ),
+        (1_000, 1_000, 3_000)
+    );
+    assert_eq!(record.state, "running");
+    assert_eq!(record.open_ceiling, OPEN_SEGMENT_CEILING);
+    assert_eq!(record.charged_bytes, budget);
+    assert_eq!(store.dvr_status()?.reserved_bytes, budget);
+    let reserved: i64 = store.connection.query_row(
+        "SELECT count(*) FROM recordings WHERE storage_state = 'reserved'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(reserved, 1);
+    store.audit_dvr()?;
+    store.release_open_segment(&version)?;
+    let mut done = publication(3_000);
+    done.segments_sealed = true;
+    done.decoded_microseconds = 2_500_000;
+    done.sha256 = "ef".repeat(32);
+    store.publish_recording(&version, &done)?;
+    let record = store.recording("job")?;
+    assert_eq!(record.state, "completed");
+    assert_eq!(record.media_bytes, Some(3_000));
+    assert_eq!(record.charged_bytes, 3_000);
+    assert_eq!(record.escrow_bytes, 0);
+    assert_eq!(record.intervals.len(), 2);
+    assert_eq!(store.dvr_status()?.reserved_bytes, 0);
+    store.audit_dvr()?;
+    Ok(())
+}
+
+#[test]
+fn next_segment_opens_only_when_a_full_ceiling_remains() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog.sqlite3");
+    let budget = OPEN_SEGMENT_CEILING * 2;
+    let mut store = setup(&path, budget)?;
+    let admitted = store
+        .admit_recording("full", "radio:v1", 60, budget, Retention::Temporary, false)?
+        .ok_or("not admitted")?;
+    let running = store.connect_recording(&admitted.version)?;
+    let SegmentOpen::Opened { version, .. } = store.open_segment(&running)? else {
+        return Err("first full segment did not open".into());
+    };
+    store.seal_segment(&version, &seal(OPEN_SEGMENT_CEILING, 1_000_000, "aa"))?;
+    let SegmentOpen::Opened { version, .. } = store.open_segment(&version)? else {
+        return Err("second full segment did not open".into());
+    };
+    store.seal_segment(&version, &seal(OPEN_SEGMENT_CEILING, 1_000_000, "bb"))?;
+    assert!(matches!(
+        store.open_segment(&version),
+        Ok(SegmentOpen::BudgetHeld)
+    ));
+    let record = store.recording("full")?;
+    assert_eq!(record.intervals.len(), 2);
+    assert_eq!(record.open_ceiling, 0);
+    assert_eq!(record.escrow_bytes, 0);
+    assert_eq!(record.charged_bytes, budget);
+    assert_eq!(record.state, "running");
+    store.audit_dvr()?;
+    let stale = version.clone();
+    store.transition_capture(
+        &version,
+        sigy_core::capture::CaptureEvent::Lost,
+        "worker_lost",
+    )?;
+    assert!(matches!(
+        store.seal_segment(&stale, &seal(1, 1, "aa")),
+        Err(Error::StaleCapture)
+    ));
+    store.audit_dvr()?;
+    Ok(())
+}
+
+#[test]
+fn recovery_returns_an_open_ceiling_to_the_escrow() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog.sqlite3");
+    let budget = OPEN_SEGMENT_CEILING * 2;
+    let admitted = {
+        let mut store = setup(&path, budget)?;
+        let admitted = store
+            .admit_recording("open", "radio:v1", 60, budget, Retention::Temporary, false)?
+            .ok_or("not admitted")?;
+        let running = store.connect_recording(&admitted.version)?;
+        let SegmentOpen::Opened { ceiling, .. } = store.open_segment(&running)? else {
+            return Err("segment did not open".into());
+        };
+        assert_eq!(ceiling, OPEN_SEGMENT_CEILING);
+        admitted.version
+    };
+    let mut store = Store::open(&path)?;
+    assert_eq!(store.recover_captures()?, 1);
+    let record = store.recording("open")?;
+    assert_eq!(record.state, "interrupted");
+    assert_eq!(record.open_ceiling, 0);
+    assert_eq!(record.escrow_bytes, budget);
+    assert_eq!(record.charged_bytes, budget);
+    assert!(record.intervals.is_empty());
+    assert!(matches!(
+        store.seal_segment(&admitted, &seal(1, 1, "aa")),
+        Err(Error::StaleCapture)
+    ));
+    store.audit_dvr()?;
+    Ok(())
+}
+
+fn seal(bytes: u64, decoded: u64, prefix: &str) -> SegmentSeal {
+    SegmentSeal {
+        bytes,
+        sha256: prefix.repeat(32),
+        format: "wav",
+        decoded_microseconds: decoded,
+    }
 }

@@ -5,12 +5,19 @@ mod resolver;
 
 pub(crate) use documents::PlaylistKind;
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    future::{Future, poll_fn},
+    net::SocketAddr,
+    pin::Pin,
+    sync::Arc,
+    task::Poll,
+    time::Duration,
+};
 
 use reqwest::{Client, StatusCode, header};
 use tokio::{
     io::{AsyncWrite, AsyncWriteExt},
-    sync::Semaphore,
+    sync::{OwnedSemaphorePermit, Semaphore},
     time::{Instant, timeout_at},
 };
 
@@ -567,6 +574,233 @@ impl HttpAcquirer {
             }
         }
     }
+}
+
+pub(crate) enum BodyEvent {
+    Audio(Vec<u8>),
+    Window,
+    Ended(TransferEnd),
+}
+
+type ParkedRead =
+    Pin<Box<dyn Future<Output = (Result<Option<Vec<u8>>>, reqwest::Response)> + Send>>;
+
+/// One admitted recording response. The socket stays open across segment seals.
+pub(crate) struct RecordingBody {
+    response: Option<reqwest::Response>,
+    inflight: Option<ParkedRead>,
+    route: Vec<HttpHop>,
+    content: AudioContentType,
+    splitter: Option<IcySplitter>,
+    staged: Vec<u8>,
+    received: u64,
+    limit: u64,
+    limited: bool,
+    ended: Option<TransferEnd>,
+    deadline: Instant,
+    stop: tokio::sync::watch::Receiver<bool>,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl HttpAcquirer {
+    /// Opens one recording response and keeps the attempt slot until the body is dropped.
+    ///
+    /// # Errors
+    /// Uses the same destination, header, and capacity checks as [`Self::record_with`].
+    pub(crate) async fn open_recording(
+        &self,
+        source: &HttpSource,
+        limits: AcquisitionLimits,
+        stop: &tokio::sync::watch::Receiver<bool>,
+        metadata: MetadataPolicy,
+    ) -> Result<RecordingBody> {
+        let permit = self
+            .attempts
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::Acquisition("capacity reached"))?;
+        let deadline = Instant::now() + limits.duration;
+        let mut owned_stop = stop.clone();
+        let mut signal = Some(&mut owned_stop);
+        let opened = self
+            .begin(source, limits, deadline, &mut signal, metadata)
+            .await?;
+        let Opened {
+            response,
+            route,
+            declared_content_type,
+            interval,
+            ..
+        } = opened;
+        Ok(RecordingBody {
+            response: Some(response),
+            inflight: None,
+            route,
+            content: declared_content_type,
+            splitter: interval.map(IcySplitter::new).transpose()?,
+            staged: Vec::new(),
+            received: 0,
+            limit: limits.bytes,
+            limited: false,
+            ended: None,
+            deadline,
+            stop: owned_stop,
+            _permit: permit,
+        })
+    }
+}
+
+impl RecordingBody {
+    #[must_use]
+    pub(crate) const fn content(&self) -> AudioContentType {
+        self.content
+    }
+
+    #[must_use]
+    pub(crate) fn route(&self) -> &[HttpHop] {
+        &self.route
+    }
+
+    /// # Errors
+    /// Rejects a clean end that stops inside an ICY block.
+    pub(crate) fn observations(
+        &mut self,
+        complete: bool,
+        bytes: u64,
+    ) -> Result<Vec<IcyObservation>> {
+        if complete && let Some(splitter) = self.splitter.as_ref() {
+            splitter.finish()?;
+        }
+        if let Some(splitter) = self.splitter.as_mut() {
+            splitter.retain_through(bytes);
+        }
+        Ok(self
+            .splitter
+            .take()
+            .map_or(Vec::new(), IcySplitter::into_observations))
+    }
+
+    /// Reads at most `max_len` audio bytes. A segment window does not cancel the socket.
+    ///
+    /// # Errors
+    /// Fails closed on transport errors. The partial body stays unverified.
+    pub(crate) async fn pull(
+        &mut self,
+        max_len: u64,
+        segment_deadline: Option<Instant>,
+    ) -> Result<BodyEvent> {
+        if max_len == 0 {
+            return Err(Error::InvalidInput("segment ceiling"));
+        }
+        loop {
+            if let Some(audio) = self.take_staged(max_len)? {
+                return Ok(BodyEvent::Audio(audio));
+            }
+            if let Some(end) = self.ended {
+                return Ok(BodyEvent::Ended(end));
+            }
+            if self.limited {
+                return Ok(BodyEvent::Ended(TransferEnd::ByteLimit));
+            }
+            if *self.stop.borrow() {
+                return Ok(BodyEvent::Ended(TransferEnd::UserStop));
+            }
+            if Instant::now() >= self.deadline {
+                return Ok(BodyEvent::Ended(TransferEnd::DurationLimit));
+            }
+            if segment_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Ok(BodyEvent::Window);
+            }
+            self.read_more().await?;
+        }
+    }
+
+    fn take_staged(&mut self, max_len: u64) -> Result<Option<Vec<u8>>> {
+        if self.staged.is_empty() {
+            return Ok(None);
+        }
+        let room = usize::try_from(max_len).map_err(|_| Error::StorageIntegrity)?;
+        let take = room.min(self.staged.len());
+        let audio = self.staged.drain(..take).collect::<Vec<_>>();
+        self.received = self
+            .received
+            .checked_add(u64::try_from(audio.len()).map_err(|_| Error::StorageIntegrity)?)
+            .ok_or(Error::StorageIntegrity)?;
+        Ok(Some(audio))
+    }
+
+    async fn read_more(&mut self) -> Result<()> {
+        let mut read = if let Some(read) = self.inflight.take() {
+            read
+        } else {
+            let response = self.response.take().ok_or(Error::StorageIntegrity)?;
+            park_read(response)
+        };
+        let ready = wait_chunk(&mut read).await;
+        if let Some((chunk, response)) = ready {
+            self.response = Some(response);
+            let chunk = chunk?;
+            if let Some(chunk) = chunk {
+                let audio = if let Some(splitter) = self.splitter.as_mut() {
+                    splitter.push(&chunk)?
+                } else {
+                    chunk
+                };
+                self.accept_audio(&audio)?;
+            } else {
+                self.ended = Some(TransferEnd::EndOfBody);
+            }
+        } else {
+            self.inflight = Some(read);
+        }
+        Ok(())
+    }
+
+    fn accept_audio(&mut self, audio: &[u8]) -> Result<()> {
+        let staged = u64::try_from(self.staged.len()).map_err(|_| Error::StorageIntegrity)?;
+        let used = self
+            .received
+            .checked_add(staged)
+            .ok_or(Error::StorageIntegrity)?;
+        let room = self.limit.saturating_sub(used);
+        let room = usize::try_from(room).unwrap_or(usize::MAX);
+        let take = audio.len().min(room);
+        if take < audio.len() {
+            self.limited = true;
+        }
+        self.staged.extend_from_slice(&audio[..take]);
+        Ok(())
+    }
+}
+
+fn park_read(response: reqwest::Response) -> ParkedRead {
+    Box::pin(async move {
+        let mut response = response;
+        let chunk = response
+            .chunk()
+            .await
+            .map_err(|_| Error::Acquisition("body interrupted; partial body is unverified"));
+        let bytes = match chunk {
+            Ok(Some(chunk)) => Ok(Some(chunk.to_vec())),
+            Ok(None) => Ok(None),
+            Err(error) => Err(error),
+        };
+        (bytes, response)
+    })
+}
+
+async fn wait_chunk(read: &mut ParkedRead) -> Option<(Result<Option<Vec<u8>>>, reqwest::Response)> {
+    // The parked read stays alive across this tick so the segment window does not cancel the socket.
+    let sleep = tokio::time::sleep(Duration::from_millis(50));
+    tokio::pin!(sleep);
+    poll_fn(|context| match read.as_mut().poll(context) {
+        Poll::Ready(value) => Poll::Ready(Some(value)),
+        Poll::Pending => match sleep.as_mut().poll(context) {
+            Poll::Ready(()) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        },
+    })
+    .await
 }
 
 async fn next_chunk(

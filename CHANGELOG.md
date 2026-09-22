@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Sealed segments on one running radio capture. The open ceiling is 32 MiB, or 5000 ms of receive time, whichever comes first. That 5000 ms bound is the candidate uncommitted window, not a measured durability result. The whole byte budget stays one escrow. A stale token cannot seal, and renewal stays on the same socket. Catalog schema is v17 and local IPC is v17.
+- Added `sigy doctor`, a read-only preflight for the library, decoder, quota, directory cache age, and podcast snapshot age. It does not refresh or use the network. Stations older than 24 hours stay cached. `radio status` shows how many cached stations are stale. Recording refuses to start when the configured decoder is not a file.
+
 - Rewrote the README as a product introduction. It shows `sigy --help` and an empty list-explorer frame from this Windows host. Command detail lives in the usage guide.
 - Added `scripts/install.sh` and `scripts/install.ps1`. They install Rust 1.98.1 for the current user when `cargo` is missing, then install the `sigy` binary from this checkout. They do not install an operating-system service or download FFmpeg, and they are not the verification entry point.
 

@@ -6,6 +6,17 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 Catalog schema is v16 and local IPC is v16. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
+## Doctor
+
+```text
+sigy --data-dir PATH_TO_LIBRARY doctor
+sigy --data-dir PATH_TO_LIBRARY doctor --strict
+```
+
+`doctor` reads the local library and does not refresh, delete, or contact a network. It reports each check as ok, attention, or blocked. Attention means the library still works and names the command that would improve it. Blocked means a configured check is unusable, and the process exits with an error. `--strict` also exits with an error when any check needs attention.
+
+An empty station cache, or cached stations older than 24 hours, is attention. Those stations stay searchable. Favorites stay. A refresh merges one page and does not delete unseen stations. The report suggests `radio refresh NEW_ID --limit 100`. Choose a new id for each fetch. A running refresh is reported instead of starting another one. Podcast snapshots older than 24 hours are attention and are not downloaded by that suggestion. A missing decoder is attention until recording is required. A configured decoder path that is not a file is blocked, and recording refuses to start.
+
 ## Library and budget
 
 ```text

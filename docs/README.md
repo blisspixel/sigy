@@ -44,6 +44,11 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Measured recording intervals](decisions/0023-recording-intervals.md) project one published file onto decoded duration and byte length. The planned window and an unpublished part are not airtime.
 
+[Doctor and cache freshness](decisions/0024-doctor-and-cache-freshness.md) checks the library without using the network. A stale station cache stays in place until an explicit refresh.
+
+[Segment seals](decisions/0025-segment-seals.md) close a running radio capture at 32 MiB or 5000 ms of receive time. The 5000 ms bound is not a measured durability result.
+
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:

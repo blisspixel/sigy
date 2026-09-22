@@ -114,6 +114,14 @@ impl Store {
         Ok(())
     }
 
+    pub(crate) fn running_publisher_fetches(&self) -> Result<i64> {
+        Ok(self.connection.query_row(
+            "SELECT count(*) FROM podcast_text_fetches WHERE state = 'running'",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
     pub(crate) fn recover_publisher_text(&mut self) -> Result<()> {
         self.connection.execute(
             "UPDATE podcast_text_fetches SET state = 'interrupted', failure = 'service stopped before publisher text completed' WHERE state = 'running'",

@@ -213,6 +213,10 @@ impl Store {
         for id in &ids {
             let job = journal::read_job(&tx, id)?.ok_or(Error::CaptureIntegrity)?;
             journal::transition(&tx, job, CaptureEvent::Lost, "service_recovery", recorded)?;
+            tx.execute(
+                "UPDATE recordings SET escrow_bytes = escrow_bytes + open_ceiling, open_ceiling = 0 WHERE id = ?1 AND open_ceiling > 0",
+                [id],
+            )?;
         }
         tx.commit()?;
         Ok(ids.len())

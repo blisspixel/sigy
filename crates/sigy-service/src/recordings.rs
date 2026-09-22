@@ -4,9 +4,12 @@ mod decoder;
 mod live;
 pub mod metadata;
 mod pipe;
+mod seal;
+mod segment;
 
 pub(crate) use live::stream_revision;
 pub(crate) use pipe::valid_listen_nonce as pipe_nonce_valid;
+pub(crate) use seal::{SealAction, SealReply};
 
 use sha2::{Digest, Sha256};
 use std::{
@@ -23,7 +26,10 @@ use crate::{
         HttpSource,
         http::{AcquisitionLimits, AudioContentType, HttpAcquirer, TransferEnd},
     },
-    storage::dvr::{Publication, hex, validate_object_key},
+    storage::{
+        captures::CaptureVersion,
+        dvr::{Publication, hex, validate_object_key},
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,12 +159,26 @@ pub(crate) fn delete(library: &mut Library, id: &str, pruning: bool) -> Result<(
         return Ok(());
     }
     let media = checked_directory(library.directory(), true)?;
-    for extension in ["part", "media"] {
-        let path = object_path(&media, &record.object_key, extension)?;
-        match fs::remove_file(path) {
-            Ok(()) => (),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-            Err(error) => return Err(error.into()),
+    let mut keys = vec![record.object_key.clone()];
+    if let Some(key) = record.open_object_key.clone() {
+        keys.push(key);
+    }
+    keys.extend(
+        record
+            .intervals
+            .iter()
+            .map(|interval| interval.object_key.clone()),
+    );
+    keys.sort();
+    keys.dedup();
+    for key in keys {
+        for extension in ["part", "media"] {
+            let path = object_path(&media, &key, extension)?;
+            match fs::remove_file(path) {
+                Ok(()) => (),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+                Err(error) => return Err(error.into()),
+            }
         }
     }
     #[cfg(unix)]
@@ -200,9 +220,26 @@ pub(crate) struct CaptureRequest {
     pub acquirer: HttpAcquirer,
     pub hls: bool,
     pub icy: bool,
+    pub token: CaptureVersion,
 }
 
-pub(crate) async fn capture(
+pub(crate) async fn capture<C, Fut>(
+    request: CaptureRequest,
+    stop: tokio::sync::watch::Receiver<bool>,
+    catalog: C,
+) -> Result<Publication>
+where
+    C: Fn(CaptureVersion, seal::SealAction) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<seal::SealReply>> + Send,
+{
+    if segment::enabled(request.hls, &request.limits) {
+        segment::run(request, stop, catalog).await
+    } else {
+        single_file(request, stop).await
+    }
+}
+
+async fn single_file(
     request: CaptureRequest,
     mut stop: tokio::sync::watch::Receiver<bool>,
 ) -> Result<Publication> {
@@ -215,6 +252,7 @@ pub(crate) async fn capture(
         acquirer,
         hls,
         icy,
+        ..
     } = request;
     let media = checked_directory(&directory, true)?;
     let part = object_path(&media, &key, "part")?;
@@ -299,6 +337,7 @@ pub(crate) async fn capture(
             TransferEnd::DurationLimit => "duration_limit",
             TransferEnd::UserStop => "user_stop",
         },
+        segments_sealed: false,
     })
 }
 

@@ -82,6 +82,12 @@ enum Command {
     },
     /// Speak MCP 2026-07-28 on stdin and stdout for one configured library.
     Mcp,
+    /// Check the library, decoder, quota, and cache age. This does not use the network.
+    Doctor {
+        /// Exit with an error when any check needs attention.
+        #[arg(long)]
+        strict: bool,
+    },
     /// Open the list explorer. Selection does not start audio, capture, refresh, or a click.
     Tui {
         /// Freeze decorative motion. No animation is drawn in this explorer.
@@ -149,6 +155,8 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         command.operation()?
     } else if let Command::Dvr { command } = &cli.command {
         command.operation()?
+    } else if matches!(cli.command, Command::Doctor { .. }) {
+        Operation::Doctor {}
     } else {
         Operation::Status {}
     };
@@ -206,6 +214,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if cli.json {
         serde_json::to_writer(&mut stdout, &view)?;
         writeln!(stdout)?;
+    } else if let Some(report) = &view.doctor {
+        render_doctor(&mut stdout, report)?;
     } else if let Some(policy) = view.dvr {
         dvr::render_policy(&mut stdout, &policy)?;
     } else if let Some(page) = view.recording_page {
@@ -230,6 +240,44 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         radio::render(&mut stdout, &view)?;
     } else {
         render_status(&mut stdout, &view)?;
+    }
+    if let Command::Doctor { strict } = &cli.command {
+        let report = view.doctor.as_ref().ok_or("doctor report is missing")?;
+        if report.blocked() || (*strict && report.attention()) {
+            return Err("doctor found a check that needs action".into());
+        }
+    }
+    Ok(())
+}
+
+fn render_doctor(
+    stdout: &mut impl Write,
+    report: &sigy_service::control::DoctorReport,
+) -> io::Result<()> {
+    let blocked = report
+        .checks
+        .iter()
+        .filter(|check| check.state == sigy_service::control::DoctorState::Blocked)
+        .count();
+    let attention = report
+        .checks
+        .iter()
+        .filter(|check| check.state == sigy_service::control::DoctorState::Attention)
+        .count();
+    writeln!(
+        stdout,
+        "Doctor: {attention} attention, {blocked} blocked. No network request was made."
+    )?;
+    for check in &report.checks {
+        let state = match check.state {
+            sigy_service::control::DoctorState::Ok => "ok",
+            sigy_service::control::DoctorState::Attention => "attention",
+            sigy_service::control::DoctorState::Blocked => "blocked",
+        };
+        writeln!(stdout, "{state} {}: {}", check.name, check.detail)?;
+        if let Some(command) = &check.command {
+            writeln!(stdout, "  Next: {command}")?;
+        }
     }
     Ok(())
 }

@@ -5,12 +5,16 @@ use super::{
 use crate::{
     Error, Result,
     library::Library,
-    recordings,
+    recordings::{self, SealAction, SealReply},
     sources::{
         HttpSource,
         http::{AcquisitionLimits, HttpAcquirer},
     },
-    storage::{captures::CaptureJob, dvr::Publication, podcast_feeds::EpisodeAdmission},
+    storage::{
+        captures::{CaptureJob, CaptureVersion},
+        dvr::{Publication, SegmentOpen, SegmentSeal},
+        podcast_feeds::EpisodeAdmission,
+    },
 };
 use std::{collections::HashMap, thread, time::Instant};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -60,6 +64,11 @@ pub(super) enum Message {
         id: String,
         generation: i64,
         result: Result<Publication>,
+    },
+    Segment {
+        token: CaptureVersion,
+        action: SealAction,
+        reply: oneshot::Sender<Result<SealReply>>,
     },
     Shutdown,
 }
@@ -334,13 +343,20 @@ impl Actor {
     }
 
     fn decoder(&self) -> Result<String> {
-        self.library
+        let path = self
+            .library
             .store()
             .dvr_status()?
             .decoder
             .ok_or(Error::InvalidInput(
                 "DVR decoder is not configured; use dvr configure",
-            ))
+            ))?;
+        if !super::doctor::decoder_is_file(&path) {
+            return Err(Error::InvalidInput(
+                "DVR decoder is not a file; use dvr configure",
+            ));
+        }
+        Ok(path)
     }
 
     fn spawn_recording(&mut self, job: &CaptureJob, capture: SpawnedCapture) -> Result<()> {
@@ -369,10 +385,13 @@ impl Actor {
             }
         };
         let generation = job.version.generation();
+        let token = job.version.clone();
         let acquirer = self.acquirer.clone();
+        let catalog = self.sender.upgrade().ok_or(Error::ServiceStopped)?;
         let worker_id = id.clone();
         let worker = self.spawn_worker(
             move |signal| {
+                let catalog = catalog.clone();
                 recordings::capture(
                     recordings::CaptureRequest {
                         directory,
@@ -383,8 +402,13 @@ impl Actor {
                         acquirer,
                         hls,
                         icy,
+                        token,
                     },
                     signal,
+                    move |token, action| {
+                        let catalog = catalog.clone();
+                        async move { segment_reply(&catalog, token, action).await }
+                    },
                 )
             },
             move |result| Message::Finished {
@@ -441,6 +465,46 @@ impl Actor {
                 if self.library.store().dvr_status()?.available_bytes >= requested {
                     return Ok(());
                 }
+            }
+        }
+    }
+
+    fn apply_segment(&mut self, token: &CaptureVersion, action: SealAction) -> Result<SealReply> {
+        let store = self.library.store_mut();
+        match action {
+            SealAction::Connected => Ok(SealReply::Ready(store.connect_recording(token)?)),
+            SealAction::Open => match store.open_segment(token)? {
+                SegmentOpen::Opened {
+                    version,
+                    object_key,
+                    ceiling,
+                    ordinal,
+                } => Ok(SealReply::Opened {
+                    version,
+                    object_key,
+                    ceiling,
+                    ordinal,
+                }),
+                SegmentOpen::BudgetHeld => Ok(SealReply::BudgetHeld),
+            },
+            SealAction::ReleaseOpen => Ok(SealReply::Ready(store.release_open_segment(token)?)),
+            SealAction::Renew => Ok(SealReply::Ready(store.renew_segment_lease(token)?)),
+            SealAction::Seal {
+                bytes,
+                sha256,
+                format,
+                decoded_microseconds,
+            } => {
+                let version = store.seal_segment(
+                    token,
+                    &SegmentSeal {
+                        bytes,
+                        sha256,
+                        format,
+                        decoded_microseconds,
+                    },
+                )?;
+                Ok(SealReply::Ready(version))
             }
         }
     }
@@ -606,6 +670,13 @@ fn dispatch(
             let failed = actor.finish(&id, generation, result).is_err();
             mark_failed(actor, stopping, stopped, failed);
         }
+        Message::Segment {
+            token,
+            action,
+            reply,
+        } => {
+            let _ = reply.send(actor.apply_segment(&token, action));
+        }
         Message::Request { operation, reply } => {
             answer(actor, operation, reply, stopping, stopped, started);
         }
@@ -646,6 +717,23 @@ fn answer(
         version: PROTOCOL_VERSION,
         result,
     });
+}
+
+async fn segment_reply(
+    catalog: &mpsc::Sender<Message>,
+    token: CaptureVersion,
+    action: SealAction,
+) -> Result<SealReply> {
+    let (reply, waiter) = oneshot::channel();
+    catalog
+        .send(Message::Segment {
+            token,
+            action,
+            reply,
+        })
+        .await
+        .map_err(|_| Error::ServiceStopped)?;
+    waiter.await.map_err(|_| Error::ServiceStopped)?
 }
 
 fn failure(error: &Error) -> Failure {

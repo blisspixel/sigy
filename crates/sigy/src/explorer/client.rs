@@ -419,7 +419,8 @@ mod tests {
             | Operation::ListSources { .. }
             | Operation::ShowSource { .. }
             | Operation::Playlist { .. }
-            | Operation::Dvr { .. } => false,
+            | Operation::Dvr { .. }
+            | Operation::Doctor {} => false,
         }
     }
 

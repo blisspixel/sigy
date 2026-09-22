@@ -109,6 +109,9 @@ async fn play_file(
     if record.state != "completed" || record.storage_state != "retained" {
         return Err("recording has no verified retained media".into());
     }
+    if record.intervals.len() > 1 {
+        return Err("segmented playback is not available".into());
+    }
     let format = record
         .format
         .as_deref()

@@ -1807,3 +1807,238 @@ fn enclosure_hits(
         .filter(|path| path.starts_with(prefix))
         .count())
 }
+
+struct SegmentServer {
+    url: String,
+    hits: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    stop: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl SegmentServer {
+    fn start(first: Vec<u8>, second: Vec<u8>) -> std::io::Result<Self> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let url = format!("http://127.0.0.1:{}/audio", listener.local_addr()?.port());
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let hits_worker = hits.clone();
+        let stop_worker = stop.clone();
+        let worker = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(40);
+            while !stop_worker.load(Ordering::Relaxed) && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        hits_worker.fetch_add(1, Ordering::Relaxed);
+                        stream.set_nonblocking(false)?;
+                        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+                        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+                        let mut request = Vec::new();
+                        while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+                            let mut byte = [0];
+                            stream.read_exact(&mut byte)?;
+                            request.push(byte[0]);
+                        }
+                        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n")?;
+                        write_paced(&mut stream, &first, Duration::from_millis(3500))?;
+                        thread::sleep(Duration::from_millis(3500));
+                        write_paced(&mut stream, &second, Duration::from_millis(3500))?;
+                        thread::sleep(Duration::from_millis(3000));
+                        stream.write_all(b"0\r\n\r\n")?;
+                        stream.flush()?;
+                        let _ = stream.shutdown(std::net::Shutdown::Write);
+                        let extra = Instant::now() + Duration::from_millis(300);
+                        while Instant::now() < extra {
+                            if listener.accept().is_ok() {
+                                hits_worker.fetch_add(1, Ordering::Relaxed);
+                            }
+                            thread::sleep(Duration::from_millis(20));
+                        }
+                        return Ok(());
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            Err(std::io::Error::other("segment fixture was not contacted"))
+        });
+        Ok(Self {
+            url,
+            hits,
+            stop,
+            worker: Some(worker),
+        })
+    }
+
+    fn hits(&self) -> usize {
+        self.hits.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn finish(&mut self) -> TestResult {
+        self.worker
+            .take()
+            .ok_or("segment fixture already joined")?
+            .join()
+            .map_err(|_| "segment fixture panicked")??;
+        Ok(())
+    }
+}
+
+impl Drop for SegmentServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn write_paced(stream: &mut impl Write, bytes: &[u8], pace: Duration) -> std::io::Result<()> {
+    let pieces = 8_usize;
+    let pause = pace / u32::try_from(pieces).map_err(std::io::Error::other)?;
+    for index in 0..pieces {
+        let start = bytes.len() * index / pieces;
+        let end = if index + 1 == pieces {
+            bytes.len()
+        } else {
+            bytes.len() * (index + 1) / pieces
+        };
+        write_chunk(stream, &bytes[start..end])?;
+        thread::sleep(pause);
+    }
+    Ok(())
+}
+
+fn write_chunk(stream: &mut impl Write, bytes: &[u8]) -> std::io::Result<()> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    write!(stream, "{:X}\r\n", bytes.len())?;
+    stream.write_all(bytes)?;
+    stream.write_all(b"\r\n")?;
+    stream.flush()
+}
+
+#[test]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
+fn running_capture_seals_ordered_segments_on_one_socket() -> TestResult {
+    use sha2::{Digest, Sha256};
+    let directory = tempfile::tempdir()?;
+    let audio = wave();
+    let mut server = SegmentServer::start(audio.clone(), audio.clone())?;
+    let decoder = std::env::var("SIGY_TEST_FFMPEG")?;
+    success(directory.path(), &["library", "init"])?;
+    success(
+        directory.path(),
+        &["dvr", "configure", "--decoder", &decoder, "--quota-gb", "1"],
+    )?;
+    success(
+        directory.path(),
+        &[
+            "source",
+            "add",
+            "radio:v1",
+            "--name",
+            "Radio francophone",
+            "--url",
+            &server.url,
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &[
+            "record",
+            "start",
+            "segments",
+            "--source",
+            "radio:v1",
+            "--seconds",
+            "60",
+            "--max-mib",
+            "64",
+        ],
+    )?;
+    let first = wait_segments(directory.path(), 1)?;
+    assert_eq!(first["state"], "running");
+    assert_eq!(server.hits(), 1);
+    assert_eq!(first["open_ceiling"], 32 * 1024 * 1024);
+    assert_eq!(first["charged_bytes"], 64 * 1024 * 1024);
+    assert_eq!(first["lease_renewals"], 1);
+    assert_eq!(
+        success(directory.path(), &["dvr", "status"])?["dvr"]["reserved_bytes"],
+        64 * 1024 * 1024
+    );
+    let second = wait_segments(directory.path(), 2)?;
+    assert_eq!(second["state"], "running");
+    assert_eq!(server.hits(), 1);
+    let intervals = second["intervals"].as_array().ok_or("intervals")?;
+    assert_eq!(intervals[0]["ordinal"], 0);
+    assert_eq!(intervals[1]["ordinal"], 1);
+    assert_eq!(intervals[1]["byte_start"], intervals[0]["byte_end"]);
+    assert_eq!(
+        intervals[1]["decoded_start_us"],
+        intervals[0]["decoded_end_us"]
+    );
+    server.finish()?;
+    let done = wait_recording(directory.path(), "segments", "completed")?;
+    assert_eq!(server.hits(), 1);
+    assert_eq!(done["open_ceiling"], 0);
+    assert_eq!(done["escrow_bytes"], 0);
+    assert_eq!(done["media_bytes"], audio.len() * 2);
+    assert_eq!(done["charged_bytes"], audio.len() * 2);
+    assert_eq!(done["end_reason"], "end_of_body");
+    let intervals = done["intervals"].as_array().ok_or("intervals")?;
+    assert_eq!(intervals.len(), 2);
+    let segment_sha = hex_encode(&Sha256::digest(audio.as_slice()));
+    assert_eq!(intervals[0]["sha256"], segment_sha);
+    assert_eq!(intervals[1]["sha256"], segment_sha);
+    assert_eq!(intervals[0]["byte_end"], audio.len());
+    let mut whole = audio.clone();
+    whole.extend_from_slice(&audio);
+    assert_eq!(done["sha256"], hex_encode(&Sha256::digest(&whole)));
+    assert_eq!(
+        success(directory.path(), &["dvr", "status"])?["dvr"]["reserved_bytes"],
+        0
+    );
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    bytes.iter().fold(String::new(), |mut output, byte| {
+        let _ = write!(output, "{byte:02x}");
+        output
+    })
+}
+
+fn wait_segments(
+    directory: &std::path::Path,
+    count: usize,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + Duration::from_secs(40);
+    loop {
+        let response = success(directory, &["record", "show", "segments"])?;
+        let record = &response["recording_page"]["entries"][0];
+        let intervals = record["intervals"].as_array().map_or(0, Vec::len);
+        if record["state"] == "failed" {
+            return Err(format!("segment capture failed: {record}").into());
+        }
+        let open = record["open_ceiling"].as_u64().unwrap_or(0) == 32 * 1024 * 1024;
+        let renewed = record["lease_renewals"].as_u64().unwrap_or(0) >= 1;
+        if intervals >= count && record["state"] == "running" && renewed && open {
+            return Ok(record.clone());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!("segment seal deadline: {record}").into());
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}

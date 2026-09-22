@@ -54,6 +54,13 @@ pub(crate) struct PodcastRefreshStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PodcastCacheHealth {
+    pub subscriptions: i64,
+    pub missing_snapshots: i64,
+    pub stale_snapshots: i64,
+    pub newest_observed_ms: Option<i64>,
+}
+
 pub(crate) struct PodcastSnapshotRecord {
     pub refresh_id: String,
     pub observed_ms: i64,
@@ -169,6 +176,31 @@ impl Store {
             },
         ).optional()?.ok_or(Error::NotFound)?;
         refresh_status(id, row)
+    }
+
+    pub(crate) fn podcast_cache_health(&self, fresh_ms: i64) -> Result<PodcastCacheHealth> {
+        let cutoff = super::now_ms()?.saturating_sub(fresh_ms);
+        let subscriptions: i64 =
+            self.connection
+                .query_row("SELECT count(*) FROM podcast_subscriptions", [], |row| {
+                    row.get(0)
+                })?;
+        let missing_snapshots: i64 = self.connection.query_row(
+            "SELECT count(*) FROM podcast_subscriptions s LEFT JOIN podcast_snapshots p ON p.subscription_id = s.id WHERE p.subscription_id IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        let (stale_snapshots, newest_observed_ms): (i64, Option<i64>) = self.connection.query_row(
+            "SELECT coalesce(sum(observed_ms < ?1), 0), max(observed_ms) FROM podcast_snapshots",
+            [cutoff],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok(PodcastCacheHealth {
+            subscriptions,
+            missing_snapshots,
+            stale_snapshots,
+            newest_observed_ms,
+        })
     }
 
     /// # Errors
@@ -1392,6 +1424,7 @@ mod tests {
                 status: 200,
             }],
             observations: Vec::new(),
+            segments_sealed: false,
         }
     }
 }
