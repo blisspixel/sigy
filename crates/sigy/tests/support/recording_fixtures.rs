@@ -945,3 +945,374 @@ fn icy_metadata_stays_out_of_the_audio_hash() -> TestResult {
     service.wait()?;
     Ok(())
 }
+
+fn transcode(ffmpeg: &str, wav: &[u8], args: &[&str]) -> std::io::Result<Vec<u8>> {
+    let mut child = std::process::Command::new(ffmpeg)
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "wav",
+            "-i",
+            "pipe:0",
+        ])
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| std::io::Error::other("transcode stdin"))?;
+    stdin.write_all(wav)?;
+    drop(stdin);
+    let output = child.wait_with_output()?;
+    if !output.status.success() || output.stdout.is_empty() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(std::io::Error::other(format!("transcode failed: {detail}")));
+    }
+    Ok(output.stdout)
+}
+
+struct ServedClip {
+    name: String,
+    content_type: &'static str,
+    body: Vec<u8>,
+}
+
+struct LadderServer {
+    origin: String,
+    paths: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl LadderServer {
+    fn start(clips: std::sync::Arc<Vec<ServedClip>>) -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let origin = format!("http://127.0.0.1:{}", listener.local_addr()?.port());
+        let stop = Arc::new(AtomicBool::new(false));
+        let paths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cancelled = stop.clone();
+        let recorded = paths.clone();
+        let worker = thread::spawn(move || ladder_accept(&listener, &cancelled, &recorded, &clips));
+        Ok(Self {
+            origin,
+            paths,
+            stop,
+            worker: Some(worker),
+        })
+    }
+}
+
+impl Drop for LadderServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn ladder_response(path: &str, clips: &[ServedClip]) -> (&'static str, &'static str, Vec<u8>) {
+    if path.starts_with("/list") {
+        return ("302 Found", "text/plain", Vec::new());
+    }
+    if path.starts_with("/final.m3u") {
+        return (
+            "200 OK",
+            "audio/x-mpegurl",
+            b"#EXTM3U\n#EXTINF:1,tone\nwav\n".to_vec(),
+        );
+    }
+    if let Some(clip) = clips
+        .iter()
+        .find(|clip| path.starts_with(&format!("/{}", clip.name)))
+    {
+        return ("200 OK", clip.content_type, clip.body.clone());
+    }
+    ("404 Not Found", "text/plain", b"missing".to_vec())
+}
+
+fn ladder_accept(
+    listener: &TcpListener,
+    cancelled: &AtomicBool,
+    recorded: &std::sync::Mutex<Vec<String>>,
+    clips: &[ServedClip],
+) -> std::io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                stream.set_nonblocking(false)?;
+                stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+                stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+                let mut request = Vec::new();
+                while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    if stream.read_exact(&mut byte).is_err() {
+                        break;
+                    }
+                    request.push(byte[0]);
+                }
+                let text = String::from_utf8_lossy(&request);
+                let path = text.split_whitespace().nth(1).unwrap_or("").to_owned();
+                if let Ok(mut paths) = recorded.lock() {
+                    paths.push(path.clone());
+                }
+                let (status, content_type, body) = ladder_response(&path, clips);
+                if status.starts_with("302") {
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 302 Found\r\nLocation: /final.m3u\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                } else {
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(&body);
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn publish_clip(directory: &std::path::Path, origin: &str, name: &str, format: &str) -> TestResult {
+    let revision = format!("fmt-{name}:v1");
+    let id = format!("rec-{name}");
+    success(
+        directory,
+        &[
+            "source",
+            "add",
+            &revision,
+            "--name",
+            name,
+            "--url",
+            &format!("{origin}/{name}"),
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    success(
+        directory,
+        &[
+            "record",
+            "start",
+            &id,
+            "--source",
+            &revision,
+            "--seconds",
+            "30",
+            "--max-mib",
+            "2",
+        ],
+    )?;
+    let record = wait_terminal(directory, &id)?;
+    assert_eq!(record["state"], "completed", "{record}");
+    assert_eq!(record["format"], format, "{record}");
+    let decoded = record["decoded_microseconds"]
+        .as_u64()
+        .ok_or("missing decoded duration")?;
+    assert!(decoded > 0, "{record}");
+    Ok(())
+}
+
+fn served(name: &str, content_type: &'static str, body: Vec<u8>) -> ServedClip {
+    ServedClip {
+        name: name.to_owned(),
+        content_type,
+        body,
+    }
+}
+
+fn generated_clips(ffmpeg: &str, wav: &[u8]) -> std::io::Result<std::sync::Arc<Vec<ServedClip>>> {
+    Ok(std::sync::Arc::new(vec![
+        served("wav", "audio/wav", wav.to_vec()),
+        served(
+            "mp3",
+            "audio/mpeg",
+            transcode(
+                ffmpeg,
+                wav,
+                &["-c:a", "libmp3lame", "-b:a", "64k", "-f", "mp3", "pipe:1"],
+            )?,
+        ),
+        served(
+            "aac",
+            "audio/aac",
+            transcode(
+                ffmpeg,
+                wav,
+                &["-c:a", "aac", "-b:a", "64k", "-f", "adts", "pipe:1"],
+            )?,
+        ),
+        served(
+            "flac",
+            "audio/flac",
+            transcode(ffmpeg, wav, &["-c:a", "flac", "-f", "flac", "pipe:1"])?,
+        ),
+        served(
+            "ogg",
+            "audio/ogg",
+            transcode(
+                ffmpeg,
+                wav,
+                &["-c:a", "libvorbis", "-q:a", "2", "-f", "ogg", "pipe:1"],
+            )?,
+        ),
+    ]))
+}
+
+fn play_redirected_playlist(directory: &std::path::Path, server: &LadderServer) -> TestResult {
+    success(
+        directory,
+        &[
+            "source",
+            "add",
+            "list:v1",
+            "--name",
+            "List",
+            "--url",
+            &format!("{}/list", server.origin),
+            "--pin-address",
+            "127.0.0.1",
+            "--redirects",
+            "same-origin",
+        ],
+    )?;
+    success(
+        directory,
+        &[
+            "source",
+            "playlist",
+            "resolve",
+            "list-1",
+            "--revision",
+            "list:v1",
+        ],
+    )?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut resolved = success(directory, &["source", "playlist", "status", "list-1"])?;
+    while resolved["playlist"]["state"] == "running" {
+        assert!(Instant::now() < deadline, "{resolved}");
+        thread::sleep(Duration::from_millis(30));
+        resolved = success(directory, &["source", "playlist", "status", "list-1"])?;
+    }
+    assert_eq!(resolved["playlist"]["state"], "completed", "{resolved}");
+    success(
+        directory,
+        &[
+            "source",
+            "playlist",
+            "accept",
+            "list-1",
+            "--index",
+            "0",
+            "--revision",
+            "entry:v1",
+            "--name",
+            "Entry",
+        ],
+    )?;
+    success(
+        directory,
+        &[
+            "record",
+            "start",
+            "entry-rec",
+            "--source",
+            "entry:v1",
+            "--seconds",
+            "30",
+            "--max-mib",
+            "2",
+        ],
+    )?;
+    let entry = wait_terminal(directory, "entry-rec")?;
+    assert_eq!(entry["state"], "completed", "{entry}");
+    assert_eq!(entry["format"], "wav", "{entry}");
+    let played = success(
+        directory,
+        &[
+            "listen",
+            "source",
+            "entry-listen",
+            "--revision",
+            "entry:v1",
+            "--destination",
+            "null",
+        ],
+    )?;
+    assert_eq!(played["destination"], "null", "{played}");
+    assert_eq!(played["format"], "wav", "{played}");
+    assert_eq!(played["progress_advanced"], true, "{played}");
+    let playhead = played["playhead_us"].as_u64().ok_or("missing playhead")?;
+    assert!(playhead > 0, "{played}");
+    let paths = server.paths.lock().map_err(|_| "ladder paths")?.clone();
+    assert_local_paths(&paths);
+    Ok(())
+}
+
+fn assert_local_paths(paths: &[String]) {
+    assert!(paths.iter().any(|path| path.starts_with("/list")));
+    assert!(paths.iter().any(|path| path.starts_with("/final.m3u")));
+    for name in ["wav", "mp3", "aac", "flac", "ogg"] {
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.starts_with(&format!("/{name}"))),
+            "{paths:?}"
+        );
+    }
+    for path in paths {
+        let expected = path.starts_with("/list")
+            || path.starts_with("/final.m3u")
+            || ["wav", "mp3", "aac", "flac", "ogg"]
+                .iter()
+                .any(|name| path.starts_with(&format!("/{name}")));
+        assert!(expected, "{paths:?}");
+    }
+}
+
+#[test]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
+fn local_ladder_decodes_generated_formats_without_a_public_station() -> TestResult {
+    let ffmpeg = std::env::var("SIGY_TEST_FFMPEG")?;
+    let server = LadderServer::start(generated_clips(&ffmpeg, &wave())?)?;
+    let directory = tempfile::tempdir()?;
+    success(directory.path(), &["library", "init"])?;
+    success(
+        directory.path(),
+        &["dvr", "configure", "--decoder", &ffmpeg, "--quota-gb", "1"],
+    )?;
+    let mut service = RunningChild::start(directory.path())?;
+    for (name, format) in [
+        ("wav", "wav"),
+        ("mp3", "mp3"),
+        ("aac", "aac"),
+        ("flac", "flac"),
+        ("ogg", "ogg"),
+    ] {
+        publish_clip(directory.path(), &server.origin, name, format)?;
+    }
+    play_redirected_playlist(directory.path(), &server)?;
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}

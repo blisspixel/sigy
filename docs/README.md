@@ -26,6 +26,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [ICY observations](decisions/0013-icy-observations.md) keep explicit stream titles out of the published audio. The default recording and every listen still reject interleaved metadata.
 
+[Decoded formats](decisions/0014-decoded-formats.md) names only the formats one local run decoded, on the operating system and FFmpeg build that ran them.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:
