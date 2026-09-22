@@ -133,6 +133,7 @@ pub enum GapCause {
     RefusedRenewal,
     CapturePause,
     BackwardClock,
+    LateStart,
 }
 
 impl GapCause {
@@ -145,6 +146,7 @@ impl GapCause {
             Self::RefusedRenewal => "refused_renewal",
             Self::CapturePause => "capture_pause",
             Self::BackwardClock => "backward_clock",
+            Self::LateStart => "late_start",
         }
     }
 
@@ -157,6 +159,7 @@ impl GapCause {
             Self::RefusedRenewal => "seek is inside a refused renewal gap",
             Self::CapturePause => "seek is inside a capture pause gap",
             Self::BackwardClock => "seek is inside a backward clock gap",
+            Self::LateStart => "seek is inside a late start gap",
         }
     }
 
@@ -168,6 +171,7 @@ impl GapCause {
             "refused_renewal" => Ok(Self::RefusedRenewal),
             "capture_pause" => Ok(Self::CapturePause),
             "backward_clock" => Ok(Self::BackwardClock),
+            "late_start" => Ok(Self::LateStart),
             _ => Err(Error::StorageIntegrity),
         }
     }
@@ -230,6 +234,43 @@ pub(in crate::storage) fn journal_suffix_gap(
         params![id, ordinal, cause.as_str(), start_us, planned_us],
     )?;
     Ok(true)
+}
+
+pub(in crate::storage) fn journal_prefix_gap(
+    tx: &rusqlite::Connection,
+    id: &str,
+    late_us: i64,
+) -> Result<()> {
+    if late_us <= 0 {
+        return Ok(());
+    }
+    let planned_seconds: i64 = tx.query_row(
+        "SELECT duration_seconds FROM recordings WHERE id = ?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    let planned_us = planned_seconds
+        .checked_mul(1_000_000)
+        .ok_or(Error::StorageIntegrity)?;
+    if late_us >= planned_us {
+        return Err(Error::InvalidInput(
+            "capture is outside its acquisition window",
+        ));
+    }
+    tx.execute(
+        "INSERT INTO recording_gaps(recording_id, ordinal, cause, start_us, end_us) VALUES (?1, 0, ?2, 0, ?3)",
+        params![id, GapCause::LateStart.as_str(), late_us],
+    )?;
+    Ok(())
+}
+
+fn prefix_end_us(tx: &rusqlite::Connection, id: &str) -> Result<i64> {
+    tx.query_row(
+        "SELECT COALESCE((SELECT end_us FROM recording_gaps WHERE recording_id = ?1 AND start_us = 0), 0)",
+        [id],
+        |row| row.get(0),
+    )
+    .map_err(Error::from)
 }
 
 fn unreleased_bytes(tx: &rusqlite::Transaction<'_>, id: &str, sealed: i64) -> Result<i64> {
@@ -709,9 +750,18 @@ impl Store {
             publication.bytes,
             &publication.observations,
         )?;
+        let origin = prefix_end_us(&tx, expected.id())?;
+        let timeline_end = origin.checked_add(decoded).ok_or(Error::StorageIntegrity)?;
         tx.execute(
-            "INSERT INTO recording_intervals(recording_id, ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end, object_key, sha256, format, ceiling_bytes) SELECT ?1, 0, 0, ?2, 0, ?3, object_key, ?4, ?5, byte_ceiling FROM recordings WHERE id = ?1",
-            params![expected.id(), decoded, bytes, publication.sha256, publication.format],
+            "INSERT INTO recording_intervals(recording_id, ordinal, decoded_start_us, decoded_end_us, byte_start, byte_end, object_key, sha256, format, ceiling_bytes) SELECT ?1, 0, ?2, ?3, 0, ?4, object_key, ?5, ?6, byte_ceiling FROM recordings WHERE id = ?1",
+            params![
+                expected.id(),
+                origin,
+                timeline_end,
+                bytes,
+                publication.sha256,
+                publication.format
+            ],
         )?;
         note_segment_clock(&tx, expected.id(), 0)?;
         let now = now_ms()?;
@@ -834,11 +884,17 @@ impl Store {
         if open_ceiling < bytes || open_key.is_none() {
             return Err(Error::StorageIntegrity);
         }
-        let (byte_start, decoded_start, ordinal): (i64, i64, i64) = tx.query_row(
+        let (byte_start, interval_end, ordinal): (i64, i64, i64) = tx.query_row(
             "SELECT COALESCE(MAX(byte_end), 0), COALESCE(MAX(decoded_end_us), 0), COALESCE(MAX(ordinal) + 1, 0) FROM recording_intervals WHERE recording_id = ?1",
             [job.version.id()],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
+        let prefix = if ordinal == 0 {
+            prefix_end_us(&tx, job.version.id())?
+        } else {
+            0
+        };
+        let decoded_start = interval_end.max(prefix);
         let byte_end = byte_start
             .checked_add(bytes)
             .ok_or(Error::StorageIntegrity)?;
@@ -1017,7 +1073,7 @@ impl Store {
             return Err(Error::StorageIntegrity);
         }
         let (sealed, measured, mismatched): (i64, i64, bool) = tx.query_row(
-            "SELECT COALESCE(SUM(byte_end - byte_start), 0), COALESCE(MAX(decoded_end_us), 0), EXISTS(SELECT 1 FROM recording_intervals WHERE recording_id = ?1 AND format != ?2) FROM recording_intervals WHERE recording_id = ?1",
+            "SELECT COALESCE(SUM(byte_end - byte_start), 0), COALESCE(SUM(decoded_end_us - decoded_start_us), 0), EXISTS(SELECT 1 FROM recording_intervals WHERE recording_id = ?1 AND format != ?2) FROM recording_intervals WHERE recording_id = ?1",
             params![job.version.id(), publication.format],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
@@ -1415,7 +1471,7 @@ impl Store {
 
     fn recorded_gaps_match(&self) -> Result<()> {
         let broken: bool = self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM recording_gaps AS g LEFT JOIN recordings AS r ON r.id = g.recording_id WHERE r.id IS NULL OR g.end_us <= g.start_us OR EXISTS(SELECT 1 FROM recording_intervals AS i WHERE i.recording_id = g.recording_id AND i.decoded_start_us < g.end_us AND g.start_us < i.decoded_end_us))",
+            "SELECT EXISTS(SELECT 1 FROM recording_gaps AS g LEFT JOIN recordings AS r ON r.id = g.recording_id WHERE r.id IS NULL OR g.end_us <= g.start_us OR g.end_us > r.duration_seconds * 1000000 OR EXISTS(SELECT 1 FROM recording_intervals AS i WHERE i.recording_id = g.recording_id AND i.decoded_start_us < g.end_us AND g.start_us < i.decoded_end_us))",
             [],
             |row| row.get(0),
         )?;
@@ -1436,7 +1492,7 @@ impl Store {
             return Err(Error::StorageIntegrity);
         }
         let intervals: bool = self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM recording_intervals i LEFT JOIN recordings r ON r.id = i.recording_id WHERE r.id IS NULL OR (i.ordinal = 0 AND (i.byte_start != 0 OR i.decoded_start_us != 0)) OR (i.ordinal > 0 AND (i.byte_start != (SELECT p.byte_end FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1) OR i.decoded_start_us != (SELECT p.decoded_end_us FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1))) OR (r.media_bytes IS NOT NULL AND (r.media_bytes + COALESCE((SELECT SUM(x.byte_length) FROM recording_releases x WHERE x.recording_id = r.id), 0) != (SELECT COALESCE(SUM(q.byte_end - q.byte_start), 0) FROM recording_intervals q WHERE q.recording_id = r.id) OR r.decoded_microseconds != (SELECT MAX(q.decoded_end_us) FROM recording_intervals q WHERE q.recording_id = r.id))) OR (r.media_bytes IS NULL AND r.storage_state = 'retained') OR (r.decoded_microseconds IS NOT NULL AND i.decoded_end_us = r.duration_seconds * 1000000 AND i.decoded_end_us != r.decoded_microseconds))",
+            "SELECT EXISTS(SELECT 1 FROM recording_intervals i LEFT JOIN recordings r ON r.id = i.recording_id WHERE r.id IS NULL OR (i.ordinal = 0 AND (i.byte_start != 0 OR i.decoded_start_us != COALESCE((SELECT g.end_us FROM recording_gaps g WHERE g.recording_id = i.recording_id AND g.start_us = 0), 0))) OR (i.ordinal > 0 AND (i.byte_start != (SELECT p.byte_end FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1) OR i.decoded_start_us != (SELECT p.decoded_end_us FROM recording_intervals p WHERE p.recording_id = i.recording_id AND p.ordinal = i.ordinal - 1))) OR (r.media_bytes IS NOT NULL AND (r.media_bytes + COALESCE((SELECT SUM(x.byte_length) FROM recording_releases x WHERE x.recording_id = r.id), 0) != (SELECT COALESCE(SUM(q.byte_end - q.byte_start), 0) FROM recording_intervals q WHERE q.recording_id = r.id) OR r.decoded_microseconds != (SELECT COALESCE(SUM(q.decoded_end_us - q.decoded_start_us), 0) FROM recording_intervals q WHERE q.recording_id = r.id))) OR (r.media_bytes IS NULL AND r.storage_state = 'retained') OR (r.decoded_microseconds IS NOT NULL AND NOT EXISTS (SELECT 1 FROM recording_gaps g WHERE g.recording_id = i.recording_id) AND i.decoded_end_us = r.duration_seconds * 1000000 AND i.decoded_end_us != r.decoded_microseconds))",
             [],
             |row| row.get(0),
         )?;
@@ -1587,6 +1643,102 @@ pub(crate) fn admit_recording_in(
         now,
     )?;
     Ok(Some(job))
+}
+
+pub(in crate::storage) struct ScheduledRecording<'a> {
+    pub id: &'a str,
+    pub source: &'a str,
+    pub planned_start_ms: i64,
+    pub planned_end_ms: i64,
+    pub seconds: u64,
+    pub maximum: u64,
+    pub now_ms: i64,
+}
+
+/// Admit one scheduled window. The plan keeps the civil bounds. A late `now_ms` records a prefix gap.
+/// # Errors
+/// Rejects a window that is not open, a missing source, quota, or a second job for the same id.
+pub(in crate::storage) fn admit_scheduled_recording(
+    tx: &rusqlite::Connection,
+    request: &ScheduledRecording<'_>,
+) -> Result<CaptureJob> {
+    if request.now_ms < request.planned_start_ms || request.now_ms >= request.planned_end_ms {
+        return Err(Error::InvalidInput(
+            "capture is outside its acquisition window",
+        ));
+    }
+    let span = request
+        .planned_end_ms
+        .checked_sub(request.planned_start_ms)
+        .ok_or(Error::StorageIntegrity)?;
+    if span != i64::try_from(request.seconds * 1000).map_err(|_| Error::StorageIntegrity)? {
+        return Err(Error::StorageIntegrity);
+    }
+    let (profile, seconds, maximum) = profile_limits(request.seconds, request.maximum, false)?;
+    if profile != RecordingProfile::Radio {
+        return Err(Error::InvalidInput("recording duration or byte ceiling"));
+    }
+    let existing: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM recordings WHERE id = ?1)",
+        [request.id],
+        |row| row.get(0),
+    )?;
+    if existing {
+        return Err(Error::IdempotencyConflict);
+    }
+    let found: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM source_revisions WHERE id = ?1)",
+        [request.source],
+        |row| row.get(0),
+    )?;
+    if !found {
+        return Err(Error::NotFound);
+    }
+    let listening: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM listen_sessions WHERE source_revision = ?1 AND state = 'running')",
+        [request.source],
+        |row| row.get(0),
+    )?;
+    if listening {
+        return Err(Error::InvalidInput("source revision is in use"));
+    }
+    recording_capacity(tx, maximum)?;
+    let plan = CapturePlan::new(
+        request.source,
+        request.planned_start_ms,
+        request.planned_end_ms,
+        i64::try_from(maximum).map_err(|_| Error::StorageIntegrity)?,
+    )?;
+    let admission = captures::admit(tx, request.id, &plan)?;
+    if !admission.newly_created {
+        return Err(Error::IdempotencyConflict);
+    }
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random)
+        .map_err(|_| Error::InvalidInput("secure random source unavailable"))?;
+    let key = hex(&random);
+    tx.execute(
+        "INSERT INTO recordings(id, object_key, duration_seconds, initial_retention, retention, storage_state, charged_bytes, metadata_requested, profile, byte_ceiling, escrow_bytes) VALUES (?1, ?2, ?3, 'temporary', 'temporary', 'reserved', ?4, 0, ?5, ?4, ?4)",
+        params![
+            request.id,
+            key,
+            i64::try_from(seconds).map_err(|_| Error::StorageIntegrity)?,
+            plan.maximum_bytes(),
+            profile.as_str(),
+        ],
+    )?;
+    let elapsed_ms = request.now_ms - request.planned_start_ms;
+    let prefix_us = elapsed_ms
+        .checked_mul(1000)
+        .ok_or(Error::StorageIntegrity)?;
+    journal_prefix_gap(tx, request.id, prefix_us)?;
+    journal::transition(
+        tx,
+        admission.job,
+        CaptureEvent::Start,
+        "schedule_admitted",
+        request.now_ms,
+    )
 }
 
 fn locked_job(connection: &rusqlite::Connection, expected: &CaptureVersion) -> Result<CaptureJob> {

@@ -14,6 +14,7 @@ use crate::{
         captures::{CaptureJob, CaptureVersion},
         dvr::{Publication, SegmentOpen, SegmentSeal},
         podcast_feeds::EpisodeAdmission,
+        schedules::ScheduleLaunch,
     },
 };
 use std::{collections::HashMap, thread, time::Instant};
@@ -46,6 +47,7 @@ pub(super) enum Message {
         id: String,
         result: Result<crate::storage::podcast_text::TextDocument>,
     },
+    Schedules,
     ListenReady {
         id: String,
         nonce: String,
@@ -158,27 +160,10 @@ impl Actor {
             }
             Operation::Record {
                 command: RecordingOperation::Stop { id },
-            } => {
-                self.library.store().recording(&id)?;
-                if let Some(worker) = self.workers.get(&id) {
-                    worker.stop.send_replace(true);
-                }
-                Operation::Record {
-                    command: RecordingOperation::Show { id },
-                }
-            }
+            } => self.finish_record(id, false)?,
             Operation::Record {
                 command: RecordingOperation::Pause { id },
-            } => {
-                self.library.store().recording(&id)?;
-                if let Some(worker) = self.workers.get(&id) {
-                    worker.stop.send_replace(true);
-                }
-                self.library.store_mut().pause_capture(&id)?;
-                Operation::Record {
-                    command: RecordingOperation::Show { id },
-                }
-            }
+            } => self.finish_record(id, true)?,
             Operation::Listen {
                 command: super::ListenOperation::Start { id, revision_id },
             } => {
@@ -196,8 +181,21 @@ impl Actor {
                 }
             }
             Operation::Playback { command } => return self.playback(command),
+            Operation::Schedule { command }
+                if matches!(
+                    command,
+                    super::ScheduleOperation::Create { .. }
+                        | super::ScheduleOperation::Revise { .. }
+                ) =>
+            {
+                return self.apply_schedule(&command);
+            }
             other => other,
         };
+        self.finish_snapshot(operation, created)
+    }
+
+    fn finish_snapshot(&mut self, operation: Operation, created: Option<bool>) -> Result<Snapshot> {
         let mut snapshot = apply_library(&mut self.library, operation)?;
         if let Some(listen) = snapshot.listen.as_mut() {
             if let Some(created) = created {
@@ -436,6 +434,87 @@ impl Actor {
             ));
         }
         Ok(path)
+    }
+
+    fn finish_record(&mut self, id: String, pause: bool) -> Result<Operation> {
+        self.library.store().recording(&id)?;
+        if let Some(worker) = self.workers.get(&id) {
+            worker.stop.send_replace(true);
+        }
+        if pause {
+            self.library.store_mut().pause_capture(&id)?;
+        }
+        Ok(Operation::Record {
+            command: RecordingOperation::Show { id },
+        })
+    }
+
+    fn apply_schedule(&mut self, command: &super::ScheduleOperation) -> Result<Snapshot> {
+        let id = schedule_id(command);
+        let mut snapshot = apply_library(
+            &mut self.library,
+            Operation::Schedule {
+                command: command.clone(),
+            },
+        )?;
+        let created = snapshot
+            .schedule
+            .as_ref()
+            .and_then(|page| page.newly_created);
+        self.reconcile_schedules()?;
+        if let Some(id) = id {
+            let mut page = super::schedule::show(self.library.store(), &id)?;
+            page.newly_created = created;
+            snapshot.schedule = Some(page);
+        }
+        snapshot.captures.dispatch_available = self.library.store().dvr_status()?.decoder.is_some();
+        Ok(snapshot)
+    }
+
+    fn reconcile_schedules(&mut self) -> Result<()> {
+        let now = crate::storage::now_ms()?;
+        let admit = self.decoder().is_ok();
+        let mut batch = self
+            .library
+            .store_mut()
+            .reconcile_schedules_at(now, admit)?;
+        if batch.quota_exhausted && admit {
+            self.reclaim(crate::sources::http::MAXIMUM_BODY_BYTES)?;
+            let retry = self.library.store_mut().reconcile_schedules_at(now, true)?;
+            batch.launches.extend(retry.launches);
+        }
+        for launch in batch.launches {
+            if let Err(error) = self.spawn_scheduled(&launch) {
+                let _ = self
+                    .library
+                    .store_mut()
+                    .fail_recording(&launch.job.version, &error);
+            }
+        }
+        Ok(())
+    }
+
+    fn spawn_scheduled(&mut self, launch: &ScheduleLaunch) -> Result<()> {
+        let source = self
+            .library
+            .store()
+            .source(&launch.source_revision)?
+            .ok_or(Error::NotFound)?
+            .source;
+        let decoder = self.decoder()?;
+        let limits =
+            crate::sources::http::AcquisitionLimits::new(launch.maximum_bytes, launch.remaining)?;
+        self.spawn_recording(
+            &launch.job,
+            SpawnedCapture {
+                id: launch.job.version.id().to_owned(),
+                source,
+                limits,
+                decoder,
+                hls: false,
+                icy: false,
+            },
+        )
     }
 
     fn spawn_recording(&mut self, job: &CaptureJob, capture: SpawnedCapture) -> Result<()> {
@@ -687,6 +766,11 @@ pub(super) fn spawn(
             let started = Instant::now();
             let mut stopped = false;
             let mut shutdown = false;
+            if actor.reconcile_schedules().is_err() {
+                stopped = true;
+                actor.stop();
+                let _ = stopping.send_replace(true);
+            }
             while let Some(message) = receiver.blocking_recv() {
                 dispatch(
                     &mut actor,
@@ -740,6 +824,10 @@ fn dispatch(
         }
         Message::Sweep => {
             let failed = !*stopped && recordings::prune(&mut actor.library).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::Schedules => {
+            let failed = !*stopped && actor.reconcile_schedules().is_err();
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::Shutdown => {
@@ -846,6 +934,14 @@ struct SpawnedCapture {
     decoder: String,
     hls: bool,
     icy: bool,
+}
+
+fn schedule_id(command: &super::ScheduleOperation) -> Option<String> {
+    match command {
+        super::ScheduleOperation::Create { id, .. }
+        | super::ScheduleOperation::Revise { id, .. } => Some(id.clone()),
+        super::ScheduleOperation::List { .. } | super::ScheduleOperation::Show { .. } => None,
+    }
 }
 
 struct RecordingLaunch {

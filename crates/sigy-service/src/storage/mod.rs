@@ -17,9 +17,10 @@ pub(crate) mod podcast_feeds;
 pub(crate) mod podcast_text;
 pub mod podcasts;
 pub use clicks::ClickStatus;
+pub(crate) mod schedules;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 19;
+pub const SCHEMA_VERSION: u32 = 20;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -92,6 +93,7 @@ impl Store {
         store.audit_clicks()?;
         store.audit_listens()?;
         store.audit_podcasts()?;
+        store.audit_schedules()?;
         Ok(store)
     }
 
@@ -171,6 +173,9 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     }
     if (0..=18).contains(&version) {
         transaction.execute_batch(include_str!("019-segment-retention.sql"))?;
+    }
+    if (0..=19).contains(&version) {
+        transaction.execute_batch(include_str!("020-schedules.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,
@@ -192,7 +197,7 @@ fn validate_key(value: &str, field: &'static str) -> Result<()> {
     Ok(())
 }
 
-fn now_ms() -> Result<i64> {
+pub(crate) fn now_ms() -> Result<i64> {
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis();

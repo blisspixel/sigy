@@ -407,7 +407,8 @@ mod tests {
             Operation::Stop {}
             | Operation::Listen { .. }
             | Operation::Playback { .. }
-            | Operation::Podcast { .. } => true,
+            | Operation::Podcast { .. }
+            | Operation::Schedule { .. } => true,
             Operation::Record { command } => !matches!(
                 command,
                 RecordingOperation::List { .. } | RecordingOperation::Show { .. }

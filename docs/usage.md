@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 `--data-dir` is required except for `sigy update`, help, and version. Use a private directory outside the checkout. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v19 and local IPC is v20. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v20 and local IPC is v21. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Update
 
@@ -185,6 +185,17 @@ Default retention is 14 days and 50 GB of managed media. A temporary recording m
 Direct audio, explicitly permitted redirects, one finite HLS media playlist, and explicit ICY metadata on `record start --icy` are the current recording profile. A radio attempt is at most 15 minutes and 256 MiB, with up to two active attempts. On Windows, with FFmpeg 9.0.1, one local session decoded direct WAV, MP3, AAC served as `audio/aac`, FLAC, and Ogg Vorbis. The same session decoded WAV from one accepted playlist entry behind one same-origin redirect and played that revision to `--destination null`. The fixture contacted only 127.0.0.1. One session is not a support matrix. See [decoded formats](decisions/0014-decoded-formats.md).
 
 Playlist media types still fail on `record start`. A listen, an HLS recording, and `record start` without `--icy` still reject `icy-metaint` before writing audio. A body that hits a ceiling without a clean end is not playable. Continuous segmented recording is not qualified yet. Failed and partial bytes keep their reservation and are not offered as playable media. See [recording and retention](decisions/0005-recording-and-retention.md) and [recording metadata](design/recording-metadata.md).
+
+## Schedules
+
+```text
+sigy --data-dir PATH_TO_LIBRARY schedule create morning --source local:v1 --zone America/New_York --daily 06:00:00 --seconds 900 --max-mib 64
+sigy --data-dir PATH_TO_LIBRARY schedule create once-001 --source local:v1 --zone Etc/UTC --once 2026-09-23T06:00:00 --seconds 900
+sigy --data-dir PATH_TO_LIBRARY schedule create weekly-001 --source local:v1 --zone Europe/Paris --weekly mon --at 18:30:00
+sigy --data-dir PATH_TO_LIBRARY schedule show morning
+```
+
+A rule binds one source revision, one IANA time zone, and one civil clock. The recurrence is once, daily, or weekly. Duration and bytes stay inside the radio ceiling of 15 minutes and 256 MiB. Only the next occurrence is stored. The service admits that occurrence when its window is open and a decoder file is configured. A second admit does not create another job. A window that has already ended stays missed and is not backfilled. A civil time that does not exist, such as a spring-forward hour, is missed. A repeated fall-back hour uses the earlier offset once. Changing a rule does not rewrite an occurrence that was already admitted. A late admit records a prefix gap for the missed start and keeps the original plan bounds. No analysis profile can be attached. See [recording schedules](decisions/0029-recording-schedules.md).
 
 ## Listening
 

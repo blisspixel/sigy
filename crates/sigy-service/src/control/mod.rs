@@ -10,6 +10,7 @@ mod listen;
 mod playback;
 mod playlist;
 mod podcast;
+mod schedule;
 mod server;
 
 use serde::{Deserialize, Serialize};
@@ -31,9 +32,10 @@ pub use podcast::{
     PodcastEpisodeView, PodcastFeedView, PodcastIdentityKind, PodcastOperation, PodcastPage,
     PodcastView, PublisherTextView,
 };
+pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 20;
+pub const PROTOCOL_VERSION: u32 = 21;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -101,6 +103,10 @@ pub enum Operation {
     Podcast {
         command: PodcastOperation,
     },
+    /// One station rule. An analysis profile is rejected.
+    Schedule {
+        command: ScheduleOperation,
+    },
     /// Read-only preflight. It does not refresh, delete, or contact a network.
     Doctor {},
 }
@@ -121,6 +127,7 @@ impl std::fmt::Debug for Operation {
             Self::Listen { .. } => "listen",
             Self::Playback { .. } => "playback",
             Self::Podcast { .. } => "podcast",
+            Self::Schedule { .. } => "schedule",
             Self::Doctor {} => "doctor",
         };
         f.debug_struct("Operation")
@@ -190,6 +197,8 @@ pub struct Snapshot {
     pub publisher_text: Option<PublisherTextView>,
     #[serde(default)]
     pub doctor: Option<DoctorReport>,
+    #[serde(default)]
+    pub schedule: Option<SchedulePage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,6 +261,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
             return Err(Error::ServiceRequired);
         }
         Operation::Podcast { command } => return podcast::apply(store, command),
+        Operation::Schedule { command } => return schedule::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
                 recording_metadata = Some(crate::recordings::metadata::export(
@@ -372,6 +382,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         podcast_feed: None,
         publisher_text: None,
         doctor: None,
+        schedule: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

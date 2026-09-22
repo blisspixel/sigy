@@ -42,10 +42,13 @@ pub async fn run(mut library: Library, shutdown: impl Future<Output = ()>) -> Re
     let mut clients = JoinSet::new();
     let mut retention_tick = tokio::time::interval(std::time::Duration::from_secs(60));
     retention_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut schedule_tick = tokio::time::interval(std::time::Duration::from_secs(1));
+    schedule_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     tokio::pin!(shutdown);
     let result = loop {
         tokio::select! {
             _ = retention_tick.tick() => { let _ = catalog.try_send(Message::Sweep); },
+            _ = schedule_tick.tick() => { let _ = catalog.try_send(Message::Schedules); },
             () = &mut shutdown => break Ok(()),
             _ = stopped.changed() => break Ok(()),
             joined = clients.join_next(), if !clients.is_empty() => {

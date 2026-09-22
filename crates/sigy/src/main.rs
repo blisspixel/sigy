@@ -17,6 +17,7 @@ mod listen;
 mod mcp;
 mod podcast;
 mod radio;
+mod schedule;
 mod service;
 mod sources;
 mod style;
@@ -46,6 +47,11 @@ enum Command {
     Record {
         #[command(subcommand)]
         command: dvr::RecordCommand,
+    },
+    /// Schedule one source by civil time. No analysis profile can be attached.
+    Schedule {
+        #[command(subcommand)]
+        command: schedule::ScheduleCommand,
     },
     /// Configure rolling retention, storage quota and media validation.
     Dvr {
@@ -168,6 +174,8 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         command.operation()
     } else if let Command::Record { command } = &cli.command {
         command.operation()?
+    } else if let Command::Schedule { command } = &cli.command {
+        command.operation()?
     } else if let Command::Dvr { command } = &cli.command {
         command.operation()?
     } else if matches!(cli.command, Command::Doctor { .. }) {
@@ -236,6 +244,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         dvr::render_policy(&mut stdout, &policy, ink)?;
     } else if let Some(page) = view.recording_page {
         dvr::render_records(&mut stdout, &page, ink)?;
+    } else if let Some(page) = view.schedule {
+        schedule::render(&mut stdout, &page)?;
     } else if view.playlist.is_some() || view.source_page.is_some() {
         if let Some(playlist) = &view.playlist {
             sources::render_playlist(&mut stdout, playlist)?;

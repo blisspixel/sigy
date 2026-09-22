@@ -8,6 +8,7 @@ mod error;
 pub mod library;
 mod podcast;
 pub mod recordings;
+mod schedule;
 pub mod sources;
 pub mod storage;
 
