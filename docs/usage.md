@@ -158,16 +158,18 @@ A published file has one measured interval: decoded duration and published byte 
 sigy --data-dir PATH_TO_LIBRARY record pause morning-001
 ```
 
-`record pause` stops a running capture. The part of the plan with no published audio becomes a gap. A disconnect, service recovery, codec change, refused segment renewal, and a backward clock write a gap with that cause. A gap is not a silence file. `listen file` refuses a seek inside a gap and plays one sealed segment, including while the capture is still running. The open tail is not playable. See [capture gaps](decisions/0026-capture-gaps.md) and [segment playback](decisions/0027-segment-playback.md).
+`record pause` stops a running capture. The part of the plan with no published audio becomes a gap. A disconnect, service recovery, codec change, refused segment renewal, and a backward clock write a gap with that cause. A gap is not a silence file. `listen file` refuses a seek inside a gap and plays one sealed segment, including while the capture is still running. The open tail is not readable. See [capture gaps](decisions/0026-capture-gaps.md) and [segment playback](decisions/0027-segment-playback.md).
 
 ```text
 sigy --data-dir PATH_TO_LIBRARY listen attach listener-a --recording morning-001
 sigy --data-dir PATH_TO_LIBRARY listen pause listener-a
+sigy --data-dir PATH_TO_LIBRARY listen seek listener-a --seek-us 200000
 sigy --data-dir PATH_TO_LIBRARY listen live listener-a
+sigy --data-dir PATH_TO_LIBRARY listen play listener-a --destination null
 sigy --data-dir PATH_TO_LIBRARY listen detach listener-a
 ```
 
-`listen pause` stores that playhead. It does not stop the capture and does not write a gap. `listen live` parks at the end of the newest published segment. `listen detach` drops the playhead and leaves the capture running. A second attach is another playhead on the same recording.
+`listen pause` stores that playhead. It does not stop the capture and does not write a gap. `listen seek` moves it only inside one published segment, and only inside that segment's decoded duration. A gap and the open tail are refused. `listen live` parks at the end of the newest published segment and does not read the open tail. `listen play` plays that sealed file in this client and then drops the playhead. Leaving it does not stop the capture. `listen detach` drops a playhead that is still attached. A second attach is another playhead on the same recording. A paused position that falls before the earliest retained segment is expired until the listener seeks or returns to live.
 
 Default retention is 14 days and 50 GB of managed media. A temporary recording may stay while it is processed. `record keep` and `record archive` keep it, and those bytes still count toward the quota. Archive does not create a backup. New recordings fail when protected media fills the allowance. `record temporary` restores rolling retention. `record processed ID --receipt RECEIPT_ID` records that processing finished. It does not run analysis. The service sweep then deletes that temporary file. The same sweep deletes other temporary recordings older than the retention window. Quota pressure removes the oldest temporary recordings sooner. `dvr prune` runs that same reclaim. `record delete` deletes inactive media even when it is protected and keeps the catalog history.
 

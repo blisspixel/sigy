@@ -177,7 +177,10 @@ mod tests {
         if live_edge(&intervals) != Some(2_000_000) || earliest_retained(&intervals) != Some(0) {
             return Err("edge".into());
         }
-        if !position_expired(200_000, Some(1_000_000)) || position_expired(200_000, Some(0)) {
+        if !position_expired(200_000, Some(1_000_000))
+            || position_expired(200_000, Some(0))
+            || !position_expired(0, None)
+        {
             return Err("expiry".into());
         }
         Ok(())

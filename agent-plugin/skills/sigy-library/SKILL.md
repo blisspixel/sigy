@@ -16,12 +16,12 @@ Sigy is a local catalog. The MCP server runs the same commands as the CLI agains
 - `podcast_subscribe` stores a feed. It does not resolve DNS or download. The URL, pin, and redirect policy are immutable for that subscription id.
 - `doctor` checks the catalog, decoder, quota, and cache age. It does not refresh, delete, or use the network. A stale station cache stays searchable. Favorites stay. The suggested refresh command is explicit.
 - `record_pause` stops one running capture. The uncovered plan is a gap with a cause. A gap is not a silence file. Seeking inside that range fails.
-- `listen file` plays one sealed segment. `listen pause` stores a playhead and does not stop the capture or write a gap. The open tail is not playable.
+- `listen_file` plays one sealed segment. `listen_pause` stores a playhead and does not stop the capture or write a gap. `listen_seek` stays inside a published segment. The open tail is not readable. `listen_play` drops that playhead when it returns and leaves the capture running.
 - `podcast_refresh` fetches one RSS document. It does not download enclosures, transcripts, or chapters.
 - `podcast_text` fetches one stored transcript or chapter document. The cues are unverified publisher text. Their times are not media time. It does not change the recording quota. Restart marks a running fetch interrupted and keeps the previous snapshot.
 - `podcast_download` is explicit. It reserves 512 MiB and 30 minutes before connecting. Reusing the recording id does not download again.
 - `record_start` records an already registered source revision. It does not accept a URL. Radio attempts stay within 15 minutes and 256 MiB.
-- `listen_file` plays a retained file. Pass `destination` `null` unless the user asked for speakers. An episode enclosure has no live listen: do not call a live listen on that revision.
+- `listen_file` plays a retained file or one sealed segment. Pass `destination` `null` unless the user asked for speakers. An episode enclosure has no live listen: do not call a live listen on that revision. `listen_pause` is not `record_pause`.
 - `service_stop` stops the controller. Quit of an agent does not, by itself, stop a recording. Call `service_stop` only when the user asked to stop the service.
 
 ## Library path
@@ -30,4 +30,4 @@ Sigy is a local catalog. The MCP server runs the same commands as the CLI agains
 
 ## Playback limit
 
-`listen_file` stops after 120 seconds and leaves the recording in place. For a longer file, ask the user to play it outside the agent.
+`listen_file` and `listen_play` stop after 120 seconds and leave the capture in place. For a longer file, ask the user to play it outside the agent.

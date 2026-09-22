@@ -2072,6 +2072,13 @@ fn play_two_segments_without_stopping_capture(
     if tail.status.success() || !tail_error.contains("open tail") {
         return Err(format!("open tail was readable: {tail_error}").into());
     }
+    independent_playheads(directory, intervals)
+}
+
+fn independent_playheads(
+    directory: &std::path::Path,
+    intervals: &[serde_json::Value],
+) -> Result<(), Box<dyn std::error::Error>> {
     success(
         directory,
         &["listen", "attach", "listener-a", "--recording", "segments"],
@@ -2081,10 +2088,48 @@ fn play_two_segments_without_stopping_capture(
         directory,
         &["listen", "attach", "listener-b", "--recording", "segments"],
     )?;
+    let live = intervals[1]["decoded_end_us"].as_u64().ok_or("live")?;
+    let tail = super::invoke(
+        directory,
+        &[
+            "listen",
+            "seek",
+            "listener-b",
+            "--seek-us",
+            &live.to_string(),
+        ],
+    )?;
+    let tail_error = String::from_utf8_lossy(&tail.stderr);
+    if tail.status.success() || !tail_error.contains("open tail") {
+        return Err(format!("session seek read the open tail: {tail_error}").into());
+    }
+    let moved = success(
+        directory,
+        &["listen", "seek", "listener-b", "--seek-us", "200000"],
+    )?;
+    if moved["playhead_us"] != 200_000 || moved["state"] == "paused" {
+        return Err(format!("seek did not enter the segment: {moved}").into());
+    }
+    let paused = success(directory, &["listen", "session", "listener-a"])?;
+    if paused["state"] != "paused" || paused["playhead_us"] == 200_000 {
+        return Err(format!("playheads were not independent: {paused}").into());
+    }
+    let played = success(
+        directory,
+        &["listen", "play", "listener-b", "--destination", "null"],
+    )?;
+    if played["progress_advanced"] != true || played["detached"] != true {
+        return Err(format!("session play did not finish: {played}").into());
+    }
+    let closed = super::invoke(directory, &["listen", "session", "listener-b"])?;
+    if closed.status.success() {
+        return Err("client exit left the playhead attached".into());
+    }
     success(directory, &["listen", "detach", "listener-a"])?;
     let still = success(directory, &["record", "show", "segments"])?;
     let still = &still["recording_page"]["entries"][0];
-    if still["state"] != "running" {
+    let state = still["state"].as_str().unwrap_or("");
+    if state == "failed" || state == "interrupted" {
         return Err(format!("capture stopped: {still}").into());
     }
     if still["gaps"]
@@ -2093,7 +2138,6 @@ fn play_two_segments_without_stopping_capture(
     {
         return Err("playback pause wrote a gap".into());
     }
-    success(directory, &["listen", "detach", "listener-b"])?;
     Ok(())
 }
 

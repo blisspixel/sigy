@@ -11,11 +11,27 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlaybackOperation {
-    Attach { id: String, recording_id: String },
-    Pause { id: String },
-    Live { id: String },
-    Show { id: String },
-    Detach { id: String },
+    Attach {
+        id: String,
+        recording_id: String,
+    },
+    Pause {
+        id: String,
+    },
+    /// Move this playhead. This does not signal the capture worker.
+    Seek {
+        id: String,
+        seek_us: u64,
+    },
+    Live {
+        id: String,
+    },
+    Show {
+        id: String,
+    },
+    Detach {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +112,49 @@ impl PlaySessions {
         session.paused = true;
         session.parked = false;
         Ok(())
+    }
+
+    pub(crate) fn seek(&mut self, id: &str, recording: &Recording, seek_us: u64) -> Result<()> {
+        match self.sessions.iter().find(|session| session.id == id) {
+            None => return Err(Error::NotFound),
+            Some(session) if session.recording != recording.id => return Err(Error::RequestState),
+            Some(_) => {}
+        }
+        let tail_open = recording.state == "running"
+            && recording.open_ceiling > 0
+            && recording.open_object_key.is_some();
+        let located =
+            crate::recordings::locate(&recording.intervals, &recording.gaps, tail_open, seek_us);
+        let session = self.session_mut(id)?;
+        match located {
+            crate::recordings::Located::Segment {
+                file_seek_us,
+                file_decoded_us,
+                object_key,
+                ..
+            } => {
+                if file_seek_us >= file_decoded_us
+                    || recording.open_object_key.as_deref() == Some(object_key.as_str())
+                {
+                    return Err(Error::InvalidInput("open tail is not readable"));
+                }
+                session.playhead_us = seek_us;
+                session.paused = false;
+                session.parked = false;
+                session.expired = false;
+                Ok(())
+            }
+            crate::recordings::Located::Gap { cause } => {
+                Err(Error::InvalidInput(cause.seek_denial()))
+            }
+            crate::recordings::Located::OpenTail { .. } => {
+                Err(Error::InvalidInput("open tail is not readable"))
+            }
+            crate::recordings::Located::Outside { .. }
+            | crate::recordings::Located::Unpublished => {
+                Err(Error::InvalidInput("seek is outside the retained audio"))
+            }
+        }
     }
 
     pub(crate) fn park(&mut self, id: &str, live_us: u64) -> Result<()> {
@@ -231,6 +290,61 @@ mod tests {
             .map_err(|error| error.to_string())?;
         if !expired.expired || later.state != "running" || !later.gaps.is_empty() {
             return Err("expired pause changed the capture".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn seek_stays_inside_a_segment_and_refuses_a_gap_and_the_tail() -> Result<(), String> {
+        use crate::storage::dvr::{GapCause, RecordingGap};
+        let mut sessions = PlaySessions::default();
+        sessions
+            .open("ear", "job", 200_000)
+            .map_err(|error| error.to_string())?;
+        let mut capture = recording(0);
+        capture.gaps.push(RecordingGap {
+            ordinal: 0,
+            cause: GapCause::Disconnect,
+            start_us: 2_000_000,
+            end_us: 3_000_000,
+        });
+        if !matches!(
+            sessions.seek("ear", &capture, 2_000_000),
+            Err(crate::Error::InvalidInput(message)) if message.contains("gap")
+        ) {
+            return Err("gap seek was accepted".into());
+        }
+        let kept = sessions
+            .refresh("ear", &capture)
+            .map_err(|error| error.to_string())?;
+        if kept.playhead_us != 200_000 || capture.state != "running" || capture.gaps.len() != 1 {
+            return Err("gap seek changed the playhead or the capture".into());
+        }
+        if !matches!(
+            sessions.seek("ear", &capture, 1_000_000),
+            Err(crate::Error::InvalidInput("open tail is not readable"))
+        ) {
+            return Err("open tail was readable".into());
+        }
+        sessions
+            .seek("ear", &capture, 100_000)
+            .map_err(|error| error.to_string())?;
+        sessions.pause("ear").map_err(|error| error.to_string())?;
+        let later = recording(1_000_000);
+        let expired = sessions
+            .refresh("ear", &later)
+            .map_err(|error| error.to_string())?;
+        if !expired.expired || later.state != "running" {
+            return Err("paused position did not expire".into());
+        }
+        sessions
+            .seek("ear", &later, 1_100_000)
+            .map_err(|error| error.to_string())?;
+        let recovered = sessions
+            .refresh("ear", &later)
+            .map_err(|error| error.to_string())?;
+        if recovered.expired || recovered.paused || recovered.playhead_us != 1_100_000 {
+            return Err("seek did not recover inside retained audio".into());
         }
         Ok(())
     }

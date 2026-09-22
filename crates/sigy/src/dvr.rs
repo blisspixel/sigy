@@ -256,7 +256,7 @@ pub fn render_records(writer: &mut impl Write, page: &RecordingPage) -> io::Resu
             )?;
         }
         if record.open_ceiling > 0 && record.open_object_key.is_some() {
-            writeln!(writer, "  Open tail: not playable.")?;
+            writeln!(writer, "  Open tail: visible, not readable.")?;
         }
     }
     if page.entries.is_empty() {

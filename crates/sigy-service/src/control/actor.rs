@@ -216,12 +216,21 @@ impl Actor {
         let id = match command {
             PlaybackOperation::Attach { id, recording_id } => {
                 let record = self.library.store().recording(&recording_id)?;
-                let playhead = crate::recordings::live_edge(&record.intervals).unwrap_or(0);
+                let playhead = crate::recordings::live_edge(&record.intervals)
+                    .ok_or(Error::InvalidInput("no published segment"))?;
                 self.playback.open(&id, &recording_id, playhead)?;
+                self.playback.park(&id, playhead)?;
                 id
             }
             PlaybackOperation::Pause { id } => {
+                // Playback pause does not signal the capture worker.
                 self.playback.pause(&id)?;
+                id
+            }
+            PlaybackOperation::Seek { id, seek_us } => {
+                let recording_id = self.playback_recording(&id)?;
+                let record = self.library.store().recording(&recording_id)?;
+                self.playback.seek(&id, &record, seek_us)?;
                 id
             }
             PlaybackOperation::Live { id } => {

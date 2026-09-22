@@ -842,21 +842,21 @@ impl Store {
             |row| row.get(0),
         )?;
         let now = now_ms()?;
+        if current.is_some_and(|expires| expires < now) {
+            let recorded = job.updated_ms;
+            end_with_gap(
+                &tx,
+                job,
+                GapCause::RefusedRenewal,
+                CaptureEvent::Fail,
+                "refused_renewal",
+                recorded,
+            )?;
+            tx.commit()?;
+            return Err(Error::InvalidInput("segment lease renewal was refused"));
+        }
         let proposed = lease_deadline(now, job.plan.ends_ms())?;
         if current.is_some_and(|current| proposed <= current) {
-            if current.is_some_and(|current| current >= job.plan.ends_ms()) {
-                let recorded = job.updated_ms;
-                end_with_gap(
-                    &tx,
-                    job,
-                    GapCause::RefusedRenewal,
-                    CaptureEvent::Fail,
-                    "refused_renewal",
-                    recorded,
-                )?;
-                tx.commit()?;
-                return Err(Error::InvalidInput("segment lease renewal was refused"));
-            }
             return Err(Error::RequestState);
         }
         if tx.execute(
@@ -1378,7 +1378,9 @@ fn locked_job(connection: &rusqlite::Connection, expected: &CaptureVersion) -> R
 fn lease_deadline(now: i64, ends_ms: i64) -> Result<i64> {
     let window =
         i64::try_from(SEGMENT_RECEIVE_WINDOW.as_millis()).map_err(|_| Error::StorageIntegrity)?;
-    Ok(now.saturating_add(window).min(ends_ms))
+    // The close follows the receive cut. A second window lets that close renew in time.
+    let horizon = window.saturating_mul(2);
+    Ok(now.saturating_add(horizon).min(ends_ms))
 }
 
 fn fresh_object_key(connection: &rusqlite::Connection) -> Result<String> {

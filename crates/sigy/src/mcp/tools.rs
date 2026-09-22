@@ -479,11 +479,67 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "listen_file",
-        description: "Play one retained recording in this process for at most 120 seconds. destination null discards samples. This does not contact the source or change retention.",
+        description: "Play one retained recording, or one sealed segment, in this process for at most 120 seconds. destination null discards samples. This does not contact the source or stop capture.",
         hints: HINT_CHANGE,
         words: &["listen", "file"],
         slots: LISTEN_FILE,
         timeout: PLAY,
+    },
+    Tool {
+        name: "listen_attach",
+        description: "Open one playhead on a capture, parked at the newest published segment. Does not start or stop capture.",
+        hints: HINT_CHANGE,
+        words: &["listen", "attach"],
+        slots: ATTACH,
+        timeout: SHORT,
+    },
+    Tool {
+        name: "listen_pause",
+        description: "Pause one playhead. Does not signal the capture worker and does not write a gap.",
+        hints: HINT_CHANGE,
+        words: &["listen", "pause"],
+        slots: &[pos("session", "Playback session id.")],
+        timeout: SHORT,
+    },
+    Tool {
+        name: "listen_seek",
+        description: "Move one playhead inside a published segment. A gap or the open tail is refused. Does not signal capture.",
+        hints: HINT_CHANGE,
+        words: &["listen", "seek"],
+        slots: SEEK,
+        timeout: SHORT,
+    },
+    Tool {
+        name: "listen_live",
+        description: "Park one playhead at the end of the newest published segment. Does not read the open tail.",
+        hints: HINT_CHANGE,
+        words: &["listen", "live"],
+        slots: &[pos("session", "Playback session id.")],
+        timeout: SHORT,
+    },
+    Tool {
+        name: "listen_play",
+        description: "Play one playhead's published segment for at most 120 seconds, then drop that playhead. Does not stop capture.",
+        hints: HINT_CHANGE,
+        words: &["listen", "play"],
+        slots: PLAY_SESSION,
+        timeout: PLAY,
+    },
+    Tool {
+        name: "listen_session",
+        description: "Show one playhead. No source URL or media path is included.",
+        hints: HINT_QUERY,
+        words: &["listen", "session"],
+        slots: &[pos("session", "Playback session id.")],
+        timeout: SHORT,
+    },
+    Tool {
+        name: "listen_detach",
+        description: "Drop one playhead. Does not stop the capture.",
+        hints: HINT_CHANGE,
+        words: &["listen", "detach"],
+        slots: &[pos("session", "Playback session id.")],
+        timeout: SHORT,
     },
     Tool {
         name: "listen_stop",
@@ -720,6 +776,37 @@ const DOWNLOAD: &[Slot] = &[
         "--revision",
         true,
         "New source revision id for the enclosure.",
+    ),
+];
+
+const ATTACH: &[Slot] = &[
+    pos("session", "Playback session id."),
+    text(
+        "recording",
+        "--recording",
+        true,
+        "Recording id. Not a source URL.",
+    ),
+];
+
+const SEEK: &[Slot] = &[
+    pos("session", "Playback session id."),
+    required_count(
+        "seek_us",
+        "--seek-us",
+        0,
+        3_600_000_000,
+        "Timeline offset in microseconds, inside one published segment.",
+    ),
+];
+
+const PLAY_SESSION: &[Slot] = &[
+    pos("session", "Playback session id."),
+    text(
+        "destination",
+        "--destination",
+        true,
+        "null discards samples. system uses a local device when the decoder has one.",
     ),
 ];
 
