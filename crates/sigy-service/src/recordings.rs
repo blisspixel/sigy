@@ -205,6 +205,15 @@ pub(crate) fn release_segments_at(library: &mut Library, now: i64, pressure: boo
     let Some(release) = library.store().next_segment_release(pressure, now)? else {
         return Ok(false);
     };
+    let release_bytes = u64::try_from(release.byte_length).map_err(|_| Error::StorageIntegrity)?;
+    if release.storage_state == "retained"
+        && library.store().recording(&release.id)?.media_bytes == Some(release_bytes)
+    {
+        // The last file ends retention for the recording. Preserve its published
+        // byte history and stage deletion before touching the filesystem.
+        delete(library, &release.id, true)?;
+        return Ok(true);
+    }
     let media = checked_directory(library.directory(), true)?;
     for extension in ["media", "part"] {
         let path = object_path(&media, &release.object_key, extension)?;

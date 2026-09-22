@@ -1,0 +1,136 @@
+# Retained-recording language pipeline
+
+Updated: 2026-09-22. Status: authorized build goal and implementation plan. Model selection, recognition, language spans, translation, and provider dispatch are not implemented by this document.
+
+## Goal and current evidence
+
+Turn one retained recording into inspectable original-script text, language evidence, and aligned English translation. Preserve its checksum, media clock, gaps, revisions, and uncertainty. Prove the local path with paid processing disabled, then compare explicitly authorized remote profiles under exact finite reservations. Continue through the [first-release build order](../../ROADMAP.md#build-order) only as each operation earns its evidence.
+
+Operation 22 pins published inputs. Operation 23 originally hashed retained files and stored empty cues marked `uncertain` under `local-unmeasured`. Those rows remain legacy history. New `analysis transcribe` requests fail until a measured recognizer is configured; `analysis verify` performs supervised retained-file checks under [decision 0034](../decisions/0034-retained-input-verification.md). Schema v23 enforces those empty cues and one transcript revision; an adapter cannot simply fill them in. [Local transcript decision](../decisions/0032-local-transcripts.md).
+
+Operation 24's [evidence storage and bounded read-only inspection](../decisions/0033-language-evidence.md) are implemented. No detector runs yet. Completing operation 23's recognition gate remains mandatory before operation 25 can claim useful translation. Historical operation numbers remain stable.
+
+## Confirmed scope and working limits
+
+- The initial survey is French, Spanish, Portuguese, Arabic, Swahili, Hindi, Mandarin, and English, confirmed on 2026-09-22. A majority of evaluated speech duration must be non-English. Survey membership is not a support claim.
+- Canadian French, Navajo, and Klingon remain required substantive content-processing cases under the [language contract](../design/languages.md). Generic French does not qualify Canadian French. An honest unsupported result does not fulfill substantive support. Missing models and lawful reference corpora remain explicit gaps.
+- Start on the current Windows laptop: Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Read-only inspection found display driver `32.0.31007.5012` and Ollama `0.34.2`. Compare a CPU baseline with an available iGPU backend. Other machines follow later; no platform or acceleration matrix is qualified.
+- Ollama, OpenRouter, and native local workers are task-specific adapter targets. Endpoint compatibility, model capability, language quality, and host capacity are separate checks. A text completion endpoint is not automatically an ASR endpoint. A local URL does not establish that execution stays local.
+- Validation must run without newly arranged human reviewers, as requested on 2026-09-22. Use published reference material, deterministic metrics, and calibrated independent model checks. Label results as benchmark-tested and model-reviewed where applicable; do not claim human review or unrestricted language quality. Missing independent reference evidence stays a limitation, not a requirement to recruit people before implementation can continue.
+- Public model files and licensed evaluation audio are authorized. Keep new downloads within 10 GiB and the experiment workspace within 20 GiB initially. Check actual archive, extraction, model, and temporary-file sizes before transfer or execution. Existing user models are outside this new-download allowance and must not be removed or altered.
+- The cumulative external-spend ceiling is USD 20, replacing the prior USD 10 ceiling, excluding coding-session costs. Paid OpenRouter validation is authorized within that ceiling. The product's default paid limit stays zero. [Spending ledger](progress.md#spending-ledger) owns allocations, reservations, settlement, and uncertain liabilities.
+- A LoRa radio and HackRF Pro may be made available later. They are not prerequisites for this audio pipeline. Actual device connection, firmware, receive configuration, and host qualification belong to the later hardware pilot.
+
+Keep disposable assets in `.agents/language-evaluation/` with separate `models`, `corpus`, `runs`, and `tmp` directories. Record hashes, licenses, origins, versions, bytes, and retention in one experiment manifest. Downloads use an explicit file allowlist with a cumulative byte check, not an entire model-repository snapshot; some candidate repositories exceed the whole allowance. Put no credentials there. Do not commit downloaded models or corpus media. Retain durable methodology, aggregate results, necessary license notices, and reviewable error descriptions in canonical research. Remove only task-owned temporary files, after resolving their paths inside that workspace and after preserving useful evidence.
+
+## Implementation sequence
+
+| Increment | Work and dependency | Required exit evidence |
+| --- | --- | --- |
+| 1. Honest status and frozen experiment | Correct the operation 23 description; record candidates, corpus split, resources, and current authorization | No claim of recognized speech; source and license manifest; calibration and held-out partitions fixed before comparisons |
+| 2. Language evidence, operation 24 | Storage and read-only inspection implemented; see [decision 0033](../decisions/0033-language-evidence.md) | Supplied fixtures preserve mixed, unknown, unsupported, failed, unattempted, and observed non-speech; hints and gaps create no detections. Actual detector quality remains open |
+| 3. Supervised analysis foundation | Bounded checksum jobs, durable read leases, generations, cancel and restart are implemented; native inference supervision remains open | Input-preparation tests exercise catalog responsiveness, cancellation, restart, worker faults and retention. Native output floods and process resource bounds still require qualification |
+| 4. Measured recognition, completion of operation 23 | Compare a small native recognizer set, choose a profile by evidence, and publish actual original-script text | Real speech and no-speech fixtures; per-language error and resource results; exact media mapping; immutable history; replay and crash recovery; zero paid requests |
+| 5. Aligned English translation, operation 25 | Compare local text translation on an exact transcript revision, first with reference text and then ASR output | Originals remain readable; each translated or untranslated range has a basis; adequacy and critical semantic errors are reviewed; no invented alignment or paid fallback |
+| 6. Provider configuration and billing, operations 26 and 27 | Store capability and destination profiles, secret references, and exact price snapshots; prove billing faults without a network | Zero-budget refusal, atomic worst-case reserve, no replay send, uncertain-charge retention, settlement, rollover, retry and fallback accounting pass |
+| 7. Bounded remote comparison | Only after increment 6, compare selected OpenRouter profiles on approved corpus samples | Concrete request manifest, finite allocation and reservation before every send, actual endpoint evidence, reconciled cost, quality comparison, and no unapproved data destination |
+| 8. Sustained use and later integration | Apply the selected profiles to operations 28 and 29, then monitoring | Fair live/batch queues, capture independence under overload, visible unfinished coverage, scoped corrections, and stable declared capacity |
+
+Each row is a dependency boundary, not permission to combine several unverified features into one change. Record a decision after runtime evaluation, with rejected alternatives and its exact model and host scope. Do not add all researched runtimes to the application merely to make the comparison possible.
+
+## Language evidence contract
+
+Bind acoustic evidence to the immutable analysis input; bind text-derived language evidence to the exact transcript revision as well. Acoustic evidence may exist without a successful transcript. Operation 24's initial transcript view must expose that distinction. Use half-open media intervals and retain the exact interval/checksum basis. Transcript character or cue ranges are separate from acoustic time. Resampled sample positions require an explicit integer mapping back to the published media clock; network chunks and requested recording duration are not acoustic boundaries.
+
+Keep these dimensions separate:
+
+| Dimension | Required distinctions |
+| --- | --- |
+| Observation | Identified language, mixed speech, unresolved language, positively observed non-speech |
+| Processing outcome | Not attempted, succeeded, failed, cancelled, interrupted, unavailable input |
+| Route capability | Supported by the configured profile, unsupported, not yet evaluated |
+| Evidence origin | Acoustic detector, recognizer, text detector, publisher hint, directory hint, user correction |
+| Resolution | Recording/block, speech interval, cue, or word only when actually produced at that resolution |
+
+A known language can coexist with an unsupported translation route or a failed recognition attempt. Detector failure must not be rewritten as an observation of unknown speech. An unconfigured detector has not failed. A model's single block label cannot become word-level evidence. Mixed content may have overlapping observations; do not manufacture precise switch boundaries from a list of languages.
+
+Use standards-based language identifiers through a reviewed parser or boundary adapter. Preserve the provider's original label and the mapping version. Store script/region only when the evidence supports them. Written script evidence and spoken language evidence are distinct. Preserve Unicode originals; search normalization, display sanitization, and transliteration are derived views. Confidence fields retain their native meaning and calibration status rather than becoming a universal probability.
+
+No detector runs in the operation 24 storage-only increment. Test fixtures can demonstrate preservation and validation of supplied evidence but cannot establish detection quality. An empty legacy cue cannot acquire invented observed words, language, or speech/non-speech status.
+
+## Runtime, storage, and interface boundaries
+
+The service owns jobs. The current synchronous hash-and-store path runs on the catalog actor; decoding and inference must leave that actor before real workloads run. Reuse the existing supervisor and bounded message flow. Durable submit returns promptly with job identity; status and result reads are separate. The current IPC timeout is five seconds and the frame ceiling is 256 KiB. Paginate transcript and span reads by bytes and records instead of enlarging those limits to fit arbitrary output.
+
+Publication accepts the exact job, input revision, transcript parent, worker generation, and profile identity admitted for that run. Replacement and supersession must share one transaction; the existing input-replacement path needs this correction when worker attempts are added. Validate all output as untrusted: byte and item counts, UTF-8, finite numeric values, label membership, unique IDs, time bounds, references, and terminal-safe presentation. Do not repair invalid times by silently clamping them. A valid no-speech result may contain zero transcript cues, with explicit coverage and completed processing status.
+
+Migrate empty v23 transcripts without erasing or upgrading their meaning. New real transcripts append immutable revisions; replay of the same request returns its existing attempt/result and cannot select a new model or reconnect. Retranscription is a new explicit request. A completion from a replaced worker is refused. Store result, evidence links, the attempt's terminal state, and the zero-cost decision in one transaction after validation. Superseding an old attempt and admitting its successor must also be atomic. Migration rollback must preserve the old schema and data.
+
+An analysis pin is provenance, not a retention hold. Coordinate bounded reads with the existing deletion path. Admission and worker input preparation must agree on which objects still exist. Use a reviewed read lease or an explicitly accounted private snapshot, with a finite lifetime, rather than silently applying Keep/Archive. Recheck publication eligibility and input identity after worker return. If the source expires or changes, preserve truthful attempt state and do not publish analysis of different bytes. A private normalized copy never makes the original appear retained.
+
+Give the worker only checked local input, a pinned model, typed options, and a private output location or pipe. Never give it a station URL, arbitrary shell command, catalog write connection, provider secret it does not need, or authority from transcript text. FFmpeg continues to receive only local bytes under the existing protocol whitelist. Test prompt-like speech as data through translation and later monitoring.
+
+Before the first model run, freeze and enforce an experiment profile: one active inference job, at most two inference CPU threads initially, a finite wall deadline, bounded decoded samples, bounded output, and a finite aggregate memory limit. Start with short clips, then longer retained recordings. A proposed 8 GiB job-memory ceiling is a safety limit to test, not a measured requirement. Include decoder, model runtime, children, mapped assets, GPU/shared-memory accounting, and scratch storage in the resource review. Library thread settings and a per-allocation decoder flag do not establish aggregate bounds.
+
+On Windows, evaluate the existing process wrapper's job-object boundary for child cleanup and additional enforceable memory/CPU controls. Use a maintained safe boundary compatible with the workspace's `unsafe_code` prohibition. If the selected boundary cannot enforce the proposed native limits, record that before execution and resolve it through the runtime decision; do not call a watched process sandboxed. CPU and GPU profiles need separate measurements. Preserve the user's running Ollama service and settings; use an explicitly scoped test instance or approved endpoint rather than changing global configuration or stopping unrelated work.
+
+No-network evidence has two parts: validate that the selected local adapter uses only local assets and local endpoints, and test under a controlled network-denial boundary with connection observation. Positive controls must show that the observer detects attempted connections and that denial covers the actual runtime, child processes, and any separate Ollama server. Include IPv4/IPv6, DNS, proxy settings, and auto-download paths. Polling process snapshots can miss short connections. An offline environment variable or zero provider ledger alone is insufficient. Document the enforcement method and what it cannot observe; distinguish no successful egress from no attempted network. Acquisition of models/corpus is a separate setup phase; inference must not silently download assets, enable a cloud model, or refresh an account.
+
+The existing process wrapper's root-process `try_wait` result does not prove that every descendant has exited. For a cancelled or timed-out analysis worker, terminate its owned job even if the root has already exited, then perform bounded draining and reaping. Test a grandchild that retains an output pipe after root exit. Bound captured bytes before line splitting or UTF-8 parsing; a length check after `read_line` is too late to bound allocation. Near-limit timeline, evidence, and summary payloads also belong in the native-result IPC tests before real text publication.
+
+## Corpus and model comparison
+
+The [dated research](../../research/30-language-pipeline-evaluation.md) holds upstream candidates, licenses, and capability limits. Use small comparable experiments before choosing a default. Capture complete runtime, model, tokenizer, quantization, prompt/template, decoder, driver, hardware, corpus, and normalization identities. Hash actual assets; a mutable model tag is not sufficient provenance.
+
+Keep three evidence sets separate:
+
+1. A small published, licensed multilingual baseline for reproducible candidate screening. Read speech cannot qualify broadcast performance.
+2. A lawful broadcast and mixed-speech challenge set: within-sentence switching, speakers over music, names, numbers, dates, negation, accents, short speech, silence, instrumental music, and poor reception. Synthetic compositions may test timing but must be labeled and cannot replace natural code switching.
+3. A held-out set separated by speaker, programme/source, recording session, and duplicate or parallel text where applicable. Freeze it before tuning and do not use it to select thresholds. Public benchmark contamination remains a disclosed limitation.
+
+Start with at least ten eligible clips per survey language for smoke evaluation where the corpus permits. This minimum is a smoke workload, not statistical qualification. Before a qualification run, freeze per-language duration, speakers, conditions, exclusion rules, sample-size rationale, and calibration/holdout split. Missing cases remain missing, not silently dropped from the denominator. A corpus license does not necessarily permit uploading its contents to a hosted processor; review that separately before a paid comparison.
+
+Measure speech-language identification and text-language identification separately. Report confusion, abstention, unknown coverage, and switch-boundary error only at the resolution actually supported. ASR uses reproducible WER and CER with language-appropriate normalization, plus preserved raw text and reviewed name/number/negation errors. Use CER or a documented tokenizer where word boundaries are not appropriate. A model confidence score is not recognition accuracy.
+
+Translation evaluation first isolates the translator with published reference transcripts and translations, then measures the complete ASR-to-English path on the same material. Report omissions, additions, negation, entities, quantities, speaker attribution, and meaning preservation. Human-authored dataset references may be used under their terms; new human reviewers are not a build dependency. Do not use another model's answer as the only reference.
+
+Use two different model families where a budgeted judge comparison is useful. Keep candidate identities hidden, vary answer order, fix an error rubric, and require quoted source ranges for alleged omissions or changed meaning. Calibrate per-language error sensitivity, false positives, and abstention against published references, unchanged and meaning-preserving controls, deliberately altered names/numbers/negation/omissions, and fluent unrelated answers. Set calibration pass/fail criteria before holdout. A judge that fails a language's calibration cannot contribute qualification for that language. Do not let a model grade its own output as the sole judge. Transcripts and model answers are untrusted data; include instruction-injection probes, and give judges no tools or permission to change network or spending policy. Store judge identity, prompt, disagreements, reference basis, and exact cost. Disagreement remains unresolved; majority agreement is not ground truth. Back-translation and cross-model agreement are supplementary signals because shared errors can survive both.
+
+Freeze per-language/task acceptance thresholds after calibration and before looking at held-out results. Record reasons, severe-error definitions, judge calibration, sampling uncertainty, and how abstentions affect usable coverage. Strong English or high average scores cannot compensate for a failed declared language. Claims must name their evidence level: schema-tested, benchmark-tested, model-reviewed, or operationally measured. If no candidate meets a required case, retain the requirement and document the next model/corpus experiment. Do not quietly substitute fluent invented references for absent ground truth.
+
+## Verification and fault matrix
+
+| Boundary | Required tests and observations |
+| --- | --- |
+| Schema and history | v23 migration and rollback; legacy empty cues remain recognizable; new revisions preserve originals; zero-cue no-speech success; invalid direct SQL rows rejected where schemas can enforce it |
+| Input and time | Missing/expired/replaced files; checksum mismatch; links; actual resampling offsets; segment gaps; overlapping language evidence; no cue across an uncovered gap |
+| Lifecycle | Duplicate submit before/during/after work; conflicting replay; replaced worker; cancel; service kill before spawn, during inference, and around commit; interrupted recovery without implicit resubmission |
+| Retention | Prune versus worker input open/copy; expiry during processing; explicit delete; lease cleanup after crash; no automatic Keep/Archive; scratch bytes accounted separately |
+| Untrusted output | Malformed/truncated JSON, excessive cues/text, invalid Unicode or tags, control characters, NaN/infinity, bad timestamps, wrong parent IDs, hostile content and output floods |
+| Resources | Hangs, memory pressure, child processes, CPU/GPU pressure, disk-full output, missing model, wrong model hash, failed accelerator, orphan cleanup, bounded stderr and stdout |
+| Independence | Local capture runs throughout slow/failed ASR and translation; control acknowledgments and segment publication remain responsive; client exit leaves service-owned work correctly managed |
+| Local privacy and cost | No unauthorized connections; no cloud route from a local URL; default paid budget remains zero; no paid reservation for local work; setup downloads kept distinct from inference |
+| Remote billing | Exact maximum before dispatch; insufficient funds; frozen scope; retry/fallback; replay; timeout after submit; missing usage; settlement twice; price change and rollover; uncertain liabilities retained |
+| User evidence | Inspect original and English text with language, profile, revision, gap and untranslated reasons; stable CLI/JSON output; long-result pagination; multilingual terminal-safe display |
+
+For ordinary implementation increments run `cargo verify`, whose actual definition is in `crates/sigy-xtask`. Changes to recording, playback, decoding, or HTTP acquisition also run `cargo verify-media`. Add focused meaningful tests for new invariants and native boundaries. There is no model-evaluation Cargo alias yet; document one only after it exists and its help is verified. Keep downloaded-model tests explicitly invoked, bounded, and separate from ordinary network-free unit fixtures.
+
+Measure cold load, warm processing, end-to-end real-time factor, peak committed memory, GPU/shared memory, output size, and cancellation time. Compare CPU with iGPU on identical assets and settings. Report successful, failed, and timed-out samples. Confirm which device actually executed the work; a configured accelerator flag is not evidence. Run one capture alongside one analysis job before increasing concurrency. A faster single clip cannot establish sustained live capacity.
+
+Advance soak evidence from a bounded short run to several hours, then the existing 72-hour development and seven-day release targets only after shorter gates pass. These are future runs, not completed evidence. The live-caption and translation latency targets in [assurance](../planning/04-assurance-and-validation.md#4-proposed-measurable-targets) remain proposed until a declared profile meets them.
+
+## Paid validation allocation
+
+No paid reservation has been made by this plan. Begin with a proposed maximum USD 2 batch of bounded text translation and judge requests after operations 26 and 27 pass. This is a planning envelope, not an allocation already consumed. Before sending, record model and provider, task, input hashes and duration where applicable, exact request limits, price snapshot, permitted data destinations, retry count, fallback policy, and maximum liability. Use the existing exact ledger in an isolated evaluation library and mirror the batch total in the work ledger. All judge calls count toward the same USD 20 ceiling.
+
+The reviewed OpenRouter transcription endpoint does not apply chat provider-routing preferences. Keep that route ineligible until its actual reachable destinations, prices, and request bounds satisfy policy. Do not assume a `provider.only` field protects an endpoint that ignores it. Audio-chat evaluation is also conditional on model-specific audio accounting and destination bounds. Text comparison through a qualified endpoint can proceed without either audio route.
+
+Disable automatic provider fallback unless every reachable route is explicitly permitted and fully bounded. Initially use no retries. A model or endpoint with unbounded billable dimensions is ineligible even when its expected price is cheap. Treat an ambiguous submission as spent capacity until reconciled. Stop when settled plus outstanding liabilities reaches the allocated batch ceiling or the cumulative USD 20 ceiling. Reconcile receipts before allocating another batch, and retain the remaining balance for useful comparison rather than spending to reach the ceiling. Never expose keys in manifests, exports, command logs, or repository files.
+
+Prices can have finer precision than the ledger's USD micro-unit. Parse rates exactly, multiply by proven unit bounds, and round the final worst-case liability upward before reserve. Test per-token versus per-million-token units, provider rounding, fees, and hidden reasoning. A requested output-token maximum or unit-price ceiling is not by itself a proven total billing bound.
+
+## Completion and continuation
+
+This goal is achieved only when a measured retained-recording profile produces useful real original-script text, truthful language evidence, and aligned English translation; the fault and resource checks pass; quality limits and unsupported required cases are visible; and authorized remote comparisons are reconciled or have a concrete documented reason they could not be run. A documentation update, empty transcript, green ledger audit, or upstream benchmark cannot meet that bar.
+
+The first complete product still requires live processing, corrections, monitoring, geography, release-schema restore, durability, and platform qualification. Preserve those roadmap gates. For hardware later, first verify replay adapters and typed IQ/packet clocks, then ask for the exact LoRa device/firmware or HackRF Pro setup and perform bounded receive-only tests. Plugging in a radio is not needed to validate retained internet-radio or podcast language processing.

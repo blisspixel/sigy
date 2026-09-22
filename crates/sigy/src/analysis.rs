@@ -5,6 +5,27 @@ use std::io::{self, Write};
 
 #[derive(Debug, Subcommand)]
 pub enum AnalysisCommand {
+    /// Verify retained bytes in a supervised local job. Does not recognize speech.
+    Verify {
+        id: String,
+        #[arg(long)]
+        input: String,
+        #[arg(long)]
+        revision: i64,
+    },
+    /// Inspect a verification job, including historical failures and cancellation.
+    Job { id: String },
+    /// Cancel this exact worker generation and retain its input until reading stops.
+    Cancel {
+        id: String,
+        #[arg(long)]
+        generation: u32,
+    },
+    /// Inspect stored language evidence. Does not run detection or infer from source hints.
+    Languages {
+        #[command(subcommand)]
+        command: crate::languages::LanguageCommand,
+    },
     /// Pin one completed recording. The worker receives no source URL.
     Admit {
         id: String,
@@ -22,7 +43,7 @@ pub enum AnalysisCommand {
         #[arg(long)]
         revision: i64,
     },
-    /// Store one local original-script revision. Uncertain wording stays labeled.
+    /// Transcribe a published pin. Unavailable until a measured recognizer is configured.
     Transcribe {
         id: String,
         /// Published analysis revision. An older revision is refused.
@@ -35,6 +56,23 @@ impl AnalysisCommand {
     #[must_use]
     pub fn operation(&self) -> Operation {
         match self {
+            Self::Verify {
+                id,
+                input,
+                revision,
+            } => AnalysisOperation::Verify {
+                id: id.clone(),
+                input: input.clone(),
+                revision: *revision,
+            },
+            Self::Job { id } => AnalysisOperation::Job { id: id.clone() },
+            Self::Cancel { id, generation } => AnalysisOperation::Cancel {
+                id: id.clone(),
+                generation: *generation,
+            },
+            Self::Languages { command } => AnalysisOperation::Languages {
+                command: command.operation(),
+            },
             Self::Admit {
                 id,
                 recording,
@@ -58,7 +96,34 @@ impl AnalysisCommand {
     }
 }
 
+pub fn render_job(
+    writer: &mut impl Write,
+    job: &sigy_service::control::AnalysisJob,
+) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Verification {} generation {}: {}.",
+        job.id, job.generation, job.state
+    )?;
+    writeln!(
+        writer,
+        "Input {} revision {} | {} bytes across {} files | {} USD.",
+        job.analysis_id,
+        job.analysis_revision,
+        job.expected_bytes,
+        job.expected_files,
+        job.amount_usd
+    )?;
+    if let Some(reason) = &job.reason {
+        writeln!(writer, "Reason {reason}.")?;
+    }
+    writeln!(writer, "No speech recognition or translation performed.")
+}
+
 pub fn render(writer: &mut impl Write, page: &AnalysisPage, ink: Ink) -> io::Result<()> {
+    if let Some(languages) = &page.languages {
+        return crate::languages::render(writer, languages);
+    }
     let input = &page.input;
     let disposition = match page.disposition {
         Some(AnalysisDisposition::Created) => "Analysis pin created.",
@@ -96,6 +161,9 @@ pub fn render(writer: &mut impl Write, page: &AnalysisPage, ink: Ink) -> io::Res
         )?;
     }
     if let (Some(transcript), Some(decision)) = (&page.transcript, &page.decision) {
+        if transcript.profile == "local-unmeasured" {
+            writeln!(writer, "Legacy placeholder. No speech was recognized.")?;
+        }
         let kind = if transcript.role == "original" {
             "Original script."
         } else {
@@ -141,6 +209,7 @@ mod tests {
     fn uncertain_wording_is_labeled_and_no_paid_request_is_claimed()
     -> Result<(), Box<dyn std::error::Error>> {
         let page = AnalysisPage {
+            languages: None,
             input: AnalysisView {
                 id: "pin".into(),
                 revision: 1,

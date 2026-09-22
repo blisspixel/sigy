@@ -1,20 +1,27 @@
 //! One original-script revision for a published analysis pin.
 //! The decision is zero USD and is not a ledger request.
 
+#[cfg(test)]
 use std::{fs::File, io::Read, path::Path};
 
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+#[cfg(test)]
+use rusqlite::TransactionBehavior;
+use rusqlite::{Connection, OptionalExtension, params};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 
+use super::Store;
+#[cfg(test)]
 use super::{
-    Store,
     analysis::{AnalysisRecord, AnalysisSpan},
     dvr::{Recording, hex},
 };
 use crate::{Error, Result};
 
+#[cfg(test)]
 const MAX_CUES: usize = 1024;
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TranscriptOutcome {
     Created,
@@ -47,6 +54,7 @@ impl Store {
     /// Store one local transcript after the retained files match the pin.
     /// # Errors
     /// Returns validation or catalog errors. A paid request is never reserved.
+    #[cfg(test)]
     pub(crate) fn commit_local_transcript(
         &mut self,
         directory: &Path,
@@ -120,6 +128,7 @@ impl Store {
         Ok(())
     }
 
+    #[cfg(test)]
     fn prepare_pin(&self, directory: &Path, pin: &AnalysisRecord) -> Result<()> {
         let recording = self.recording(&pin.recording_id)?;
         verify_retained_files(directory, pin, &recording)?;
@@ -152,6 +161,7 @@ impl Store {
     }
 }
 
+#[cfg(test)]
 fn unchanged(
     existing: LocalTranscript,
     pin: &AnalysisRecord,
@@ -165,6 +175,7 @@ fn unchanged(
     Ok((TranscriptOutcome::Unchanged, existing))
 }
 
+#[cfg(test)]
 fn aligned(existing: &LocalTranscript, pin: &AnalysisRecord) -> bool {
     if existing.cues.len() != pin.intervals.len() {
         return false;
@@ -180,6 +191,7 @@ fn aligned(existing: &LocalTranscript, pin: &AnalysisRecord) -> bool {
     })
 }
 
+#[cfg(test)]
 fn verify_retained_files(
     directory: &Path,
     pin: &AnalysisRecord,
@@ -207,6 +219,7 @@ fn verify_retained_files(
     Ok(())
 }
 
+#[cfg(test)]
 fn hash_file(path: &Path) -> Result<String> {
     crate::library::reject_link(path)?;
     let mut file = match File::open(path) {
@@ -228,6 +241,7 @@ fn hash_file(path: &Path) -> Result<String> {
     Ok(hex(&hasher.finalize()))
 }
 
+#[cfg(test)]
 fn cues_for(pin: &AnalysisRecord) -> Result<Vec<AnalysisSpan>> {
     if pin.intervals.is_empty() {
         return Err(Error::InvalidInput("no retained media"));
@@ -253,6 +267,7 @@ fn cues_for(pin: &AnalysisRecord) -> Result<Vec<AnalysisSpan>> {
     Ok(pin.intervals.clone())
 }
 
+#[cfg(test)]
 fn insert_transcript(connection: &Connection, pin: &AnalysisRecord, now: i64) -> Result<()> {
     let cues = cues_for(pin)?;
     connection.execute(
@@ -277,6 +292,7 @@ fn insert_transcript(connection: &Connection, pin: &AnalysisRecord, now: i64) ->
     Ok(())
 }
 
+#[cfg(test)]
 fn micros(value: u64) -> Result<i64> {
     i64::try_from(value).map_err(|_| Error::StorageIntegrity)
 }
@@ -381,6 +397,30 @@ mod tests {
 
     type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
+    // Preserve v23 persistence/rollback coverage without exposing the legacy empty writer in production.
+    fn apply_legacy_fixture(
+        library: &mut Library,
+        operation: Operation,
+    ) -> Result<crate::control::Snapshot> {
+        let Operation::Analysis {
+            command: AnalysisOperation::Transcribe { id, revision },
+        } = operation
+        else {
+            return Err(Error::InvalidInput("legacy fixture operation"));
+        };
+        let directory = library.directory().to_path_buf();
+        let (outcome, _) = library
+            .store_mut()
+            .commit_local_transcript(&directory, &id, revision, 12)?;
+        let mut snapshot = apply(library.store_mut(), AnalysisOperation::Show { id }.into())?;
+        let page = snapshot.analysis.as_mut().ok_or(Error::StorageIntegrity)?;
+        page.disposition = Some(match outcome {
+            TranscriptOutcome::Created => AnalysisDisposition::Transcribed,
+            TranscriptOutcome::Unchanged => AnalysisDisposition::TranscriptUnchanged,
+        });
+        Ok(snapshot)
+    }
+
     fn open_library(root: &Path) -> Result<Library> {
         let mut library = Library::open(root, true)?;
         let executable = std::env::current_exe()?;
@@ -475,6 +515,29 @@ mod tests {
             .query_row("SELECT count(*) FROM transcripts", [], |row| row.get(0))?)
     }
 
+    #[test]
+    fn production_transcribe_refuses_without_creating_placeholder_or_work() -> TestResult {
+        let root = tempfile::tempdir()?;
+        let mut library = open_library(root.path())?;
+        publish_audio(&mut library, "one", b"retained fixture")?;
+        seal_pin(&mut library, "pin", "one")?;
+        assert!(matches!(
+            apply_library(&mut library, transcribe("pin", 1)),
+            Err(Error::InvalidInput(
+                "no measured recognizer is configured; analysis verify checks retained input"
+            ))
+        ));
+        assert_eq!(transcript_count(library.store())?, 0);
+        let jobs: i64 = library.store().connection.query_row(
+            "SELECT count(*) FROM analysis_jobs",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(jobs, 0);
+        assert_ledger(library.store(), 0)?;
+        Ok(())
+    }
+
     fn assert_ledger(store: &Store, limit: i64) -> Result<()> {
         store.audit_ledger()?;
         store.audit_transcripts()?;
@@ -508,7 +571,7 @@ mod tests {
             .store_mut()
             .admit_analysis("pin-open", "open", false, 1)?;
         assert!(matches!(
-            apply_library(&mut library, transcribe("pin-open", 1)),
+            apply_legacy_fixture(&mut library, transcribe("pin-open", 1)),
             Err(Error::InvalidInput("analysis revision is not published"))
         ));
 
@@ -519,7 +582,7 @@ mod tests {
             .acknowledge_processing("gone", "cleanup-receipt")?;
         std::fs::remove_file(&gone)?;
         assert!(matches!(
-            apply_library(&mut library, transcribe("pin-gone", 1)),
+            apply_legacy_fixture(&mut library, transcribe("pin-gone", 1)),
             Err(Error::InvalidInput("retained media is missing"))
         ));
 
@@ -527,7 +590,7 @@ mod tests {
         seal_pin(&mut library, "pin-bad", "bad")?;
         std::fs::write(&bad, b"not-the-audio")?;
         assert!(matches!(
-            apply_library(&mut library, transcribe("pin-bad", 1)),
+            apply_legacy_fixture(&mut library, transcribe("pin-bad", 1)),
             Err(Error::InvalidInput("retained checksum does not match"))
         ));
 
@@ -538,7 +601,7 @@ mod tests {
             ["b".repeat(64)],
         )?;
         assert!(matches!(
-            apply_library(&mut library, transcribe("pin-shift", 1)),
+            apply_legacy_fixture(&mut library, transcribe("pin-shift", 1)),
             Err(Error::InvalidInput("retained checksum does not match"))
         ));
         assert_eq!(transcript_count(library.store())?, 0);
@@ -556,12 +619,12 @@ mod tests {
         assert!(matches!(
             apply(library.store_mut(), transcribe("pin", 1)),
             Err(Error::InvalidInput(
-                "transcription requires library ownership"
+                "no measured recognizer is configured; analysis verify checks retained input"
             ))
         ));
         assert_eq!(transcript_count(library.store())?, 0);
 
-        let view = apply_library(&mut library, transcribe("pin", 1))?;
+        let view = apply_legacy_fixture(&mut library, transcribe("pin", 1))?;
         assert_eq!(view.schema_version, super::super::SCHEMA_VERSION);
         let page = view.analysis.as_ref().ok_or(Error::StorageIntegrity)?;
         assert_eq!(page.disposition, Some(AnalysisDisposition::Transcribed));
@@ -611,7 +674,7 @@ mod tests {
         );
 
         std::fs::remove_file(path)?;
-        let again = apply_library(&mut library, transcribe("pin", 1))?;
+        let again = apply_legacy_fixture(&mut library, transcribe("pin", 1))?;
         assert_eq!(
             again.analysis.as_ref().and_then(|item| item.disposition),
             Some(AnalysisDisposition::TranscriptUnchanged)
@@ -633,12 +696,12 @@ mod tests {
             .rollback_local_transcript(&root, "pin", 1, 10)?;
         assert_eq!(transcript_count(library.store())?, 0);
         assert_ledger(library.store(), 0)?;
-        let created = apply_library(&mut library, transcribe("pin", 1))?;
+        let created = apply_legacy_fixture(&mut library, transcribe("pin", 1))?;
         assert_eq!(
             created.analysis.as_ref().and_then(|item| item.disposition),
             Some(AnalysisDisposition::Transcribed)
         );
-        let replay = apply_library(&mut library, transcribe("pin", 1))?;
+        let replay = apply_legacy_fixture(&mut library, transcribe("pin", 1))?;
         assert_eq!(
             replay.analysis.as_ref().and_then(|item| item.disposition),
             Some(AnalysisDisposition::TranscriptUnchanged)
@@ -684,7 +747,7 @@ mod tests {
             .clone();
         write_media(library.directory(), &key, bytes)?;
         seal_pin(&mut library, "pin", "late")?;
-        let view = apply_library(&mut library, transcribe("pin", 1))?;
+        let view = apply_legacy_fixture(&mut library, transcribe("pin", 1))?;
         let page = view.analysis.as_ref().ok_or(Error::StorageIntegrity)?;
         assert!(
             page.input
@@ -723,11 +786,11 @@ mod tests {
         library.store_mut().admit_analysis("pin", "one", true, 2)?;
         library.store_mut().publish_analysis("pin", 2)?;
         assert!(matches!(
-            apply_library(&mut library, transcribe("pin", 1)),
+            apply_legacy_fixture(&mut library, transcribe("pin", 1)),
             Err(Error::InvalidInput("analysis revision is not published"))
         ));
         assert_eq!(transcript_count(library.store())?, 0);
-        let view = apply_library(&mut library, transcribe("pin", 2))?;
+        let view = apply_legacy_fixture(&mut library, transcribe("pin", 2))?;
         assert_eq!(
             view.analysis.as_ref().and_then(|item| item.disposition),
             Some(AnalysisDisposition::Transcribed)
@@ -745,7 +808,7 @@ mod tests {
         library.store_mut().set_budget_limit("global", amount)?;
         publish_audio(&mut library, "one", b"budget-audio")?;
         seal_pin(&mut library, "pin", "one")?;
-        apply_library(&mut library, transcribe("pin", 1))?;
+        apply_legacy_fixture(&mut library, transcribe("pin", 1))?;
         assert_eq!(transcript_count(library.store())?, 1);
         assert_ledger(library.store(), 1_000_000)?;
         assert_eq!(library.store().budget("global")?.limit(), amount);

@@ -1,6 +1,6 @@
 # Sigy research and design
 
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 Status: research-backed product contract. Implementation has begun with a [Rust foundation decision](../decisions/0001-rust-foundation.md); [active work](../development/progress.md) records verified behavior and remaining qualification.
 
@@ -47,9 +47,9 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-18 | Music research and identification must represent predominantly non-English material and regional catalog coverage. |
 | C-19 | Radio/source and processing integrations must be extensible, including sources whose observations are not audio. |
 | C-20 | Morse code support is a planned capability. Its release placement remains open. |
-| C-21 | An extensible historical cipher workbench includes Enigma and an engaging TUI visualization. |
-| C-22 | Modern authenticated encryption and post-quantum cryptography using supplied keys are planned alongside the separate historical workbench. |
-| C-23 | Exploration, learning, and fun are explicit product goals; features need not have an operational purpose to be valuable. |
+| C-21 | An extensible offline historical cipher laboratory includes Enigma, engaging TUI traces, self-generated encrypted messages, supplied-settings decryption, bounded classical unknown-key challenges, and reveal/compare/replay. Hidden answers remain outside solver inputs; originals, settings, cribs, search coverage, and uncertainty are preserved. |
+| C-22 | Modern authenticated encryption and post-quantum operations using supplied keys remain separate from classical cryptanalysis. Planned offline lessons use maintained ML-KEM key-establishment plus AEAD profiles and ML-DSA/SLH-DSA signatures, with independent vectors and no quantum-breaking claim. |
+| C-23 | Exploration, learning, and fun are explicit product goals; guided synthetic exercises make mechanisms and limits inspectable even without an operational purpose. Cipher and post-quantum lessons remain future roadmap stages 11 and 12. Setup asks for a local, editable country/state selection with US-default guidance and no GPS/IP inference; guidance and educational notices grant no interception, decryption, or transmission authority. |
 | C-24 | Sigy is practical signals intelligence for everyday people: broad everyday workflows must be fun and approachable to non-specialists while retaining advanced control. The informal "90%" ambition describes desired breadth, not verified coverage. |
 | C-25 | The project is licensed under Apache License 2.0. Preserve required third-party legal notices and review dependency/distribution compatibility. |
 | C-26 | Sigy is intended for lawful use. The README includes clear legal-responsibility, warranty, and liability notices without implying that a disclaimer authorizes otherwise unlawful activity. |
@@ -82,7 +82,7 @@ All detailed architecture, command names, UI layouts, numerical performance targ
 
 The documents connect the requested experience to system responsibilities, identify material failure modes, and define evidence needed before choosing implementation technologies. They preserve the full first-release scope while allowing internal milestones to verify individual layers.
 
-They do not establish measured performance, completed hardware compatibility, model accuracy, or an implementation-ready baseline. Those require the decision and validation gates in [Delivery and decisions](05-delivery-and-decisions.md). The engineering goal is a durable, exceptionally reliable product; aerospace operation is not a product requirement.
+They do not establish measured performance, completed hardware compatibility, model accuracy, or an implementation-ready baseline. Those require the decision and validation gates in [Delivery and decisions](05-delivery-and-decisions.md). The engineering goal is a durable, exceptionally reliable product, with explicit invariants and reproducible failure and recovery tests.
 
 ## Outstanding product decisions
 

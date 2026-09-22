@@ -60,6 +60,8 @@ pub enum Error {
     DestinationDenied,
     #[error("source acquisition failed: {0}")]
     Acquisition(&'static str),
+    #[error("local analysis failed: {0}")]
+    Analysis(&'static str),
     #[error("capture revision or worker generation is stale; reread current state")]
     StaleCapture,
     #[error("capture admission limit reached")]

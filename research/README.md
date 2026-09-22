@@ -1,6 +1,6 @@
 # Research index
 
-Research baseline: **September 20, 2026**. Latest topic update: **September 21, 2026**. Individual notes retain their review dates.
+Research baseline: **September 20, 2026**. Latest topic update: **September 22, 2026**. Individual notes retain their review dates.
 
 This folder records primary-source findings, design implications, competing approaches, and unanswered questions. It supports the [intent](../INTENT.md) and [design documents](../docs/README.md). It does not select a stack or claim that experiments have been completed.
 
@@ -35,6 +35,7 @@ This folder records primary-source findings, design implications, competing appr
 | Radio Browser mirrors, bounded cache refresh, offline search and provenance | [27. Radio directory integration](27-radio-directory.md) |
 | Explicit redirect grants, checked hops and recording provenance | [28. HTTP redirects](28-http-redirects.md) |
 | User-controlled proxies, DNS trust, external VPNs and route evidence | [29. Network routing](29-network-routing.md) |
+| Native ASR/translation candidates, iGPU comparison, automated quality evidence, and bounded remote validation | [30. Retained-recording language evaluation](30-language-pipeline-evaluation.md) |
 
 ## Evidence discipline
 

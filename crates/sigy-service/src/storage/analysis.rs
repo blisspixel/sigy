@@ -91,11 +91,15 @@ impl Store {
             if latest.revision >= 64 {
                 return Err(Error::InvalidInput("analysis revision capacity reached"));
             }
-            if latest.state == "admitted" {
-                self.supersede(id, latest.revision)?;
-            }
             let revision = latest.revision + 1;
-            self.insert_analysis(id, revision, &binding, &timeline_json, now)?;
+            self.insert_analysis(
+                id,
+                revision,
+                &binding,
+                &timeline_json,
+                now,
+                (latest.state == "admitted").then_some(latest.revision),
+            )?;
             return Ok((
                 AdmitOutcome::Replaced,
                 self.analysis_revision(id, revision)?,
@@ -109,7 +113,7 @@ impl Store {
         if count >= MAX_ANALYSIS_INPUTS {
             return Err(Error::InvalidInput("analysis input capacity reached"));
         }
-        self.insert_analysis(id, 1, &binding, &timeline_json, now)?;
+        self.insert_analysis(id, 1, &binding, &timeline_json, now, None)?;
         Ok((AdmitOutcome::Created, self.analysis_revision(id, 1)?))
     }
 
@@ -165,17 +169,6 @@ impl Store {
         record_from(id, &latest)
     }
 
-    fn supersede(&mut self, id: &str, revision: i64) -> Result<()> {
-        let changed = self.connection.execute(
-            "UPDATE analysis_inputs SET state = 'superseded' WHERE id = ?1 AND revision = ?2 AND state = 'admitted'",
-            params![id, revision],
-        )?;
-        if changed != 1 {
-            return Err(Error::InvalidInput("stale analysis revision"));
-        }
-        Ok(())
-    }
-
     fn insert_analysis(
         &mut self,
         id: &str,
@@ -183,10 +176,20 @@ impl Store {
         binding: &Binding,
         timeline_json: &str,
         now: i64,
+        supersede: Option<i64>,
     ) -> Result<()> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(previous) = supersede {
+            let changed = transaction.execute(
+                "UPDATE analysis_inputs SET state = 'superseded' WHERE id = ?1 AND revision = ?2 AND state = 'admitted'",
+                params![id, previous],
+            )?;
+            if changed != 1 {
+                return Err(Error::InvalidInput("stale analysis revision"));
+            }
+        }
         transaction.execute(
             "INSERT INTO analysis_inputs(id, revision, recording_id, media_sha256, timeline_json, state, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, 'admitted', ?6)",
             params![
@@ -224,7 +227,7 @@ impl Store {
             .map_err(Error::from)
     }
 
-    fn analysis_revision(&self, id: &str, revision: i64) -> Result<AnalysisRecord> {
+    pub(crate) fn analysis_revision(&self, id: &str, revision: i64) -> Result<AnalysisRecord> {
         record_from(
             id,
             &self.analysis_row(id, revision)?.ok_or(Error::NotFound)?,
@@ -557,6 +560,24 @@ mod tests {
             |row| row.get(0),
         )?;
         assert_eq!(rows, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn a_failed_replacement_keeps_the_previous_pin_publishable() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let mut store = setup(&directory.path().join("catalog.sqlite3"))?;
+        publish(&mut store, "one")?;
+        store.admit_analysis("pin", "one", false, 1)?;
+        store.connection.execute_batch(
+            "CREATE TRIGGER reject_analysis_replacement BEFORE INSERT ON analysis_inputs
+             WHEN NEW.revision = 2 BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END;",
+        )?;
+        assert!(store.admit_analysis("pin", "one", true, 2).is_err());
+        let current = store.analysis_input("pin")?;
+        assert_eq!(current.revision, 1);
+        assert_eq!(current.state, "admitted");
+        assert_eq!(store.publish_analysis("pin", 1)?.state, "published");
         Ok(())
     }
 

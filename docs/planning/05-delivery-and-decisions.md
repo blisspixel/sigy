@@ -1,10 +1,10 @@
 # Delivery and decisions
 
-Last updated: 2026-09-20. Status: product decision and evidence register during incremental implementation.
+Last updated: 2026-09-22. Status: product decision and evidence register during incremental implementation.
 
 ## 1. Current scope
 
-The initial documentation-only phase is complete as a checkpoint. The user has now authorized evaluation and implementation, with a cumulative USD 10 external-spend ceiling and a preference for zero paid use. [Active work](../development/progress.md) records implementation evidence and accounting. Installed system services, releases, and paid experiments retain their specific operational controls.
+The initial documentation-only phase is complete as a checkpoint. Evaluation and implementation are authorized. On 2026-09-22 the user raised the cumulative external-spend ceiling from USD 10 to USD 20 and authorized bounded OpenRouter validation, model/corpus downloads, and automated quality evaluation without newly arranged human reviewers. [Active work](../development/progress.md) records evidence and exact accounting. The product paid budget stays zero by default; operations 26 and 27 plus an exact reservation precede paid dispatch. Installed system services, releases, and other spending retain their specific operational controls.
 
 The present package is a research-backed draft. Detailed choices marked proposed do not become approved merely because the document is long or the research is extensive.
 
@@ -31,7 +31,7 @@ Confirmed entries are summarized in the [planning index](README.md). These are t
 | D-01 | Product name | Resolved for current development on 2026-09-21: keep Sigy; defer further naming exploration. Prior [screening](../../research/21-naming.md) remains historical | Distribution/domain and appropriate trademark checks before public release remain separate from this naming choice |
 | D-02 | Exact capacity profiles | Both small always-on hosts and desktops are confirmed; stream and analysis counts remain unqualified | Representative machines, OS/architecture choices, benchmark corpus |
 | D-03 | Translation output | Captions first; spoken translation separately scoped | User preference and delay/audio-mixing requirements |
-| D-04 | Qualified language coverage | Non-English majority and translation primarily to English are confirmed; define meaningful launch language/task profiles and experimental coverage | Representative stations, regional priorities, mixed-language corpus and competent review |
+| D-04 | Qualified language coverage | Non-English majority and English target confirmed; initial eight-language survey confirmed on 2026-09-22; Canadian French, Navajo, and Klingon remain required cases | Licensed references, held-out mixed-language results, deterministic metrics, calibrated independent model checks, and explicit limits without claiming new human review; [evaluation plan](../development/language-pipeline.md) |
 | D-05 | Service across logout/reboot | Offer clearly named per-user and unattended modes | Desired default and platform-installation review |
 | D-06 | Retention details | Recording defaults confirmed: 14 days and 50 GB, Keep/Archive protected and counted. A temporary file may remain during processing. The sweep deletes it after a processing receipt, by age, or under quota pressure | Live-buffer ownership, derived-artifact policies, shared-object accounting and measured storage profiles |
 | D-07 | Paid budget defaults | Paid disabled until finite provider/task policies are configured | Confirmation of periods, strict-mode UX, and provider tests |
@@ -41,11 +41,11 @@ Confirmed entries are summarized in the [planning index](README.md). These are t
 | D-11 | Media backend/boundary | Supervised workers, embedded libraries, or pipeline engine | Timing, fault isolation, packaging, copy and resource measurements |
 | D-12 | Catalog/search | SQLite selected for the initial catalog; multilingual search remains open | Initial transactional ledger tests; further job/media recovery, backup, growth, and retrieval evidence |
 | D-13 | Local control transport | Protected local IPC or authenticated loopback interface | OS identity, future-client needs, operational complexity |
-| D-14 | Model/runtime defaults | Capability-based adapters; Ollama and OpenRouter targets confirmed | Language quality, latency, footprint, price-bound support |
+| D-14 | Model/runtime defaults | Task-specific native, Ollama, and OpenRouter adapters; planned CPU/Radeon 780M comparison; no model selected | [Current candidates](../../research/30-language-pipeline-evaluation.md), language quality, timing, native limits, licenses, actual destination and price-bound support |
 | D-15 | Media archive format | Source-preserving segments where reliable, or documented lossless normalization | Seek, recovery, format coverage, storage and license testing |
 | D-16 | Remote Sigy host control | Personal-machine and server deployment confirmed; remote control method and first-release inclusion undecided | Qualify unattended host profiles, SSH/LAN access, authentication and remote playback; never expose local IPC directly to the internet |
 | D-17 | External briefing delivery | In-app and export proposed initially | Desired destinations, account access, delivery/cost scope |
-| D-18 | Hardware pilot | Meshtastic connected-node and HackRF Pro receive tests later | Actual devices, firmware, antenna/setup, OS hosts |
+| D-18 | Hardware pilot | LoRa and HackRF Pro hardware can be supplied when the later receive-only adapter harness is ready; not a language-pipeline dependency | Exact device/firmware, antenna/setup, OS host, typed IQ/packet replay, then bounded physical-device results |
 | D-19 | Music provider/catalog | Post-release metadata plus evaluated fingerprint/catalog adapters | Regional coverage, false-match rate, fees and terms |
 | D-20 | Terminal geography and visualizer profile | Rotatable globe, flat day/night map, linked lists, and truthful activity views confirmed; evaluate text-cell rendering with accessible fallbacks | Geometry/time fixtures, keyboard journeys, terminal matrix and resource measurements before a UI framework is chosen |
 | D-21 | Morse/workbench release placement | Proposed post-release milestone independent of hardware delivery | Product priority, bounded initial cipher/decoder scope, impact on full first release |
@@ -73,7 +73,7 @@ Resolve decisions in small related groups. Implement and measure bounded choices
 | E-02: Capture integrity | Which backend/format survives faults while preserving timing? | Identical fixture comparison, recovery matrix, archive recommendation |
 | E-03: Native services | How do session, logout, reboot, permissions, and updates behave? | Platform-mode contract and installation evidence |
 | E-04: TUI experience | Which implementation supports the required terminal behavior? | Comparative keyboard/resize/Unicode/large-data results |
-| E-05: Speech and translation | Which profiles meet quality and latency on each host class? | Frozen evaluation corpus, results by language and condition |
+| E-05: Speech and translation | Which profiles meet quality and latency on each host class? | [Retained-recording plan](../development/language-pipeline.md), frozen licensed corpus, real ASR/translation, CPU/iGPU comparison, results by language and condition |
 | E-06: Catalog and search | Can the catalog recover and retrieve evidence under sustained use? | Fault/backup results, retrieval benchmark, growth estimates |
 | E-07: Paid providers | Can every allowed billing dimension and fallback be bounded? | Adapter contract, reservation/reconciliation fixtures, later bounded live results |
 | E-08: Monitoring quality | Does autonomous discovery produce relevant, well-supported and explainable coverage? | Labeled topic windows, recorded source-selection decisions/outcomes, duplicate/contradictory reports, coverage gaps and report-quality results |

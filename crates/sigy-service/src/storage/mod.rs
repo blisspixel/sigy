@@ -10,6 +10,7 @@ pub mod captures;
 mod clicks;
 pub mod discovery;
 pub mod dvr;
+pub mod languages;
 pub mod ledger;
 mod listens;
 mod playlists;
@@ -18,12 +19,13 @@ pub(crate) mod podcast_text;
 pub mod podcasts;
 pub use clicks::ClickStatus;
 pub(crate) mod analysis;
+pub(crate) mod analysis_jobs;
 pub(crate) mod directory_policy;
 pub(crate) mod schedules;
 pub mod sources;
 pub(crate) mod transcripts;
 
-pub const SCHEMA_VERSION: u32 = 23;
+pub const SCHEMA_VERSION: u32 = 25;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -98,6 +100,8 @@ impl Store {
         store.audit_podcasts()?;
         store.audit_schedules()?;
         store.audit_transcripts()?;
+        store.audit_language_evidence()?;
+        store.audit_analysis_jobs()?;
         Ok(store)
     }
 
@@ -189,6 +193,12 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     }
     if (0..=22).contains(&version) {
         transaction.execute_batch(include_str!("023-transcripts.sql"))?;
+    }
+    if (0..=23).contains(&version) {
+        transaction.execute_batch(include_str!("024-language-evidence.sql"))?;
+    }
+    if (0..=24).contains(&version) {
+        transaction.execute_batch(include_str!("025-analysis-jobs.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,
@@ -198,7 +208,7 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     Ok(())
 }
 
-fn validate_key(value: &str, field: &'static str) -> Result<()> {
+pub(crate) fn validate_key(value: &str, field: &'static str) -> Result<()> {
     if value.is_empty()
         || value.len() > 128
         || !value

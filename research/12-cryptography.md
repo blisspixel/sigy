@@ -1,10 +1,10 @@
 # Historical and modern cryptography
 
-Reviewed: 2026-09-20. Status: research and proposed contracts. No cryptographic implementation or provider has been selected.
+Reviewed: 2026-09-22. Status: research and proposed contracts for future roadmap stages 11 and 12. No cryptographic implementation or provider has been selected.
 
 ## Confirmed intent
 
-Sigy should be useful and enjoyable to explore. A historical cipher workbench, including Enigma with a visual TUI, is valuable for experimentation and learning even without an operational need. Modern authenticated encryption and post-quantum cryptography using supplied keys are also confirmed requirements.
+Sigy should be useful and enjoyable to explore. A historical cipher laboratory, including Enigma with a visual TUI, lets users generate their own encrypted messages, inspect them, recover plaintext with supplied settings or a bounded classical challenge, and reveal, compare, and replay the result. Modern authenticated encryption and post-quantum cryptography using supplied keys are also confirmed requirements, with separate offline lessons using demonstration keys.
 
 These capabilities share versioned inputs, outputs, and replay with the wider platform, while preserving distinct purposes and key-handling rules. Enigma demonstrations are not candidates for protecting the Sigy library.
 
@@ -16,7 +16,19 @@ Museum-derived rotor specifications provide an independent reference for wiring 
 
 Proposed initial historical scope: a fully specified Enigma I simulation, with room for other documented variants and simpler substitution/polyalphabetic ciphers. Caesar and Vigenere are candidates for approachable lessons; their exact alphabet and normalization contracts still need a focused specification. They are not implied to preserve arbitrary Unicode text.
 
+### Challenge evidence
+
+The [laboratory flow](../docs/planning/08-signal-extensions-and-workbench.md#offline-cipher-laboratory) separates generating the exercise, solving it, and revealing its answer. Preserve the original input, explicit alphabet conversion, ciphertext, settings, implementation version, released cribs, search bounds, coverage, and candidate history. The solution record and any revealing generation seed stay outside solver-visible artifacts, prompts, logs, and traces. A hidden UI panel alone is not an isolation boundary.
+
+Known-settings decryption demonstrates the specified transform. Unknown-key historical search explores a declared finite domain or bounded heuristic strategy. Neither a plausible sentence nor a high score proves exact recovery. After the attempt is fixed, compare with the declared challenge plaintext and distinguish exact plaintext recovery from original-key recovery or equivalent settings. Interrupted or incomplete search retains its stopping reason and cannot claim the whole domain was ruled out.
+
+This scope is self-generated offline fixtures and classical methods, without radio transmission. Planned setup defaults to United States guidance and asks for country and applicable state/region, stored locally and editable without GPS or IP inference. A selection does not grant legal authority. Keep notices brief: educational/general information rather than legal advice, authorized material only, and the existing [Apache License 2.0](../LICENSE) warranty terms. Later non-fixture use and distribution need assessment under the applicable jurisdiction. [Shared legal and privacy design](../docs/planning/09-security-privacy-and-release.md).
+
+For one specific US boundary, 47 CFR 97.113(a)(4) restricts amateur-station messages encoded to obscure meaning, subject to its stated exceptions. This is an amateur-radio rule, not a statement about all radio services or offline cipher exercises. [Current FCC rule](https://www.ecfr.gov/current/title-47/chapter-I/subchapter-D/part-97/subpart-B/section-97.113).
+
 ## Modern evidence
+
+NIST's current PQC project identifies ML-KEM, ML-DSA, and SLH-DSA as finalized standards while additional candidates remain under evaluation. Lessons must distinguish standardized profiles from research candidates and current implementation evidence. [PQC project](https://csrc.nist.gov/projects/post-quantum-cryptography), [current NIST overview](https://www.nist.gov/pqc).
 
 | Capability | Evidence | Product consequence |
 | --- | --- | --- |
@@ -29,6 +41,8 @@ Proposed initial historical scope: a fully specified Enigma I simulation, with r
 The FIPS 203 page carries a November 2025 potential-update note, and the FIPS 204 page carries a July 2026 potential-update note. Standards, errata, library advisories, test vectors, and exact implementation versions must be reviewed together at selection. An algorithm standardized in a FIPS document does not make every implementation a validated cryptographic module.
 
 Post-quantum means designed to resist relevant quantum attacks under its security assumptions. It does not mean immunity to implementation flaws, stolen keys, or all future attacks. Sigy's capability labels must identify the actual algorithm, parameter set, operation, and implementation.
+
+An offline ML-KEM lesson should demonstrate encapsulation/decapsulation to a shared secret, followed by a reviewed key-derivation and AEAD profile for the payload. A KEM ciphertext is distinct from the encrypted message, and a KEM alone does not authenticate the sender. ML-DSA and SLH-DSA lessons demonstrate signature creation, verification, and tamper rejection separately. Use maintained implementations, current errata, and independent vectors; successful round trips demonstrate execution, not a new proof of quantum resistance. Quantum breaking and unknown-key attacks on modern schemes are outside the proposed laboratory. [NIST KEM guidance](https://csrc.nist.gov/pubs/sp/800/227/final).
 
 ## Proposed capability design
 
@@ -69,8 +83,8 @@ Post-quantum key and signature sizes matter for small radios. Do not assume an o
 
 ## Future acceptance evidence
 
-Historical conformance requires independent known-answer fixtures, rotor transitions including double stepping, reset/replay determinism, alphabet handling, and agreement between visible trace and transform result. Round trips alone cannot establish compatibility.
+Historical conformance requires independent known-answer fixtures, rotor transitions including double stepping, reset/replay determinism, alphabet handling, and agreement between visible trace and transform result. Challenge tests must cover false cribs, equivalent keys, ambiguous or wrong candidates, cancellation, exhausted bounds, and hidden-answer leakage. With the public challenge and solver configuration fixed, changing only the withheld answer must not change solver work or candidates; only the later comparison may change. Round trips alone cannot establish compatibility.
 
 Modern validation requires official or upstream known-answer vectors, interoperability, malformed inputs, wrong key/tag/associated data, truncation/reordering, restart/concurrent nonce cases, secret redaction, and dependency/advisory review. Performance and footprint must be measured on both host classes. Security-sensitive integration needs focused review before a production protection claim.
 
-Release placement is open. Reserve contracts now; implement after the planning phase under explicit milestones and qualification criteria.
+These capabilities remain future roadmap stages 11 and 12. The current language pipeline and first-release build order continue unchanged; the laboratory requires its own implementation and qualification evidence.

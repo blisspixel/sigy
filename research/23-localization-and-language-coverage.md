@@ -2,6 +2,8 @@
 
 Reviewed: 2026-09-20. Status: research and explicit user scope; no localized Sigy interface or speech capability has been validated. Canadian French, Navajo, and Klingon are requested targets. [Language contract](../docs/design/languages.md) defines the implementation boundary; [multilingual processing](10-multilingual-processing.md) covers content evidence.
 
+2026-09-22 follow-up: the user requested content-processing validation without depending on newly arranged human reviewers. The [current plan](../docs/development/language-pipeline.md) uses licensed published references, deterministic metrics, and calibrated independent model checks, with explicit evidence limits. This updates the review workflow below without dropping the named languages or claiming a human-reviewed interface pack.
+
 ## Language identity and distinct capabilities
 
 The IANA registry inspected on this date includes French `fr`, Navajo `nv` (also described as Navaho), Klingon `tlh`, and the Klingon script `Piqd`. Use BCP 47 identifiers such as `fr-CA`, `nv`, and `tlh-Latn` where that precision is known. Some model vocabularies instead use ISO 639-3 or private provider codes; adapters must map them explicitly. A language tag does not establish model support. [IANA registry](https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry), [Unicode identifier guidance](https://cldr.unicode.org/index/cldr-spec/picking-the-right-language-code).
@@ -22,7 +24,7 @@ Microsoft's current Translator text matrix lists Canadian French and Klingon Lat
 
 Do not route an unsupported language to English ASR and present the output as a confident transcript. Preserve recordings and unknown-language evidence, offer a truthful unsupported state, and allow later processing with a qualified model or supplied transcript. A user's explicit language hint remains separate from a model's detection.
 
-Navajo evaluation needs competent speaker review and lawful, appropriate material. Do not fabricate fluency or treat an Indigenous language as a novelty mode. Klingon can be an optional playful experience without making errors, costs, or permissions ambiguous. Avoid franchise imagery, copied dialogue, and licensed font assets unless their distribution rights are established.
+Navajo evaluation needs lawful, appropriate material and credible reference evidence. Under the current automated workflow, preserve published reference provenance and unresolved quality gaps without requiring new speaker recruitment. Do not fabricate fluency or treat an Indigenous language as a novelty mode. Klingon can support a playful experience without making errors, costs, or permissions ambiguous; its required content-processing case remains open until measured. Avoid franchise imagery, copied dialogue, and licensed font assets unless their distribution rights are established.
 
 ## Localization technology candidates
 

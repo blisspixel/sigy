@@ -1,6 +1,6 @@
 # Assurance and validation
 
-Status: proposed engineering acceptance plan. No tests or benchmarks described here have been performed. The goal is exceptional product reliability and maintainability, not an aerospace certification program.
+Updated: 2026-09-22. Status: engineering acceptance targets. [Active work](../development/progress.md) records the bounded tests already performed; the complete matrix and language benchmarks remain open. The goal is exceptional product reliability and maintainability, established through measured evidence and explicit limits.
 
 ## 1. Definition of quality
 
@@ -45,7 +45,7 @@ All detailed requirements below are proposed refinements of confirmed product co
 | R-27 | C-10 | Secrets are absent from ordinary logs, exports, and process error displays | Redaction fixtures and diagnostic-bundle review |
 | R-28 | C-09, C-16 | Stack selection follows requirements and documented evaluation | Review the decision record and evidence links before implementation |
 | R-29 | C-17 | Language decisions apply to observed blocks/spans, preserve mixed/unknown states, and default translation to English | Incorrect station-language hints, multilingual interviews, code switches, short/no-speech intervals, and scoped overrides |
-| R-30 | C-17 | Qualified language/task profiles meet separate quality and latency criteria with originals retained | Majority non-English corpus, per-language/condition results, reviewer translation checks, and script/RTL terminal fixtures |
+| R-30 | C-17 | Qualified language/task profiles meet separate quality and latency criteria with originals retained | Majority non-English corpus, per-language/condition reference scores, calibrated independent model checks, explicit evidence level, and script/RTL terminal fixtures |
 | R-31 | C-18 | Music identification measures regional/non-English coverage and unknown airtime | Majority non-English examples, catalog gaps, alternate scripts, multilingual songs, false-match and denominator review |
 | R-32 | C-19 | New typed non-audio sources and transforms share jobs, evidence, and retention without fabricated audio/text | IQ, packet, telemetry, symbol and opaque-data fixtures; reject incompatible types and preserve clocks/gaps |
 | R-33 | C-20 | Morse decoding reports uncertainty and preserves replayable input alignment | Independent standard/real-signal fixtures across timing, interference, speed, gaps and prosigns |
@@ -111,6 +111,8 @@ Define histograms and denominators before collecting performance numbers. Report
 
 Model quality thresholds must be set by language/task after assembling representative data. Inventing one universal error threshold now would hide meaningful differences between clean news, noisy call-ins, music, and low-resource languages.
 
+For the authorized 2026-09-22 language work, validation must not depend on newly arranged human reviewers. Use licensed published reference transcripts/translations, deterministic WER/CER and critical-content checks, and calibrated independent model review with disagreement visible. Freeze thresholds on calibration before the held-out comparison. Keep reference scores, model judgments, and native resource/fault evidence separate; claim no human review that did not occur. The [language pipeline plan](../development/language-pipeline.md#verification-and-fault-matrix) defines the current contract and recovery matrix. Missing references or unreliable judges limit language-quality claims without blocking unrelated implementation.
+
 A majority of speech evaluation duration and music examples must be non-English, with minimum coverage per declared language and condition. Report language identification, ASR, translation, and end-to-end topic retrieval independently. A strong English result cannot offset failure in another declared language. The [multilingual evaluation plan](../../research/10-multilingual-processing.md) defines the proposed survey and scorecard.
 
 Requirements R-31 and R-33 through R-35 qualify their respective future releases; they do not silently expand the first-release milestone. R-32 establishes first-release architecture contracts and later device/decoder acceptance separately. The radio explorer provides first-release evidence for R-36; workbench evidence follows its chosen milestone.
@@ -163,7 +165,7 @@ Test actual installers, service managers, audio devices, terminals, sleep/resume
 
 ### Model evaluation
 
-Version corpora, expected passages, review rubrics, and model configurations. Hold back a test subset from prompt/profile tuning. Evaluate source-language fidelity, translation meaning, evidence retrieval, citation support, false positives, and unknown cases. Use qualified language review for launch language pairs.
+Version corpora, expected passages, review rubrics, and model configurations. Hold back a test subset from prompt/profile tuning. Evaluate source-language fidelity, translation meaning, evidence retrieval, citation support, false positives, and unknown cases. The current language work follows the [automated evaluation contract](../development/language-pipeline.md#corpus-and-model-comparison), without depending on newly arranged human reviewers. Name the tested corpus, language/task profile, reference provenance, and judge calibration when describing quality; do not convert those results into an unrestricted fluency claim.
 
 Public live stations provide a limited smoke test after deterministic verification. They are too variable to be the sole regression suite.
 

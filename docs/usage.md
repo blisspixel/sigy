@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 `--data-dir` is required except for `sigy update`, help, and version. Use a private directory outside the checkout. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v23 and local IPC is v24. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v25 and local IPC is v26. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Update
 
@@ -13,7 +13,7 @@ sigy update --check
 sigy update
 ```
 
-`sigy update` fetches `main` from <https://github.com/blisspixel/sigy> and installs that commit with Cargo. When GitHub CLI is logged in, Git uses that login for the private repository. `--check` only reports the recorded commit and that tip. It exits with an error when no commit is recorded or a newer commit is available. The command does not select a library, contact a station, or run `cargo verify`. On Windows the install finishes after this process exits, because Windows cannot replace the running executable. Stop a running service before that replacement.
+`sigy update` fetches `main` from <https://github.com/blisspixel/sigy> and installs that commit with Cargo. When GitHub CLI is logged in, Git uses that login. `--check` only reports the recorded commit and that tip. It exits with an error when no commit is recorded or a newer commit is available. The command does not select a library, contact a station, or run `cargo verify`. On Windows the install finishes after this process exits, because Windows cannot replace the running executable. Stop a running service before that replacement.
 
 ## Doctor
 
@@ -188,7 +188,7 @@ sigy --data-dir PATH_TO_LIBRARY listen detach listener-a
 
 `listen pause` stores that playhead. It does not stop the capture and does not write a gap. `listen seek` moves it only inside one published segment, and only inside that segment's decoded duration. A gap and the open tail are refused. `listen live` parks at the end of the newest published segment and does not read the open tail. `listen play` plays that sealed file in this client and then drops the playhead. Leaving it does not stop the capture. `listen detach` drops a playhead that is still attached. A second attach is another playhead on the same recording. A paused position that falls before the earliest retained segment is expired until the listener seeks or returns to live.
 
-Default retention is 14 days and 50 GB of managed media. A temporary recording may stay while it is processed. `record keep` and `record archive` keep it, and those bytes still count toward the quota. `record hold ID --start-us START --end-us END` protects every published segment that range intersects and records a gap inside that range. The open tail stays temporary. Aged temporary segments lose their files. A processing receipt does not protect those files. Archive does not create a backup. New recordings fail when protected media fills the allowance. `record temporary` restores rolling retention. `record processed ID --receipt RECEIPT_ID` records that processing finished. It does not run analysis. The service sweep then deletes that temporary file. The same sweep deletes other temporary recordings older than the retention window. Quota pressure removes the oldest temporary recordings sooner. `dvr prune` runs that same reclaim. `record delete` deletes inactive media even when it is protected and keeps the catalog history.
+Default retention is 14 days and 50 GB of managed media. A temporary recording may stay while it is processed. `record keep` and `record archive` keep it, and those bytes still count toward the quota. `record hold ID --start-us START --end-us END` protects every published segment that range intersects and records a gap inside that range. The open tail stays temporary. Aged temporary segments lose their files. A processing receipt does not protect those files. Archive does not create a backup. New recordings fail when protected media fills the allowance. `record temporary` restores rolling retention. `record processed ID --receipt RECEIPT_ID` records that processing finished. It does not run analysis. The service sweep then deletes that temporary file. The same sweep deletes other temporary recordings older than the retention window. Quota pressure removes the oldest temporary recordings sooner. `dvr prune` runs that same reclaim. `record delete` deletes inactive media even when Keep or Archive is set and keeps the catalog history. An active or cancelling analysis reader blocks deletion and reclamation until it stops.
 
 Direct audio, explicitly permitted redirects, one finite HLS media playlist, and explicit ICY metadata on `record start --icy` are the current recording profile. A radio attempt is at most 15 minutes and 256 MiB, with up to two active attempts. On Windows, with FFmpeg 9.0.1, one local session decoded direct WAV, MP3, AAC served as `audio/aac`, FLAC, and Ogg Vorbis. The same session decoded WAV from one accepted playlist entry behind one same-origin redirect and played that revision to `--destination null`. The fixture contacted only 127.0.0.1. One session is not a support matrix. See [decoded formats](decisions/0014-decoded-formats.md).
 
@@ -212,12 +212,20 @@ sigy --data-dir PATH_TO_LIBRARY analysis admit pin-001 --recording RECORDING
 sigy --data-dir PATH_TO_LIBRARY analysis show pin-001
 sigy --data-dir PATH_TO_LIBRARY analysis publish pin-001 --revision 1
 sigy --data-dir PATH_TO_LIBRARY analysis admit pin-001 --recording RECORDING --replace-worker
-sigy --data-dir PATH_TO_LIBRARY analysis transcribe pin-001 --revision 1
+sigy --data-dir PATH_TO_LIBRARY analysis verify verify-001 --input pin-001 --revision 1
+sigy --data-dir PATH_TO_LIBRARY analysis job verify-001
+sigy --data-dir PATH_TO_LIBRARY analysis cancel verify-001 --generation 1
+sigy --data-dir PATH_TO_LIBRARY analysis languages list pin-001 --revision 1
+sigy --data-dir PATH_TO_LIBRARY analysis languages show EVIDENCE_ID --revision 1
 ```
 
 `analysis admit` pins one completed recording. The pin stores the retained checksum and the media clock. Published intervals keep their bounds. A capture gap stays a gap, and planned time with no audio is an uncovered gap. The pin does not include a source URL. `record processed` records a cleanup receipt and does not create this pin. An unpublished recording, or a checksum that does not match the published interval, is refused. `--replace-worker` retires an unpublished revision. Publishing that older revision fails. `analysis admit` does not transcribe and does not reserve a paid budget. See [analysis inputs](decisions/0031-analysis-inputs.md).
 
-`analysis transcribe` reads one published pin and hashes the retained local files. It does not open a source URL. No measured recognizer is selected, so the original-script revision has an empty cue script and the wording label `uncertain`. A gap has no cue. The decision is 0 USD and has no request id. Replay returns the same revision. The global limit stays unchanged, and no paid request is reserved. See [local transcripts](decisions/0032-local-transcripts.md).
+`analysis verify` requires a running service and checks retained input in one supervised local job. It reads at most 512 MiB across 1024 files, with a 64 KiB buffer and cancellation/deadline checks between reads. A blocked filesystem read can delay the 60-second deadline; the recording remains protected until the reader actually stops. There is no queue, and history is limited to 256 jobs. `analysis job` reports running, cancelling, verified, cancelled, failed, or interrupted. Exact replay does not read again. Restart interrupts active work without resuming it. These commands perform no recognition, translation, or paid request. See [retained-input verification](decisions/0034-retained-input-verification.md).
+
+`analysis transcribe PIN --revision N` is unavailable until a measured recognizer is configured and creates no empty result. Older `local-unmeasured` rows stay readable as legacy placeholders with no recognized speech. See [local transcripts](decisions/0032-local-transcripts.md).
+
+`analysis languages` inspects stored evidence without running detection. `list` returns up to 16 evidence tracks for the exact pin revision; continue with `--after EVIDENCE_ID` when shown. `show` returns up to 16 spans from the exact evidence revision; continue with `--after ORDINAL`. Observation, processing outcome, and route capability remain separate. Empty legacy transcripts have no language observations, and no production detector publishes evidence yet. There is no command to manufacture evidence. See [language evidence](decisions/0033-language-evidence.md).
 
 ## Listening
 
@@ -254,6 +262,8 @@ sigy --data-dir PATH_TO_LIBRARY tui --reduced-motion --monochrome
 From the repository root, `cargo verify` checks native-source hashes, formatting, tests, warnings-denied Clippy, the build, and dependency audits. It requires cargo-audit. A push to `main` runs that command on GitHub-hosted Windows. `cargo verify-media` runs the native recording and playback tests. It needs FFmpeg on `PATH`, or `SIGY_TEST_FFMPEG`. That media check stays local. The install scripts do not run these checks.
 
 ## Lawful use
+
+The planned cipher learning tools start with offline, self-generated messages. Country and state/province guidance during setup is planned with US guidance as the initial default, editable and stored locally. The current CLI has no jurisdiction setup or cipher commands. A location choice or acknowledgment cannot authorize an operation. Historical exercises and modern supplied-key cryptography have separate boundaries in the [workbench plan](planning/08-signal-extensions-and-workbench.md).
 
 Sigy is intended for lawful listening, research, learning, and analysis of sources you are authorized to access. You are responsible for complying with the laws and permissions applicable to your location, equipment, and use, including rules governing reception, interception, recording, privacy, decryption, radio transmission, copyright, and redistribution. A signal being receivable or a stream being accessible does not by itself establish permission to record, decrypt, publish, or reuse it.
 

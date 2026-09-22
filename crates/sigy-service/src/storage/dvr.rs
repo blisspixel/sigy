@@ -1335,7 +1335,7 @@ impl Store {
             return Err(Error::RequestState);
         }
         // Recheck protection in the mutation, including competing catalog users.
-        if tx.execute("UPDATE recordings SET storage_state = 'deleting' WHERE id = ?1 AND storage_state != 'deleted' AND (NOT ?2 OR (retention = 'temporary' AND storage_state IN ('reserved', 'retained')))", params![id, pruning])? != 1 {
+        if tx.execute("UPDATE recordings SET storage_state = 'deleting' WHERE id = ?1 AND storage_state != 'deleted' AND NOT EXISTS (SELECT 1 FROM analysis_jobs j WHERE j.recording_id = recordings.id AND j.state IN ('running', 'cancelling')) AND (NOT ?2 OR (retention = 'temporary' AND storage_state IN ('reserved', 'retained')))", params![id, pruning])? != 1 {
             return Err(Error::RequestState);
         }
         tx.commit()?;
@@ -1383,7 +1383,7 @@ impl Store {
     ) -> Result<Option<SegmentRelease>> {
         let cutoff = now.saturating_sub(i64::from(self.dvr_status()?.retention_days) * 86_400_000);
         let row = self.connection.query_row(
-            "SELECT r.id, i.ordinal, i.object_key, i.byte_end - i.byte_start, r.storage_state FROM recording_intervals AS i JOIN recordings AS r ON r.id = i.recording_id JOIN recording_segment_clocks AS k ON k.recording_id = i.recording_id AND k.ordinal = i.ordinal WHERE r.retention = 'temporary' AND r.storage_state IN ('reserved', 'retained') AND NOT EXISTS (SELECT 1 FROM recording_releases AS x WHERE x.recording_id = i.recording_id AND x.segment_ordinal = i.ordinal) AND NOT EXISTS (SELECT 1 FROM recording_hold_segments AS h WHERE h.recording_id = i.recording_id AND h.segment_ordinal = i.ordinal) AND (r.open_object_key IS NULL OR r.open_object_key != i.object_key) AND ((?1 AND r.storage_state = 'retained') OR (NOT ?1 AND k.sealed_ms <= ?2)) ORDER BY k.sealed_ms, r.id, i.ordinal LIMIT 1",
+            "SELECT r.id, i.ordinal, i.object_key, i.byte_end - i.byte_start, r.storage_state FROM recording_intervals AS i JOIN recordings AS r ON r.id = i.recording_id JOIN recording_segment_clocks AS k ON k.recording_id = i.recording_id AND k.ordinal = i.ordinal WHERE r.retention = 'temporary' AND r.storage_state IN ('reserved', 'retained') AND NOT EXISTS (SELECT 1 FROM analysis_jobs j WHERE j.recording_id = r.id AND j.state IN ('running', 'cancelling')) AND NOT EXISTS (SELECT 1 FROM recording_releases AS x WHERE x.recording_id = i.recording_id AND x.segment_ordinal = i.ordinal) AND NOT EXISTS (SELECT 1 FROM recording_hold_segments AS h WHERE h.recording_id = i.recording_id AND h.segment_ordinal = i.ordinal) AND (r.open_object_key IS NULL OR r.open_object_key != i.object_key) AND ((?1 AND r.storage_state = 'retained') OR (NOT ?1 AND k.sealed_ms <= ?2)) ORDER BY k.sealed_ms, r.id, i.ordinal LIMIT 1",
             params![pressure, cutoff],
             |row| {
                 Ok(SegmentRelease {
@@ -1431,7 +1431,7 @@ impl Store {
 
     fn prune_candidates_at(&self, pressure: bool, now: i64) -> Result<Vec<String>> {
         let cutoff = now.saturating_sub(i64::from(self.dvr_status()?.retention_days) * 86_400_000);
-        let mut query = self.connection.prepare("SELECT r.id FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.retention = 'temporary' AND r.storage_state IN ('reserved', 'retained') AND c.state IN ('completed', 'failed', 'interrupted', 'cancelled') AND (?1 OR c.created_ms <= ?2 OR r.processing_receipt IS NOT NULL) ORDER BY c.created_ms, r.id LIMIT 64")?;
+        let mut query = self.connection.prepare("SELECT r.id FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.retention = 'temporary' AND r.storage_state IN ('reserved', 'retained') AND NOT EXISTS (SELECT 1 FROM analysis_jobs j WHERE j.recording_id = r.id AND j.state IN ('running', 'cancelling')) AND c.state IN ('completed', 'failed', 'interrupted', 'cancelled') AND (?1 OR c.created_ms <= ?2 OR r.processing_receipt IS NOT NULL) ORDER BY c.created_ms, r.id LIMIT 64")?;
         Ok(query
             .query_map(params![pressure, cutoff], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?)

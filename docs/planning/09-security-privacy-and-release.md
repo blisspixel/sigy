@@ -1,6 +1,6 @@
 # Security, privacy, and release design
 
-Last updated: 2026-09-21. Status: proposed controls derived from the product's source, service, model, and extension boundaries. This is not a completed security assessment.
+Last updated: 2026-09-22. Status: proposed controls derived from the product's source, service, model, and extension boundaries. This is not a completed security assessment.
 
 ## 1. Properties to preserve
 
@@ -51,6 +51,8 @@ Apache License 2.0 is confirmed for Sigy. It does not relicense captured broadca
 
 The README carries lawful-use and warranty/liability notices. Do not turn these into claims of universal permission or complete legal protection. Reception, recording, decryption, transmission, and redistribution can require different authorizations. Product profiles retain receive-only hardware defaults and explicit source/provider configuration.
 
+The user requested US-default guidance and a jurisdiction choice during initial setup on 2026-09-22. Plan an editable country and optional state/province stored locally, with no GPS, IP geolocation, or upload. The guidance default is not an assertion about the user's location. Unknown jurisdictions retain generic guidance; the application cannot determine legality from a dropdown. Offline self-generated cipher exercises remain separate from received communications and RF transmission. Show concise responsibilities and the Apache warranty/liability terms during setup, with relevant notices when enabling recording, decryption, transmission, or export. Acknowledgment cannot expand source permissions, enable transmission, or replace required authorization. This setup flow is planned, not implemented.
+
 ## 5. Credentials and cryptographic keys
 
 Use protected references rather than values in configuration exports, plans, process arguments, or ordinary logs. Identify which service account can access each secret and what happens before login, after logout, and after reboot.
@@ -71,7 +73,7 @@ Offline installers, model imports, and dependency bundles must receive equivalen
 
 ## 7. Maintenance and acceptance
 
-Before first release, define supported platforms/dependency versions, advisory monitoring, release and revocation procedures, and a practical vulnerability-reporting route. A public security policy can be written when distribution and maintenance ownership are settled; this planning phase does not invent contacts or guarantees.
+Before first release, define supported platforms/dependency versions, advisory monitoring, release and revocation procedures. [SECURITY.md](../../SECURITY.md) describes the current vulnerability-reporting route and its limitations. Public source availability does not establish supported releases, isolation, certification, or operational readiness.
 
 Test recovery onto a clean machine using documented artifacts. Include migration failures, full disk, unavailable secret stores, stale update metadata, and a failed model upgrade. Verify that restoring an old library cannot silently resume stale paid requests or old schedules.
 

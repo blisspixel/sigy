@@ -22,6 +22,8 @@ The first Rust workspace compiled and its nine initial domain tests passed on Wi
 
 SQLite's [transaction semantics](https://www.sqlite.org/lang_transaction.html) and [durability controls](https://www.sqlite.org/pragma.html) support the design, but application fault and concurrency tests must supply the evidence. The [rusqlite connection API](https://docs.rs/rusqlite/0.40.2/rusqlite/struct.Connection.html) was checked before use.
 
+The [2026-09-22 SQLite and DuckDB reassessment](../../research/08-storage-and-evidence.md#sqlite-and-duckdb-reassessment-2026-09-22) retains SQLite for the authoritative catalog. DuckDB remains a possible measured experiment for reporting over derived snapshots; no additional engine or migration is selected.
+
 ## Limits and reconsideration
 
 The full G4 evaluation matrix is not complete. This decision authorizes one coherent foundation, with subsequent subsystem and release gates retaining unmeasured requirements. No macOS/Linux native execution, small-host profile, hardware throughput, TUI usability, multilingual model quality, or installer qualification is claimed. Do not postpone these checks until after a release claim.

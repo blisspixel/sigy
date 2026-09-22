@@ -1,6 +1,6 @@
 # Language and localization contract
 
-Updated: 2026-09-20. Status: implementation target. English is the current maintenance CLI language. Canadian French, Navajo, and Klingon are minimum named content-understanding and translation acceptance cases, alongside interface localization. They are not stretch goals or an upper bound. The [universal interpretation contract](signal-interpretation.md) governs the broader ambition; [research](../../research/23-localization-and-language-coverage.md) records current evidence and gaps.
+Updated: 2026-09-22. Status: implementation target. English is the current maintenance CLI language. Canadian French, Navajo, and Klingon are minimum named content-understanding and translation acceptance cases, alongside interface localization. They are not stretch goals or an upper bound. The [universal interpretation contract](signal-interpretation.md) governs the broader ambition; [research](../../research/23-localization-and-language-coverage.md) records current evidence and gaps.
 
 ## Separate language axes
 
@@ -21,6 +21,8 @@ Preserve original Unicode text and search/display transformations separately. Na
 ## Capability status and fallback
 
 Every capability is separately reported as unavailable, declared by its provider, experimental, or validated for a named profile. Only measured evidence earns validated status. The matrix covers UI localization, text/speech language identification, transcription, translation direction, and optional speech synthesis. Installed-model presence alone is not qualification.
+
+The current [content-processing evaluation](../development/language-pipeline.md) proceeds without newly arranged human reviewers, as requested on 2026-09-22. Published references, deterministic metrics, and calibrated model judgments have distinct provenance and limitations. A validated benchmark profile names its corpus, task, variety, and evaluation method; it does not imply a human-reviewed language pack or unrestricted fluency. Preserve unresolved required-language gaps rather than treating an unsupported state as substantive support.
 
 An unsupported local route preserves the source and offers a clear explanation plus suitable installed/configurable alternatives. It must not trigger a paid request, mislabel output as another language, or claim arbitrary language support because an LLM accepts free-form prompts. Optional remote routing retains the normal user policy, finite reservation, and cost accounting.
 

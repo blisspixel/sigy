@@ -137,12 +137,6 @@ pub(super) fn apply(store: &mut Store, operation: RecordingOperation) -> Result<
 /// # Errors
 /// Returns validation, storage, or accounting errors.
 pub fn apply_library(library: &mut Library, operation: Operation) -> Result<Snapshot> {
-    if let Operation::Analysis {
-        command: super::analysis::AnalysisOperation::Transcribe { id, revision },
-    } = &operation
-    {
-        return super::analysis::transcribe(library, id, *revision);
-    }
     let operation = match operation {
         Operation::Dvr {
             command: DvrOperation::Prune {},

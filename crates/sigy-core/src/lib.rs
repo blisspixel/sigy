@@ -2,4 +2,5 @@
 
 pub mod budget;
 pub mod capture;
+pub mod language;
 pub mod money;

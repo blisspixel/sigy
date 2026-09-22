@@ -2,6 +2,8 @@
 
 Reviewed: 2026-09-20. Status: research and proposed capacity model. No model execution, download, throughput benchmark, or hardware qualification.
 
+The [2026-09-22 retained-recording review](30-language-pipeline-evaluation.md) updates native recognition/translation candidates, Radeon 780M evaluation, Ollama/OpenRouter capability boundaries, and reference-based automated validation. Use the [active implementation plan](../docs/development/language-pipeline.md) for the next experiment; this earlier capacity model is not a measured host profile.
+
 ## Product requirement
 
 Local language detection, speech recognition, and queued processing should make sustained multi-station monitoring useful without metered inference charges. Both live and batch workflows matter. A local profile must remain useful when no paid provider is configured.

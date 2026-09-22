@@ -1,6 +1,6 @@
 # Signal extensions and workbench
 
-Last updated: 2026-09-20. Status: proposed design for confirmed extension, Morse, historical cipher, and modern cryptography requirements. Release placement and implementation technologies remain open.
+Last updated: 2026-09-22. Status: proposed design for confirmed extension, Morse, historical cipher, and modern cryptography requirements. Roadmap stages 11 and 12 remain future work; implementation technologies remain open.
 
 ## 1. Product intent
 
@@ -118,6 +118,28 @@ The selected International Morse profile and any extra alphabet tables must be e
 
 The workbench is a first-class exploration destination, reachable from a standalone demo or an artifact in the library. Enigma is the initial confirmed example; additional cipher families fit named historical transforms.
 
+### Offline cipher laboratory
+
+The initial laboratory uses self-generated local messages and clearly marked synthetic artifacts. A complete exercise follows this flow:
+
+1. Write or generate a message, choose a documented cipher profile, and inspect its alphabet conversion. Preserve the original text and the exact converted plaintext.
+2. Encrypt it with explicit historical settings. Save immutable ciphertext, profile/version, and a separate solution record containing the plaintext and settings.
+3. Inspect the ciphertext, symbol counts, framing, and any deliberately released hints. Optional local Morse or packet presentation remains a synthetic derivative.
+4. Choose supplied-settings decryption or a bounded unknown-key historical challenge. The latter receives only the ciphertext, public profile, declared search domain, and explicitly released cribs.
+5. Inspect candidates and the work performed, then finish or stop the attempt before revealing the solution. Compare exact plaintext, settings, and trace; replay or create a new experiment with one changed assumption.
+
+Hiding the answer in the interface is insufficient. The service must keep the solution, secret settings, revealing generation seeds, and answer-bearing traces out of the solver's inputs, metadata, logs, model context, and accessible artifacts. Record each released crib with its origin and revision. Reveal/compare is a separate operation after the attempt is fixed, so the answer cannot guide candidate generation or ranking.
+
+Historical search has explicit time, CPU, memory, candidate-count, and output bounds. Save the search method/version, declared key domain, tested coverage, cribs, stopping reason, and candidate uncertainty. Heuristic scores are rankings, not probabilities or proof of recovery. An exhausted budget is not proof that no solution exists. Exact success means equality with the declared challenge plaintext after its recorded alphabet conversion; plaintext recovery, recovery of the original settings, and equivalent settings are separate outcomes.
+
+Add later cipher families through the same typed transform and challenge contracts, with their own normalization rules and independent fixtures. This bounded classical cryptanalysis path does not authorize unknown-key attacks on modern encryption. Offline self-generated exercises are the planned scope; they require no radio transmission.
+
+Initial setup asks for country and applicable state/region, with United States guidance as the default. Keep that setting local, editable, and separate from source or device permissions; infer no location through GPS or IP addresses. The selection chooses guidance, not legal authority. Follow the shared [legal and privacy design](09-security-privacy-and-release.md).
+
+Use short notices: educational and general information, not legal advice; work only with material the user is authorized to process; software is provided "AS IS" under [Apache License 2.0](../../LICENSE). These notices are not blanket permission for interception, third-party decryption, cryptographic distribution, or transmission. Radio transmission remains a separately qualified capability with service-specific rules.
+
+### Enigma trace
+
 Proposed Enigma interaction:
 
 1. Select the documented machine variant and a demo configuration.
@@ -146,7 +168,7 @@ Step   Replay   Reset   Compare settings   Save demonstration
 
 A compact text trace carries the same facts on small terminals. Animations are optional, pauseable, and subject to a refresh budget. Library capture and processing continue if the workbench is closed or its rendering falls behind.
 
-Demonstrations do not require model inference, a remote service, or payment. Original historical settings can be stored openly as part of a demo. This does not authorize displaying or exporting operational keys.
+Demonstrations do not require model inference, a remote service, or payment. Revealed historical settings can be stored openly as part of a demo; unrevealed challenge settings remain outside solver access. This does not authorize displaying or exporting operational keys.
 
 ## 9. Modern cryptographic operations
 
@@ -157,6 +179,8 @@ The user chooses an artifact, supported profile, and protected supplied-key refe
 Preserve original ciphertext and link successful derived plaintext to its input and verification result under the configured retention policy. A failed tag/signature, unsupported profile, wrong key, incomplete stream, and malformed payload have different outcomes. Output publication is atomic where a complete-artifact result is promised. Authenticated chunks and whole-artifact completion have separate status.
 
 Show public key fingerprints and status flow in modern visualizations. Do not show secret intermediate values. No automatic downgrade to a historical or weaker algorithm. Key import, service access, nonce lifecycle, backup/recovery, and secret redaction are acceptance requirements.
+
+Post-quantum lessons run locally with demonstration keys through maintained implementations. An ML-KEM lesson shows encapsulation and decapsulation establishing a shared secret, then a reviewed key-derivation and AEAD profile protecting the message. ML-DSA and SLH-DSA lessons separately sign, verify, alter the message, and show verification failure. Public artifacts and operation status explain the flow without revealing secret values. These lessons demonstrate the standardized operations and their assumptions; they do not claim quantum breaking, proof of quantum resistance from a round trip, or a validated cryptographic module. [NIST standards and current research](../../research/12-cryptography.md#modern-evidence).
 
 Whole-library encryption and encrypted exports are separate potential applications of this capability. They require decisions on searchable metadata, unlocked state, unattended restart, key recovery, and migration before implementation. Adding an encryption button does not solve those product concerns.
 
@@ -172,6 +196,6 @@ A saved workbench session references artifacts, configuration revisions, trace s
 
 Acceptance includes type compatibility, schema evolution, worker failure isolation, resource accounting, time mapping, replay provenance, and a demonstration that a new non-audio source can fit the existing library and job lifecycle.
 
-Morse needs independently labeled fixtures. Historical ciphers need known-answer and stepping tests. Modern operations need conformance, interoperability, authentication failure, nonce/restart, and secret-handling evidence. TUI review includes keyboard use, narrow layouts, reduced motion, and simultaneous capture.
+Morse needs independently labeled fixtures. Historical ciphers need independent known-answer and stepping tests, hidden-answer isolation, false cribs, ambiguous candidates, budget exhaustion, exact comparison, and replay evidence. Modern operations need independent conformance vectors, interoperability, authentication failure, nonce/restart, and secret-handling evidence. A round trip alone cannot qualify either path. TUI review includes keyboard use, narrow layouts, reduced motion, and simultaneous capture.
 
-Proposed sequencing: establish extension contracts during the first-release foundation; place Morse and historical workbench work in a separate post-release milestone; qualify operational modern cryptography through its own gate. File-based Morse and Enigma need no physical radio. User priority may change that sequencing. No implementation is authorized by this design document.
+Proposed sequencing: establish extension contracts during the first-release foundation; keep Morse and the historical laboratory in roadmap stage 11, with modern cryptography separately qualified in stage 12. File-based Morse, Enigma challenges, and local post-quantum lessons need no physical radio or transmission. This clarification preserves the current build order and makes no implementation or support claim.

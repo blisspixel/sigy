@@ -34,7 +34,7 @@ fi
 
 if [ "$from_github" -eq 1 ]; then
     if ! command -v git >/dev/null 2>&1; then
-        echo "git is missing. Install Git and authenticate to $repo." >&2
+        echo "git is missing. Install Git to fetch $repo." >&2
         exit 1
     fi
     mkdir -p "$(dirname "$root")"

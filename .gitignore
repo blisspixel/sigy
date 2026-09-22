@@ -1,3 +1,16 @@
 /.agents/
 /target/
 /research/experiments/terminal/target/
+
+# Local credentials and application state never belong in source control.
+.env
+.env.*
+!.env.example
+credentials.toml
+*.key
+*.pem
+!crates/sigy-service/tests/fixtures/**
+catalog.sqlite3
+catalog.sqlite3-wal
+catalog.sqlite3-shm
+service.lock

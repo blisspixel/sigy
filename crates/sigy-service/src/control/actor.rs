@@ -20,6 +20,7 @@ use crate::{
 use std::{collections::HashMap, thread, time::Instant};
 use tokio::sync::{mpsc, oneshot, watch};
 
+mod analysis;
 mod click;
 mod discovery;
 mod listen;
@@ -27,6 +28,11 @@ mod playlist;
 mod podcast;
 
 pub(super) enum Message {
+    AnalysisFinished {
+        id: String,
+        generation: u32,
+        result: Result<crate::processing::VerificationReceipt>,
+    },
     DirectoryFinished {
         id: String,
         result: Result<crate::discovery::RefreshBatch>,
@@ -107,6 +113,7 @@ struct Actor {
     click_worker: Option<Worker>,
     podcast_worker: Option<Worker>,
     text_worker: Option<Worker>,
+    analysis_worker: Option<analysis::AnalysisWorker>,
     listen_workers: HashMap<String, LiveListen>,
     playback: super::playback::PlaySessions,
     acquirer: HttpAcquirer,
@@ -116,6 +123,27 @@ impl Actor {
     fn apply(&mut self, operation: Operation) -> Result<Snapshot> {
         let mut created = None;
         let operation = match operation {
+            Operation::Analysis {
+                command:
+                    super::AnalysisOperation::Verify {
+                        id,
+                        input,
+                        revision,
+                    },
+            } => {
+                self.start_verification(&id, &input, revision)?;
+                Operation::Analysis {
+                    command: super::AnalysisOperation::Job { id },
+                }
+            }
+            Operation::Analysis {
+                command: super::AnalysisOperation::Cancel { id, generation },
+            } => {
+                self.cancel_verification(&id, generation)?;
+                Operation::Analysis {
+                    command: super::AnalysisOperation::Job { id },
+                }
+            }
             Operation::Radio {
                 command: super::DirectoryOperation::Refresh { id, request },
             } => {
@@ -710,6 +738,9 @@ impl Actor {
     }
 
     fn stop(&self) {
+        if let Some(active) = &self.analysis_worker {
+            active.worker.stop.send_replace(true);
+        }
         if let Some(worker) = &self.directory_worker {
             worker.stop.send_replace(true);
         }
@@ -741,6 +772,7 @@ impl Actor {
             && self.click_worker.is_none()
             && self.podcast_worker.is_none()
             && self.text_worker.is_none()
+            && self.analysis_worker.is_none()
     }
 }
 
@@ -772,6 +804,7 @@ pub(super) fn spawn(
         click_worker: None,
         podcast_worker: None,
         text_worker: None,
+        analysis_worker: None,
         listen_workers: HashMap::new(),
         playback: super::playback::PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
@@ -813,6 +846,14 @@ fn dispatch(
     started: Instant,
 ) {
     match message {
+        Message::AnalysisFinished {
+            id,
+            generation,
+            result,
+        } => {
+            let failed = actor.finish_verification(&id, generation, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
         Message::DirectoryFinished { id, result } => {
             let failed = actor.finish_directory(&id, result).is_err();
             mark_failed(actor, stopping, stopped, failed);

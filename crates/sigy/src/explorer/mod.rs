@@ -4,7 +4,7 @@ mod client;
 mod screen;
 mod state;
 mod terminal;
-mod text;
+pub(crate) mod text;
 
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};

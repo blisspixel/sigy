@@ -2,11 +2,11 @@ use super::{Operation, Snapshot};
 use crate::{
     Error, Result,
     domain::money::Usd,
-    library::Library,
     storage::{
         Store,
         analysis::{AdmitOutcome, AnalysisHole, AnalysisRecord, AnalysisSpan},
-        transcripts::{LocalTranscript, TranscriptOutcome},
+        languages::LanguagePage,
+        transcripts::LocalTranscript,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -29,10 +29,40 @@ pub enum AnalysisOperation {
         id: String,
         revision: i64,
     },
-    /// Store one local original-script revision. No paid request is reserved.
+    /// Refused until a measured recognizer is configured. No paid request is reserved.
     Transcribe {
         id: String,
         revision: i64,
+    },
+    Languages {
+        command: LanguageOperation,
+    },
+    Verify {
+        id: String,
+        input: String,
+        revision: i64,
+    },
+    Job {
+        id: String,
+    },
+    Cancel {
+        id: String,
+        generation: u32,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LanguageOperation {
+    List {
+        id: String,
+        revision: i64,
+        after: Option<String>,
+    },
+    Show {
+        id: String,
+        revision: u32,
+        after: Option<u32>,
     },
 }
 
@@ -112,6 +142,8 @@ pub struct AnalysisPage {
     pub transcript: Option<TranscriptView>,
     #[serde(default)]
     pub decision: Option<AnalysisDecisionView>,
+    #[serde(default)]
+    pub languages: Option<LanguagePage>,
 }
 
 pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Snapshot> {
@@ -132,28 +164,20 @@ pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Sna
         }
         AnalysisOperation::Transcribe { .. } => {
             return Err(Error::InvalidInput(
-                "transcription requires library ownership",
+                "no measured recognizer is configured; analysis verify checks retained input",
             ));
+        }
+        AnalysisOperation::Languages { command } => return languages(store, command),
+        AnalysisOperation::Job { id } => {
+            let mut snapshot = super::snapshot(store)?;
+            snapshot.analysis_job = Some(store.analysis_job(&id)?);
+            return Ok(snapshot);
+        }
+        AnalysisOperation::Verify { .. } | AnalysisOperation::Cancel { .. } => {
+            return Err(Error::ServiceRequired);
         }
     };
     finish(store, record, disposition)
-}
-
-/// Hash the retained files, then store one original-script revision and a zero-USD decision.
-/// # Errors
-/// Returns validation or catalog errors. Does not reserve a paid request.
-pub(super) fn transcribe(library: &mut Library, id: &str, revision: i64) -> Result<Snapshot> {
-    let directory = library.directory().to_path_buf();
-    let now = crate::storage::now_ms()?;
-    let (outcome, _) = library
-        .store_mut()
-        .commit_local_transcript(&directory, id, revision, now)?;
-    let disposition = match outcome {
-        TranscriptOutcome::Created => AnalysisDisposition::Transcribed,
-        TranscriptOutcome::Unchanged => AnalysisDisposition::TranscriptUnchanged,
-    };
-    let record = library.store().published_analysis(id, revision)?;
-    finish(library.store(), record, Some(disposition))
 }
 
 fn finish(
@@ -182,7 +206,44 @@ fn page(
         disposition,
         transcript,
         decision,
+        languages: None,
     })
+}
+
+fn languages(store: &Store, command: LanguageOperation) -> Result<Snapshot> {
+    let (record, languages) = match command {
+        LanguageOperation::List {
+            id,
+            revision,
+            after,
+        } => (
+            store.analysis_revision(&id, revision)?,
+            store.language_evidence_list(&id, revision, after.as_deref())?,
+        ),
+        LanguageOperation::Show {
+            id,
+            revision,
+            after,
+        } => {
+            let page = store.language_evidence_page(&id, revision, after)?;
+            let LanguagePage::Evidence { summary, .. } = &page else {
+                return Err(Error::StorageIntegrity);
+            };
+            (
+                store.analysis_revision(&summary.analysis_id, summary.analysis_revision)?,
+                page,
+            )
+        }
+    };
+    let mut snapshot = super::snapshot(store)?;
+    snapshot.analysis = Some(AnalysisPage {
+        input: view_from(record),
+        disposition: None,
+        transcript: None,
+        decision: None,
+        languages: Some(languages),
+    });
+    Ok(snapshot)
 }
 
 fn map_outcome(outcome: AdmitOutcome) -> AnalysisDisposition {

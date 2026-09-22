@@ -256,6 +256,7 @@ fn recording_is_service_owned_verified_exportable_and_prunable() -> TestResult {
     assert_eq!(metadata["payload"]["kind"], "encoded_audio");
     assert_eq!(metadata["storage"]["sha256"], record["sha256"]);
     assert!(!metadata.to_string().contains("/audio"));
+    verify_retained_analysis(directory.path(), bytes.len())?;
     success(
         directory.path(),
         &[
@@ -289,6 +290,54 @@ fn recording_is_service_owned_verified_exportable_and_prunable() -> TestResult {
         0
     );
     fixture.finish()?;
+    Ok(())
+}
+
+fn verify_retained_analysis(directory: &std::path::Path, bytes: usize) -> TestResult {
+    success(
+        directory,
+        &["analysis", "admit", "pin", "--recording", "morning"],
+    )?;
+    success(
+        directory,
+        &["analysis", "publish", "pin", "--revision", "1"],
+    )?;
+    let command = [
+        "analysis",
+        "verify",
+        "verify",
+        "--input",
+        "pin",
+        "--revision",
+        "1",
+    ];
+    success(directory, &command)?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let response = success(directory, &["analysis", "job", "verify"])?;
+        let job = &response["analysis_job"];
+        if job["state"] == "verified" {
+            assert_eq!(job["verified_bytes"], bytes);
+            assert_eq!(job["amount_usd"], "0.000000");
+            break;
+        }
+        assert_eq!(job["state"], "running");
+        assert!(Instant::now() < deadline, "verification did not finish");
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        success(directory, &command)?["analysis_job"]["state"],
+        "verified"
+    );
+    assert!(
+        !invoke(
+            directory,
+            &["analysis", "transcribe", "pin", "--revision", "1"]
+        )?
+        .status
+        .success()
+    );
+    assert!(success(directory, &["analysis", "show", "pin"])?["analysis"]["transcript"].is_null());
     Ok(())
 }
 

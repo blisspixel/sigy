@@ -8,7 +8,7 @@
     {
       "backend": "crossterm",
       "failures": [
-        "timed out waiting for paste in C:\\Users\\NICKSE~1\\AppData\\Local\\Temp\\sigy-terminal-measure-2904\\workload-crossterm-1.jsonl",
+        "timed out waiting for paste in <temporary-directory>\\sigy-terminal-measure-2904\\workload-crossterm-1.jsonl",
         "paste event was not reported"
       ],
       "host": "conpty",
@@ -126,7 +126,7 @@
     {
       "backend": "crossterm",
       "failures": [
-        "timed out waiting for paste in C:\\Users\\NICKSE~1\\AppData\\Local\\Temp\\sigy-terminal-measure-2904\\workload-crossterm-2.jsonl",
+        "timed out waiting for paste in <temporary-directory>\\sigy-terminal-measure-2904\\workload-crossterm-2.jsonl",
         "paste event was not reported"
       ],
       "host": "conpty",
@@ -244,7 +244,7 @@
     {
       "backend": "crossterm",
       "failures": [
-        "timed out waiting for paste in C:\\Users\\NICKSE~1\\AppData\\Local\\Temp\\sigy-terminal-measure-2904\\workload-crossterm-3.jsonl",
+        "timed out waiting for paste in <temporary-directory>\\sigy-terminal-measure-2904\\workload-crossterm-3.jsonl",
         "paste event was not reported"
       ],
       "host": "conpty",

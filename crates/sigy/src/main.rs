@@ -14,6 +14,7 @@ use sigy_service::{
 mod analysis;
 mod dvr;
 mod explorer;
+mod languages;
 mod listen;
 mod mcp;
 mod podcast;
@@ -54,7 +55,7 @@ enum Command {
         #[command(subcommand)]
         command: schedule::ScheduleCommand,
     },
-    /// Pin a published recording, or transcribe that pin locally. No source URL is attached.
+    /// Inspect and verify retained analysis inputs. Recognition is not configured.
     Analysis {
         #[command(subcommand)]
         command: analysis::AnalysisCommand,
@@ -254,6 +255,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         dvr::render_records(&mut stdout, &page, ink)?;
     } else if let Some(page) = view.schedule {
         schedule::render(&mut stdout, &page)?;
+    } else if let Some(job) = &view.analysis_job {
+        analysis::render_job(&mut stdout, job)?;
     } else if let Some(page) = &view.analysis {
         analysis::render(&mut stdout, page, ink)?;
     } else if view.playlist.is_some() || view.source_page.is_some() {

@@ -16,22 +16,22 @@ This is one frame of `sigy tui` on Windows, drawn by the Termina backend at 120 
 
 ![sigy --help on Windows](docs/images/cli.png)
 
-The picture is the output of `sigy --help` on Windows. The [usage guide](docs/usage.md) is the command reference for this checkout: library, service, radio, podcasts, recording, playback, and agents. Planning documents describe later behavior. They are not a second set of commands.
+The picture shows `sigy --help` on Windows from 2026-09-21; newer analysis and scheduling commands are in the [usage guide](docs/usage.md). That guide is the command reference for this checkout. Planning documents describe later behavior.
 
 ## Install
 
-Copy one command. It reads the installer from GitHub and builds the latest `main` commit. The repository is private, so GitHub CLI must already be logged in to an account that can read [blisspixel/sigy](https://github.com/blisspixel/sigy). This is not a release binary, an operating-system service, or `cargo verify`.
+The installers build the latest `main` commit from [blisspixel/sigy](https://github.com/blisspixel/sigy). Review the linked script before running it. These are source builds, with Windows test evidence; Linux and macOS remain unqualified. There is no release binary or crates.io application package yet.
 
 macOS and Linux:
 
 ```text
-gh api -H "Accept: application/vnd.github.raw" https://api.github.com/repos/blisspixel/sigy/contents/scripts/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsS https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.sh | sh
 ```
 
 Windows PowerShell:
 
 ```text
-iex (gh api -H "Accept: application/vnd.github.raw" https://api.github.com/repos/blisspixel/sigy/contents/scripts/install.ps1)
+iex (Invoke-RestMethod https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.ps1)
 ```
 
 The scripts are [install.sh](https://github.com/blisspixel/sigy/blob/main/scripts/install.sh) and [install.ps1](https://github.com/blisspixel/sigy/blob/main/scripts/install.ps1). If `cargo` is missing, the script installs Rust 1.98.1 for the current user from the official rustup installer, then builds `sigy` and puts that binary on the Cargo path. It does not install an operating-system service, download FFmpeg, or contact a station. From a checkout you already have, `./scripts/install.sh` or `scripts\install.ps1` installs that checkout instead of fetching `main`.
@@ -52,13 +52,23 @@ sigy --data-dir PATH_TO_LIBRARY tui
 
 ## What this checkout does
 
-A radio recording of at least 32 MiB seals a segment at 32 MiB or after 5000 ms of receive time and keeps the job running. That 5000 ms bound is the candidate uncommitted window, not a measured durability result. The whole byte budget stays one reservation. A disconnect, recovery, codec change, refused renewal, capture pause, or backward clock leaves a gap with that cause. Seeking inside the gap fails, and no silence file fills it. `listen file` plays one sealed segment while the capture continues and does not stitch those files into one timeline. `listen pause` does not stop that capture. `listen seek` stays inside a published segment. Return to live parks at the newest published end, and the open tail is visible but not readable. `schedule create` stores the next civil occurrence of one source. A missed window stays missed, and a late start leaves a prefix gap. `sigy doctor` checks the catalog, decoder, quota, and cache age without using the network. A stale station cache stays searchable, favorites stay, and the report names the refresh command to run. `radio policy set` saves one bounded directory page. The service refreshes that page when its interval has elapsed. Opening a client does not, and a failed refresh leaves the last cache. `analysis admit` pins one published recording by its checksum and its gaps. The pin has no source URL, and a cleanup receipt does not admit analysis. `analysis transcribe` stores one original-script revision of that pin. Uncertain wording stays labeled. The decision is 0 USD, and the ledger gains no paid request. The tested path on Windows includes a radio directory cache, favorites, and an explicit click; finite recording and retention; retained-file playback; playlist resolution; one direct listen; one finite HLS recording; and podcast subscribe, RSS refresh, one enclosure download, one publisher transcript or chapter fetch, and playback of that retained file. `sigy mcp` exposes those commands to an agent for the library given at startup.
+A radio recording of at least 32 MiB seals a segment at 32 MiB or after 5000 ms of receive time and keeps the job running. That 5000 ms bound is the candidate uncommitted window, not a measured durability result. The whole byte budget stays one reservation. A disconnect, recovery, codec change, refused renewal, capture pause, or backward clock leaves a gap with that cause. Seeking inside the gap fails, and no silence file fills it.
+
+`listen file` plays one sealed segment while the capture continues and does not stitch those files into one timeline. `listen pause` does not stop that capture. `listen seek` stays inside a published segment. Return to live parks at the newest published end, and the open tail is visible but not readable. `schedule create` stores the next civil occurrence of one source. A missed window stays missed, and a late start leaves a prefix gap.
+
+`sigy doctor` checks the catalog, decoder, quota, and cache age without using the network. A stale station cache stays searchable, favorites stay, and the report names the refresh command to run. `radio policy set` saves one bounded directory page. The service refreshes that page when its interval has elapsed. Opening a client does not, and a failed refresh leaves the last cache.
+
+`analysis admit` pins one published recording by its checksum and its gaps. The pin has no source URL, and a cleanup receipt does not admit analysis. `analysis verify` checks the retained files in one bounded service job, protecting them from deletion until the reader stops. **Speech recognition and translation are not implemented yet.** `analysis transcribe` refuses new work until a measured recognizer is configured. Older empty transcript rows remain labeled as legacy placeholders. Read-only `analysis languages list` and `analysis languages show` inspect revision-bound evidence; no detector runs yet. The next work is measured local recognition and aligned English translation under the [language pipeline plan](docs/development/language-pipeline.md). Paid processing remains disabled.
+
+The tested path on Windows includes a radio directory cache, favorites, and an explicit click; finite recording and retention; retained-file playback; playlist resolution; one direct listen; one finite HLS recording; and podcast subscribe, RSS refresh, one enclosure download, one publisher transcript or chapter fetch, and playback of that retained file. `sigy mcp` exposes those commands to an agent for the library given at startup.
 
 Windows x86_64 is the host those checks ran on. Linux and macOS are not a support matrix. Follow the [roadmap](ROADMAP.md#build-order) and the [progress record](docs/development/progress.md). Start from [intent](INTENT.md) when the question is what Sigy is for.
 
 ## Lawful use
 
-Sigy is for listening, recording, and analysis of sources you are authorized to receive. The [usage guide](docs/usage.md#lawful-use) states that boundary. It is not legal advice.
+Sigy is for listening, recording, and analysis of material you are authorized to use. Reception, recording, decryption, transmission, and redistribution can require different permissions. The [usage guide](docs/usage.md#lawful-use) explains those responsibilities. Documentation and educational examples are general information, not legal advice or permission. The software is provided AS IS, subject to the warranty disclaimer and liability limits in the [Apache 2.0 license](LICENSE). Those terms do not guarantee legal protection.
+
+For bugs and contributions, see [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 ## License
 

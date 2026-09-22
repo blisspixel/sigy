@@ -23,9 +23,11 @@ use crate::{
     storage::{Store, sources::SourceRevision},
 };
 
+pub use crate::storage::analysis_jobs::AnalysisJob;
 pub use analysis::{
     AnalysisDecisionView, AnalysisDisposition, AnalysisGapView, AnalysisIntervalView,
-    AnalysisOperation, AnalysisPage, AnalysisView, TranscriptCueView, TranscriptView,
+    AnalysisOperation, AnalysisPage, AnalysisView, LanguageOperation, TranscriptCueView,
+    TranscriptView,
 };
 pub use discovery::{DirectoryOperation, DirectoryPolicyPage, PolicyDisposition, StationPage};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
@@ -40,7 +42,7 @@ pub use podcast::{
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 24;
+pub const PROTOCOL_VERSION: u32 = 26;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -213,6 +215,8 @@ pub struct Snapshot {
     pub directory_policy: Option<DirectoryPolicyPage>,
     #[serde(default)]
     pub analysis: Option<AnalysisPage>,
+    #[serde(default)]
+    pub analysis_job: Option<AnalysisJob>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -400,6 +404,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         schedule: None,
         directory_policy: None,
         analysis: None,
+        analysis_job: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

@@ -1,6 +1,6 @@
 # Analysis, knowledge, and multi-stream processing
 
-Last updated: 2026-09-21. Status: proposed design. The local-processing priority is confirmed; particular recognizers, classifiers, provider routes, and notebook implementation remain undecided.
+Last updated: 2026-09-22. Status: proposed design. The local-processing priority is confirmed; particular recognizers, classifiers, provider routes, and notebook implementation remain undecided. The [language pipeline plan](../development/language-pipeline.md) controls the current retained-recording increment and automated validation method.
 
 ## 1. Intended experience
 
@@ -141,7 +141,7 @@ At a classifier cap, pause that stage or use an already permitted local alternat
 
 ## 8. Validation before implementation selection
 
-Specify and later execute comparison workloads for multilingual detection/ASR, live-versus-batch scheduling, end-to-end classifier cascades, topic evolution, and weekly music reports. Use human-reviewed majority non-English fixtures, preserved originals, held-out stations/time windows, and language-specific thresholds.
+Specify and later execute comparison workloads for multilingual detection/ASR, live-versus-batch scheduling, end-to-end classifier cascades, topic evolution, and weekly music reports. Use licensed majority non-English reference fixtures, preserved originals, held-out stations/time windows, and language-specific thresholds. Current language evaluation uses published references, deterministic metrics, and calibrated independent model checks without depending on new human reviewers. Record the actual review method and preserve uncertainty.
 
 Required failure cases include detector mistakes, unsupported language, translation distortion, rare-topic filtering, stale revisions, taxonomy changes, duplicate evidence, hidden provider retries, exhausted budgets, growing backlog, retention conflicts, and restart during a topic update. Acceptance evidence must demonstrate useful analysis as well as bounded resources and recoverable state.
 

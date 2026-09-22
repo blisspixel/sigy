@@ -49,7 +49,7 @@ if (-not $root) {
 if ($fromGitHub) {
     $git = Get-Command git -ErrorAction SilentlyContinue
     if (-not $git) {
-        throw "git is missing. Install Git and authenticate to $repo."
+        throw "git is missing. Install Git to fetch $repo."
     }
     $parent = Split-Path -Parent $root
     if ($parent) {

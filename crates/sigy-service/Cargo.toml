@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+publish.workspace = true
 description = "Durable application operations and adapters for Sigy"
 
 [dependencies]
@@ -24,6 +25,7 @@ sha2.workspace = true
 fs4.workspace = true
 flate2.workspace = true
 jiff.workspace = true
+oxilangtag.workspace = true
 process-wrap.workspace = true
 
 [target.'cfg(windows)'.dependencies]

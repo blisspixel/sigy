@@ -2,6 +2,8 @@
 
 Reviewed: 2026-09-20. Status: research and proposed evaluation design; no models evaluated.
 
+Implementation follow-up: the [2026-09-22 evaluation review](30-language-pipeline-evaluation.md) updates native candidates, reference corpora, and automated quality checks. The user confirmed this note's initial eight-language survey and requested evaluation without newly arranged human reviewers. The [active plan](../docs/development/language-pipeline.md) controls execution and evidence claims.
+
 ## Product baseline
 
 Most expected listening is non-English. Language identification within blocks and translation primarily into English are confirmed requirements. A station, channel, or URL can carry several languages during one session. Its directory language is a discovery hint, not a permanent assignment to its content.
@@ -69,7 +71,7 @@ Measure identified airtime and false matches by region, language where known, ge
 - A majority of evaluation speech duration and a majority of music examples must be non-English. Set per-language and condition minimums before comparing candidates.
 - Proposed initial survey: French, Spanish, Portuguese, Arabic, Swahili, Hindi, Mandarin, and English, expanded with representative African and other regional languages. This is a survey proposal, not a claim of qualified launch support.
 - Report language-identification confusion and abstention, switch-boundary accuracy where available, ASR word/character errors, name/number errors, translation adequacy, and end-to-end topic recall separately.
-- Assess translation with competent reviewers for the tested pairs. Automated scores and model-as-judge outputs are supplementary evidence.
+- Assess translation against licensed published references, deterministic metrics, and calibrated independent model checks under the current authorized plan. Preserve any existing human-reference provenance without claiming new human review. Missing references and unreliable judges limit claims; fluent agreement alone is insufficient.
 - Include short clips, long multilingual sessions, dialects, accents, low bitrates, overlap, noise, music beds, silence, and malformed metadata.
 - Compare real-time factor, memory, power, cold-start time, and caption latency by language and host profile. Quantization needs its own quality result.
 - Publish qualified, experimental, and unavailable capabilities by language/task/profile. English performance cannot compensate for a failed declared language.
