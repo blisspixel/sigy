@@ -97,6 +97,16 @@ impl Store {
 
     /// # Errors
     /// Returns catalog read errors.
+    pub(crate) fn catalog_quick_check(&self) -> Result<bool> {
+        let mut statement = self.connection.prepare("PRAGMA quick_check")?;
+        let messages = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(messages.as_slice() == ["ok"])
+    }
+
+    /// # Errors
+    /// Returns catalog read errors.
     pub fn sqlite_version(&self) -> Result<String> {
         Ok(self
             .connection

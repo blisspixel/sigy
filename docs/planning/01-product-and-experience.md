@@ -199,7 +199,7 @@ The CLI is a complete automation surface over the same operations as the TUI. Pr
 | `sigy provider` | Configure, inspect capabilities, test, select task defaults |
 | `sigy device` | List, inspect, diagnose; hardware operations arrive later |
 | `sigy service` | Install, start, status, stop, logs, uninstall integration |
-| `sigy doctor` | Read-only preflight for the library, decoder file, quota, and 24-hour directory and podcast cache age is implemented. It does not refresh or use the network. Model availability remains later |
+| `sigy doctor` | Read-only preflight for catalog integrity, the decoder file, quota, and 24-hour directory and podcast cache age is implemented. It does not refresh or use the network. Model availability remains later |
 | `sigy library` | Search, retention preview, backup, restore, integrity check |
 | `sigy source` / `sigy decode` | Future typed source inspection and decoder operations beyond stations |
 | `sigy workbench` / `sigy crypto` | Future saved experiments and operation-specific cryptographic workflows with protected key references |

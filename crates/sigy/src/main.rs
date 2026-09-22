@@ -82,7 +82,7 @@ enum Command {
     },
     /// Speak MCP 2026-07-28 on stdin and stdout for one configured library.
     Mcp,
-    /// Check the library, decoder, quota, and cache age. This does not use the network.
+    /// Check the catalog, decoder, quota, and cache age. This does not use the network.
     Doctor {
         /// Exit with an error when any check needs attention.
         #[arg(long)]

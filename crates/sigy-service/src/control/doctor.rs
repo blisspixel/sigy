@@ -74,26 +74,40 @@ fn inspect(
     directory: &DirectoryStatus,
     dvr: &DvrStatus,
 ) -> Result<DoctorReport> {
-    let mut checks = Vec::new();
-    checks.push(check(
-        "catalog",
-        DoctorState::Ok,
-        format!(
-            "schema {} and SQLite {}",
-            view.schema_version, view.sqlite_version
-        ),
-        None,
-    ));
-    checks.push(provider(view.provider_dispatch_available));
-    checks.push(budgets(&view.budgets));
-    checks.push(decoder(dvr.decoder.as_ref()));
-    checks.push(quota(dvr));
-    checks.push(directory_cache(directory));
-    checks.push(directory_refresh(directory));
-    checks.push(podcasts(store)?);
-    checks.push(publisher_text(store)?);
-    checks.push(captures(view.captures.interrupted));
+    let checks = vec![
+        catalog(view, store.catalog_quick_check()?),
+        provider(view.provider_dispatch_available),
+        budgets(&view.budgets),
+        decoder(dvr.decoder.as_ref()),
+        quota(dvr),
+        directory_cache(directory),
+        directory_refresh(directory),
+        podcasts(store)?,
+        publisher_text(store)?,
+        captures(view.captures.interrupted),
+    ];
     Ok(DoctorReport { checks })
+}
+
+fn catalog(view: &Snapshot, intact: bool) -> DoctorCheck {
+    if intact {
+        check(
+            "catalog",
+            DoctorState::Ok,
+            format!(
+                "schema {} and SQLite {}",
+                view.schema_version, view.sqlite_version
+            ),
+            None,
+        )
+    } else {
+        check(
+            "catalog",
+            DoctorState::Blocked,
+            "the catalog failed SQLite quick_check".into(),
+            None,
+        )
+    }
 }
 
 fn provider(available: bool) -> DoctorCheck {
@@ -422,6 +436,16 @@ mod tests {
             .ok_or("directory")?;
         if directory.state != DoctorState::Attention || stale.blocked() {
             return Err(format!("stale cache was not attention: {directory:?}").into());
+        }
+        store.clear_cached_observation_time()?;
+        let missing_time = super::apply(&store)?.doctor.ok_or("missing doctor")?;
+        let missing_time_check = missing_time
+            .checks
+            .iter()
+            .find(|check| check.name == "directory")
+            .ok_or("directory")?;
+        if missing_time_check.state != DoctorState::Attention || missing_time.blocked() {
+            return Err(format!("undated cache was not attention: {missing_time_check:?}").into());
         }
         let missing = root.path().join("missing-ffmpeg");
         store.set_decoder_path(&missing.display().to_string())?;

@@ -279,7 +279,7 @@ const PLAY: Duration = Duration::from_secs(120);
 const TOOLS: &[Tool] = &[
     Tool {
         name: "doctor",
-        description: "Check the library, decoder, quota, and cache age. Does not refresh, delete, or use the network.",
+        description: "Check the catalog, decoder, quota, and cache age. Does not refresh, delete, or use the network.",
         hints: HINT_QUERY,
         words: &["doctor"],
         slots: &[],

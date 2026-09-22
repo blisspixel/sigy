@@ -31,6 +31,14 @@ impl Store {
         Ok(())
     }
 
+    pub(crate) fn clear_cached_observation_time(&mut self) -> Result<()> {
+        self.connection.execute(
+            "UPDATE directory_stations SET metadata_json = json_remove(metadata_json, '$.observed_ms')",
+            [],
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn set_decoder_path(&mut self, path: &str) -> Result<()> {
         self.connection
             .execute("UPDATE dvr_policy SET decoder = ?1", [path])?;
@@ -142,7 +150,7 @@ impl Store {
                 .query_row("SELECT count(*) FROM directory_stations", [], |r| r.get(0))?;
         let cutoff = now_ms()?.saturating_sub(DIRECTORY_FRESH_MS);
         let (oldest_observed_ms, newest_observed_ms, stale_stations): (Option<i64>, Option<i64>, u32) = self.connection.query_row(
-            "SELECT min(json_extract(metadata_json, '$.observed_ms')), max(json_extract(metadata_json, '$.observed_ms')), coalesce(sum(json_extract(metadata_json, '$.observed_ms') < ?1), 0) FROM directory_stations",
+            "SELECT min(json_extract(metadata_json, '$.observed_ms')), max(json_extract(metadata_json, '$.observed_ms')), coalesce(sum(json_extract(metadata_json, '$.observed_ms') IS NULL OR json_extract(metadata_json, '$.observed_ms') < ?1), 0) FROM directory_stations",
             [cutoff],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
