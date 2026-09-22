@@ -25,7 +25,7 @@ Both backends met these checks:
 
 Termina treated the bracketed payload as one paste event whose text was `q東京`. The probe did not quit. The query contained that text. This happened on ConPTY, in all three repeats, and inside Windows Terminal at each requested size.
 
-Crossterm 0.29 can enable bracketed paste, but its Windows input reader does not decode that payload. On ConPTY, in all three repeats, the `q` inside the paste quit the probe and no paste event was recorded. Inside Windows Terminal the same sequence arrived as individual keys. The query became `navajo[20~`, and `q` quit before a paste event. Search, resize, idle, the Unicode cells, color, reduced motion, and mode restoration otherwise matched.
+Crossterm 0.29.0 recorded no paste event. On ConPTY, all three repeats finished search, both resizes, and mode restoration, and the driver then timed out waiting for paste. The report has no paste record. Inside Windows Terminal, at each requested size, the query became `navajo[20~` and the report still has no paste event. Search, resize, idle, the Unicode cells, color, reduced motion, and mode restoration otherwise matched.
 
 ## Limits
 
