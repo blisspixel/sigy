@@ -1,6 +1,6 @@
 # Public-source readiness
 
-Updated: 2026-09-22. Status: preparing the first public GitHub source checkpoint. No application release or crates.io publication is implied.
+Updated: 2026-09-22. Status: [GitHub source is public](https://github.com/blisspixel/sigy), with local and hosted verification passed. No application release or crates.io publication is implied.
 
 ## Scope and authorization
 
@@ -19,7 +19,13 @@ Review covers intended tracked content, reachable history and local refs, commit
 - [SECURITY.md](../../SECURITY.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md) provide reporting and contribution routes. CI uses pinned actions, read-only contents permission, and checkout without persisted Git credentials. Pull requests run the same verification command; native-media qualification stays local.
 - The README labels the early development state, historical screenshot, actual Windows evidence, and missing speech recognition and translation. A source checkout remains the installation path. No supported platform matrix or certification is claimed.
 
-Final scanner results, GitHub feature readbacks, cache handling, anonymous access, and the hosted verification result must be recorded before this document calls publication complete.
+## Publication checks
+
+GitHub visibility was changed to public only after local verification and the reviews above. The verified source checkpoint is `8aa072d72cd39a0693199e68ca1ab1315215fae6`. API readback confirmed public visibility, secret scanning enabled, push protection enabled, and private vulnerability reporting enabled. The initial secret-alert query returned no alerts; that response is not proof that every background scan has completed or every secret format is recognized.
+
+Anonymous API access succeeded. A clone with credential helpers and extra HTTP authorization headers disabled resolved to that exact checkpoint. Anonymous downloads of both installer scripts matched their committed Git blob hashes. This verifies source and installer retrieval, not a clean-machine installation or additional operating-system support. Six pre-publication build caches were removed and the cache list was empty before pushing the public checkpoint.
+
+Local `cargo verify` passed 273 ordinary tests and `cargo verify-media` passed all 12 native-media tests. The [first public Windows workflow](https://github.com/blisspixel/sigy/actions/runs/35796307780) passed `cargo verify` at the source checkpoint above on a fresh standard hosted runner. Native-media tests remain local. The workflow used no paid runner or new spending allocation. Local models and paid providers were not run.
 
 ## Registry boundary
 
