@@ -18,6 +18,6 @@ Transcript and chapter URLs from the Podcasting 2.0 namespace are stored with th
 
 A failed document, hostile XML construct, size or expansion limit, or unauthorized redirect marks the refresh failed and leaves the previous snapshot and episodes unchanged. Ordinary episode views show identity kind, title, publication time, whether an enclosure exists, and asset counts. They omit enclosure, transcript, chapter, and feed paths and queries.
 
-The list explorer does not subscribe, refresh, or list episodes. No automatic poll runs. Enclosure download remains a later operation. This does not exit stage 4.
+The list explorer does not subscribe, refresh, or list episodes. No automatic poll runs. Enclosure download is a separate explicit operation. See [one episode enclosure](0019-episode-enclosure.md). This does not exit stage 4.
 
 Verification covers parser fixtures for guid identity, derived identity, title-only items, duplicate guids, 501 items, depth, DTD, external entities, and `XInclude`; catalog omission, failed-document retention, replay, one active refresh, the two-second interval, the 2,000-episode ceiling, and v12 migration rollback; gzip and deflate bounds on the shared acquirer; and a local service fixture of 239 items with one derived episode, one skipped title, and one live item. That fixture contacts only 127.0.0.1. Replay does not fetch again. A private redirect fails closed. Offline listing shows the retained episodes and omits stored URLs.

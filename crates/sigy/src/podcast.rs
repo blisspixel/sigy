@@ -53,6 +53,20 @@ pub enum PodcastCommand {
         #[arg(long, default_value_t = 16)]
         limit: u32,
     },
+    /// Download one enclosure. Reserves 512 MiB and 30 minutes before connecting.
+    Download {
+        /// Subscription that stored the episode.
+        subscription: String,
+        /// Episode id from `podcast episodes`. Titles are not accepted.
+        #[arg(long)]
+        episode: String,
+        /// Recording id. Exact replay does not download again.
+        #[arg(long)]
+        id: String,
+        /// Immutable audio revision key for this enclosure URL.
+        #[arg(long)]
+        revision: String,
+    },
 }
 
 impl std::fmt::Debug for PodcastCommand {
@@ -99,6 +113,18 @@ impl PodcastCommand {
                 subscription_id: subscription.clone(),
                 after: after.clone(),
                 limit: *limit,
+            }
+            .into(),
+            Self::Download {
+                subscription,
+                episode,
+                id,
+                revision,
+            } => PodcastOperation::Download {
+                id: id.clone(),
+                subscription_id: subscription.clone(),
+                episode_id: episode.clone(),
+                revision_id: revision.clone(),
             }
             .into(),
         }

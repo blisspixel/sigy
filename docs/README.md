@@ -34,6 +34,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [RSS feed refresh](decisions/0018-rss-feed-refresh.md) reads one RSS 2.0 document on the shared acquirer and lists episodes. It does not download enclosures. A failed document leaves the last good snapshot.
 
+[Episode enclosure download](decisions/0019-episode-enclosure.md) fetches one stored enclosure through the existing recording path. It reserves 512 MiB and 30 minutes before connecting. Feed text does not grant that fetch.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:

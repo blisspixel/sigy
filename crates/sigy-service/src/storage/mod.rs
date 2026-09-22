@@ -18,7 +18,7 @@ pub mod podcasts;
 pub use clicks::ClickStatus;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 13;
+pub const SCHEMA_VERSION: u32 = 14;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -142,6 +142,9 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     }
     if (0..=12).contains(&version) {
         transaction.execute_batch(include_str!("013-podcast-feeds.sql"))?;
+    }
+    if (0..=13).contains(&version) {
+        transaction.execute_batch(include_str!("014-enclosures.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

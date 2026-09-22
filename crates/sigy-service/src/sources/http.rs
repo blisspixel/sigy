@@ -23,6 +23,9 @@ use crate::{Error, Result};
 
 pub const MAXIMUM_BODY_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAXIMUM_DURATION: Duration = Duration::from_mins(15);
+/// Episode downloads reserve this whole ceiling. Radio acquisition cannot use it.
+pub const EPISODE_BODY_BYTES: u64 = 512 * 1024 * 1024;
+pub const EPISODE_DURATION: Duration = Duration::from_mins(30);
 const MAX_ATTEMPTS: usize = 2;
 
 /// Audio and directory reads stay identity-only. A feed may ask for compression.
@@ -45,6 +48,7 @@ impl AcceptEncoding {
 pub struct AcquisitionLimits {
     bytes: u64,
     duration: Duration,
+    clean_end: bool,
 }
 
 impl AcquisitionLimits {
@@ -58,8 +62,14 @@ impl AcquisitionLimits {
         self.duration
     }
 
+    #[must_use]
+    pub const fn clean_end(self) -> bool {
+        self.clean_end
+    }
+
     /// # Errors
     /// Rejects zero or out-of-profile limits. Limits include connection setup.
+    /// Radio stays at 15 minutes and 256 MiB. Episode downloads use [`Self::episode`].
     pub fn new(bytes: u64, duration: Duration) -> Result<Self> {
         if bytes == 0
             || bytes > MAXIMUM_BODY_BYTES
@@ -68,7 +78,21 @@ impl AcquisitionLimits {
         {
             return Err(Error::InvalidInput("HTTP acquisition limits"));
         }
-        Ok(Self { bytes, duration })
+        Ok(Self {
+            bytes,
+            duration,
+            clean_end: false,
+        })
+    }
+
+    /// Fixed episode ceiling: 512 MiB and 30 minutes, and a clean end is required.
+    #[must_use]
+    pub const fn episode() -> Self {
+        Self {
+            bytes: EPISODE_BODY_BYTES,
+            duration: EPISODE_DURATION,
+            clean_end: true,
+        }
     }
 }
 
@@ -429,6 +453,15 @@ impl HttpAcquirer {
         };
         let peer = response.remote_addr().ok_or(Error::DestinationDenied)?;
         let declared_content_type = validate_headers(response.headers())?;
+        if limits.clean_end
+            && response
+                .content_length()
+                .is_some_and(|declared| declared > limits.bytes)
+        {
+            return Err(Error::Acquisition(
+                "declared length exceeds the episode ceiling",
+            ));
+        }
         let interval = icy_interval(response.headers(), metadata)?;
         Ok(Opened {
             response,
@@ -462,7 +495,22 @@ impl HttpAcquirer {
         };
         loop {
             if carried.bytes == limits.bytes {
-                return close_transfer(sink, carried, TransferEnd::ByteLimit, false).await;
+                if !limits.clean_end {
+                    return close_transfer(sink, carried, TransferEnd::ByteLimit, false).await;
+                }
+                // A body that ends on the ceiling is complete. Further bytes are not.
+                let clean = !next_chunk(&mut response, stop, deadline).await?;
+                return close_transfer(
+                    sink,
+                    carried,
+                    if clean {
+                        TransferEnd::EndOfBody
+                    } else {
+                        TransferEnd::ByteLimit
+                    },
+                    clean,
+                )
+                .await;
             }
             let body = async {
                 response
@@ -519,6 +567,34 @@ impl HttpAcquirer {
             }
         }
     }
+}
+
+async fn next_chunk(
+    response: &mut reqwest::Response,
+    stop: &mut Option<&mut tokio::sync::watch::Receiver<bool>>,
+    deadline: Instant,
+) -> Result<bool> {
+    let body = async {
+        response
+            .chunk()
+            .await
+            .map_err(|_| Error::Acquisition("body interrupted; partial body is unverified"))
+    };
+    let extra = if let Some(stop) = stop.as_mut() {
+        tokio::select! {
+            biased;
+            () = async { if !*stop.borrow() { let _ = stop.changed().await; } } => {
+                return Err(Error::Acquisition("episode ended before a clean end"));
+            }
+            () = tokio::time::sleep_until(deadline) => {
+                return Err(Error::Acquisition("episode ended before a clean end"));
+            }
+            result = body => result?,
+        }
+    } else {
+        body.await?
+    };
+    Ok(extra.is_some())
 }
 
 struct Carried {
@@ -604,7 +680,10 @@ fn validate_headers(headers: &header::HeaderMap) -> Result<AudioContentType> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AcquisitionLimits, HttpAcquirer, MetadataPolicy, TransferEnd};
+    use super::{
+        AcquisitionLimits, EPISODE_BODY_BYTES, EPISODE_DURATION, HttpAcquirer, MetadataPolicy,
+        TransferEnd,
+    };
     use crate::sources::{HttpSource, NetworkScope};
     use sha2::{Digest, Sha256};
     use std::time::Duration;
@@ -612,6 +691,18 @@ mod tests {
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
     };
+
+    #[test]
+    fn radio_limits_stay_below_the_episode_ceiling() -> crate::Result<()> {
+        assert!(AcquisitionLimits::new(EPISODE_BODY_BYTES, Duration::from_secs(60)).is_err());
+        assert!(AcquisitionLimits::new(1024, EPISODE_DURATION).is_err());
+        let episode = AcquisitionLimits::episode();
+        assert_eq!(episode.bytes(), EPISODE_BODY_BYTES);
+        assert_eq!(episode.duration(), EPISODE_DURATION);
+        assert!(episode.clean_end());
+        assert!(!AcquisitionLimits::new(1024, Duration::from_secs(60))?.clean_end());
+        Ok(())
+    }
 
     #[tokio::test]
     async fn requested_metadata_is_hashed_as_audio_only() -> crate::Result<()> {

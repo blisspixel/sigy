@@ -169,6 +169,31 @@ async fn finite_transfer_preserves_bytes_and_authority_without_trusting_audio_la
 }
 
 #[tokio::test]
+async fn episode_content_length_above_the_ceiling_writes_nothing() -> TestResult {
+    let declared = sigy_service::sources::http::EPISODE_BODY_BYTES + 1;
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: {declared}\r\nConnection: close\r\n\r\nnope"
+    );
+    let fixture = Fixture::new(response.into_bytes(), false).await?;
+    let mut received = Vec::new();
+    let error = HttpAcquirer::default()
+        .acquire(
+            &fixture.source()?,
+            AcquisitionLimits::episode(),
+            &mut received,
+        )
+        .await
+        .err()
+        .ok_or("over-cap length was accepted")?;
+    assert!(matches!(
+        error,
+        Error::Acquisition("declared length exceeds the episode ceiling")
+    ));
+    assert!(received.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn byte_limit_and_chunked_body_are_bounded_exactly() -> TestResult {
     for body in [
         b"Content-Length: 20\r\n\r\nabcdefghijklmnopqrst".as_slice(),

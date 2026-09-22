@@ -3,11 +3,16 @@
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
-use super::{Store, now_ms, validate_key};
+use super::{
+    Store,
+    dvr::{self, RecordingProfile, Retention},
+    now_ms, validate_key,
+};
 use crate::{
     Error, Result,
     podcast::{AssetRef, EpisodeIdentity, FeedCommit, ParsedEpisode},
-    sources::unsafe_display,
+    sources::{HttpSource, unsafe_display},
+    storage::captures::CaptureJob,
 };
 
 const MAX_REFRESH_HISTORY: u32 = 4_096;
@@ -306,6 +311,14 @@ impl Store {
         for id in subscription_ids {
             self.audit_subscription_feed(&id)?;
         }
+        let inconsistent: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM podcast_downloads d LEFT JOIN podcast_episodes e ON e.subscription_id = d.subscription_id AND e.episode_id = d.episode_id LEFT JOIN recordings r ON r.id = d.recording_id LEFT JOIN capture_jobs c ON c.id = d.recording_id WHERE e.episode_id IS NULL OR r.profile != 'episode' OR c.source_revision != d.source_revision)",
+            [],
+            |row| row.get(0),
+        )?;
+        if inconsistent {
+            return Err(Error::PodcastIntegrity);
+        }
         Ok(())
     }
 
@@ -385,6 +398,37 @@ impl Store {
             .optional()?
             .ok_or(Error::NotFound)
     }
+
+    /// Reserve one enclosure download. A declared length above 512 MiB fails before any connect.
+    /// Exact replay of the recording id does not admit another attempt.
+    /// # Errors
+    /// Rejects a missing episode, an unauthorized enclosure, a full quota, or a conflicting replay.
+    pub(crate) fn begin_episode_download(
+        &mut self,
+        recording_id: &str,
+        subscription_id: &str,
+        episode_id: &str,
+        revision_id: &str,
+    ) -> Result<EpisodeAdmission> {
+        validate_key(recording_id, "recording ID")?;
+        validate_key(subscription_id, "podcast subscription ID")?;
+        if !hex64(episode_id) {
+            return Err(Error::InvalidInput("episode ID"));
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let admission =
+            begin_episode_download_in(&tx, recording_id, subscription_id, episode_id, revision_id)?;
+        tx.commit()?;
+        Ok(admission)
+    }
+}
+
+/// A new reservation, or the same request which must not connect again.
+pub(crate) enum EpisodeAdmission {
+    Started(CaptureJob),
+    Replay,
 }
 
 type RefreshColumns = (
@@ -399,6 +443,130 @@ type RefreshColumns = (
     Option<String>,
     Option<String>,
 );
+
+const EPISODE_SOURCE_NAME: &str = "Episode";
+
+fn begin_episode_download_in(
+    tx: &rusqlite::Connection,
+    recording_id: &str,
+    subscription_id: &str,
+    episode_id: &str,
+    revision_id: &str,
+) -> Result<EpisodeAdmission> {
+    let subscription =
+        super::podcasts::read_subscription(tx, subscription_id)?.ok_or(Error::NotFound)?;
+    if let Some(existing) = download_row(tx, recording_id)? {
+        if existing.subscription_id != subscription_id
+            || existing.episode_id != episode_id
+            || existing.source_revision != revision_id
+        {
+            return Err(Error::IdempotencyConflict);
+        }
+        let profile: String = tx.query_row(
+            "SELECT profile FROM recordings WHERE id = ?1",
+            [recording_id],
+            |row| row.get(0),
+        )?;
+        if profile != RecordingProfile::Episode.as_str() {
+            return Err(Error::PodcastIntegrity);
+        }
+        return Ok(EpisodeAdmission::Replay);
+    }
+    let (url, length) = episode_enclosure(tx, subscription_id, episode_id)?;
+    let ceiling = i64::try_from(crate::sources::http::EPISODE_BODY_BYTES)
+        .map_err(|_| Error::StorageIntegrity)?;
+    if length.is_some_and(|declared| declared > ceiling) {
+        return Err(Error::InvalidInput("enclosure length above 512 MiB"));
+    }
+    if episode_is_occupied(tx, subscription_id, episode_id)? {
+        return Err(Error::InvalidInput("episode enclosure already recorded"));
+    }
+    let source = HttpSource::new(EPISODE_SOURCE_NAME, &url, subscription.network)
+        .map_err(|error| match error {
+            Error::InvalidInput(_) => Error::InvalidInput("episode enclosure URL"),
+            other => other,
+        })?
+        .with_redirects(subscription.redirects)?;
+    super::sources::register_source_in(tx, revision_id, &source)?;
+    let job = dvr::admit_recording_in(
+        tx,
+        &dvr::RecordingInsert {
+            id: recording_id,
+            source: revision_id,
+            seconds: crate::sources::http::EPISODE_DURATION.as_secs(),
+            maximum: crate::sources::http::EPISODE_BODY_BYTES,
+            retention: Retention::Temporary,
+            metadata: false,
+        },
+    )?;
+    let Some(job) = job else {
+        return Err(Error::PodcastIntegrity);
+    };
+    tx.execute(
+        "INSERT INTO podcast_downloads(recording_id, subscription_id, episode_id, source_revision) VALUES (?1, ?2, ?3, ?4)",
+        params![recording_id, subscription_id, episode_id, revision_id],
+    )?;
+    Ok(EpisodeAdmission::Started(job))
+}
+
+struct DownloadRow {
+    subscription_id: String,
+    episode_id: String,
+    source_revision: String,
+}
+
+fn download_row(tx: &rusqlite::Connection, recording_id: &str) -> Result<Option<DownloadRow>> {
+    tx.query_row(
+        "SELECT subscription_id, episode_id, source_revision FROM podcast_downloads WHERE recording_id = ?1",
+        [recording_id],
+        |row| {
+            Ok(DownloadRow {
+                subscription_id: row.get(0)?,
+                episode_id: row.get(1)?,
+                source_revision: row.get(2)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Error::from)
+}
+
+fn episode_enclosure(
+    tx: &rusqlite::Connection,
+    subscription_id: &str,
+    episode_id: &str,
+) -> Result<(String, Option<i64>)> {
+    let row = tx
+        .query_row(
+            "SELECT enclosure_url, enclosure_length FROM podcast_episodes WHERE subscription_id = ?1 AND episode_id = ?2",
+            params![subscription_id, episode_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .optional()?;
+    let Some((url, length)) = row else {
+        return Err(Error::NotFound);
+    };
+    let Some(url) = url else {
+        return Err(Error::InvalidInput("episode without an enclosure"));
+    };
+    if length.is_some_and(|value| value < 0) {
+        return Err(Error::PodcastIntegrity);
+    }
+    Ok((url, length))
+}
+
+fn episode_is_occupied(
+    tx: &rusqlite::Connection,
+    subscription_id: &str,
+    episode_id: &str,
+) -> Result<bool> {
+    tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM podcast_downloads d JOIN recordings r ON r.id = d.recording_id WHERE d.subscription_id = ?1 AND d.episode_id = ?2 AND r.storage_state != 'deleted')",
+        params![subscription_id, episode_id],
+        |row| row.get(0),
+    )
+    .map_err(Error::from)
+}
 
 fn refresh_status(id: &str, row: RefreshColumns) -> Result<PodcastRefreshStatus> {
     let (
@@ -974,5 +1142,217 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn episode_download_reserves_the_full_ceiling_before_any_connect() -> TestResult {
+        let (_directory, mut store) = open()?;
+        configure(&mut store)?;
+        store.subscribe_podcast(
+            "show:v1",
+            "https://show.example/feed.xml",
+            PUBLIC,
+            RedirectPolicy::Deny,
+        )?;
+        let over = 512 * 1024 * 1024 + 1;
+        commit_at(
+            &mut store,
+            "refresh:v1",
+            "show:v1",
+            &document(&format!(
+                r#"<item><guid>big</guid><enclosure url="https://cdn.example/big.mp3" length="{over}" type="audio/mpeg"/></item>"#
+            )),
+            5_000,
+        )?;
+        let big = episode_id(&store, "big")?;
+        assert!(matches!(
+            store.begin_episode_download("episode:big", "show:v1", &big, "enc:big"),
+            Err(Error::InvalidInput("enclosure length above 512 MiB"))
+        ));
+        assert_eq!(count(&store, "SELECT count(*) FROM source_revisions")?, 0);
+        assert_eq!(count(&store, "SELECT count(*) FROM recordings")?, 0);
+        assert_eq!(count(&store, "SELECT count(*) FROM podcast_downloads")?, 0);
+        commit_at(
+            &mut store,
+            "refresh:v2",
+            "show:v1",
+            &document(
+                r#"<item><guid>ep-1</guid><enclosure url="https://cdn.example/a.mp3?token=hidden" length="12" type="audio/mpeg"/></item><item><guid>local</guid><enclosure url="http://127.0.0.1/secret.mp3" length="12"/></item><item><guid>none</guid><title>No file</title></item>"#,
+            ),
+            8_000,
+        )?;
+        let missing = episode_id(&store, "none")?;
+        assert!(matches!(
+            store.begin_episode_download("episode:none", "show:v1", &missing, "enc:none"),
+            Err(Error::InvalidInput("episode without an enclosure"))
+        ));
+        let private = episode_id(&store, "local")?;
+        assert!(matches!(
+            store.begin_episode_download("episode:local", "show:v1", &private, "enc:local"),
+            Err(Error::DestinationDenied)
+        ));
+        assert_eq!(count(&store, "SELECT count(*) FROM recordings")?, 0);
+        let episode = episode_id(&store, "ep-1")?;
+        let started = store.begin_episode_download("episode:v1", "show:v1", &episode, "enc:v1")?;
+        let crate::storage::podcast_feeds::EpisodeAdmission::Started(job) = started else {
+            return Err("download did not reserve".into());
+        };
+        let record = store.recording("episode:v1")?;
+        assert_eq!(
+            record.profile,
+            crate::storage::dvr::RecordingProfile::Episode
+        );
+        assert_eq!(record.source_revision, "enc:v1");
+        assert_eq!(record.duration_seconds, 30 * 60);
+        assert_eq!(record.maximum_bytes, 512 * 1024 * 1024);
+        assert_eq!(record.charged_bytes, 512 * 1024 * 1024);
+        assert_eq!(record.storage_state, "reserved");
+        assert_eq!(store.dvr_status()?.reserved_bytes, 512 * 1024 * 1024);
+        let source = store
+            .source("enc:v1")?
+            .ok_or("missing enclosure revision")?;
+        assert_eq!(
+            source.source.endpoint(),
+            "https://cdn.example/a.mp3?token=hidden"
+        );
+        assert_eq!(source.source.network(), PUBLIC);
+        assert_eq!(source.source.redirects(), RedirectPolicy::Deny);
+        assert!(matches!(
+            store.begin_episode_download("episode:v1", "show:v1", &episode, "enc:v1")?,
+            crate::storage::podcast_feeds::EpisodeAdmission::Replay
+        ));
+        assert!(matches!(
+            store.begin_episode_download("episode:v2", "show:v1", &episode, "enc:v2"),
+            Err(Error::InvalidInput("episode enclosure already recorded"))
+        ));
+        assert_eq!(count(&store, "SELECT count(*) FROM recordings")?, 1);
+        let mut unclean = sample_publication();
+        unclean.end_reason = "byte_limit";
+        assert!(store.publish_recording(&job.version, &unclean).is_err());
+        assert_eq!(store.recording("episode:v1")?.storage_state, "reserved");
+        assert!(store.recording("episode:v1")?.sha256.is_none());
+        store.publish_recording(&job.version, &sample_publication())?;
+        let published = store.recording("episode:v1")?;
+        assert_eq!(published.storage_state, "retained");
+        assert_eq!(published.end_reason.as_deref(), Some("end_of_body"));
+        assert_eq!(published.charged_bytes, 12);
+        assert_eq!(store.dvr_status()?.reserved_bytes, 0);
+        store.unsubscribe_podcast("show:v1")?;
+        let again = store.begin_episode_download("episode:v1", "show:v1", &episode, "enc:v1")?;
+        assert!(matches!(
+            again,
+            crate::storage::podcast_feeds::EpisodeAdmission::Replay
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn migration_preserves_v13_recordings_and_rolls_back_conflicts() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        for fail in [false, true] {
+            let path = directory
+                .path()
+                .join(if fail { "bad.sqlite3" } else { "good.sqlite3" });
+            let connection = rusqlite::Connection::open(&path)?;
+            for sql in [
+                include_str!("001-foundation.sql"),
+                include_str!("002-captures.sql"),
+                include_str!("003-sources.sql"),
+                include_str!("004-dvr.sql"),
+                include_str!("005-discovery.sql"),
+                include_str!("006-redirects.sql"),
+                include_str!("007-favorites.sql"),
+                include_str!("008-playlists.sql"),
+                include_str!("009-clicks.sql"),
+                include_str!("010-listens.sql"),
+                include_str!("011-icy.sql"),
+                include_str!("012-podcasts.sql"),
+                include_str!("013-podcast-feeds.sql"),
+            ] {
+                connection.execute_batch(sql)?;
+            }
+            connection.execute("UPDATE budgets SET limit_micros = 4242", [])?;
+            connection.execute("INSERT INTO source_revisions(id, kind, name, endpoint, network_scope, created_ms, redirect_policy) VALUES ('radio:v1', 'http_audio', 'Radio', 'https://example.com/audio', 'public_internet', 1, 'deny')", [])?;
+            connection.execute("INSERT INTO capture_jobs(id, source_revision, starts_ms, ends_ms, maximum_bytes, state, revision, generation, created_ms, updated_ms) VALUES ('rec-1', 'radio:v1', 0, 60000, 1000, 'scheduled', 0, 0, 1, 1)", [])?;
+            connection.execute("INSERT INTO capture_events(job_id, revision, generation, state, reason, recorded_ms) VALUES ('rec-1', 0, 0, 'scheduled', 'accepted', 1)", [])?;
+            connection.execute("INSERT INTO recordings(id, object_key, duration_seconds, initial_retention, retention, storage_state, charged_bytes, metadata_requested) VALUES ('rec-1', '00112233445566778899aabbccddeeff', 60, 'temporary', 'temporary', 'reserved', 1000, 0)", [])?;
+            if fail {
+                connection.execute("CREATE TABLE podcast_downloads(existing TEXT)", [])?;
+            }
+            let opened = Store::open(&path);
+            let version: u32 =
+                connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+            if fail {
+                assert!(opened.is_err());
+                assert_eq!(version, 13);
+                let profile: i64 = connection.query_row(
+                    "SELECT count(*) FROM pragma_table_info('recordings') WHERE name = 'profile'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(profile, 0);
+                let charged: i64 = connection.query_row(
+                    "SELECT charged_bytes FROM recordings WHERE id = 'rec-1'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(charged, 1000);
+            } else {
+                let store = opened?;
+                assert_eq!(version, SCHEMA_VERSION);
+                assert_eq!(store.budget("global")?.limit().micros(), 4242);
+                let record = store.recording("rec-1")?;
+                assert_eq!(record.profile, crate::storage::dvr::RecordingProfile::Radio);
+                assert_eq!(record.duration_seconds, 60);
+                assert_eq!(record.maximum_bytes, 1000);
+                assert_eq!(record.charged_bytes, 1000);
+                let definition: String = store.connection.query_row(
+                    "SELECT sql FROM sqlite_schema WHERE name = 'recording_observations'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert!(definition.contains("recordings"));
+                assert!(!definition.contains("recordings_v14"));
+                assert_eq!(count(&store, "SELECT count(*) FROM podcast_downloads")?, 0);
+            }
+        }
+        Ok(())
+    }
+
+    fn configure(store: &mut Store) -> TestResult {
+        let executable = std::env::current_exe()?;
+        let Some(path) = executable.to_str() else {
+            return Err("decoder path is not Unicode".into());
+        };
+        store.configure_dvr(512 * 1024 * 1024, 64 * 1024 * 1024, 14, path)?;
+        Ok(())
+    }
+
+    fn episode_id(store: &Store, guid: &str) -> Result<String, Box<dyn std::error::Error>> {
+        Ok(store.connection.query_row(
+            "SELECT episode_id FROM podcast_episodes WHERE guid = ?1",
+            [guid],
+            |row| row.get(0),
+        )?)
+    }
+
+    fn count(store: &Store, sql: &str) -> Result<i64, Box<dyn std::error::Error>> {
+        Ok(store.connection.query_row(sql, [], |row| row.get(0))?)
+    }
+
+    fn sample_publication() -> crate::storage::dvr::Publication {
+        crate::storage::dvr::Publication {
+            bytes: 12,
+            sha256: "a".repeat(64),
+            format: "wav",
+            decoded_microseconds: 1_000_000,
+            end_reason: "end_of_body",
+            http_route: vec![crate::sources::HttpHop {
+                origin: "https://cdn.example".into(),
+                peer: std::net::SocketAddr::from(([8, 8, 8, 8], 443)),
+                status: 200,
+            }],
+            observations: Vec::new(),
+        }
     }
 }

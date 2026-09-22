@@ -47,6 +47,35 @@ impl std::str::FromStr for Retention {
     }
 }
 
+/// Radio attempts stay within 15 minutes and 256 MiB. An episode reserves its full ceiling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingProfile {
+    Radio,
+    Episode,
+}
+
+impl RecordingProfile {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Radio => "radio",
+            Self::Episode => "episode",
+        }
+    }
+}
+
+impl std::str::FromStr for RecordingProfile {
+    type Err = Error;
+    fn from_str(value: &str) -> Result<Self> {
+        match value {
+            "radio" => Ok(Self::Radio),
+            "episode" => Ok(Self::Episode),
+            _ => Err(Error::StorageIntegrity),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DvrStatus {
@@ -78,6 +107,7 @@ pub struct Recording {
     pub end_reason: Option<String>,
     pub processing_receipt: Option<String>,
     pub failure_detail: Option<String>,
+    pub profile: RecordingProfile,
 }
 
 #[derive(Debug)]
@@ -173,106 +203,29 @@ impl Store {
         retention: Retention,
         metadata: bool,
     ) -> Result<Option<CaptureJob>> {
-        validate_key(id, "recording ID")?;
-        validate_key(source, "source revision")?;
-        if !(1..=900).contains(&seconds)
-            || !(1..=crate::sources::http::MAXIMUM_BODY_BYTES).contains(&maximum)
-        {
-            return Err(Error::InvalidInput("recording duration or byte ceiling"));
-        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let requested = i64::from(metadata);
-        let existing: Option<(String, u64, u64, String, i64)> = tx.query_row(
-            "SELECT c.source_revision, r.duration_seconds, c.maximum_bytes, r.initial_retention, r.metadata_requested FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1", [id],
-            |r| Ok((r.get(0)?, unsigned(r, 1)?, unsigned(r, 2)?, r.get(3)?, r.get(4)?))).optional()?;
-        if let Some(parameters) = existing {
-            if parameters
-                != (
-                    source.into(),
-                    seconds,
-                    maximum,
-                    retention.as_str().into(),
-                    requested,
-                )
-            {
-                return Err(Error::IdempotencyConflict);
-            }
-            return Ok(None);
-        }
-        let found: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM source_revisions WHERE id = ?1)",
-            [source],
-            |r| r.get(0),
-        )?;
-        if !found {
-            return Err(Error::NotFound);
-        }
-        let listening: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM listen_sessions WHERE source_revision = ?1 AND state = 'running')",
-            [source],
-            |row| row.get(0),
-        )?;
-        if listening {
-            return Err(Error::InvalidInput("source revision is in use"));
-        }
-        let (quota, configured): (u64, bool) = tx.query_row(
-            "SELECT quota_bytes, decoder IS NOT NULL FROM dvr_policy WHERE singleton = 1",
-            [],
-            |r| Ok((unsigned(r, 0)?, r.get(1)?)),
-        )?;
-        let charged: u64 = tx.query_row(
-            "SELECT coalesce(sum(charged_bytes), 0) FROM recordings",
-            [],
-            |r| unsigned(r, 0),
-        )?;
-        let active: u32 = tx.query_row("SELECT count(*) FROM capture_jobs WHERE state IN ('starting', 'running', 'retrying', 'stopping')", [], |r| r.get(0))?;
-        if active >= captures::MAX_ACTIVE_CAPTURES {
-            return Err(Error::CaptureCapacity);
-        }
-        let pending: u32 = tx.query_row("SELECT count(*) FROM capture_jobs WHERE state IN ('scheduled', 'starting', 'running', 'retrying', 'stopping', 'interrupted')", [], |r| r.get(0))?;
-        if pending >= captures::MAX_PENDING_CAPTURES {
-            return Err(Error::CaptureCapacity);
-        }
-        if !configured || maximum > quota.checked_sub(charged).ok_or(Error::StorageIntegrity)? {
-            return Err(Error::StorageQuota);
-        }
-        let now = now_ms()?;
-        let ends = now
-            .checked_add(i64::try_from(seconds * 1000).map_err(|_| Error::StorageIntegrity)?)
-            .ok_or(Error::StorageIntegrity)?;
-        let plan = CapturePlan::new(
-            source,
-            now,
-            ends,
-            i64::try_from(maximum).map_err(|_| Error::StorageIntegrity)?,
-        )?;
-        let admission = captures::admit(&tx, id, &plan)?;
-        if !admission.newly_created {
-            return Err(Error::IdempotencyConflict);
-        }
-        let mut random = [0_u8; 16];
-        getrandom::fill(&mut random)
-            .map_err(|_| Error::InvalidInput("secure random source unavailable"))?;
-        let key = hex(&random);
-        tx.execute("INSERT INTO recordings(id, object_key, duration_seconds, initial_retention, retention, storage_state, charged_bytes, metadata_requested) VALUES (?1, ?2, ?3, ?4, ?4, 'reserved', ?5, ?6)", params![id, key, i64::try_from(seconds).map_err(|_| Error::StorageIntegrity)?, retention.as_str(), plan.maximum_bytes(), i64::from(metadata)])?;
-        let job = journal::transition(
+        let job = admit_recording_in(
             &tx,
-            admission.job,
-            CaptureEvent::Start,
-            "recording_admitted",
-            now,
+            &RecordingInsert {
+                id,
+                source,
+                seconds,
+                maximum,
+                retention,
+                metadata,
+            },
         )?;
         tx.commit()?;
-        Ok(Some(job))
+        Ok(job)
     }
 
     /// # Errors
     /// Rejects malformed identifiers or corrupt stored records.
     pub fn recording(&self, id: &str) -> Result<Recording> {
         validate_key(id, "recording ID")?;
-        let mut statement = self.connection.prepare("SELECT c.source_revision, c.state, r.object_key, r.duration_seconds, c.maximum_bytes, r.retention, r.storage_state, r.charged_bytes, r.media_bytes, r.sha256, r.format, r.decoded_microseconds, r.end_reason, r.processing_receipt, r.failure_detail FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1")?;
+        let mut statement = self.connection.prepare("SELECT c.source_revision, c.state, r.object_key, r.duration_seconds, c.maximum_bytes, r.retention, r.storage_state, r.charged_bytes, r.media_bytes, r.sha256, r.format, r.decoded_microseconds, r.end_reason, r.processing_receipt, r.failure_detail, r.profile FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1")?;
         let mut rows = statement.query([id])?;
         let row = rows.next()?.ok_or(Error::NotFound)?;
         let record = Recording {
@@ -292,6 +245,7 @@ impl Store {
             end_reason: row.get(12)?,
             processing_receipt: row.get(13)?,
             failure_detail: row.get(14)?,
+            profile: row.get::<_, String>(15)?.parse()?,
         };
         validate_object_key(&record.object_key)?;
         if record.failure_detail.as_ref().is_some_and(|text| {
@@ -357,6 +311,15 @@ impl Store {
         let job = journal::read_job(&tx, expected.id())?.ok_or(Error::NotFound)?;
         if job.version != *expected {
             return Err(Error::StaleCapture);
+        }
+        let profile: String = tx.query_row(
+            "SELECT profile FROM recordings WHERE id = ?1",
+            [expected.id()],
+            |row| row.get(0),
+        )?;
+        if profile == RecordingProfile::Episode.as_str() && publication.end_reason != "end_of_body"
+        {
+            return Err(Error::StorageIntegrity);
         }
         let changed = tx.execute("UPDATE recordings SET storage_state = 'retained', charged_bytes = ?2, media_bytes = ?2, sha256 = ?3, format = ?4, decoded_microseconds = ?5, end_reason = ?6, http_route_json = ?7 WHERE id = ?1 AND storage_state = 'reserved' AND charged_bytes >= ?2", params![expected.id(), i64::try_from(publication.bytes).map_err(|_| Error::StorageIntegrity)?, publication.sha256, publication.format, i64::try_from(publication.decoded_microseconds).map_err(|_| Error::StorageIntegrity)?, publication.end_reason, route_json])?;
         if changed != 1 {
@@ -536,6 +499,14 @@ impl Store {
         if invalid {
             return Err(Error::StorageIntegrity);
         }
+        let ceiling_mismatch: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.byte_ceiling != c.maximum_bytes)",
+            [],
+            |row| row.get(0),
+        )?;
+        if ceiling_mismatch {
+            return Err(Error::StorageIntegrity);
+        }
         Ok(())
     }
 
@@ -585,6 +556,153 @@ impl Store {
         }
         Ok(observations)
     }
+}
+
+pub(crate) struct RecordingInsert<'a> {
+    pub(crate) id: &'a str,
+    pub(crate) source: &'a str,
+    pub(crate) seconds: u64,
+    pub(crate) maximum: u64,
+    pub(crate) retention: Retention,
+    pub(crate) metadata: bool,
+}
+
+pub(crate) fn admit_recording_in(
+    tx: &rusqlite::Connection,
+    request: &RecordingInsert<'_>,
+) -> Result<Option<CaptureJob>> {
+    validate_key(request.id, "recording ID")?;
+    validate_key(request.source, "source revision")?;
+    let (profile, seconds, maximum) =
+        profile_limits(request.seconds, request.maximum, request.metadata)?;
+    let requested = i64::from(request.metadata);
+    let existing: Option<(String, u64, u64, String, i64, String)> = tx.query_row(
+        "SELECT c.source_revision, r.duration_seconds, c.maximum_bytes, r.initial_retention, r.metadata_requested, r.profile FROM recordings r JOIN capture_jobs c ON c.id = r.id WHERE r.id = ?1",
+        [request.id],
+        |row| Ok((row.get(0)?, unsigned(row, 1)?, unsigned(row, 2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+    ).optional()?;
+    if let Some(parameters) = existing {
+        if parameters
+            != (
+                request.source.into(),
+                seconds,
+                maximum,
+                request.retention.as_str().into(),
+                requested,
+                profile.as_str().into(),
+            )
+        {
+            return Err(Error::IdempotencyConflict);
+        }
+        return Ok(None);
+    }
+    let found: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM source_revisions WHERE id = ?1)",
+        [request.source],
+        |row| row.get(0),
+    )?;
+    if !found {
+        return Err(Error::NotFound);
+    }
+    let listening: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM listen_sessions WHERE source_revision = ?1 AND state = 'running')",
+        [request.source],
+        |row| row.get(0),
+    )?;
+    if listening {
+        return Err(Error::InvalidInput("source revision is in use"));
+    }
+    recording_capacity(tx, maximum)?;
+    let now = now_ms()?;
+    let ends = now
+        .checked_add(i64::try_from(seconds * 1000).map_err(|_| Error::StorageIntegrity)?)
+        .ok_or(Error::StorageIntegrity)?;
+    let plan = CapturePlan::new(
+        request.source,
+        now,
+        ends,
+        i64::try_from(maximum).map_err(|_| Error::StorageIntegrity)?,
+    )?;
+    let admission = captures::admit(tx, request.id, &plan)?;
+    if !admission.newly_created {
+        return Err(Error::IdempotencyConflict);
+    }
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random)
+        .map_err(|_| Error::InvalidInput("secure random source unavailable"))?;
+    let key = hex(&random);
+    tx.execute(
+        "INSERT INTO recordings(id, object_key, duration_seconds, initial_retention, retention, storage_state, charged_bytes, metadata_requested, profile, byte_ceiling) VALUES (?1, ?2, ?3, ?4, ?4, 'reserved', ?5, ?6, ?7, ?5)",
+        params![
+            request.id,
+            key,
+            i64::try_from(seconds).map_err(|_| Error::StorageIntegrity)?,
+            request.retention.as_str(),
+            plan.maximum_bytes(),
+            requested,
+            profile.as_str(),
+        ],
+    )?;
+    let job = journal::transition(
+        tx,
+        admission.job,
+        CaptureEvent::Start,
+        "recording_admitted",
+        now,
+    )?;
+    Ok(Some(job))
+}
+
+fn profile_limits(
+    seconds: u64,
+    maximum: u64,
+    metadata: bool,
+) -> Result<(RecordingProfile, u64, u64)> {
+    if !metadata
+        && seconds == crate::sources::http::EPISODE_DURATION.as_secs()
+        && maximum == crate::sources::http::EPISODE_BODY_BYTES
+    {
+        return Ok((RecordingProfile::Episode, seconds, maximum));
+    }
+    if (1..=crate::sources::http::MAXIMUM_DURATION.as_secs()).contains(&seconds)
+        && (1..=crate::sources::http::MAXIMUM_BODY_BYTES).contains(&maximum)
+    {
+        return Ok((RecordingProfile::Radio, seconds, maximum));
+    }
+    Err(Error::InvalidInput("recording duration or byte ceiling"))
+}
+
+fn recording_capacity(tx: &rusqlite::Connection, maximum: u64) -> Result<()> {
+    let (quota, configured): (u64, bool) = tx.query_row(
+        "SELECT quota_bytes, decoder IS NOT NULL FROM dvr_policy WHERE singleton = 1",
+        [],
+        |row| Ok((unsigned(row, 0)?, row.get(1)?)),
+    )?;
+    let charged: u64 = tx.query_row(
+        "SELECT coalesce(sum(charged_bytes), 0) FROM recordings",
+        [],
+        |row| unsigned(row, 0),
+    )?;
+    let active: u32 = tx.query_row(
+        "SELECT count(*) FROM capture_jobs WHERE state IN ('starting', 'running', 'retrying', 'stopping')",
+        [],
+        |row| row.get(0),
+    )?;
+    if active >= captures::MAX_ACTIVE_CAPTURES {
+        return Err(Error::CaptureCapacity);
+    }
+    let pending: u32 = tx.query_row(
+        "SELECT count(*) FROM capture_jobs WHERE state IN ('scheduled', 'starting', 'running', 'retrying', 'stopping', 'interrupted')",
+        [],
+        |row| row.get(0),
+    )?;
+    if pending >= captures::MAX_PENDING_CAPTURES {
+        return Err(Error::CaptureCapacity);
+    }
+    if !configured || maximum > quota.checked_sub(charged).ok_or(Error::StorageIntegrity)? {
+        return Err(Error::StorageQuota);
+    }
+    Ok(())
 }
 
 fn store_observations(

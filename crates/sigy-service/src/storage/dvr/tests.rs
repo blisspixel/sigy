@@ -24,6 +24,15 @@ fn setup(path: &std::path::Path, quota: u64) -> Result<Store> {
     Ok(store)
 }
 
+fn titled(bytes: u64, offset: u64, text: &str) -> Publication {
+    let mut item = publication(bytes);
+    item.observations.push(crate::sources::icy::IcyObservation {
+        audio_offset: offset,
+        text: text.to_owned(),
+    });
+    item
+}
+
 fn publication(bytes: u64) -> Publication {
     Publication {
         bytes,
@@ -101,6 +110,30 @@ fn redirect_migration_keeps_v5_sources_denied_and_rolls_back_conflicts() -> Test
             );
         }
     }
+    Ok(())
+}
+
+#[test]
+fn radio_ceilings_stay_at_fifteen_minutes_and_256_mib() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog.sqlite3"), 512 * 1024 * 1024)?;
+    assert!(matches!(
+        store.admit_recording("long", "radio:v1", 901, 1024, Retention::Temporary, false),
+        Err(Error::InvalidInput("recording duration or byte ceiling"))
+    ));
+    assert!(matches!(
+        store.admit_recording(
+            "big",
+            "radio:v1",
+            60,
+            256 * 1024 * 1024 + 1,
+            Retention::Temporary,
+            false
+        ),
+        Err(Error::InvalidInput("recording duration or byte ceiling"))
+    ));
+    assert!(store.capture("long")?.is_none());
+    assert!(store.capture("big")?.is_none());
     Ok(())
 }
 
@@ -332,13 +365,7 @@ fn icy_observations_do_not_change_the_source_or_the_audio_hash() -> TestResult {
     let denied = store
         .admit_recording("plain", "radio:v1", 60, 600, Retention::Temporary, false)?
         .ok_or("not admitted")?;
-    let mut hidden = publication(20);
-    hidden
-        .observations
-        .push(crate::sources::icy::IcyObservation {
-            audio_offset: 20,
-            text: title.to_owned(),
-        });
+    let hidden = titled(20, 20, title);
     assert!(store.publish_recording(&denied.version, &hidden).is_err());
     assert_eq!(store.recording("plain")?.storage_state, "reserved");
     assert!(store.recording_observations("plain")?.is_empty());
@@ -354,31 +381,19 @@ fn icy_observations_do_not_change_the_source_or_the_audio_hash() -> TestResult {
             .admit_recording("titled", "radio:v1", 60, 600, Retention::Temporary, true)?
             .is_none()
     );
-    let mut unsafe_text = publication(20);
-    unsafe_text
-        .observations
-        .push(crate::sources::icy::IcyObservation {
-            audio_offset: 20,
-            text: "bad\nname".to_owned(),
-        });
-    assert!(store.publish_recording(&job.version, &unsafe_text).is_err());
-    let mut beyond = publication(20);
-    beyond
-        .observations
-        .push(crate::sources::icy::IcyObservation {
-            audio_offset: 21,
-            text: title.to_owned(),
-        });
-    assert!(store.publish_recording(&job.version, &beyond).is_err());
+    assert!(
+        store
+            .publish_recording(&job.version, &titled(20, 20, "bad\nname"))
+            .is_err()
+    );
+    assert!(
+        store
+            .publish_recording(&job.version, &titled(20, 21, title))
+            .is_err()
+    );
     assert_eq!(store.recording("titled")?.storage_state, "reserved");
-    let mut published = publication(20);
+    let mut published = titled(20, 20, title);
     published.sha256 = "b".repeat(64);
-    published
-        .observations
-        .push(crate::sources::icy::IcyObservation {
-            audio_offset: 20,
-            text: title.to_owned(),
-        });
     store.publish_recording(&job.version, &published)?;
     assert_eq!(
         store.recording_observations("titled")?,

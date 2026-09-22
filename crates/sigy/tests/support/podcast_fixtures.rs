@@ -265,7 +265,7 @@ fn rss_refresh_lists_a_large_feed_offline_and_keeps_omissions() -> TestResult {
     assert_eq!(completed["podcast_feed"]["refresh"]["live_count"], 1);
     assert_eq!(completed["podcast_feed"]["refresh"]["skipped_items"], 1);
     assert_eq!(completed["podcast_feed"]["refresh"]["truncated"], false);
-    assert_eq!(completed["schema_version"], 13);
+    assert_eq!(completed["schema_version"], 14);
     success(
         directory.path(),
         &["podcast", "refresh", "show:v1", "--id", "feed:v1"],
@@ -419,5 +419,171 @@ fn private_redirect_fails_closed_without_a_snapshot() -> TestResult {
     service.wait()?;
     stop.store(true, Ordering::Relaxed);
     let _ = worker.join();
+    Ok(())
+}
+
+struct OversizeFeed {
+    port: u16,
+    hits: Arc<AtomicUsize>,
+    paths: Arc<Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl OversizeFeed {
+    fn start() -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let port = listener.local_addr()?.port();
+        let stop = Arc::new(AtomicBool::new(false));
+        let hits = Arc::new(AtomicUsize::new(0));
+        let paths = Arc::new(Mutex::new(Vec::new()));
+        let cancelled = stop.clone();
+        let counter = hits.clone();
+        let recorded = paths.clone();
+        let worker = thread::spawn(move || -> std::io::Result<()> {
+            let deadline = Instant::now() + Duration::from_secs(20);
+            while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut socket, _)) => {
+                        socket.set_nonblocking(false)?;
+                        socket.set_read_timeout(Some(Duration::from_secs(5)))?;
+                        socket.set_write_timeout(Some(Duration::from_secs(5)))?;
+                        let mut bytes = Vec::new();
+                        while bytes.len() < 4096 && !bytes.ends_with(b"\r\n\r\n") {
+                            let mut byte = [0];
+                            if socket.read_exact(&mut byte).is_err() {
+                                break;
+                            }
+                            bytes.push(byte[0]);
+                        }
+                        let path = request_path(&bytes);
+                        if let Ok(mut guard) = recorded.lock() {
+                            guard.push(path);
+                        }
+                        counter.fetch_add(1, Ordering::Relaxed);
+                        let body = format!(
+                            r#"<rss version="2.0"><channel><item><guid>ep-1</guid><enclosure url="http://fixture.invalid:{port}/episode.wav?token=hidden" length="536870913" type="audio/mpeg"/></item></channel></rss>"#
+                        );
+                        let _ = socket.write_all(&http_body(
+                            "200 OK",
+                            "Content-Type: application/rss+xml\r\n",
+                            body.as_bytes(),
+                        ));
+                    }
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                        ) =>
+                    {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            Ok(())
+        });
+        Ok(Self {
+            port,
+            hits,
+            paths,
+            stop,
+            worker: Some(worker),
+        })
+    }
+}
+
+impl Drop for OversizeFeed {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+#[test]
+fn declared_enclosure_length_above_the_cap_does_not_connect() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let feed_server = OversizeFeed::start()?;
+    let feed = format!(
+        "http://fixture.invalid:{}/feed.xml?token=hidden",
+        feed_server.port
+    );
+    success(directory.path(), &["library", "init"])?;
+    let decoder = std::env::current_exe()?;
+    let decoder = decoder.to_str().ok_or("decoder path")?;
+    success(
+        directory.path(),
+        &["dvr", "configure", "--decoder", decoder, "--quota-gb", "1"],
+    )?;
+    success(
+        directory.path(),
+        &[
+            "podcast",
+            "subscribe",
+            "show:v1",
+            "--url",
+            &feed,
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &["podcast", "refresh", "show:v1", "--id", "feed:v1"],
+    )?;
+    let refreshed = wait_refresh(directory.path(), "feed:v1")?;
+    assert_eq!(refreshed["podcast_feed"]["refresh"]["state"], "completed");
+    let episode = list_episodes(directory.path())?
+        .into_iter()
+        .next()
+        .ok_or("missing episode")?;
+    let episode_id = episode["id"].as_str().ok_or("episode id")?;
+    let denied = invoke(
+        directory.path(),
+        &[
+            "podcast",
+            "download",
+            "show:v1",
+            "--episode",
+            episode_id,
+            "--id",
+            "episode:v1",
+            "--revision",
+            "enc:v1",
+        ],
+    )?;
+    assert!(
+        !denied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&denied.stdout)
+    );
+    let error = String::from_utf8(denied.stderr)?;
+    assert!(error.contains("512 MiB"), "{error}");
+    assert!(!error.contains("token=hidden"));
+    let paths = feed_server.paths.lock().map_err(|_| "path lock")?;
+    assert!(
+        paths.iter().all(|path| path.starts_with("/feed.xml")),
+        "{paths:?}"
+    );
+    assert_eq!(feed_server.hits.load(Ordering::Relaxed), 1);
+    drop(paths);
+    let sources = success(directory.path(), &["source", "list"])?;
+    assert!(
+        sources["source_page"]["entries"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    );
+    let recordings = success(directory.path(), &["record", "list"])?;
+    assert!(
+        recordings["recording_page"]["entries"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    );
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
     Ok(())
 }

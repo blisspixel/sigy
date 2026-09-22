@@ -251,6 +251,9 @@ pub(crate) async fn capture(
     file.sync_all().await?;
     drop(file);
     let receipt = result?;
+    if limits.clean_end() && receipt.end != TransferEnd::EndOfBody {
+        return Err(Error::Acquisition("episode ended before a clean end"));
+    }
     let format = match receipt.declared_content_type {
         AudioContentType::Mpeg => "mp3",
         AudioContentType::Aac => "aac",

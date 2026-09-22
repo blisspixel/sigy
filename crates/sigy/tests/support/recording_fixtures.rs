@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write},
     net::TcpListener,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -1312,6 +1312,264 @@ fn local_ladder_decodes_generated_formats_without_a_public_station() -> TestResu
         publish_clip(directory.path(), &server.origin, name, format)?;
     }
     play_redirected_playlist(directory.path(), &server)?;
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    Ok(())
+}
+
+struct EnclosureHost {
+    port: u16,
+    paths: Arc<Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl EnclosureHost {
+    fn start(body: Vec<u8>) -> std::io::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let port = listener.local_addr()?.port();
+        let stop = Arc::new(AtomicBool::new(false));
+        let paths = Arc::new(Mutex::new(Vec::new()));
+        let cancelled = stop.clone();
+        let recorded = paths.clone();
+        let worker =
+            thread::spawn(move || serve_enclosure(listener, cancelled, recorded, port, body));
+        Ok(Self {
+            port,
+            paths,
+            stop,
+            worker: Some(worker),
+        })
+    }
+
+    fn feed_url(&self) -> String {
+        format!("http://fixture.invalid:{}/feed.xml?token=hidden", self.port)
+    }
+}
+
+impl Drop for EnclosureHost {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn serve_enclosure(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    paths: Arc<Mutex<Vec<String>>>,
+    port: u16,
+    body: Vec<u8>,
+) -> std::io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !stop.load(Ordering::Relaxed) && Instant::now() < deadline {
+        match listener.accept() {
+            Ok((mut socket, _)) => {
+                socket.set_nonblocking(false)?;
+                socket.set_read_timeout(Some(Duration::from_secs(5)))?;
+                socket.set_write_timeout(Some(Duration::from_secs(5)))?;
+                let mut request = Vec::new();
+                while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    if socket.read_exact(&mut byte).is_err() {
+                        break;
+                    }
+                    request.push(byte[0]);
+                }
+                let path = String::from_utf8_lossy(&request)
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("")
+                    .to_owned();
+                if let Ok(mut guard) = paths.lock() {
+                    guard.push(path.clone());
+                }
+                let _ = socket.write_all(&enclosure_response(&path, port, &body));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    drop((listener, stop, paths, body));
+    Ok(())
+}
+
+fn wait_episode_feed(directory: &std::path::Path) -> TestResult {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let status = success(directory, &["podcast", "refresh-status", "feed:v1"])?;
+        if status["podcast_feed"]["refresh"]["state"] != "running" {
+            assert_eq!(
+                status["podcast_feed"]["refresh"]["state"], "completed",
+                "{status}"
+            );
+            return Ok(());
+        }
+        assert!(Instant::now() < deadline, "{status}");
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn assert_retained_episode(directory: &std::path::Path, bytes: &[u8]) -> TestResult {
+    let record = wait_recording(directory, "episode:v1", "completed")?;
+    assert_eq!(record["profile"], "episode");
+    assert_eq!(record["source_revision"], "enc:v1");
+    assert_eq!(record["duration_seconds"], 1800);
+    assert_eq!(record["maximum_bytes"], 512 * 1024 * 1024);
+    assert_eq!(record["storage_state"], "retained");
+    assert_eq!(record["end_reason"], "end_of_body");
+    assert_eq!(record["media_bytes"], bytes.len());
+    assert_eq!(record["sha256"], sha256_hex(bytes));
+    assert!(
+        record["decoded_microseconds"]
+            .as_u64()
+            .is_some_and(|value| value > 0)
+    );
+    let path = success(directory, &["record", "path", "episode:v1"])?;
+    let media = path["path"].as_str().ok_or("missing media path")?;
+    assert_eq!(std::fs::read(media)?, bytes);
+    let metadata = success(directory, &["record", "metadata", "episode:v1"])?;
+    assert_eq!(metadata["storage"]["sha256"], record["sha256"]);
+    assert!(!metadata.to_string().contains("token=hidden"));
+    let listed = success(directory, &["record", "list"])?;
+    assert_eq!(listed["recording_page"]["entries"][0]["id"], "episode:v1");
+    success(directory, &["record", "keep", "episode:v1"])?;
+    let kept = success(directory, &["record", "show", "episode:v1"])?;
+    assert_eq!(kept["recording_page"]["entries"][0]["retention"], "kept");
+    let policy = success(directory, &["dvr", "status"])?;
+    assert_eq!(policy["dvr"]["charged_bytes"], bytes.len());
+    assert_eq!(policy["dvr"]["reserved_bytes"], 0);
+    let source = success(directory, &["source", "show", "enc:v1"])?;
+    assert_eq!(source["source_page"]["entries"][0]["revision_id"], "enc:v1");
+    assert!(!source.to_string().contains("token=hidden"));
+    Ok(())
+}
+
+fn enclosure_response(path: &str, port: u16, body: &[u8]) -> Vec<u8> {
+    if path.starts_with("/feed.xml") {
+        let document = format!(
+            r#"<rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><item><guid>ep-1</guid><title>Episode</title><enclosure url="http://fixture.invalid:{port}/episode.wav?token=hidden" length="{}" type="audio/wav"/><podcast:transcript url="http://fixture.invalid:{port}/notes.vtt?token=hidden" type="text/vtt"/></item></channel></rss>"#,
+            body.len()
+        );
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/rss+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            document.len()
+        )
+        .into_bytes();
+        response.extend(document.as_bytes());
+        response
+    } else if path.starts_with("/episode.wav") {
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        response.extend(body);
+        response
+    } else {
+        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()
+    }
+}
+
+#[test]
+#[ignore = "requires SIGY_TEST_FFMPEG; run cargo verify-media"]
+fn episode_enclosure_is_one_retained_recording() -> TestResult {
+    let bytes = wave();
+    let server = EnclosureHost::start(bytes.clone())?;
+    let directory = tempfile::tempdir()?;
+    let ffmpeg = std::env::var("SIGY_TEST_FFMPEG")?;
+    success(directory.path(), &["library", "init"])?;
+    success(
+        directory.path(),
+        &["dvr", "configure", "--decoder", &ffmpeg, "--quota-gb", "1"],
+    )?;
+    let feed = server.feed_url();
+    success(
+        directory.path(),
+        &[
+            "podcast",
+            "subscribe",
+            "show:v1",
+            "--url",
+            &feed,
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &["podcast", "refresh", "show:v1", "--id", "feed:v1"],
+    )?;
+    wait_episode_feed(directory.path())?;
+    let episodes = success(directory.path(), &["podcast", "episodes", "show:v1"])?;
+    let episode_id = episodes["podcast_feed"]["episodes"][0]["id"]
+        .as_str()
+        .ok_or("episode id")?
+        .to_owned();
+    assert_eq!(episodes["podcast_feed"]["episodes"][0]["enclosure"], true);
+    let download = [
+        "podcast",
+        "download",
+        "show:v1",
+        "--episode",
+        episode_id.as_str(),
+        "--id",
+        "episode:v1",
+        "--revision",
+        "enc:v1",
+    ];
+    success(directory.path(), &download)?;
+    assert_retained_episode(directory.path(), &bytes)?;
+    let audio_hits = server
+        .paths
+        .lock()
+        .map_err(|_| "path lock")?
+        .iter()
+        .filter(|path| path.starts_with("/episode.wav"))
+        .count();
+    assert_eq!(audio_hits, 1);
+    success(directory.path(), &download)?;
+    thread::sleep(Duration::from_millis(400));
+    let again = invoke(
+        directory.path(),
+        &[
+            "podcast",
+            "download",
+            "show:v1",
+            "--episode",
+            &episode_id,
+            "--id",
+            "episode:v2",
+            "--revision",
+            "enc:v2",
+        ],
+    )?;
+    assert!(!again.status.success());
+    thread::sleep(Duration::from_millis(400));
+    let seen = server.paths.lock().map_err(|_| "path lock")?;
+    assert_eq!(
+        seen.iter()
+            .filter(|path| path.starts_with("/episode.wav"))
+            .count(),
+        1,
+        "{seen:?}"
+    );
+    assert!(
+        seen.iter().all(|path| !path.contains("notes.vtt")),
+        "{seen:?}"
+    );
+    drop(seen);
     success(directory.path(), &["service", "stop"])?;
     service.wait()?;
     Ok(())

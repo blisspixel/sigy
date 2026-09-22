@@ -231,8 +231,9 @@ pub fn render_records(writer: &mut impl Write, page: &RecordingPage) -> io::Resu
     for record in &page.entries {
         writeln!(
             writer,
-            "{} | {} | {} | {} | {} bytes charged | source {}",
+            "{} | {} | {} | {} | {} | {} bytes charged | source {}",
             record.id,
+            record.profile.as_str(),
             record.state,
             record.storage_state,
             record.retention.as_str(),

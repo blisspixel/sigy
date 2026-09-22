@@ -54,7 +54,7 @@ enum Command {
         #[command(subcommand)]
         command: sources::SourceCommand,
     },
-    /// Store a podcast subscription and refresh one RSS document. Refresh does not download enclosures.
+    /// Store a podcast subscription, refresh one RSS document, or download one enclosure.
     Podcast {
         #[command(subcommand)]
         command: podcast::PodcastCommand,

@@ -283,7 +283,7 @@ fn same_authority(existing: &PodcastSubscription, source: &HttpSource) -> bool {
         && existing.redirects == source.redirects()
 }
 
-fn read_subscription(
+pub(super) fn read_subscription(
     connection: &rusqlite::Connection,
     id: &str,
 ) -> Result<Option<PodcastSubscription>> {

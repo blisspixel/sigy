@@ -3,8 +3,14 @@ use super::{
     apply_library,
 };
 use crate::{
-    Error, Result, library::Library, recordings, sources::http::HttpAcquirer,
-    storage::dvr::Publication,
+    Error, Result,
+    library::Library,
+    recordings,
+    sources::{
+        HttpSource,
+        http::{AcquisitionLimits, HttpAcquirer},
+    },
+    storage::{captures::CaptureJob, dvr::Publication, podcast_feeds::EpisodeAdmission},
 };
 use std::{collections::HashMap, thread, time::Instant};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -121,6 +127,20 @@ impl Actor {
                     command: super::PodcastOperation::RefreshStatus { id },
                 }
             }
+            Operation::Podcast {
+                command:
+                    super::PodcastOperation::Download {
+                        id,
+                        subscription_id,
+                        episode_id,
+                        revision_id,
+                    },
+            } => {
+                self.start_episode(&id, &subscription_id, &episode_id, &revision_id)?;
+                Operation::Record {
+                    command: RecordingOperation::Show { id },
+                }
+            }
             Operation::Radio {
                 command: super::DirectoryOperation::Click { id, request },
             } => {
@@ -197,41 +217,117 @@ impl Actor {
             hls,
             icy,
         } = request;
-        let id_owned = id;
-        let id = id_owned.as_str();
-        let source_id = source_revision.as_str();
         let source = self
             .library
             .store()
-            .source(source_id)?
+            .source(&source_revision)?
             .ok_or(Error::NotFound)?
             .source;
-        let decoder = self
+        let decoder = self.decoder()?;
+        let limits = recordings::limits(maximum, seconds)?;
+        let mut admitted = self.library.store_mut().admit_recording(
+            &id,
+            &source_revision,
+            seconds,
+            maximum,
+            retention,
+            icy,
+        );
+        if matches!(admitted, Err(Error::StorageQuota)) {
+            self.reclaim(maximum)?;
+            admitted = self.library.store_mut().admit_recording(
+                &id,
+                &source_revision,
+                seconds,
+                maximum,
+                retention,
+                icy,
+            );
+        }
+        let Some(job) = admitted? else {
+            return Ok(());
+        };
+        self.spawn_recording(
+            &job,
+            SpawnedCapture {
+                id,
+                source,
+                limits,
+                decoder,
+                hls,
+                icy,
+            },
+        )
+    }
+
+    fn start_episode(
+        &mut self,
+        id: &str,
+        subscription_id: &str,
+        episode_id: &str,
+        revision_id: &str,
+    ) -> Result<()> {
+        let decoder = self.decoder()?;
+        let mut admission = self.library.store_mut().begin_episode_download(
+            id,
+            subscription_id,
+            episode_id,
+            revision_id,
+        );
+        if matches!(admission, Err(Error::StorageQuota)) {
+            self.reclaim(crate::sources::http::EPISODE_BODY_BYTES)?;
+            admission = self.library.store_mut().begin_episode_download(
+                id,
+                subscription_id,
+                episode_id,
+                revision_id,
+            );
+        }
+        let job = match admission? {
+            EpisodeAdmission::Replay => return Ok(()),
+            EpisodeAdmission::Started(job) => job,
+        };
+        let source = self
             .library
+            .store()
+            .source(revision_id)?
+            .ok_or(Error::NotFound)?
+            .source;
+        self.spawn_recording(
+            &job,
+            SpawnedCapture {
+                id: id.to_owned(),
+                source,
+                limits: AcquisitionLimits::episode(),
+                decoder,
+                hls: false,
+                icy: false,
+            },
+        )
+    }
+
+    fn decoder(&self) -> Result<String> {
+        self.library
             .store()
             .dvr_status()?
             .decoder
             .ok_or(Error::InvalidInput(
                 "DVR decoder is not configured; use dvr configure",
-            ))?;
-        let limits = recordings::limits(maximum, seconds)?;
-        let mut admitted = self
-            .library
-            .store_mut()
-            .admit_recording(id, source_id, seconds, maximum, retention, icy);
-        if matches!(admitted, Err(Error::StorageQuota)) {
-            self.reclaim(maximum)?;
-            admitted = self
-                .library
-                .store_mut()
-                .admit_recording(id, source_id, seconds, maximum, retention, icy);
-        }
-        let Some(job) = admitted? else {
-            return Ok(());
-        };
+            ))
+    }
+
+    fn spawn_recording(&mut self, job: &CaptureJob, capture: SpawnedCapture) -> Result<()> {
+        let SpawnedCapture {
+            id,
+            source,
+            limits,
+            decoder,
+            hls,
+            icy,
+        } = capture;
         let setup = (|| {
             recordings::check_free_space(&self.library)?;
-            let record = self.library.store().recording(id)?;
+            let record = self.library.store().recording(&id)?;
             let directory = self.library.directory().to_owned();
             recordings::checked_directory(&directory, true)?;
             Ok((record.object_key, directory))
@@ -247,7 +343,7 @@ impl Actor {
         };
         let generation = job.version.generation();
         let acquirer = self.acquirer.clone();
-        let worker_id = id.to_owned();
+        let worker_id = id.clone();
         let worker = self.spawn_worker(
             move |signal| {
                 recordings::capture(
@@ -270,7 +366,7 @@ impl Actor {
                 result,
             },
         )?;
-        self.workers.insert(id.into(), worker);
+        self.workers.insert(id, worker);
         Ok(())
     }
 
@@ -532,6 +628,15 @@ fn failure(error: &Error) -> Failure {
         .into(),
         message: error.to_string(),
     }
+}
+
+struct SpawnedCapture {
+    id: String,
+    source: HttpSource,
+    limits: AcquisitionLimits,
+    decoder: String,
+    hls: bool,
+    icy: bool,
 }
 
 struct RecordingLaunch {

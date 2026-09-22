@@ -49,6 +49,13 @@ pub enum PodcastOperation {
         after: Option<String>,
         limit: u32,
     },
+    /// Download one stored enclosure through the recording path. Replay does not download again.
+    Download {
+        id: String,
+        subscription_id: String,
+        episode_id: String,
+        revision_id: String,
+    },
 }
 
 /// Ordinary subscription view. The feed path and query stay in the catalog.
@@ -122,7 +129,10 @@ pub struct PodcastEpisodeView {
 }
 
 pub(super) fn apply(store: &mut Store, command: PodcastOperation) -> Result<Snapshot> {
-    if matches!(command, PodcastOperation::Refresh { .. }) {
+    if matches!(
+        command,
+        PodcastOperation::Refresh { .. } | PodcastOperation::Download { .. }
+    ) {
         return Err(Error::ServiceRequired);
     }
     if let Some(feed) = feed_view(store, &command)? {
@@ -159,6 +169,7 @@ pub(super) fn apply(store: &mut Store, command: PodcastOperation) -> Result<Snap
             page_of(vec![subscription], None, None, None)
         }
         PodcastOperation::Refresh { .. }
+        | PodcastOperation::Download { .. }
         | PodcastOperation::RefreshStatus { .. }
         | PodcastOperation::Episodes { .. } => return Err(Error::InvalidInput("podcast command")),
         PodcastOperation::List { after, limit } => {
