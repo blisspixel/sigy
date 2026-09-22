@@ -18,17 +18,28 @@ The picture is the output of `sigy --help` on Windows. The [usage guide](docs/us
 
 ## Install
 
-From a checkout of this repository:
+Copy one command. It reads the installer from GitHub and builds the latest `main` commit. The repository is private, so GitHub CLI must already be logged in to an account that can read [blisspixel/sigy](https://github.com/blisspixel/sigy). This is not a release binary, an operating-system service, or `cargo verify`.
+
+macOS and Linux:
 
 ```text
-./scripts/install.sh
+gh api -H "Accept: application/vnd.github.raw" https://api.github.com/repos/blisspixel/sigy/contents/scripts/install.sh | sh
 ```
+
+Windows PowerShell:
 
 ```text
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1
+iex (gh api -H "Accept: application/vnd.github.raw" https://api.github.com/repos/blisspixel/sigy/contents/scripts/install.ps1)
 ```
 
-`scripts/install.sh` is for macOS and Linux. `scripts/install.ps1` is for Windows. If `cargo` is missing, the script installs Rust 1.98.1 for the current user from the official rustup installer, then builds `sigy` from this checkout and puts that binary on the Cargo path. It does not install an operating-system service, download FFmpeg, or contact a station. Recording and playback need a trusted FFmpeg that you install separately and pass to `dvr configure`.
+The scripts are [install.sh](https://github.com/blisspixel/sigy/blob/main/scripts/install.sh) and [install.ps1](https://github.com/blisspixel/sigy/blob/main/scripts/install.ps1). If `cargo` is missing, the script installs Rust 1.98.1 for the current user from the official rustup installer, then builds `sigy` and puts that binary on the Cargo path. It does not install an operating-system service, download FFmpeg, or contact a station. From a checkout you already have, `./scripts/install.sh` or `scripts\install.ps1` installs that checkout instead of fetching `main`.
+
+```text
+sigy update --check
+sigy update
+```
+
+`sigy update --check` prints the recorded commit and the latest `main` commit. It exits with an error when no commit is recorded or a newer commit is available. `sigy update` installs that commit. When GitHub CLI is logged in, Git uses that login. Neither command selects a library or contacts a station. On Windows the install finishes after `sigy update` exits, because Windows cannot replace the running executable. Stop a running service before that replacement. Recording and playback need a trusted FFmpeg that you install separately and pass to `dvr configure`.
 
 ```text
 sigy --data-dir PATH_TO_LIBRARY library init

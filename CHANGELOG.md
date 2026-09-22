@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a GitHub CLI one-command install and `sigy update`. The installer builds the latest `main` commit. A logged-in GitHub CLI supplies Git credentials for that private repository. `sigy update --check` reports the recorded commit and exits with an error when the install is missing or older. This is not a release binary and not `cargo verify`.
 - Played one sealed segment at a time from independent in-memory playheads. Playback pause does not stop the capture. Seek stays inside a published segment and fails in a gap or the open tail. Return to live parks at the newest published end. Leaving `listen play` drops that playhead and leaves the capture running. Catalog schema stays v18. Local IPC is v19.
 - Journaled capture gaps for disconnect, recovery, codec change, refused renewal, capture pause, and a backward clock. A gap has no audio file. Seeking inside it fails. Catalog schema is v18 and local IPC is v18.
 - Sealed segments on one running radio capture. The open ceiling is 32 MiB, or 5000 ms of receive time, whichever comes first. That 5000 ms bound is the candidate uncommitted window, not a measured durability result. The whole byte budget stays one escrow. A stale token cannot seal, and renewal stays on the same socket. Catalog schema is v17 and local IPC is v17.

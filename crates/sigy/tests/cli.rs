@@ -4,6 +4,22 @@ mod common;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
+fn update_help_works_without_a_library_and_other_commands_need_one() -> TestResult {
+    let help = common::output(Command::new(env!("CARGO_BIN_EXE_sigy")).args(["update", "--help"]))?;
+    assert!(
+        help.status.success(),
+        "{}",
+        String::from_utf8_lossy(&help.stderr)
+    );
+    let missing =
+        common::output(Command::new(env!("CARGO_BIN_EXE_sigy")).args(["library", "status"]))?;
+    assert!(!missing.status.success());
+    let error = String::from_utf8_lossy(&missing.stderr);
+    assert!(error.contains("data-dir"), "{error}");
+    Ok(())
+}
+
+#[test]
 fn help_and_version_work_without_initializing_a_library() -> TestResult {
     for arguments in [&["--help"][..], &["--version"][..]] {
         let output = common::output(Command::new(env!("CARGO_BIN_EXE_sigy")).args(arguments))?;
