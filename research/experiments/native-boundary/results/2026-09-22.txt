@@ -1,0 +1,14 @@
+invalid_limit_refused=true
+mechanism=JobObject
+second_process_refused=true
+empty=true peak_commit=Some(1744896) total_cpu=Some(0ns)
+descendants_after_root_exit=1
+empty=true peak_commit=Some(3481600) total_cpu=Some(62.5ms)
+allocation_exit=Some(42) peak_commit=Some(34430976)
+empty=true peak_commit=Some(34430976) total_cpu=Some(109.375ms)
+two_second_spin_cpu=Some(656.25ms)
+empty=true peak_commit=Some(1740800) total_cpu=Some(656.25ms)
+two_second_spin_baseline_cpu=Some(1.984375s)
+empty=true peak_commit=Some(1740800) total_cpu=Some(1.984375s)
+no_newline_flood_stopped_at=65537
+empty=true peak_commit=Some(2764800) total_cpu=Some(15.625ms)

@@ -1,0 +1,22 @@
+[package]
+name = "sigy-native-boundary"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+authors = ["Nick Seal <32712898+blisspixel@users.noreply.github.com>"]
+description = "Windows child-process containment probe for retained analysis. Not an application crate."
+publish = false
+
+[dependencies]
+processkit = { version = "=3.3.4", features = ["limits"] }
+tokio = { version = "=1.53.1", features = ["io-util", "macros", "rt-multi-thread", "process", "time"] }
+
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

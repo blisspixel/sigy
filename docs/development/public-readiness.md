@@ -27,6 +27,8 @@ Anonymous API access succeeded. A clone with credential helpers and extra HTTP a
 
 Local `cargo verify` passed 273 ordinary tests and `cargo verify-media` passed all 12 native-media tests. The [first public Windows workflow](https://github.com/blisspixel/sigy/actions/runs/35796307780) passed `cargo verify` at the source checkpoint above on a fresh standard hosted runner. Native-media tests remain local. The workflow used no paid runner or new spending allocation. Local models and paid providers were not run.
 
+CI maintenance reviewed on 2026-09-22 replaces the Node 20 actions with commit pins for [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1) and [rust-cache v2.9.2](https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2). Both declare Node 24. GitHub schedules [Node 20 removal for 2026-09-23](https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/). Release tags were resolved to commits, including the annotated Rust cache tag, and GitHub reported valid commit signatures. The toolchain action is composite and needs no Node runtime change. Token permissions and credential persistence settings are unchanged. The first public run above used the previous pins; hosted verification of these replacements remains pending.
+
 ## Registry boundary
 
 The original workspace `cargo publish --dry-run -p sigy` failed because the internal path dependency has no registry version. Publishing those internal packages also requires resolving the root-only SQLite patch: a downstream package does not inherit that workspace patch. Adding version strings alone would not preserve the qualified native engine.

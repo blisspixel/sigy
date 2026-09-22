@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install the pinned toolchain
@@ -29,7 +29,7 @@ jobs:
           toolchain: 1.98.1
           components: clippy, rustfmt
       - name: Cache Cargo output
-        uses: Swatinem/rust-cache@bc2d2e71bd35c5549942babaa51a89c586b981d1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install cargo-audit 0.22.2
         run: cargo install cargo-audit --version 0.22.2 --locked
       - name: Verify

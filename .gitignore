@@ -1,6 +1,7 @@
 /.agents/
 /target/
 /research/experiments/terminal/target/
+/research/experiments/native-boundary/target/
 
 # Local credentials and application state never belong in source control.
 .env
