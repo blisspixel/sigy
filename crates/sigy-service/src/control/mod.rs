@@ -7,6 +7,7 @@ mod endpoint;
 mod frame;
 mod listen;
 mod playlist;
+mod podcast;
 mod server;
 
 use serde::{Deserialize, Serialize};
@@ -22,9 +23,10 @@ pub use discovery::{DirectoryOperation, StationPage};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use listen::{ListenOperation, ListenView};
 pub use playlist::{PlaylistOperation, PlaylistView};
+pub use podcast::{PodcastOperation, PodcastPage, PodcastView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 13;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -86,6 +88,9 @@ pub enum Operation {
     Listen {
         command: ListenOperation,
     },
+    Podcast {
+        command: PodcastOperation,
+    },
 }
 
 impl std::fmt::Debug for Operation {
@@ -102,6 +107,7 @@ impl std::fmt::Debug for Operation {
             Self::ShowSource { .. } => "show_source",
             Self::Playlist { .. } => "playlist",
             Self::Listen { .. } => "listen",
+            Self::Podcast { .. } => "podcast",
         };
         f.debug_struct("Operation")
             .field("kind", &kind)
@@ -162,6 +168,7 @@ pub struct Snapshot {
     pub playlist: Option<PlaylistView>,
     pub directory_click: Option<crate::storage::ClickStatus>,
     pub listen: Option<ListenView>,
+    pub podcast_page: Option<PodcastPage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,6 +226,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         Operation::Radio { command } => return discovery::apply(store, command),
         Operation::Playlist { command } => return playlist::apply(store, command),
         Operation::Listen { command } => return listen::apply(store, command),
+        Operation::Podcast { command } => return podcast::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
                 recording_metadata = Some(crate::recordings::metadata::export(
@@ -334,6 +342,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         playlist: None,
         directory_click: None,
         listen: None,
+        podcast_page: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

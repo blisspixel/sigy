@@ -153,3 +153,166 @@ fn source_cli_registers_explicit_authority_preserves_languages_and_bounds_lists(
     assert!(!display.contains("hidden"));
     Ok(())
 }
+
+fn podcast_invoke(
+    directory: &std::path::Path,
+    args: &[&str],
+) -> std::io::Result<std::process::Output> {
+    common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(directory)
+            .arg("--json")
+            .args(args),
+    )
+}
+
+#[test]
+fn podcast_subscribe_is_local_and_omits_feed_paths() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    assert!(
+        podcast_invoke(directory.path(), &["library", "init"])?
+            .status
+            .success()
+    );
+    let denied = podcast_invoke(
+        directory.path(),
+        &[
+            "podcast",
+            "subscribe",
+            "local",
+            "--url",
+            "http://127.0.0.1:9/secret/feed.xml?token=hidden",
+        ],
+    )?;
+    assert!(!denied.status.success());
+    assert!(denied.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&denied.stderr).contains("hidden"));
+    let arguments = [
+        "podcast",
+        "subscribe",
+        "local",
+        "--url",
+        "http://127.0.0.1:9/secret/feed.xml?token=hidden",
+        "--pin-address",
+        "127.0.0.1",
+    ];
+    for newly_created in [true, false] {
+        let output = podcast_invoke(directory.path(), &arguments)?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout)?;
+        assert!(!text.contains("hidden") && !text.contains("secret"));
+        let value: serde_json::Value = serde_json::from_str(&text)?;
+        assert_eq!(
+            value["schema_version"],
+            sigy_service::storage::SCHEMA_VERSION
+        );
+        assert_eq!(value["podcast_page"]["newly_created"], newly_created);
+        assert_eq!(
+            value["podcast_page"]["entries"][0]["origin"],
+            "http://127.0.0.1:9"
+        );
+        assert_eq!(value["podcast_page"]["entries"][0]["polls"], "active");
+        assert_eq!(value["captures"]["scheduled"], 0);
+        assert_eq!(value["captures"]["active"], 0);
+        assert_eq!(value["captures"]["terminal"], 0);
+        assert!(value["source_page"].is_null());
+    }
+    let plain = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(directory.path())
+            .args(["podcast", "show", "local"]),
+    )?;
+    assert!(plain.status.success());
+    let display = String::from_utf8(plain.stdout)?;
+    assert!(display.contains("pinned address 127.0.0.1"));
+    assert!(display.contains("polls: active"));
+    assert!(!display.contains("hidden"));
+    Ok(())
+}
+
+#[test]
+fn podcast_unsubscribe_stops_polls_without_a_source_or_capture() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    assert!(
+        podcast_invoke(directory.path(), &["library", "init"])?
+            .status
+            .success()
+    );
+    let public = podcast_invoke(
+        directory.path(),
+        &[
+            "podcast",
+            "subscribe",
+            "remote",
+            "--url",
+            "https://unresolved.invalid/secret/feed.xml?token=hidden",
+        ],
+    )?;
+    assert!(
+        public.status.success(),
+        "{}",
+        String::from_utf8_lossy(&public.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&public.stdout).contains("hidden"));
+    let changed = podcast_invoke(
+        directory.path(),
+        &[
+            "podcast",
+            "subscribe",
+            "remote",
+            "--url",
+            "https://unresolved.invalid/other.xml?token=hidden",
+            "--redirects",
+            "public",
+        ],
+    )?;
+    assert!(!changed.status.success());
+    assert!(!String::from_utf8_lossy(&changed.stderr).contains("hidden"));
+    assert!(
+        podcast_invoke(
+            directory.path(),
+            &[
+                "podcast",
+                "subscribe",
+                "local",
+                "--url",
+                "http://127.0.0.1:9/feed.xml",
+                "--pin-address",
+                "127.0.0.1",
+            ],
+        )?
+        .status
+        .success()
+    );
+    let page = podcast_invoke(directory.path(), &["podcast", "list", "--limit", "1"])?;
+    let page: serde_json::Value = serde_json::from_slice(&page.stdout)?;
+    assert_eq!(page["podcast_page"]["next_after"], "local");
+    let stopped = podcast_invoke(directory.path(), &["podcast", "unsubscribe", "remote"])?;
+    let stopped: serde_json::Value = serde_json::from_slice(&stopped.stdout)?;
+    assert_eq!(stopped["podcast_page"]["newly_stopped"], true);
+    assert_eq!(stopped["podcast_page"]["entries"][0]["polls"], "stopped");
+    assert_eq!(stopped["captures"]["scheduled"], 0);
+    let repeat = podcast_invoke(directory.path(), &["podcast", "unsubscribe", "remote"])?;
+    let repeat: serde_json::Value = serde_json::from_slice(&repeat.stdout)?;
+    assert_eq!(repeat["podcast_page"]["newly_stopped"], false);
+    let sources = podcast_invoke(directory.path(), &["source", "list"])?;
+    let sources: serde_json::Value = serde_json::from_slice(&sources.stdout)?;
+    assert_eq!(sources["source_page"]["entries"], serde_json::json!([]));
+    assert!(
+        !podcast_invoke(directory.path(), &["podcast", "list", "--limit", "1000000"])?
+            .status
+            .success()
+    );
+    assert!(
+        !podcast_invoke(directory.path(), &["podcast", "show", "missing"])?
+            .status
+            .success()
+    );
+    Ok(())
+}

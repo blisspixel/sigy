@@ -14,6 +14,7 @@ use sigy_service::{
 mod dvr;
 mod explorer;
 mod listen;
+mod podcast;
 mod radio;
 mod service;
 mod sources;
@@ -52,6 +53,11 @@ enum Command {
     Source {
         #[command(subcommand)]
         command: sources::SourceCommand,
+    },
+    /// Subscribe to a podcast feed locally. Does not fetch, resolve DNS, or record.
+    Podcast {
+        #[command(subcommand)]
+        command: podcast::PodcastCommand,
     },
     /// Start, inspect, and stop the persistent local controller.
     Service {
@@ -132,6 +138,8 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         }
     } else if let Command::Source { command } = &cli.command {
         command.operation()
+    } else if let Command::Podcast { command } = &cli.command {
+        command.operation()
     } else if let Command::Radio { command } = &cli.command {
         command.operation()
     } else if let Command::Record { command } = &cli.command {
@@ -206,6 +214,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(page) = &view.source_page {
             sources::render(&mut stdout, page)?;
         }
+    } else if let Some(page) = &view.podcast_page {
+        podcast::render(&mut stdout, page)?;
     } else if view.directory.is_some() {
         radio::render(&mut stdout, &view)?;
     } else {

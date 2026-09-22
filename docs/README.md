@@ -30,6 +30,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Terminal stack](decisions/0015-terminal-stack.md) selects Ratatui with the Termina backend. [The list explorer](decisions/0016-list-explorer.md) uses that backend. The client still opens no second catalog. The globe and map are not drawn.
 
+[Local podcast subscriptions](decisions/0017-local-podcast-subscriptions.md) store one feed URL, scope, pin, and redirect policy. Subscribe does not resolve DNS or start a capture. Unsubscribe stops future polls and deletes nothing.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:

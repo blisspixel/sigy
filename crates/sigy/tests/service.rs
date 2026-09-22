@@ -259,6 +259,81 @@ fn source_registration_uses_the_running_owner_and_survives_restart() -> TestResu
     Ok(())
 }
 
+#[test]
+fn podcast_subscribe_uses_the_running_owner_without_capture() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    success(directory.path(), &["library", "init"])?;
+    let mut service = RunningChild::start(directory.path())?;
+    let source = success(
+        directory.path(),
+        &[
+            "source",
+            "add",
+            "quebec:v1",
+            "--name",
+            "Radio Québec",
+            "--url",
+            "https://unresolved.invalid/audio?token=hidden",
+        ],
+    )?;
+    assert_eq!(source["source_page"]["entries"][0]["name"], "Radio Québec");
+    let args = [
+        "podcast",
+        "subscribe",
+        "show:v1",
+        "--url",
+        "https://unresolved.invalid/secret/feed.xml?token=hidden",
+        "--redirects",
+        "same-origin",
+    ];
+    let added = success(directory.path(), &args)?;
+    assert_eq!(added["service"]["process_id"], service.0.id());
+    assert_eq!(added["podcast_page"]["newly_created"], true);
+    assert_eq!(added["podcast_page"]["entries"][0]["polls"], "active");
+    assert_eq!(
+        added["podcast_page"]["entries"][0]["origin"],
+        "https://unresolved.invalid"
+    );
+    assert_eq!(
+        added["podcast_page"]["entries"][0]["redirects"],
+        "same_origin"
+    );
+    assert_eq!(added["captures"]["scheduled"], 0);
+    assert_eq!(added["captures"]["active"], 0);
+    assert_eq!(added["captures"]["interrupted"], 0);
+    assert_eq!(added["captures"]["terminal"], 0);
+    assert!(!added.to_string().contains("hidden"));
+    assert!(!added.to_string().contains("secret"));
+    assert_eq!(
+        success(directory.path(), &args)?["podcast_page"]["newly_created"],
+        false
+    );
+    let stopped = success(directory.path(), &["podcast", "unsubscribe", "show:v1"])?;
+    assert_eq!(stopped["podcast_page"]["newly_stopped"], true);
+    assert_eq!(stopped["podcast_page"]["entries"][0]["polls"], "stopped");
+    assert_eq!(
+        success(directory.path(), &["source", "show", "quebec:v1"])?["source_page"]["entries"][0]["name"],
+        "Radio Québec"
+    );
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    let reopened = success(directory.path(), &["podcast", "show", "show:v1"])?;
+    assert!(reopened["service"].is_null());
+    assert_eq!(reopened["podcast_page"]["entries"][0]["polls"], "stopped");
+    let mut restarted = RunningChild::start(directory.path())?;
+    assert_eq!(
+        success(directory.path(), &["podcast", "list"])?["podcast_page"]["entries"][0]["id"],
+        "show:v1"
+    );
+    assert_eq!(
+        success(directory.path(), &["source", "list"])?["source_page"]["entries"][0]["name"],
+        "Radio Québec"
+    );
+    success(directory.path(), &["service", "stop"])?;
+    restarted.wait()?;
+    Ok(())
+}
+
 impl Drop for DetachedService {
     fn drop(&mut self) {
         let _ = invoke(&self.0, &["service", "stop"]);

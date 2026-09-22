@@ -496,7 +496,7 @@ fn failure(error: &Error) -> Failure {
             Error::DestinationDenied => "destination_denied",
             Error::IdempotencyConflict => "idempotency_conflict",
             Error::NotFound => "not_found",
-            Error::SourceCapacity | Error::CaptureCapacity => "capacity",
+            Error::SourceCapacity | Error::CaptureCapacity | Error::PodcastCapacity => "capacity",
             Error::StorageQuota => "storage_quota",
             Error::Budget(_) => "budget_rejected",
             Error::ServiceStopped => "stopping",

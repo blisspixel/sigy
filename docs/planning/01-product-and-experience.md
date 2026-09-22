@@ -203,7 +203,7 @@ The CLI is a complete automation surface over the same operations as the TUI. Pr
 | `sigy library` | Search, retention preview, backup, restore, integrity check |
 | `sigy source` / `sigy decode` | Future typed source inspection and decoder operations beyond stations |
 | `sigy workbench` / `sigy crypto` | Future saved experiments and operation-specific cryptographic workflows with protected key references |
-| `sigy feed` / `sigy podcast` | Later subscriptions, refresh, bounded backfill, episode/entry inspection, queued processing and export |
+| `sigy podcast` | Local subscribe and unsubscribe are implemented. Refresh, bounded backfill, episode inspection, queued processing, and export remain later |
 
 Illustrative workflows:
 

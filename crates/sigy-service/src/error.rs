@@ -44,6 +44,10 @@ pub enum Error {
     SourceIntegrity,
     #[error("source catalog admission limit reached")]
     SourceCapacity,
+    #[error("podcast subscription catalog integrity check failed")]
+    PodcastIntegrity,
+    #[error("podcast subscription admission limit reached")]
+    PodcastCapacity,
     #[error(
         "DVR quota is unavailable or exhausted; configure storage or remove eligible recordings"
     )]

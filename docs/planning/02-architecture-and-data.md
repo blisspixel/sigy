@@ -307,7 +307,7 @@ Morse can begin with recorded audio or timed keying observations before hardware
 
 ## 11. Later podcasts and feeds
 
-Priority update, 2026-09-21: podcast ingestion now belongs with internet radio before hardware. The section anchor is retained for existing links; broader RSS/Atom text analysis remains later work.
+Priority update, 2026-09-21: podcast ingestion now belongs with internet radio before hardware. Operation 10 stores a local subscription and does not fetch the feed. Refresh and enclosures remain later operations. The section anchor is retained for existing links; broader RSS/Atom text analysis remains later work.
 
 Feed polling, finite media acquisition, and live reception are separate source capabilities sharing the service's job, resource, and evidence contracts. A subscription stores a bounded polling/backfill policy. A feed snapshot produces idempotently reconciled entry revisions and admitted processing work; unchanged polls do not trigger repeated model analysis.
 

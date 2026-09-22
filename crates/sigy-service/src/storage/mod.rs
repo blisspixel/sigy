@@ -13,10 +13,11 @@ pub mod dvr;
 pub mod ledger;
 mod listens;
 mod playlists;
+pub mod podcasts;
 pub use clicks::ClickStatus;
 pub mod sources;
 
-pub const SCHEMA_VERSION: u32 = 11;
+pub const SCHEMA_VERSION: u32 = 12;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -101,6 +102,9 @@ impl Store {
         }
         if (0..=10).contains(&version) {
             transaction.execute_batch(include_str!("011-icy.sql"))?;
+        }
+        if (0..=11).contains(&version) {
+            transaction.execute_batch(include_str!("012-podcasts.sql"))?;
         } else if version != i64::from(SCHEMA_VERSION) {
             return Err(Error::FutureSchema {
                 found: version,
@@ -125,6 +129,7 @@ impl Store {
         store.audit_playlists()?;
         store.audit_clicks()?;
         store.audit_listens()?;
+        store.audit_podcasts()?;
         Ok(store)
     }
 
