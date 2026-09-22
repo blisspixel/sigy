@@ -1,0 +1,1777 @@
+{
+  "crossterm": "0.29.0",
+  "date": "2026-09-21",
+  "driver_wt_session": true,
+  "host": "Windows x86_64",
+  "ratatui": "0.30.2",
+  "runs": [
+    {
+      "backend": "crossterm",
+      "failures": [
+        "timed out waiting for paste in C:\\Users\\NICKSE~1\\AppData\\Local\\Temp\\sigy-terminal-measure-2904\\workload-crossterm-1.jsonl",
+        "paste event was not reported"
+      ],
+      "host": "conpty",
+      "idle_pty_bytes": 0,
+      "latencies_us": [
+        236,
+        344,
+        277,
+        184,
+        173,
+        265
+      ],
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 24,
+          "t": "ready",
+          "wt": false
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 236,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 344,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 277,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 184,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 173,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 265,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "cols": 120,
+          "rows": 36,
+          "t": "resize"
+        },
+        {
+          "cols": 200,
+          "rows": 50,
+          "t": "resize"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 3381,
+      "pass": false,
+      "phase": "workload",
+      "reduced_motion": true,
+      "repeat": 1
+    },
+    {
+      "backend": "crossterm",
+      "failures": [
+        "timed out waiting for paste in C:\\Users\\NICKSE~1\\AppData\\Local\\Temp\\sigy-terminal-measure-2904\\workload-crossterm-2.jsonl",
+        "paste event was not reported"
+      ],
+      "host": "conpty",
+      "idle_pty_bytes": 0,
+      "latencies_us": [
+        264,
+        436,
+        270,
+        258,
+        142,
+        415
+      ],
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 24,
+          "t": "ready",
+          "wt": false
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 264,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 436,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 270,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 258,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 142,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 415,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "cols": 120,
+          "rows": 36,
+          "t": "resize"
+        },
+        {
+          "cols": 200,
+          "rows": 50,
+          "t": "resize"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 3381,
+      "pass": false,
+      "phase": "workload",
+      "reduced_motion": true,
+      "repeat": 2
+    },
+    {
+      "backend": "crossterm",
+      "failures": [
+        "timed out waiting for paste in C:\\Users\\NICKSE~1\\AppData\\Local\\Temp\\sigy-terminal-measure-2904\\workload-crossterm-3.jsonl",
+        "paste event was not reported"
+      ],
+      "host": "conpty",
+      "idle_pty_bytes": 0,
+      "latencies_us": [
+        225,
+        304,
+        247,
+        331,
+        199,
+        963
+      ],
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 24,
+          "t": "ready",
+          "wt": false
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 225,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 304,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 247,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 331,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 199,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 963,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "cols": 120,
+          "rows": 36,
+          "t": "resize"
+        },
+        {
+          "cols": 200,
+          "rows": 50,
+          "t": "resize"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 3390,
+      "pass": false,
+      "phase": "workload",
+      "reduced_motion": true,
+      "repeat": 3
+    },
+    {
+      "backend": "crossterm",
+      "failures": [],
+      "host": "conpty",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "rows": 24,
+          "t": "frame"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": false,
+      "output_bytes": 780,
+      "pass": true,
+      "phase": "color",
+      "reduced_motion": true
+    },
+    {
+      "backend": "crossterm",
+      "failures": [],
+      "host": "conpty",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "animation": 7,
+          "reduced_motion": false,
+          "t": "contrast"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 783,
+      "pass": true,
+      "phase": "contrast",
+      "reduced_motion": false
+    },
+    {
+      "backend": "crossterm",
+      "failures": [],
+      "host": "conpty",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "rows": 24,
+          "t": "frame"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 769,
+      "pass": true,
+      "phase": "modes",
+      "reduced_motion": true
+    },
+    {
+      "backend": "crossterm",
+      "failures": [],
+      "host": "conpty",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "backend": "crossterm",
+          "t": "panic"
+        }
+      ],
+      "pass": true,
+      "phase": "panic",
+      "status_ok": false
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "conpty",
+      "idle_pty_bytes": 0,
+      "latencies_us": [
+        315,
+        187,
+        151,
+        186,
+        123,
+        190
+      ],
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 24,
+          "t": "ready",
+          "wt": false
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 315,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 187,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 151,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 186,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 123,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 190,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "cols": 120,
+          "rows": 36,
+          "t": "resize"
+        },
+        {
+          "cols": 200,
+          "rows": 50,
+          "t": "resize"
+        },
+        {
+          "query": "navajoq東京",
+          "quit": false,
+          "shown": 0,
+          "t": "paste",
+          "text": "q東京"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 3415,
+      "pass": true,
+      "phase": "workload",
+      "reduced_motion": true,
+      "repeat": 1
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "conpty",
+      "idle_pty_bytes": 0,
+      "latencies_us": [
+        271,
+        196,
+        123,
+        266,
+        169,
+        171
+      ],
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 24,
+          "t": "ready",
+          "wt": false
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 271,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 196,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 123,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 266,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 169,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 171,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "cols": 120,
+          "rows": 36,
+          "t": "resize"
+        },
+        {
+          "cols": 200,
+          "rows": 50,
+          "t": "resize"
+        },
+        {
+          "query": "navajoq東京",
+          "quit": false,
+          "shown": 0,
+          "t": "paste",
+          "text": "q東京"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 3415,
+      "pass": true,
+      "phase": "workload",
+      "reduced_motion": true,
+      "repeat": 2
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "conpty",
+      "idle_pty_bytes": 0,
+      "latencies_us": [
+        292,
+        187,
+        147,
+        166,
+        164,
+        148
+      ],
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 24,
+          "t": "ready",
+          "wt": false
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 292,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 187,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 147,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 166,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 164,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 148,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "cols": 120,
+          "rows": 36,
+          "t": "resize"
+        },
+        {
+          "cols": 200,
+          "rows": 50,
+          "t": "resize"
+        },
+        {
+          "query": "navajoq東京",
+          "quit": false,
+          "shown": 0,
+          "t": "paste",
+          "text": "q東京"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 3418,
+      "pass": true,
+      "phase": "workload",
+      "reduced_motion": true,
+      "repeat": 3
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "conpty",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "rows": 24,
+          "t": "frame"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": false,
+      "output_bytes": 757,
+      "pass": true,
+      "phase": "color",
+      "reduced_motion": true
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "conpty",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "animation": 7,
+          "reduced_motion": false,
+          "t": "contrast"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 776,
+      "pass": true,
+      "phase": "contrast",
+      "reduced_motion": false
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "conpty",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "rows": 24,
+          "t": "frame"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "no_color": true,
+      "output_bytes": 754,
+      "pass": true,
+      "phase": "modes",
+      "reduced_motion": true
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "conpty",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "backend": "termina",
+          "t": "panic"
+        }
+      ],
+      "pass": true,
+      "phase": "panic",
+      "status_ok": false
+    },
+    {
+      "backend": "crossterm",
+      "failures": [
+        "Windows Terminal input injection did not complete search and paste"
+      ],
+      "host": "windows-terminal",
+      "label": "80x24",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 24,
+          "t": "ready",
+          "wt": true
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 239,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 208,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 153,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 130,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 124,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 185,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "[",
+          "latency_us": 126,
+          "query": "navajo[",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "ch": "2",
+          "latency_us": 146,
+          "query": "navajo[2",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "ch": "0",
+          "latency_us": 157,
+          "query": "navajo[20",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "ch": "~",
+          "latency_us": 121,
+          "query": "navajo[20~",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "observed_size": [
+        80,
+        24
+      ],
+      "pass": false,
+      "phase": "hosted",
+      "requested_cols": 80,
+      "requested_rows": 24
+    },
+    {
+      "backend": "crossterm",
+      "failures": [
+        "Windows Terminal input injection did not complete search and paste"
+      ],
+      "host": "windows-terminal",
+      "label": "120x36",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 115,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 36,
+          "t": "ready",
+          "wt": true
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 261,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 306,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 202,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 177,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 166,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 216,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "[",
+          "latency_us": 140,
+          "query": "navajo[",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "ch": "2",
+          "latency_us": 195,
+          "query": "navajo[2",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "ch": "0",
+          "latency_us": 127,
+          "query": "navajo[20",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "ch": "~",
+          "latency_us": 203,
+          "query": "navajo[20~",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "observed_size": [
+        115,
+        36
+      ],
+      "pass": false,
+      "phase": "hosted",
+      "requested_cols": 120,
+      "requested_rows": 36
+    },
+    {
+      "backend": "crossterm",
+      "failures": [
+        "Windows Terminal input injection did not complete search and paste"
+      ],
+      "host": "windows-terminal",
+      "label": "large",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 115,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 37,
+          "t": "ready",
+          "wt": true
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 352,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 229,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 207,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 222,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 217,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 263,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "[",
+          "latency_us": 226,
+          "query": "navajo[",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "ch": "2",
+          "latency_us": 178,
+          "query": "navajo[2",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "ch": "0",
+          "latency_us": 157,
+          "query": "navajo[20",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "ch": "~",
+          "latency_us": 131,
+          "query": "navajo[20~",
+          "shown": 0,
+          "t": "key"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "observed_size": [
+        115,
+        37
+      ],
+      "pass": false,
+      "phase": "hosted",
+      "requested_cols": 200,
+      "requested_rows": 50
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "windows-terminal",
+      "label": "80x24",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 80,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 24,
+          "t": "ready",
+          "wt": true
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 182,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 194,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 102,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 109,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 92,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 76,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "query": "navajoq東京",
+          "quit": false,
+          "shown": 0,
+          "t": "paste",
+          "text": "q東京"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "observed_size": [
+        80,
+        24
+      ],
+      "pass": true,
+      "phase": "hosted",
+      "requested_cols": 80,
+      "requested_rows": 24
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "windows-terminal",
+      "label": "120x36",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 115,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 36,
+          "t": "ready",
+          "wt": true
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 243,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 290,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 121,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 122,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 182,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 114,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "query": "navajoq東京",
+          "quit": false,
+          "shown": 0,
+          "t": "paste",
+          "text": "q東京"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "observed_size": [
+        115,
+        36
+      ],
+      "pass": true,
+      "phase": "hosted",
+      "requested_cols": 120,
+      "requested_rows": 36
+    },
+    {
+      "backend": "termina",
+      "failures": [],
+      "host": "windows-terminal",
+      "label": "large",
+      "lines": [
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_before"
+        },
+        {
+          "combining": "é",
+          "combining_ok": true,
+          "combining_split": false,
+          "t": "text",
+          "wide": "東",
+          "wide_after": "京",
+          "wide_next": " ",
+          "wide_ok": true
+        },
+        {
+          "cols": 115,
+          "font": "Consolas",
+          "no_color": true,
+          "reduced_motion": true,
+          "rows": 37,
+          "t": "ready",
+          "wt": true
+        },
+        {
+          "animation": 0,
+          "draws": 0,
+          "t": "idle"
+        },
+        {
+          "ch": "n",
+          "latency_us": 316,
+          "query": "n",
+          "shown": 24,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 301,
+          "query": "na",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "v",
+          "latency_us": 143,
+          "query": "nav",
+          "shown": 2,
+          "t": "key"
+        },
+        {
+          "ch": "a",
+          "latency_us": 1071,
+          "query": "nava",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "j",
+          "latency_us": 116,
+          "query": "navaj",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "ch": "o",
+          "latency_us": 121,
+          "query": "navajo",
+          "shown": 1,
+          "t": "key"
+        },
+        {
+          "query": "navajoq東京",
+          "quit": false,
+          "shown": 0,
+          "t": "paste",
+          "text": "q東京"
+        },
+        {
+          "input": 503,
+          "input_cp": 437,
+          "output": 7,
+          "output_cp": 437,
+          "t": "mode_after"
+        },
+        {
+          "t": "done"
+        }
+      ],
+      "observed_size": [
+        115,
+        37
+      ],
+      "pass": true,
+      "phase": "hosted",
+      "requested_cols": 200,
+      "requested_rows": 50
+    }
+  ],
+  "rustc": "1.98.1",
+  "termina_linked_by_ratatui": "0.3",
+  "windows_terminal": "1.24.11911.0"
+}

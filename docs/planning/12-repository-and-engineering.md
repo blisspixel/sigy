@@ -65,7 +65,7 @@ Rust is the selected implementation language. The Go comparison remains historic
 | Responsibility | Leading candidate to evaluate | Boundary |
 | --- | --- | --- |
 | Application, service, CLI/TUI | Rust | One application language; Python excluded |
-| Terminal rendering/input | Ratatui and Crossterm | Presentation consumes service projections |
+| Terminal rendering/input | Ratatui 0.30.2 with Termina 0.3.3, selected in [terminal stack](../decisions/0015-terminal-stack.md); not yet a dependency | Presentation consumes service projections |
 | CLI parsing | clap | Reuse commands and validation across interactive/noninteractive use |
 | Async I/O and supervision | Tokio | One runtime policy; CPU-heavy inference does not block control or capture |
 | Catalog and durable metadata | SQLite | One embedded transactional store; binding and search approach unresolved |

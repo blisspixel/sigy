@@ -1,0 +1,18 @@
+[package]
+name = "sigy-terminal-measure"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license = "Apache-2.0"
+authors = ["Nick Seal <32712898+blisspixel@users.noreply.github.com>"]
+description = "One-time Windows Terminal measurement for the list and search workload. Not an application crate."
+
+[dependencies]
+portable-pty = "=0.9.0"
+ratatui = { version = "=0.30.2", default-features = false, features = ["std", "crossterm", "termina", "layout-cache"] }
+serde_json = "=1.0.151"
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+] }

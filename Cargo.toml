@@ -1,7 +1,7 @@
 [workspace]
 members = ["crates/sigy-core", "crates/sigy-service", "crates/sigy", "crates/sigy-xtask"]
 resolver = "3"
-exclude = ["vendor/libsqlite3-sys"]
+exclude = ["vendor/libsqlite3-sys", "research/experiments/terminal"]
 
 [patch.crates-io]
 libsqlite3-sys = { path = "vendor/libsqlite3-sys" }

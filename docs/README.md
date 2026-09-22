@@ -28,6 +28,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Decoded formats](decisions/0014-decoded-formats.md) names only the formats one local run decoded, on the operating system and FFmpeg build that ran them.
 
+[Terminal stack](decisions/0015-terminal-stack.md) selects Ratatui with the Termina backend for the later list explorer. The crate is not added yet, and the client still opens no second catalog.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:
