@@ -1,3 +1,4 @@
+use crate::style::{Ink, Tone, tone_for_state};
 use clap::{Args, Subcommand};
 use sigy_service::{
     control::{DirectoryOperation, Operation, Snapshot},
@@ -183,7 +184,7 @@ impl RadioCommand {
     }
 }
 
-pub fn render(writer: &mut impl Write, view: &Snapshot) -> io::Result<()> {
+pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<()> {
     if let Some(status) = &view.directory {
         writeln!(
             writer,
@@ -191,7 +192,14 @@ pub fn render(writer: &mut impl Write, view: &Snapshot) -> io::Result<()> {
             status.cached_stations,
             status.maximum_stations,
             status.favorite_stations,
-            status.stale_stations
+            ink.tint(
+                if status.stale_stations > 0 {
+                    Tone::Warn
+                } else {
+                    Tone::Plain
+                },
+                &status.stale_stations.to_string(),
+            )
         )?;
         if status.cached_stations == 0 || status.stale_stations > 0 {
             writeln!(
@@ -210,13 +218,17 @@ pub fn render(writer: &mut impl Write, view: &Snapshot) -> io::Result<()> {
                 writer,
                 "Refresh {}: {} | accepted {} | skipped {} | started {}",
                 refresh.id,
-                refresh.state,
+                ink.tint(tone_for_state(&refresh.state), &refresh.state),
                 refresh.accepted,
                 refresh.skipped,
                 age(refresh.started_ms)
             )?;
             if let Some(failure) = &refresh.failure {
-                writeln!(writer, "Reason: {failure}")?;
+                writeln!(
+                    writer,
+                    "{}",
+                    ink.tint(Tone::Fail, &format!("Reason: {failure}"))
+                )?;
             }
         }
     }
@@ -225,58 +237,71 @@ pub fn render(writer: &mut impl Write, view: &Snapshot) -> io::Result<()> {
             writer,
             "Click {}: {} | station {} | acknowledged {}",
             click.id,
-            click.state,
+            ink.tint(tone_for_state(&click.state), &click.state),
             click.station_id,
             if click.acknowledged { "yes" } else { "no" }
         )?;
         if let Some(failure) = &click.failure {
-            writeln!(writer, "Reason: {failure}")?;
+            writeln!(
+                writer,
+                "{}",
+                ink.tint(Tone::Fail, &format!("Reason: {failure}"))
+            )?;
         }
     }
     if let Some(page) = &view.station_page {
-        for station in &page.entries {
-            let favorite = if page.favorite_ids.contains(&station.id) {
-                " [favorite]"
+        write_stations(writer, page, ink)?;
+    }
+    Ok(())
+}
+
+fn write_stations(
+    writer: &mut impl Write,
+    page: &sigy_service::control::StationPage,
+    ink: Ink,
+) -> io::Result<()> {
+    for station in &page.entries {
+        let favorite = if page.favorite_ids.contains(&station.id) {
+            ink.tint(Tone::Warn, " [favorite]")
+        } else {
+            String::new()
+        };
+        writeln!(
+            writer,
+            "{}: {}{favorite} | {} | {} | bitrate {} | directory languages: {}",
+            station.id,
+            station.name,
+            known(&station.country),
+            known(&station.codec),
+            if station.bitrate_kbps == 0 {
+                "unknown".into()
             } else {
-                ""
-            };
+                format!("{} kbps", station.bitrate_kbps)
+            },
+            known(&station.languages.join(", "))
+        )?;
+        writeln!(
+            writer,
+            "  Tags: {} | observed {} | origin {}",
+            known(&station.tags.join(", ")),
+            age(station.observed_ms),
+            station.stream_origin
+        )?;
+        if station.hls {
             writeln!(
                 writer,
-                "{}: {}{favorite} | {} | {} | bitrate {} | directory languages: {}",
-                station.id,
-                station.name,
-                known(&station.country),
-                known(&station.codec),
-                if station.bitrate_kbps == 0 {
-                    "unknown".into()
-                } else {
-                    format!("{} kbps", station.bitrate_kbps)
-                },
-                known(&station.languages.join(", "))
-            )?;
-            writeln!(
-                writer,
-                "  Tags: {} | observed {} | origin {}",
-                known(&station.tags.join(", ")),
-                age(station.observed_ms),
-                station.stream_origin
-            )?;
-            if station.hls {
-                writeln!(
-                    writer,
-                    "  HLS stream: current recording adapter does not support this format."
-                )?;
-            }
-        }
-        if page.entries.is_empty() {
-            writeln!(
-                writer,
-                "No cached matches. Check your filters, save favorites with radio favorite, or fetch observations with radio refresh."
+                "  HLS stream: current recording adapter does not support this format."
             )?;
         }
-        if let Some(after) = &page.next_after {
-            writeln!(writer, "Continue with the same filters and --after {after}")?;
-        }
+    }
+    if page.entries.is_empty() {
+        writeln!(
+            writer,
+            "No cached matches. Check your filters, save favorites with radio favorite, or fetch observations with radio refresh."
+        )?;
+    }
+    if let Some(after) = &page.next_after {
+        writeln!(writer, "Continue with the same filters and --after {after}")?;
     }
     Ok(())
 }

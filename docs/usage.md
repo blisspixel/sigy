@@ -210,7 +210,7 @@ sigy --data-dir PATH_TO_LIBRARY tui
 sigy --data-dir PATH_TO_LIBRARY tui --reduced-motion --monochrome
 ```
 
-`sigy tui` is the list explorer on Ratatui 0.30.2 with the Termina 0.3.3 backend. Selection does not start audio, capture, refresh, or a click. Quit does not stop the service. `--linear` uses one reading order. `NO_COLOR` also selects monochrome. `--inspect PATH` draws one frame, writes a size report, and exits. The globe, map, monitors, and findings are unavailable. See [the list explorer](decisions/0016-list-explorer.md).
+`sigy tui` is the list explorer on Ratatui 0.30.2 with the Termina 0.3.3 backend. Selection does not start audio, capture, refresh, or a click. Quit does not stop the service. The default drawing uses the terminal palette for connection, health, favorites, and focus. The words stay, so the screen still reads with color removed. `--linear` uses one reading order and draws no semantic color. `NO_COLOR`, `--monochrome`, and `TERM=dumb` also select monochrome. Human command output uses the same roles on a terminal and stays plain when piped or when `--json` is set. `FORCE_COLOR` can request color for a pipe, and `NO_COLOR` still wins. `--inspect PATH` draws one frame, writes a size report, and exits. The globe, map, monitors, and findings are unavailable. See [the list explorer](decisions/0016-list-explorer.md).
 
 ## Agents
 

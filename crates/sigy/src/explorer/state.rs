@@ -84,17 +84,13 @@ impl Modes {
         Self {
             reduced_motion: reduced_motion || env_flag("SIGY_REDUCED_MOTION"),
             linear: linear || env_flag("SIGY_LINEAR"),
-            monochrome: monochrome || no_color(),
+            monochrome: monochrome || crate::style::plain_requested(),
         }
     }
 }
 
 fn env_flag(name: &str) -> bool {
     std::env::var(name).ok().as_deref() == Some("1")
-}
-
-fn no_color() -> bool {
-    std::env::var("NO_COLOR").is_ok_and(|value| !value.is_empty())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

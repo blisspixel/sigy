@@ -8,7 +8,7 @@ The first complete release is intended to cover world radio, organized recording
 
 ![Empty Sigy list explorer on Windows](docs/images/tui.png)
 
-This is one frame of `sigy tui` on Windows, drawn by the Termina backend at 120 columns by 30 rows against an empty local catalog. Reduced motion and monochrome are on, and the frame count stays at zero. The globe and map are unavailable. Selecting a row does not start audio, capture, refresh, or a directory click. Quitting the explorer does not stop the service.
+This is one frame of `sigy tui` on Windows, drawn by the Termina backend at 120 columns by 30 rows against an empty local catalog. Reduced motion and monochrome are on, and the frame count stays at zero. Without those flags, the same layout uses the terminal's own colors: cyan for the title and selection, green for a live connection and succeeded health, yellow for a favorite or work in progress, and red for a failure. The words stay. The globe and map are unavailable. Selecting a row does not start audio, capture, refresh, or a directory click. Quitting the explorer does not stop the service.
 
 ## Command line
 

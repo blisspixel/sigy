@@ -1,3 +1,4 @@
+use crate::style::{Ink, Tone, tone_for_state};
 use clap::Subcommand;
 use sigy_service::{
     control::{DvrOperation, Operation, RecordingOperation, RecordingPage},
@@ -188,7 +189,7 @@ impl RecordCommand {
     }
 }
 
-pub fn render_policy(writer: &mut impl Write, policy: &DvrStatus) -> io::Result<()> {
+pub fn render_policy(writer: &mut impl Write, policy: &DvrStatus, ink: Ink) -> io::Result<()> {
     writeln!(
         writer,
         "DVR: {} bytes used/reserved of {} bytes. {} bytes available.",
@@ -208,22 +209,22 @@ pub fn render_policy(writer: &mut impl Write, policy: &DvrStatus) -> io::Result<
         "Free-space floor: {} bytes. Decoder: {}.",
         policy.minimum_free_bytes,
         if policy.decoder.is_some() {
-            "configured"
+            ink.tint(Tone::Ok, "configured")
         } else {
-            "not configured; use dvr configure"
+            ink.tint(Tone::Warn, "not configured; use dvr configure")
         }
     )
 }
 
-pub fn render_records(writer: &mut impl Write, page: &RecordingPage) -> io::Result<()> {
+pub fn render_records(writer: &mut impl Write, page: &RecordingPage, ink: Ink) -> io::Result<()> {
     for record in &page.entries {
         writeln!(
             writer,
             "{} | {} | {} | {} | {} | {} bytes charged | source {}",
             record.id,
             record.profile.as_str(),
-            record.state,
-            record.storage_state,
+            ink.tint(tone_for_state(&record.state), &record.state),
+            ink.tint(tone_for_state(&record.storage_state), &record.storage_state),
             record.retention.as_str(),
             record.charged_bytes,
             record.source_revision
@@ -232,7 +233,11 @@ pub fn render_records(writer: &mut impl Write, page: &RecordingPage) -> io::Resu
             writeln!(writer, "  Capture ended: {reason}. Decoded media verified.")?;
         }
         if let Some(detail) = &record.failure_detail {
-            writeln!(writer, "  Failure: {detail}")?;
+            writeln!(
+                writer,
+                "  {}",
+                ink.tint(Tone::Fail, &format!("Failure: {detail}"))
+            )?;
         }
         for interval in &record.intervals {
             writeln!(
@@ -256,7 +261,11 @@ pub fn render_records(writer: &mut impl Write, page: &RecordingPage) -> io::Resu
             )?;
         }
         if record.open_ceiling > 0 && record.open_object_key.is_some() {
-            writeln!(writer, "  Open tail: visible, not readable.")?;
+            writeln!(
+                writer,
+                "  {}",
+                ink.tint(Tone::Warn, "Open tail: visible, not readable.")
+            )?;
         }
     }
     if page.entries.is_empty() {

@@ -19,6 +19,7 @@ mod podcast;
 mod radio;
 mod service;
 mod sources;
+mod style;
 mod update;
 
 #[derive(Debug, Parser)]
@@ -193,6 +194,7 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let Some(view) = execute(cli).await? else {
         return Ok(());
     };
+    let ink = style::Ink::stdout(cli.json);
     let mut stdout = io::stdout().lock();
     if let Some(metadata) = &view.recording_metadata {
         serde_json::to_writer_pretty(&mut stdout, metadata)?;
@@ -229,11 +231,11 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         serde_json::to_writer(&mut stdout, &view)?;
         writeln!(stdout)?;
     } else if let Some(report) = &view.doctor {
-        render_doctor(&mut stdout, report)?;
+        render_doctor(&mut stdout, report, ink)?;
     } else if let Some(policy) = view.dvr {
-        dvr::render_policy(&mut stdout, &policy)?;
+        dvr::render_policy(&mut stdout, &policy, ink)?;
     } else if let Some(page) = view.recording_page {
-        dvr::render_records(&mut stdout, &page)?;
+        dvr::render_records(&mut stdout, &page, ink)?;
     } else if view.playlist.is_some() || view.source_page.is_some() {
         if let Some(playlist) = &view.playlist {
             sources::render_playlist(&mut stdout, playlist)?;
@@ -251,9 +253,9 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     } else if let Some(text) = &view.publisher_text {
         podcast::render_text(&mut stdout, text)?;
     } else if view.directory.is_some() {
-        radio::render(&mut stdout, &view)?;
+        radio::render(&mut stdout, &view, ink)?;
     } else {
-        render_status(&mut stdout, &view)?;
+        render_status(&mut stdout, &view, ink)?;
     }
     if let Command::Doctor { strict } = &cli.command {
         let report = view.doctor.as_ref().ok_or("doctor report is missing")?;
@@ -267,6 +269,7 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 fn render_doctor(
     stdout: &mut impl Write,
     report: &sigy_service::control::DoctorReport,
+    ink: style::Ink,
 ) -> io::Result<()> {
     let blocked = report
         .checks
@@ -283,12 +286,18 @@ fn render_doctor(
         "Doctor: {attention} attention, {blocked} blocked. No network request was made."
     )?;
     for check in &report.checks {
-        let state = match check.state {
-            sigy_service::control::DoctorState::Ok => "ok",
-            sigy_service::control::DoctorState::Attention => "attention",
-            sigy_service::control::DoctorState::Blocked => "blocked",
+        let (state, tone) = match check.state {
+            sigy_service::control::DoctorState::Ok => ("ok", style::Tone::Ok),
+            sigy_service::control::DoctorState::Attention => ("attention", style::Tone::Warn),
+            sigy_service::control::DoctorState::Blocked => ("blocked", style::Tone::Fail),
         };
-        writeln!(stdout, "{state} {}: {}", check.name, check.detail)?;
+        writeln!(
+            stdout,
+            "{} {}: {}",
+            ink.tint(tone, state),
+            check.name,
+            check.detail
+        )?;
         if let Some(command) = &check.command {
             writeln!(stdout, "  Next: {command}")?;
         }
@@ -296,17 +305,18 @@ fn render_doctor(
     Ok(())
 }
 
-fn render_status(stdout: &mut impl Write, view: &Snapshot) -> io::Result<()> {
+fn render_status(stdout: &mut impl Write, view: &Snapshot, ink: style::Ink) -> io::Result<()> {
     if let Some(service) = &view.service {
+        let (state, tone) = if service.stopping {
+            ("stopping", style::Tone::Warn)
+        } else {
+            ("running", style::Tone::Ok)
+        };
         writeln!(
             stdout,
             "Service {}: {}, uptime {} seconds.",
             service.process_id,
-            if service.stopping {
-                "stopping"
-            } else {
-                "running"
-            },
+            ink.tint(tone, state),
             service.uptime_seconds
         )?;
     }
@@ -337,7 +347,11 @@ fn render_status(stdout: &mut impl Write, view: &Snapshot) -> io::Result<()> {
             budget.settled_usd,
             budget.reserved_usd,
             budget.available_usd,
-            if budget.frozen { " (frozen)" } else { "" }
+            if budget.frozen {
+                ink.tint(style::Tone::Warn, " (frozen)")
+            } else {
+                String::new()
+            }
         )?;
     }
     Ok(())
@@ -394,7 +408,11 @@ fn main() -> ExitCode {
                     serde_json::json!({ "error": error.to_string() })
                 )
             } else {
-                writeln!(stderr, "sigy: {error}")
+                writeln!(
+                    stderr,
+                    "{} {error}",
+                    style::Ink::stderr().tint(style::Tone::Fail, "sigy:")
+                )
             };
             if written.is_err() {
                 return ExitCode::FAILURE;

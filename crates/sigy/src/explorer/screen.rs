@@ -3,9 +3,12 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::explorer::state::{Explorer, Focus, Health, Workspace};
+use crate::style::{Tone, tone_for_state};
+
+use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, known, sanitize};
 
 pub const HELP_PRIMARY: &str = "Help: / search, arrows select, v filter, f favorite, q quit";
@@ -37,26 +40,19 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section]) {
         .collect();
     let rects = Layout::vertical(constraints).split(area);
     for (section, rect) in sections.iter().zip(rects.iter()) {
-        let text = focused_text(model_prefix(section), section);
-        frame.render_widget(Paragraph::new(text).style(section.style), *rect);
-    }
-}
-
-fn model_prefix(section: &Section) -> String {
-    section.text.clone()
-}
-
-fn focused_text(text: String, section: &Section) -> String {
-    if section.linear_focus {
-        format!("Focus {text}")
-    } else {
-        text
+        let mut lines = section.lines.clone();
+        if section.linear_focus
+            && let Some(first) = lines.first_mut()
+        {
+            first.spans.insert(0, Span::raw("Focus "));
+        }
+        frame.render_widget(Paragraph::new(lines).style(section.style), *rect);
     }
 }
 
 struct Section {
     height: Height,
-    text: String,
+    lines: Vec<Line<'static>>,
     style: Style,
     linear_focus: bool,
 }
@@ -68,112 +64,154 @@ enum Height {
 
 fn full_sections(model: &Explorer) -> Vec<Section> {
     vec![
-        line(connection_line(model), false, model),
-        line(
+        one(connection_line(model), false, model),
+        one(
             workspace_line(model),
             model.focus() == Focus::Workspaces,
             model,
         ),
-        line(cache_line(model), false, model),
-        line(search_line(model), model.focus() == Focus::Search, model),
+        one(cache_line(model), false, model),
+        one(search_line(model), model.focus() == Focus::Search, model),
         fill(body(model, 8), model.focus() == Focus::Results, model),
-        block(identity(model), model.focus() == Focus::Detail, model),
-        line(
+        many(identity_lines(model), model.focus() == Focus::Detail, model),
+        one(
             playback_line(model),
             model.focus() == Focus::Playback,
             model,
         ),
-        line(recording_line(model), false, model),
-        line(quota_line(model), false, model),
-        block(help_text(), model.focus() == Focus::Help, model),
-        line(model.status().to_owned(), false, model),
+        one(recording_line(model), false, model),
+        one(quota_line(model), false, model),
+        many(help_lines(), model.focus() == Focus::Help, model),
+        one(plain(model.status()), false, model),
     ]
 }
 
 fn compact_sections(model: &Explorer) -> Vec<Section> {
     vec![
-        line(connection_line(model), false, model),
-        line(search_line(model), model.focus() == Focus::Search, model),
-        line(
+        one(connection_line(model), false, model),
+        one(search_line(model), model.focus() == Focus::Search, model),
+        one(
             identity_primary(model),
             model.focus() == Focus::Detail,
             model,
         ),
-        line(
+        one(
             playback_line(model),
             model.focus() == Focus::Playback,
             model,
         ),
-        line(HELP_PRIMARY.to_owned(), model.focus() == Focus::Help, model),
-        line(model.status().to_owned(), false, model),
+        one(plain(HELP_PRIMARY), model.focus() == Focus::Help, model),
+        one(plain(model.status()), false, model),
         fill(body(model, 4), model.focus() == Focus::Results, model),
     ]
 }
 
-fn line(text: String, focused: bool, model: &Explorer) -> Section {
-    section(Height::Fixed(1), text, focused, model)
+fn one(line: Line<'static>, focused: bool, model: &Explorer) -> Section {
+    section(Height::Fixed(1), vec![line], focused, model)
 }
 
-fn block(text: String, focused: bool, model: &Explorer) -> Section {
-    let height = u16::try_from(text.lines().count().max(1)).unwrap_or(1);
-    section(Height::Fixed(height), text, focused, model)
+fn many(lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
+    let height = u16::try_from(lines.len().max(1)).unwrap_or(1);
+    section(Height::Fixed(height), lines, focused, model)
 }
 
-fn fill(text: String, focused: bool, model: &Explorer) -> Section {
-    section(Height::Fill, text, focused, model)
+fn fill(lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
+    section(Height::Fill, lines, focused, model)
 }
 
-fn section(height: Height, text: String, focused: bool, model: &Explorer) -> Section {
+fn section(height: Height, lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
     let linear_focus = focused && model.modes().linear;
     Section {
         height,
-        text,
+        lines,
         style: focus_style(model, focused && !linear_focus),
         linear_focus,
     }
 }
 
 fn focus_style(model: &Explorer, focused: bool) -> Style {
-    if !focused {
+    if !focused || model.modes().linear {
         return Style::default();
     }
     if model.modes().monochrome {
         Style::default().add_modifier(Modifier::REVERSED)
     } else {
-        Style::default().fg(Color::Black).bg(Color::Cyan)
+        Style::default().add_modifier(Modifier::BOLD)
     }
 }
 
-fn connection_line(model: &Explorer) -> String {
-    let link = match model.link() {
-        crate::explorer::state::Link::LocalCatalog => "local catalog".to_owned(),
+fn color_on(model: &Explorer) -> bool {
+    !model.modes().monochrome && !model.modes().linear
+}
+
+fn plain(text: &str) -> Line<'static> {
+    Line::from(text.to_owned())
+}
+
+fn paint(color: bool, tone: Tone, text: impl Into<String>) -> Span<'static> {
+    let text = text.into();
+    if !color || tone == Tone::Plain {
+        return Span::raw(text);
+    }
+    let mut style = Style::default().fg(tone_color(tone));
+    if tone == Tone::Accent {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    Span::styled(text, style)
+}
+
+fn tone_color(tone: Tone) -> Color {
+    match tone {
+        Tone::Plain => Color::Reset,
+        Tone::Accent => Color::Cyan,
+        Tone::Ok => Color::Green,
+        Tone::Warn => Color::Yellow,
+        Tone::Fail => Color::Red,
+        Tone::Muted => Color::DarkGray,
+    }
+}
+
+fn connection_line(model: &Explorer) -> Line<'static> {
+    let color = color_on(model);
+    let (link, tone) = match model.link() {
+        crate::explorer::state::Link::LocalCatalog => ("local catalog".to_owned(), Tone::Accent),
         crate::explorer::state::Link::Service {
             process_id,
-            stopping,
-        } => {
-            if *stopping {
-                format!("service {process_id} stopping")
-            } else {
-                format!("service {process_id}")
-            }
-        }
-        crate::explorer::state::Link::Disconnected => {
-            format!("disconnected, snapshot {}", model.snapshot_age())
-        }
+            stopping: false,
+        } => (format!("service {process_id}"), Tone::Ok),
+        crate::explorer::state::Link::Service {
+            process_id,
+            stopping: true,
+        } => (format!("service {process_id} stopping"), Tone::Warn),
+        crate::explorer::state::Link::Disconnected => (
+            format!("disconnected, snapshot {}", model.snapshot_age()),
+            Tone::Fail,
+        ),
     };
     let motion = on_off(model.modes().reduced_motion);
     let linear = on_off(model.modes().linear);
     let mono = on_off(model.modes().monochrome);
     let frames = model.animation_frames();
-    format!("Sigy | {link} | motion {motion} | linear {linear} | mono {mono} | frames {frames}")
+    Line::from(vec![
+        paint(color, Tone::Accent, "Sigy"),
+        paint(color, Tone::Plain, " | "),
+        paint(color, tone, link),
+        paint(
+            color,
+            Tone::Muted,
+            format!(" | motion {motion} | linear {linear} | mono {mono} | frames {frames}"),
+        ),
+    ])
 }
 
 fn on_off(enabled: bool) -> &'static str {
     if enabled { "on" } else { "off" }
 }
 
-fn workspace_line(model: &Explorer) -> String {
-    [
+fn workspace_line(model: &Explorer) -> Line<'static> {
+    let color = color_on(model);
+    let mut spans = Vec::new();
+    for (index, workspace) in [
         Workspace::Explore,
         Workspace::Live,
         Workspace::Recordings,
@@ -182,165 +220,258 @@ fn workspace_line(model: &Explorer) -> String {
         Workspace::System,
     ]
     .into_iter()
-    .map(|workspace| {
-        if workspace == model.workspace() {
+    .enumerate()
+    {
+        if index > 0 {
+            spans.push(paint(color, Tone::Plain, " "));
+        }
+        let current = workspace == model.workspace();
+        let label = if current {
             format!("[{}]", workspace.label())
         } else {
             workspace.label().to_owned()
-        }
-    })
-    .collect::<Vec<_>>()
-    .join(" ")
+        };
+        let tone = if current {
+            Tone::Accent
+        } else if workspace.available() {
+            Tone::Plain
+        } else {
+            Tone::Muted
+        };
+        spans.push(paint(color, tone, label));
+    }
+    Line::from(spans)
 }
 
-fn cache_line(model: &Explorer) -> String {
+fn cache_line(model: &Explorer) -> Line<'static> {
+    let color = color_on(model);
     let Some(directory) = model.directory() else {
-        return "Partial cache unknown | refresh none | observed unknown | favorites unknown"
-            .into();
+        return plain(
+            "Partial cache unknown | refresh none | observed unknown | favorites unknown",
+        );
     };
-    let refresh = directory.refresh.as_ref().map_or_else(
-        || "refresh none".to_owned(),
-        |refresh| {
-            format!(
-                "{} {}",
-                sanitize(&refresh.id, 16),
-                sanitize(&refresh.state, 16)
-            )
-        },
-    );
     let observed = model.selected().map_or_else(
         || "observed unknown".to_owned(),
         |row| format!("observed {}", age_label(row.observed_ms, model.now_ms())),
     );
-    format!(
-        "Partial cache {}/{} | {refresh} | {observed} | favorites {}",
-        directory.cached_stations, directory.maximum_stations, directory.favorite_stations
-    )
-}
-
-fn search_line(model: &Explorer) -> String {
-    let filter = if model.favorites_only() {
-        " favorites"
+    let mut spans = vec![paint(
+        color,
+        Tone::Plain,
+        format!(
+            "Partial cache {}/{} | ",
+            directory.cached_stations, directory.maximum_stations
+        ),
+    )];
+    match directory.refresh.as_ref() {
+        Some(refresh) => {
+            let state = sanitize(&refresh.state, 16);
+            spans.push(paint(
+                color,
+                Tone::Plain,
+                format!("{} ", sanitize(&refresh.id, 16)),
+            ));
+            spans.push(paint(color, tone_for_state(&state), state));
+        }
+        None => spans.push(paint(color, Tone::Plain, "refresh none")),
+    }
+    let favorites = directory.favorite_stations;
+    let favorite_tone = if favorites > 0 {
+        Tone::Warn
     } else {
-        ""
+        Tone::Plain
     };
-    format!("Search: [{}]{filter}", model.query())
+    spans.push(paint(color, Tone::Plain, format!(" | {observed} | ")));
+    spans.push(paint(
+        color,
+        favorite_tone,
+        format!("favorites {favorites}"),
+    ));
+    Line::from(spans)
 }
 
-fn identity(model: &Explorer) -> String {
+fn search_line(model: &Explorer) -> Line<'static> {
+    let color = color_on(model);
+    let mut spans = vec![
+        paint(color, Tone::Accent, "Search: ["),
+        paint(color, Tone::Plain, model.query().to_owned()),
+        paint(color, Tone::Plain, "]"),
+    ];
+    if model.favorites_only() {
+        spans.push(paint(color, Tone::Warn, " favorites"));
+    }
+    Line::from(spans)
+}
+
+fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
+    let color = color_on(model);
     let Some(row) = model.selected() else {
-        return "Selected source: none\ndirectory health: unknown\ndirectory languages: unknown"
-            .into();
+        return vec![
+            Line::from(vec![
+                paint(color, Tone::Accent, "Selected source: "),
+                paint(color, Tone::Plain, "none"),
+            ]),
+            Line::from(vec![
+                paint(color, Tone::Plain, "directory health: "),
+                paint(color, tone_for_state("unknown"), "unknown"),
+            ]),
+            Line::from(vec![
+                paint(color, Tone::Plain, "directory languages: "),
+                paint(color, Tone::Plain, "unknown"),
+            ]),
+        ];
     };
-    let hls = if row.hls {
-        " Directory marks HLS. This list does not open it."
-    } else {
-        ""
-    };
-    format!(
-        "Selected source: {}{hls}\ndirectory health: {}\ndirectory languages: {}",
-        sanitize(&row.name, 60),
-        row.directory_health.label(),
-        known(&sanitize(&row.directory_languages, 60))
-    )
+    let mut source = vec![
+        paint(color, Tone::Accent, "Selected source: "),
+        paint(color, Tone::Plain, sanitize(&row.name, 60)),
+    ];
+    if row.hls {
+        source.push(paint(
+            color,
+            Tone::Plain,
+            " Directory marks HLS. This list does not open it.",
+        ));
+    }
+    vec![
+        Line::from(source),
+        Line::from(vec![
+            paint(color, Tone::Plain, "directory health: "),
+            paint(
+                color,
+                tone_for_state(row.directory_health.label()),
+                row.directory_health.label(),
+            ),
+        ]),
+        Line::from(vec![
+            paint(color, Tone::Plain, "directory languages: "),
+            paint(
+                color,
+                Tone::Plain,
+                known(&sanitize(&row.directory_languages, 60)).to_owned(),
+            ),
+        ]),
+    ]
 }
 
-fn identity_primary(model: &Explorer) -> String {
-    identity(model)
-        .lines()
+fn identity_primary(model: &Explorer) -> Line<'static> {
+    identity_lines(model)
+        .into_iter()
         .next()
-        .unwrap_or("Selected source: none")
-        .to_owned()
+        .unwrap_or_else(|| plain("Selected source: none"))
 }
 
-fn playback_line(model: &Explorer) -> String {
-    model.playback().map_or_else(
-        || "Playback: none".to_owned(),
-        |session| {
-            let format = session.format.as_deref().unwrap_or("unknown");
-            let failure = session
-                .failure
-                .as_deref()
-                .map(|detail| format!(" failure {}", sanitize(detail, 40)))
-                .unwrap_or_default();
-            format!(
-                "Playback: listen {} {} format {format} revision {}{failure}",
-                sanitize(&session.id, 24),
-                sanitize(&session.state, 16),
-                sanitize(&session.source_revision, 24)
-            )
-        },
-    )
+fn playback_line(model: &Explorer) -> Line<'static> {
+    let color = color_on(model);
+    let Some(session) = model.playback() else {
+        return Line::from(vec![
+            paint(color, Tone::Accent, "Playback: "),
+            paint(color, Tone::Plain, "none"),
+        ]);
+    };
+    let format = session.format.as_deref().unwrap_or("unknown");
+    let state = sanitize(&session.state, 16);
+    let mut spans = vec![
+        paint(color, Tone::Accent, "Playback: listen "),
+        paint(color, Tone::Muted, sanitize(&session.id, 24)),
+        paint(color, Tone::Plain, " "),
+        paint(color, tone_for_state(&state), state),
+        paint(color, Tone::Plain, format!(" format {format} revision ")),
+        paint(color, Tone::Muted, sanitize(&session.source_revision, 24)),
+    ];
+    if let Some(detail) = session.failure.as_deref() {
+        spans.push(paint(
+            color,
+            Tone::Fail,
+            format!(" failure {}", sanitize(detail, 40)),
+        ));
+    }
+    Line::from(spans)
 }
 
-fn recording_line(model: &Explorer) -> String {
-    model
+fn recording_line(model: &Explorer) -> Line<'static> {
+    let color = color_on(model);
+    let Some(recording) = model
         .recordings()
         .iter()
         .find(|recording| recording.active())
-        .map_or_else(
-            || "Recording: none".to_owned(),
-            |recording| {
-                format!(
-                    "Recording: {} {} continues in the service",
-                    sanitize(&recording.id, 24),
-                    sanitize(&recording.state, 16)
-                )
-            },
-        )
+    else {
+        return Line::from(vec![
+            paint(color, Tone::Accent, "Recording: "),
+            paint(color, Tone::Plain, "none"),
+        ]);
+    };
+    let state = sanitize(&recording.state, 16);
+    Line::from(vec![
+        paint(color, Tone::Accent, "Recording: "),
+        paint(color, Tone::Muted, sanitize(&recording.id, 24)),
+        paint(color, Tone::Plain, " "),
+        paint(color, tone_for_state(&state), state),
+        paint(color, Tone::Plain, " continues in the service"),
+    ])
 }
 
-fn quota_line(model: &Explorer) -> String {
-    model.quota().map_or_else(
-        || "Quota: unknown".to_owned(),
-        |quota| {
+fn quota_line(model: &Explorer) -> Line<'static> {
+    let color = color_on(model);
+    let Some(quota) = model.quota() else {
+        return Line::from(vec![
+            paint(color, Tone::Accent, "Quota: "),
+            paint(color, Tone::Plain, "unknown"),
+        ]);
+    };
+    Line::from(vec![
+        paint(color, Tone::Accent, "Quota: "),
+        paint(
+            color,
+            Tone::Plain,
             format!(
-                "Quota: charged {} reserved {} available {} of {}",
+                "charged {} reserved {} available {} of {}",
                 quota.charged, quota.reserved, quota.available, quota.quota
-            )
-        },
-    )
+            ),
+        ),
+    ])
 }
 
-fn help_text() -> String {
-    format!("{HELP_PRIMARY}\n{HELP_SELECTION}")
+fn help_lines() -> Vec<Line<'static>> {
+    vec![plain(HELP_PRIMARY), plain(HELP_SELECTION)]
 }
 
-fn body(model: &Explorer, limit: usize) -> String {
-    let lines: Vec<String> = if model.workspace().available() {
+fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
+    let lines = if model.workspace().available() {
         match model.workspace() {
             Workspace::Explore => explore_lines(model),
             Workspace::Live => live_lines(model),
             Workspace::Recordings => recording_lines(model),
             Workspace::System => system_lines(model),
-            Workspace::Monitors | Workspace::Findings => unavailable_lines(model.workspace()),
+            Workspace::Monitors | Workspace::Findings => unavailable_lines(model),
         }
     } else {
-        unavailable_lines(model.workspace())
+        unavailable_lines(model)
     };
-    lines.into_iter().take(limit).collect::<Vec<_>>().join("\n")
+    lines.into_iter().take(limit).collect()
 }
 
-fn unavailable_lines(workspace: Workspace) -> Vec<String> {
-    match workspace {
-        Workspace::Findings => {
-            vec!["Findings unavailable. No finding operation exists yet.".into()]
-        }
-        Workspace::Monitors => {
-            vec!["Monitors unavailable. No monitor operation exists yet.".into()]
-        }
+fn unavailable_lines(model: &Explorer) -> Vec<Line<'static>> {
+    let color = color_on(model);
+    let text = match model.workspace() {
+        Workspace::Findings => "Findings unavailable. No finding operation exists yet.",
+        Workspace::Monitors => "Monitors unavailable. No monitor operation exists yet.",
         Workspace::Explore | Workspace::Live | Workspace::Recordings | Workspace::System => {
-            vec!["This workspace has no operation yet.".into()]
+            "This workspace has no operation yet."
         }
-    }
+    };
+    vec![Line::from(paint(color, Tone::Muted, text))]
 }
 
-fn explore_lines(model: &Explorer) -> Vec<String> {
-    let mut lines = vec!["Globe and map unavailable. This view is the list.".into()];
+fn explore_lines(model: &Explorer) -> Vec<Line<'static>> {
+    let color = color_on(model);
+    let mut lines = vec![Line::from(paint(
+        color,
+        Tone::Muted,
+        "Globe and map unavailable. This view is the list.",
+    ))];
     if model.rows().is_empty() {
-        lines.push(
-            "No cached stations. radio search reads this cache. radio refresh is separate.".into(),
-        );
+        lines.push(plain(
+            "No cached stations. radio search reads this cache. radio refresh is separate.",
+        ));
         return lines;
     }
     let start = visible_start(model.selection(), model.rows().len(), 8);
@@ -350,23 +481,30 @@ fn explore_lines(model: &Explorer) -> Vec<String> {
         } else {
             " "
         };
-        let favorite = if row.favorite { " favorite" } else { "" };
-        let health = health_mark(row.directory_health);
-        lines.push(format!(
-            "{marker} {}{favorite} | {health} | {}",
-            sanitize(&row.name, 24),
-            sanitize(&row.id, 36)
+        let marker_tone = if offset == model.selection() {
+            Tone::Accent
+        } else {
+            Tone::Plain
+        };
+        let mut spans = vec![
+            paint(color, marker_tone, marker),
+            paint(color, Tone::Plain, " "),
+            paint(color, Tone::Plain, sanitize(&row.name, 24)),
+        ];
+        if row.favorite {
+            spans.push(paint(color, Tone::Warn, " favorite"));
+        }
+        spans.push(paint(color, Tone::Plain, " | directory health "));
+        spans.push(paint(
+            color,
+            tone_for_state(row.directory_health.label()),
+            row.directory_health.label(),
         ));
+        spans.push(paint(color, Tone::Plain, " | "));
+        spans.push(paint(color, Tone::Muted, sanitize(&row.id, 36)));
+        lines.push(Line::from(spans));
     }
     lines
-}
-
-fn health_mark(health: Health) -> &'static str {
-    match health {
-        Health::Unknown => "directory health unknown",
-        Health::Succeeded => "directory health succeeded",
-        Health::Failed => "directory health failed",
-    }
 }
 
 fn visible_start(selection: usize, len: usize, window: usize) -> usize {
@@ -376,20 +514,23 @@ fn visible_start(selection: usize, len: usize, window: usize) -> usize {
     selection.saturating_sub(window.saturating_sub(1))
 }
 
-fn live_lines(model: &Explorer) -> Vec<String> {
+fn live_lines(model: &Explorer) -> Vec<Line<'static>> {
     let mut lines = vec![
-        "Playback is the listen receipt, not directory health and not a recording.".into(),
-        "listen file and listen source are CLI operations. Selection does not start them.".into(),
+        plain("Playback is the listen receipt, not directory health and not a recording."),
+        plain("listen file and listen source are CLI operations. Selection does not start them."),
     ];
     if model.playback().is_none() {
-        lines.push("No listen receipt is loaded in this client.".into());
+        lines.push(plain("No listen receipt is loaded in this client."));
     }
     lines
 }
 
-fn recording_lines(model: &Explorer) -> Vec<String> {
+fn recording_lines(model: &Explorer) -> Vec<Line<'static>> {
+    let color = color_on(model);
     if model.recordings().is_empty() {
-        return vec!["No recordings. record start is a separate CLI operation.".into()];
+        return vec![plain(
+            "No recordings. record start is a separate CLI operation.",
+        )];
     }
     model
         .recordings()
@@ -397,71 +538,107 @@ fn recording_lines(model: &Explorer) -> Vec<String> {
         .take(8)
         .map(|recording| {
             let format = recording.format.as_deref().unwrap_or("unknown");
-            format!(
-                "{} {} {} format {format}",
-                sanitize(&recording.id, 24),
-                sanitize(&recording.state, 16),
-                sanitize(&recording.storage_state, 16)
-            )
+            let state = sanitize(&recording.state, 16);
+            let storage = sanitize(&recording.storage_state, 16);
+            Line::from(vec![
+                paint(color, Tone::Muted, sanitize(&recording.id, 24)),
+                paint(color, Tone::Plain, " "),
+                paint(color, tone_for_state(&state), state),
+                paint(color, Tone::Plain, " "),
+                paint(color, tone_for_state(&storage), storage),
+                paint(color, Tone::Plain, format!(" format {format}")),
+            ])
         })
         .collect()
 }
 
-fn system_lines(model: &Explorer) -> Vec<String> {
+fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
+    let color = color_on(model);
+    let provider = if model.provider_dispatch_available() {
+        "available"
+    } else {
+        "unavailable"
+    };
+    let dispatch = if model.dispatch_available() {
+        "available"
+    } else {
+        "unavailable"
+    };
     let mut lines = vec![
-        format!(
-            "Schema {} | SQLite {} | provider dispatch {}",
-            model.schema_version(),
-            model.sqlite_version(),
-            if model.provider_dispatch_available() {
-                "available"
-            } else {
-                "unavailable"
-            }
-        ),
-        format!(
-            "Captures scheduled {} active {} interrupted {} terminal {} | recording dispatch {}",
-            model.captures_scheduled(),
-            model.captures_active(),
-            model.captures_interrupted(),
-            model.captures_terminal(),
-            if model.dispatch_available() {
-                "available"
-            } else {
-                "unavailable"
-            }
-        ),
+        Line::from(vec![
+            paint(
+                color,
+                Tone::Plain,
+                format!(
+                    "Schema {} | SQLite {} | provider dispatch ",
+                    model.schema_version(),
+                    model.sqlite_version()
+                ),
+            ),
+            paint(color, tone_for_state(provider), provider),
+        ]),
+        Line::from(vec![
+            paint(
+                color,
+                Tone::Plain,
+                format!(
+                    "Captures scheduled {} active {} interrupted {} terminal {} | recording dispatch ",
+                    model.captures_scheduled(),
+                    model.captures_active(),
+                    model.captures_interrupted(),
+                    model.captures_terminal()
+                ),
+            ),
+            paint(color, tone_for_state(dispatch), dispatch),
+        ]),
     ];
     if model.budgets().is_empty() {
-        lines.push("Budgets: none loaded".into());
+        lines.push(plain("Budgets: none loaded"));
     }
     for budget in model.budgets().iter().take(4) {
-        let frozen = if budget.frozen { " frozen" } else { "" };
-        lines.push(format!(
-            "Budget {} limit {} settled {} reserved {} available {}{frozen}",
-            sanitize(&budget.scope, 24),
-            budget.limit_usd,
-            budget.settled_usd,
-            budget.reserved_usd,
-            budget.available_usd
-        ));
+        let mut spans = vec![paint(
+            color,
+            Tone::Plain,
+            format!(
+                "Budget {} limit {} settled {} reserved {} available {}",
+                sanitize(&budget.scope, 24),
+                budget.limit_usd,
+                budget.settled_usd,
+                budget.reserved_usd,
+                budget.available_usd
+            ),
+        )];
+        if budget.frozen {
+            spans.push(paint(color, Tone::Warn, " frozen"));
+        }
+        lines.push(Line::from(spans));
     }
     if let Some(refresh) = model
         .directory()
         .and_then(|directory| directory.refresh.as_ref())
     {
-        let failure = refresh
-            .failure
-            .as_deref()
-            .map(|detail| format!(" reason {}", sanitize(detail, 80)))
-            .unwrap_or_default();
-        lines.push(format!(
-            "Refresh {} {} accepted {} skipped {}{failure}",
-            sanitize(&refresh.id, 32),
-            sanitize(&refresh.state, 16),
-            refresh.accepted,
-            refresh.skipped
-        ));
+        let state = sanitize(&refresh.state, 16);
+        let mut spans = vec![
+            paint(
+                color,
+                Tone::Plain,
+                format!("Refresh {} ", sanitize(&refresh.id, 32)),
+            ),
+            paint(color, tone_for_state(&state), state),
+            paint(
+                color,
+                Tone::Plain,
+                format!(" accepted {} skipped {}", refresh.accepted, refresh.skipped),
+            ),
+        ];
+        if let Some(detail) = refresh.failure.as_deref() {
+            spans.push(paint(
+                color,
+                Tone::Fail,
+                format!(" reason {}", sanitize(detail, 80)),
+            ));
+        }
+        lines.push(Line::from(spans));
     }
     lines
 }
@@ -684,8 +861,51 @@ mod tests {
         );
         model.apply_desk(sample_desk());
         model.handle(crate::explorer::state::Key::Char('/'));
-        let (_, colored) = frame(&model, 80, 24);
-        assert!(colored);
+        let (text, colored) = frame(&model, 80, 24);
+        assert!(colored, "{text}");
+        assert_eq!(fg_of(&model, "succeeded"), Some(Color::Green));
+        assert_eq!(fg_of(&model, "favorite"), Some(Color::Yellow));
+        assert_eq!(fg_of(&model, "Sigy"), Some(Color::Cyan));
+        assert_eq!(fg_of(&model, "Help:"), Some(Color::Reset));
+        assert!(!text.contains('\u{1b}'));
+        let disconnected = Explorer::new(
+            Modes {
+                reduced_motion: false,
+                linear: false,
+                monochrome: false,
+            },
+            10_000,
+        );
+        assert_eq!(fg_of(&disconnected, "disconnected"), Some(Color::Red));
         assert_eq!(model.animation_frames(), 0);
+    }
+
+    fn fg_of(model: &Explorer, word: &str) -> Option<Color> {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap_or_else(|error| match error {});
+        let drawn = terminal.draw(|ui| render(ui, model));
+        if drawn.is_err() {
+            return None;
+        }
+        let view = terminal.backend().buffer().clone();
+        for y in 0..24 {
+            let mut text = String::new();
+            let mut colors = Vec::new();
+            for x in 0..80 {
+                let cell = &view[(x, y)];
+                text.push_str(cell.symbol());
+                colors.push(cell.fg);
+            }
+            if text.contains(word) {
+                let mut acc = String::new();
+                for (index, color) in colors.into_iter().enumerate() {
+                    acc.push_str(view[(u16::try_from(index).unwrap_or(0), y)].symbol());
+                    if acc.ends_with(word) {
+                        return Some(color);
+                    }
+                }
+            }
+        }
+        None
     }
 }
