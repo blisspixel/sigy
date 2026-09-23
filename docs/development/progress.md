@@ -1,6 +1,6 @@
 # Implementation progress
 
-Updated: 2026-09-22. Status: active evaluation and implementation.
+Updated: 2026-09-23. Status: active evaluation and implementation.
 
 ## Current objective
 
@@ -13,6 +13,8 @@ The user chose to keep Sigy on 2026-09-21; naming exploration is deferred. An op
 The public README now gives a bounded product preview, two labeled screenshots, source-install commands, a first-use path, update commands, and links to detailed guidance. Its explorer image renders the current application with one real, bounded 16-station directory cache page; the directory fields are provider metadata, and no stream, click, playback, or recording was started for the capture. The [install guide](../install.md) records prerequisites and platform limits. On Windows, both checked-in installer scripts passed syntax checks and isolated checkout-path invocation with a stub Cargo. A real `cargo install --path crates/sigy --locked --force` completed into an isolated root; that binary passed version/help, initialized a fresh library, ran `doctor`, and started, reported, and stopped its service. The GitHub one-liners, actual macOS/Linux execution, and OS startup are not qualified by those checks.
 
 An independent installer review found and corrected fetch-status, checkout-path, source-identity, and Windows update-helper failures. The scripts now refuse a changed or different-origin managed tree before fetching, preserve a clean commit identity, and do not claim one for a dirty local checkout. `sigy update` prefers the running binary's embedded commit to an older global marker. A Windows PowerShell 5.1 and Git for Windows shell harness passed 16 local Git/stub-Cargo and synthetic wrapper cases, including relative and bracketed paths, refusal before Cargo, failed Cargo, and download status propagation. The Windows helper's missing-checkout regression test and `cargo verify` passed. These tests do not qualify a fresh Rustup bootstrap, actual macOS/Linux installs, or a tagged release.
+
+The [pinned FLEURS card](../../research/experiments/language-corpus/card-provenance-pilot.md) is now retained with exact length, SHA-256, and a locally computed Git blob ID matching its HTTP ETag. Two earlier bounded attempts remain fully charged after length admission failed before body reads. The card declares CC BY 4.0 and supplies citation data; official license text and subset attribution remain project provenance gates before audio acquisition. One- and three-clip generated rehearsals pass extraction, FFmpeg decoding, and offline scoring, but they contain no real speech recognition or quality evidence. Model, runtime, reference, and selected-audio transfer remain closed.
 
 ## Work sequence
 
