@@ -1,6 +1,6 @@
 # Research index
 
-Research baseline: **September 20, 2026**. Latest topic update: **September 22, 2026**. Individual notes retain their review dates.
+Research baseline: **September 20, 2026**. Latest topic update: **September 23, 2026**. Individual notes retain their review dates.
 
 This folder records primary-source findings, measured experiments, design implications, competing approaches, and unanswered questions. It supports the [intent](../INTENT.md) and [design documents](../docs/README.md). Each note distinguishes completed measurements from proposed work and technology selection.
 

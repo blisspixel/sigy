@@ -1,6 +1,6 @@
 # First local ASR asset proposal
 
-Reviewed: 2026-09-23. Candidate research, one bounded runtime-archive transfer, read-only member inventory, and [four retained provenance documents](provenance-documents.md). One [Arabic corpus archive and original clip](../language-corpus/arabic-audio-pilot.md) have also been verified in a separate route. The [selected model](model-acquisition-pilot.md) is now downloaded and hashed; no GPU SDK or inference run exists. No candidate is qualified. The original `download-manifest.json` remains disabled; separately reviewed routes handled the runtime and the single corpus archive.
+Reviewed: 2026-09-23. Candidate research, one bounded runtime-archive transfer, read-only member inventory, [four retained provenance documents](provenance-documents.md), and [five source-file HEAD observations](source-head-pilot.md). One [Arabic corpus archive and original clip](../language-corpus/arabic-audio-pilot.md) have also been verified in a separate route. The [selected model](model-acquisition-pilot.md) is now downloaded and hashed; no GPU SDK or inference run exists. No candidate is qualified. The original `download-manifest.json` remains disabled; separately reviewed routes handled the runtime and the single corpus archive.
 
 ## Candidate and exact objects
 
