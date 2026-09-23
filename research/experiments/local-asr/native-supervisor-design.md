@@ -69,6 +69,22 @@ does not test AppContainer composition, token or ACL inspection, abrupt
 supervisor death, hostile descendant escape, network denial, resource-limit
 enforcement under load, or durable lease recovery. No model ran.
 
+The follow-up safe-API review found no qualified path to complete that proof
+with the pinned wrappers. The current AppContainer wrapper keeps the process
+handle private, closes the primary thread handle and exposes no exact-child
+resume. The process-group wrapper resumes every member thread. The available
+token wrapper's direct AppContainer SID query is unimplemented; an alternate
+structure path has layout and type concerns. ACL enumeration also does not
+establish the child's effective access because Windows checks the complete
+token and descriptor. Follow the [token information contract](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-gettokeninformation),
+[thread resume contract](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-resumethread)
+and [AccessCheck contract](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-accesscheck).
+The next native-boundary experiment is a compile-only contract proof for a
+maintained safe adapter that retains exact creation handles, returns owned
+bounded token snapshots and resumes only the retained primary thread. A
+runtime fixture can follow only if that interface exists. Do not substitute
+child self-report, a PID-only query, or broad job resume for this gate.
+
 ## Evidence before resume
 
 Inspect the suspended child through retained handles: AppContainer status,
