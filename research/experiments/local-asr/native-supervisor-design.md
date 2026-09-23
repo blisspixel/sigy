@@ -85,6 +85,17 @@ bounded token snapshots and resumes only the retained primary thread. A
 runtime fixture can follow only if that interface exists. Do not substitute
 child self-report, a PID-only query, or broad job resume for this gate.
 
+A further 2026-09-23 source review ruled out using WinSafe 0.0.29's
+`AccessInformation` result as a shortcut. Its [token structure source](https://docs.rs/winsafe/latest/src/winsafe/advapi/structs.rs.html)
+declares
+`TokenType` as `LUID`, while the [Windows structure contract](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_access_information)
+requires `TOKEN_TYPE`. Its token reader also recasts a dynamically allocated
+byte buffer as a typed box without establishing the typed allocation layout.
+The direct AppContainer SID query remains unimplemented in that version. This
+is a wrapper qualification finding, not evidence that a child escaped any
+restriction. A contained Linux or WebAssembly route would require a separate
+runtime, asset and isolation review; neither is ready for a model run here.
+
 ## Evidence before resume
 
 Inspect the suspended child through retained handles: AppContainer status,
