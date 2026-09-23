@@ -11,7 +11,7 @@ Baseline: September 20, 2026. Detailed sources and unresolved experiments are un
 | Live speech needs incremental recognition behavior as well as translation | Separate ASR and translation capabilities; benchmark partial/final output and language quality | [Speech and translation](../../research/03-speech-and-translation.md) |
 | A local model endpoint can route elsewhere; hosted billing includes in-flight uncertainty | Record effective destinations and reserve bounded liability before paid requests | [Providers and costs](../../research/04-model-providers-and-costs.md) |
 | Mesh messages and raw IQ differ fundamentally from internet audio | Share evidence/job contracts while preserving typed source capabilities | [Hardware and signals](../../research/05-hardware-and-signals.md) |
-| Native-language safety and service simplicity have different benefits and costs | Compare Rust and Go on the actual service/media boundary, without invented benchmark scores | [Language and stack](../../research/07-language-and-stack.md) |
+| Native-language safety and service simplicity have different benefits and costs | The bounded Rust/Go comparison selected Rust for the foundation; continue subsystem and platform qualification without invented benchmark scores | [Foundation decision](../decisions/0001-rust-foundation.md) |
 | A transactional catalog does not atomically commit separate media files | Test crash reconciliation, retention, consistent backup, and restore | [Storage and evidence](../../research/08-storage-and-evidence.md) |
 | Fingerprinting and sampled airplay require distinct quality and coverage work | Build music after the first release while specifying its data path now | [Monitoring and music](../../research/09-monitoring-and-music.md) |
 | A source can change language within a block; speech, lyrics, and metadata need different quality evidence | Preserve language spans and original scripts; qualify a majority non-English corpus by language/task | [Multilingual processing](../../research/10-multilingual-processing.md) |
@@ -23,7 +23,7 @@ Baseline: September 20, 2026. Detailed sources and unresolved experiments are un
 | Jev has a documented OpenRouter decision endpoint, text-only inputs, and language/precision limitations | Evaluate it as optional semantic classification alongside local alternatives; retain strict billing admission and deterministic statistics | [Decision models and classifiers](../../research/16-decision-models-and-classifiers.md) |
 | Local recognizers have differing coverage and throughput; recording capacity exceeds analysis capacity on some hosts | Qualify language-specific live/batch profiles and bound durable queues without requiring paid fallback | [Local processing and capacity](../../research/17-local-processing-and-capacity.md) |
 | Terminal drawing supports geographic primitives, while station coordinates, solar context and retained audio have distinct meanings | Specify the globe/day-night/map/list experience, complete CLI, catalog refresh and DVR lifecycle before selecting a TUI stack | [Terminal explorer and radio DVR](../../research/18-terminal-explorer-and-radio-dvr.md) |
-| Feeds contain revisable entries and optional finite media; their content and timestamps differ from live streams | Add post-release RSS/Atom and podcasts through bounded polling/download adapters and versioned evidence | [Podcasts and feeds](../../research/19-podcasts-and-feeds.md) |
+| Feeds contain revisable entries and optional finite media; their content and timestamps differ from live streams | Include podcast subscriptions, episodes and supplied resources in the first release through bounded polling/download and versioned evidence; extend to broader RSS/Atom text analysis in stage 9 | [Podcasts and feeds](../../research/19-podcasts-and-feeds.md) |
 
 ## Platforms and terminal behavior
 
@@ -31,6 +31,6 @@ Persistent services have different user-session and logout semantics across oper
 
 ## Current evidence boundary
 
-This phase contains primary-source desk research and a small number of read-only connectivity observations. It contains no implementation, model ranking, performance result, live billing experiment, or device qualification.
+At the September 20 research baseline, this section contained primary-source desk research and a small number of read-only connectivity observations. It did not establish implementation, model ranking, performance, live billing or device qualification. Subsequent [implementation progress](../development/progress.md) and [foundation experiments](../../research/experiments/foundation/README.md) carry measured evidence; this historical synthesis does not override them.
 
 Research conclusions support a design review. Hardware profiles, language-pair quality, precise media formats, technology versions, distribution, and latency/capacity limits require the planned decision gates. Rolling documentation and hosted-provider semantics must be rechecked before relying on them in a release.

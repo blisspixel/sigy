@@ -16,7 +16,7 @@ Sigy combines discovery, continuous collection, decoding, analysis, and an evolv
 
 These are conceptual and integration references, not dependencies or a promise to reproduce their feature lists. A project's implementation language does not select Sigy's language. OpenWebRX's AGPL and other upstream component licenses require separate review before source reuse, linking, bundling, or deployment decisions. Apache licensing of Sigy does not relicense another project.
 
-Podcasts and RSS/Atom feeds are now explicit post-release roadmap candidates for shared automated analysis. Their finite media, content revisions, polling and evidence contracts are developed in [Podcasts and feeds](19-podcasts-and-feeds.md). Additional source families remain independently scoped. A web receiver's existence also does not imply permission or an API for unattended recording.
+Podcast ingestion and supplied resources belong to the first-release radio experience; broader RSS/Atom text analysis follows in stage 9. Their finite media, content revisions, polling and evidence contracts are developed in [Podcasts and feeds](19-podcasts-and-feeds.md). Additional source families remain independently scoped. A web receiver's existence also does not imply permission or an API for unattended recording.
 
 ## Proposed persistent topic notebooks
 
@@ -45,4 +45,4 @@ Export a selected notebook with stable IDs, original-script names, source/time r
 
 Test a topic across repeated collection windows, an ASR correction, a changed entity match, a contradictory report, a model upgrade, expired media, a user annotation, and a restore. The notebook should remain understandable and its material claims traceable. Evaluate retrieval and claim support against actual recordings, not merely consistency with its own earlier summary.
 
-The first release needs a useful monitor overview, history, and evidence navigation. Advanced graph exploration, cross-user collaboration, and external knowledge synchronization remain later decisions. Podcast/feed ingestion has its own later roadmap milestone. See [Analysis and knowledge design](../docs/planning/10-analysis-and-knowledge.md).
+The first release needs a useful monitor overview, history, and evidence navigation, alongside its podcast ingestion and supplied-resource workflows. Advanced graph exploration, cross-user collaboration, external knowledge synchronization, and broader syndicated text processing remain later decisions. See [Analysis and knowledge design](../docs/planning/10-analysis-and-knowledge.md).

@@ -10,6 +10,8 @@ The user confirmed the existing multilingual survey, requested Radeon 780M accel
 
 The user chose to keep Sigy on 2026-09-21; naming exploration is deferred. An operation is not a release. Local verification is `cargo verify` and `cargo verify-media` through `sigy-xtask`. Earlier notes that name `scripts/verify.ps1` describe runs completed before that change.
 
+The public README now gives a bounded product preview, two labeled screenshots, source-install commands, a first-use path, update commands, and links to detailed guidance. The [install guide](../install.md) records prerequisites and platform limits. On Windows, both checked-in installer scripts passed syntax checks and isolated checkout-path invocation with a stub Cargo. A real `cargo install --path crates/sigy --locked --force` completed into an isolated root; that binary passed version/help, initialized a fresh library, ran `doctor`, and started, reported, and stopped its service. The GitHub one-liners, actual macOS/Linux execution, and OS startup are not qualified by those checks.
+
 ## Work sequence
 
 | Work | Current state | Evidence and remaining scope |

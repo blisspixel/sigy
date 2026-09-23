@@ -30,7 +30,7 @@ The first release does not require an unconstrained conversational agent continu
 
 Each material claim needs a type: directly observed measurement, source-reported assertion, inferred relationship, or generated summary. A station saying something does not make it independently verified. Store event time when stated separately from capture time, and preserve uncertainty about both.
 
-Validate that cited IDs and intervals exist and were available to the model. This checks reference integrity, not whether a passage semantically supports a claim. Evaluate semantic support with qualified human review and task-specific checks. Model-based graders can assist triage but cannot be the sole release gate.
+Validate that cited IDs and intervals exist and were available to the model. This checks reference integrity, not whether a passage semantically supports a claim. Evaluate semantic support with published reference cases, deliberately altered and contradictory passages, deterministic citation checks, and calibrated independent model review where useful. Record disagreements and unresolved claims. New human reviewers are not a release dependency, and a model's own judgment cannot be the sole gate.
 
 Retrieval should consider original-language text, translations, lexical matches, and optional embeddings. Preserve passage identity across these representations. Test cross-language names, local terms, negation, and important passages with poor ASR. A summary should not recursively summarize only previous summaries; periodically rebuild from retained evidence to detect accumulated distortion.
 

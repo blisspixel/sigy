@@ -1,6 +1,6 @@
 # Modern terminal UX
 
-Reviewed: 2026-09-20. Status: pre-selection research. The 2026-09-21 list measurement and backend selection are in [terminal stack](../docs/decisions/0015-terminal-stack.md). No Sigy TUI is implemented or usability-qualified yet. This extends [geography and DVR research](18-terminal-explorer-and-radio-dvr.md). Implementation behavior belongs in the [terminal experience contract](../docs/design/terminal-experience.md).
+Reviewed: 2026-09-20. Status: pre-selection research, updated 2026-09-22. The 2026-09-21 list measurement and backend selection are in [terminal stack](../docs/decisions/0015-terminal-stack.md). The list explorer is implemented and locally tested on Windows; the globe, visualizers and complete usability qualification remain open. This extends [geography and DVR research](18-terminal-explorer-and-radio-dvr.md). Implementation behavior belongs in the [terminal experience contract](../docs/design/terminal-experience.md).
 
 ## Technology and compatibility
 

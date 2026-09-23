@@ -74,7 +74,7 @@ Native inference is plausible through facilities such as the [ONNX Runtime C API
 
 ## Evaluation and decision gates
 
-Use a majority non-English, human-reviewed radio corpus with station/time splits that prevent repeated syndicated content leaking between calibration and evaluation. Include noisy ASR, mixed languages, unknown topics, negation, satire, quoted allegations, music announcements, and adversarial instructions. Compare:
+Use a majority non-English, licensed reference corpus with station/time splits that prevent repeated syndicated content leaking between calibration and evaluation. Preserve the provenance of existing human annotations when present; no new reviewer recruitment is required by the current plan. Include noisy ASR, mixed languages, unknown topics, negation, satire, quoted allegations, music announcements, and adversarial instructions. Compare:
 
 - Original-language classification versus classification of English translations, recording translation errors, extra delay, and total cost.
 - Rules, each viable local classifier, Jev, and the proposed synthesis model on the same examples.

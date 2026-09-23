@@ -40,7 +40,7 @@ Measure comparable bounded designs for service supervision, event subscription, 
 
 Review maintainer ability to diagnose each candidate, dependency churn, unsafe/native scope, build complexity, and testability. An implementation that is harder to understand needs a measurable benefit to justify that maintenance cost.
 
-No benchmark has been run in this documentation phase. The [trade study](../docs/planning/06-language-and-stack-trade-study.md) defines selection criteria and future experiments without assigning invented scores.
+No benchmark had been run at the original documentation checkpoint. The later [foundation comparison](../docs/decisions/0001-rust-foundation.md) selected Rust on bounded local probes; it did not complete the platform or product qualification matrix. The [trade study](../docs/planning/06-language-and-stack-trade-study.md) retains the original criteria without invented scores.
 
 ## Near future
 

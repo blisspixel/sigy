@@ -85,6 +85,12 @@
     "implementation_reviewed": false,
     "allowed_initial_https_hosts": ["github.com", "huggingface.co"],
     "allowed_redirect_hosts": [],
+    "reviewed_corpus_redirect_hosts_by_asset": {
+      "fleurs_ar_eg_train_archive": ["us.aws.cdn.hf.co"],
+      "fleurs_hi_in_train_archive": ["us.aws.cdn.hf.co"],
+      "fleurs_es_419_train_archive": ["us.aws.cdn.hf.co"]
+    },
+    "corpus_redirect_basis": "One HEAD-only ar_eg/test archive pilot observed this exact CDN host on 2026-09-22; every later GET must obtain a fresh redirect and check all DNS answers, peer, HTTPS, length and whole-object SHA-256. A different host fails closed pending review.",
     "redirect_destination_qualification_required": true,
     "max_redirects": 3,
     "https_port": 443,

@@ -39,7 +39,7 @@ The assessments below are engineering interpretations of documented language/run
 
 Rust is a particularly important candidate for a resource-conscious core that may grow deeper native signal handling. Go remains a serious candidate for an architecture whose heavy data paths stay inside well-isolated native workers. These are hypotheses to test, not a selection.
 
-The current engineering recommendation is to evaluate a **Rust-first application profile**: a small Cargo workspace, Ratatui/Crossterm for the optional TUI, clap for command parsing, one Tokio runtime policy, an embedded SQLite catalog, and typed adapters to maintained native media/model workers. Exact dependencies and versions are unresolved. This recommendation follows the native signal roadmap and explicit resource-lifetime requirements; it does not claim that Rust automatically has fewer dependencies or proves reliability. Go remains the comparison candidate at G4. [Proposed layout and dependency policy](12-repository-and-engineering.md).
+At this historical checkpoint, the engineering recommendation was to evaluate a **Rust-first application profile**: a small Cargo workspace, terminal candidates, clap for command parsing, an embedded SQLite catalog, and typed adapters to maintained native media/model workers. The subsequent [foundation decision](../decisions/0001-rust-foundation.md) selected Rust 1.98.1 and SQLite; the [terminal decision](../decisions/0015-terminal-stack.md) selected Ratatui with Termina on the measured Windows host. Exact current dependencies are in `Cargo.lock`. These selections do not prove release reliability or other platforms. [Repository engineering](12-repository-and-engineering.md) tracks remaining packaging and dependency qualification.
 
 ## 4. Proposed evaluation weights
 
@@ -87,8 +87,8 @@ Do not assume a single binary means a dependency-free installation. Codecs, driv
 
 Future web or native clients do not require choosing their framework now. Keep the service interface and domain model independent so those clients can be evaluated when their requirements are known.
 
-## 7. Selection record required later
+## 7. Selection record and remaining qualification
 
-The final decision should name the exact compiler/runtime and important library versions, supported targets, measured results, rejected alternatives, native/unsafe boundaries, operational consequences, maintenance expectations, and triggers for reconsideration.
+The [foundation decision](../decisions/0001-rust-foundation.md) names the selected compiler, initial packages, measured local probes, alternatives and reconsideration conditions. Subsystem, platform, model and release qualifications still need their own measured records.
 
-Documentation-first planning is a hard constraint for the current phase. No experiments, project scaffold, or implementation code are created by this trade study.
+This trade study was written during documentation-first planning and creates no code or runtime evidence by itself. Implementation and bounded experiments are now active under the [build order](../../ROADMAP.md#build-order).

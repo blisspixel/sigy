@@ -1,6 +1,6 @@
 # Speech recognition and translation
 
-Reviewed: 2026-09-20. Status: candidate research; no model selection, download, or inference benchmark.
+Reviewed: 2026-09-20. Status: candidate research; no model selection, download, or inference benchmark. The [2026-09-22 active evaluation plan](../docs/development/language-pipeline.md) supersedes the review method below where it differs and does not depend on newly arranged human reviewers.
 
 ## Findings
 
@@ -40,12 +40,12 @@ Measure:
 - Word/character error rates by language and acoustic condition, including names and numbers.
 - False speech on silence or music, omitted speech, code-switching errors, and repeated text.
 - Partial-caption delay, finalized utterance delay, translation delay, and revision rate.
-- Human-rated meaning preservation, omissions, unsupported additions, terminology, and readability.
+- Meaning preservation, omissions, unsupported additions, terminology, and readability against licensed published references, with calibrated independent model checks where useful.
 - Time alignment sufficient to replay the cited passage.
 - Real-time factor, throughput at several concurrent sources, RAM, accelerator memory, and thermal stability.
 - Behavior when a model is unavailable, a worker is cancelled, or processing falls behind.
 
-Publish results per profile and corpus, not a single average across languages. Human review is necessary for translation meaning; a model grading its own output is insufficient.
+Publish results per profile and corpus, not a single average across languages. Reference-based and calibrated model checks have limits; a model grading its own output is insufficient, and no result is described as human-reviewed unless that review occurred.
 
 ## Near future
 

@@ -69,7 +69,7 @@ Measure identified airtime and false matches by region, language where known, ge
 ## Qualification plan
 
 - A majority of evaluation speech duration and a majority of music examples must be non-English. Set per-language and condition minimums before comparing candidates.
-- Proposed initial survey: French, Spanish, Portuguese, Arabic, Swahili, Hindi, Mandarin, and English, expanded with representative African and other regional languages. This is a survey proposal, not a claim of qualified launch support.
+- Confirmed initial evaluation survey: French, Spanish, Portuguese, Arabic, Swahili, Hindi, Mandarin, and English, with additional regional languages to evaluate later. This is survey membership, not a claim of qualified launch support.
 - Report language-identification confusion and abstention, switch-boundary accuracy where available, ASR word/character errors, name/number errors, translation adequacy, and end-to-end topic recall separately.
 - Assess translation against licensed published references, deterministic metrics, and calibrated independent model checks under the current authorized plan. Preserve any existing human-reference provenance without claiming new human review. Missing references and unreliable judges limit claims; fluent agreement alone is insufficient.
 - Include short clips, long multilingual sessions, dialects, accents, low bitrates, overlap, noise, music beds, silence, and malformed metadata.
