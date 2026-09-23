@@ -85,6 +85,10 @@ bounded token snapshots and resumes only the retained primary thread. A
 runtime fixture can follow only if that interface exists. Do not substitute
 child self-report, a PID-only query, or broad job resume for this gate.
 
+A separate [WebAssembly compile feasibility review](wasm-compile-feasibility.md)
+explores a Rust-hosted, import-restricted CPU module. It is an unproven alternate
+execution route and does not enable native model launch or recognition.
+
 A further 2026-09-23 source review ruled out using WinSafe 0.0.29's
 `AccessInformation` result as a shortcut. Its [token structure source](https://docs.rs/winsafe/latest/src/winsafe/advapi/structs.rs.html)
 declares
