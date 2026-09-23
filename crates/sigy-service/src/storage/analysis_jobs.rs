@@ -87,7 +87,13 @@ impl Store {
         now: i64,
     ) -> Result<(AnalysisJob, Option<VerificationInput>)> {
         validate_key(id, "analysis job ID")?;
-        if let Some(existing) = self.find_analysis_job(id)? {
+        let existing = match self.find_analysis_job(id) {
+            Err(Error::Analysis("recognition-job-interface-unavailable")) => {
+                return Err(Error::IdempotencyConflict);
+            }
+            result => result?,
+        };
+        if let Some(existing) = existing {
             if existing.analysis_id != pin || existing.analysis_revision != revision {
                 return Err(Error::IdempotencyConflict);
             }
@@ -126,9 +132,18 @@ impl Store {
     }
 
     fn find_analysis_job(&self, id: &str) -> Result<Option<AnalysisJob>> {
-        self.connection.query_row(
-            "SELECT id, generation, analysis_id, analysis_revision, recording_id, profile, state, expected_bytes, expected_files, verified_bytes, reason, created_ms, finished_ms, manifest_sha256 FROM analysis_jobs WHERE id = ?1",
-            [id], read_job).optional().map_err(Error::from)
+        let kind: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT kind FROM analysis_jobs WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if kind.as_deref().is_some_and(|kind| kind != "verify") {
+            return Err(Error::Analysis("recognition-job-interface-unavailable"));
+        }
+        read_verification_job(&self.connection, id)
     }
 
     pub(crate) fn cancel_analysis_job(&mut self, id: &str, generation: u32) -> Result<AnalysisJob> {
@@ -200,30 +215,65 @@ impl Store {
     }
 
     pub(crate) fn recover_analysis_jobs(&mut self) -> Result<()> {
+        let native: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM analysis_jobs WHERE kind = 'local_asr' AND state IN ('running', 'cancelling'))",
+            [], |row| row.get(0),
+        )?;
+        if native {
+            // Native cleanup is not implemented. Never release a native read lease
+            // merely because the service restarted or its library lock was acquired.
+            return Err(Error::Analysis("native-recovery-unavailable"));
+        }
         let now = super::now_ms()?;
         self.connection.execute("UPDATE analysis_jobs SET state = 'interrupted', generation = generation + 1, reason = 'service-restarted', finished_ms = max(created_ms, ?1) WHERE state IN ('running', 'cancelling')", [now])?;
         Ok(())
     }
 
     pub(crate) fn audit_analysis_jobs(&self) -> Result<()> {
-        let invalid: bool = self.connection.query_row(
-            "SELECT (SELECT count(*) FROM analysis_jobs) > 256 OR EXISTS(SELECT 1 FROM analysis_jobs j JOIN analysis_inputs a ON a.id = j.analysis_id AND a.revision = j.analysis_revision WHERE a.state != 'published' OR a.recording_id != j.recording_id)", [], |row| row.get(0))?;
-        if invalid {
-            return Err(Error::CatalogIntegrity);
-        }
-        let mut statement = self.connection.prepare("SELECT id FROM analysis_jobs")?;
-        for id in statement.query_map([], |row| row.get::<_, String>(0))? {
-            let job = self
-                .analysis_job(&id?)
-                .map_err(|_| Error::CatalogIntegrity)?;
-            validate_key(&job.id, "analysis job ID").map_err(|_| Error::CatalogIntegrity)?;
-            if let Some(reason) = job.reason {
-                validate_key(&reason, "analysis failure reason")
-                    .map_err(|_| Error::CatalogIntegrity)?;
-            }
-        }
-        Ok(())
+        audit(&self.connection)
     }
+}
+
+pub(super) fn audit(connection: &rusqlite::Connection) -> Result<()> {
+    let invalid: bool = connection.query_row(
+        "SELECT (SELECT count(*) FROM analysis_jobs) > 256 OR EXISTS(SELECT 1 FROM analysis_jobs j JOIN analysis_inputs a ON a.id = j.analysis_id AND a.revision = j.analysis_revision WHERE a.state != 'published' OR a.recording_id != j.recording_id)", [], |row| row.get(0))?;
+    if invalid {
+        return Err(Error::CatalogIntegrity);
+    }
+    let mut statement =
+        connection.prepare("SELECT id, profile, reason, kind FROM analysis_jobs")?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, profile, reason, kind) = row?;
+        validate_key(&id, "analysis job ID").map_err(|_| Error::CatalogIntegrity)?;
+        validate_key(&profile, "analysis profile ID").map_err(|_| Error::CatalogIntegrity)?;
+        if kind == "verify" {
+            read_verification_job(connection, &id)
+                .map_err(|_| Error::CatalogIntegrity)?
+                .ok_or(Error::CatalogIntegrity)?;
+        }
+        if let Some(reason) = reason {
+            validate_key(&reason, "analysis failure reason")
+                .map_err(|_| Error::CatalogIntegrity)?;
+        }
+    }
+    Ok(())
+}
+
+fn read_verification_job(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> Result<Option<AnalysisJob>> {
+    connection.query_row(
+        "SELECT id, generation, analysis_id, analysis_revision, recording_id, profile, state, expected_bytes, expected_files, verified_bytes, reason, created_ms, finished_ms, manifest_sha256 FROM analysis_jobs WHERE id = ?1",
+        [id], read_job).optional().map_err(Error::from)
 }
 
 fn read_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisJob> {

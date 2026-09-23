@@ -93,7 +93,7 @@ fn fixture(id: &str) -> LanguageEvidence {
 
 fn legacy_transcript(store: &Store) -> Result<()> {
     store.connection.execute_batch(
-        "INSERT INTO transcripts SELECT id, 1, id, revision, recording_id, media_sha256, 'original', 'local-unmeasured', 'published', 11 FROM analysis_inputs WHERE id = 'pin' AND revision = 1;
+        "INSERT INTO transcripts(id, revision, analysis_id, analysis_revision, recording_id, media_sha256, role, profile, state, created_ms) SELECT id, 1, id, revision, recording_id, media_sha256, 'original', 'local-unmeasured', 'published', 11 FROM analysis_inputs WHERE id = 'pin' AND revision = 1;
          INSERT INTO transcript_cues VALUES ('pin', 1, 0, 0, 1000000, '', 'uncertain');
          INSERT INTO analysis_decisions VALUES ('pin', 1, 0, NULL, 11);"
     )?;
@@ -383,9 +383,11 @@ fn inspection_pages_are_bounded_and_do_not_dispatch() -> TestResult {
 fn v23_upgrade_keeps_legacy_rows_and_rolls_back_schema_conflicts() -> TestResult {
     let root = tempfile::tempdir()?;
     let path = root.path().join("catalog.sqlite3");
-    let store = setup(&path)?;
+    let store = super::super::transcripts::migration_tests::setup_at_version(&path, 23)?;
     legacy_transcript(&store)?;
-    store.connection.execute_batch("DROP TRIGGER analysis_read_lease_delete; DROP TRIGGER analysis_read_lease_release; DROP TABLE analysis_jobs; DROP TABLE language_evidence; PRAGMA user_version = 23; CREATE INDEX language_evidence_input ON transcripts(id);")?;
+    store
+        .connection
+        .execute_batch("CREATE INDEX language_evidence_input ON transcripts(id);")?;
     drop(store);
     assert!(Store::open(&path).is_err());
     let connection = Connection::open(&path)?;

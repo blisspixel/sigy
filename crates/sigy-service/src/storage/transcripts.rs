@@ -1,4 +1,4 @@
-//! One original-script revision for a published analysis pin.
+//! Immutable transcript storage. Recognition dispatch and publication are not implemented.
 //! The decision is zero USD and is not a ledger request.
 
 #[cfg(test)]
@@ -17,6 +17,9 @@ use super::{
     dvr::{Recording, hex},
 };
 use crate::{Error, Result};
+
+mod integrity;
+pub(super) use integrity::audit;
 
 #[cfg(test)]
 const MAX_CUES: usize = 1024;
@@ -93,39 +96,7 @@ impl Store {
     }
 
     pub(crate) fn audit_transcripts(&self) -> Result<()> {
-        let inconsistent: i64 = self.connection.query_row(
-            "SELECT
-                (SELECT count(*) FROM transcripts t
-                    WHERE t.role != 'original'
-                       OR t.profile != 'local-unmeasured'
-                       OR t.state != 'published'
-                       OR t.revision != 1
-                       OR t.id != t.analysis_id
-                       OR NOT EXISTS (
-                            SELECT 1 FROM analysis_inputs a
-                            WHERE a.id = t.analysis_id
-                              AND a.revision = t.analysis_revision
-                              AND a.state = 'published'
-                              AND a.recording_id = t.recording_id
-                              AND a.media_sha256 = t.media_sha256))
-              + (SELECT count(*) FROM transcripts t
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM analysis_decisions d
-                        WHERE d.transcript_id = t.id AND d.transcript_revision = t.revision))
-              + (SELECT count(*) FROM analysis_decisions
-                    WHERE amount_micros != 0 OR request_id IS NOT NULL)
-              + (SELECT count(*) FROM transcript_cues WHERE wording != 'uncertain' OR script != '')
-              + (SELECT count(*) FROM transcripts t
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM transcript_cues c
-                        WHERE c.transcript_id = t.id AND c.revision = t.revision))",
-            [],
-            |row| row.get(0),
-        )?;
-        if inconsistent != 0 {
-            return Err(Error::CatalogIntegrity);
-        }
-        Ok(())
+        audit(&self.connection)
     }
 
     #[cfg(test)]
@@ -307,7 +278,7 @@ fn read_transcript(
             "SELECT t.id, t.revision, t.recording_id, t.media_sha256, t.role, t.profile, d.amount_micros, d.request_id
              FROM transcripts t
              JOIN analysis_decisions d ON d.transcript_id = t.id AND d.transcript_revision = t.revision
-             WHERE t.analysis_id = ?1 AND t.analysis_revision = ?2",
+             WHERE t.analysis_id = ?1 AND t.analysis_revision = ?2 AND t.kind = 'legacy_placeholder'",
             params![analysis_id, analysis_revision],
             |row| {
                 Ok((
@@ -348,6 +319,9 @@ fn read_transcript(
         amount_micros: amount,
     }))
 }
+
+#[cfg(test)]
+pub(super) mod migration_tests;
 
 fn read_cues(connection: &Connection, id: &str, revision: i64) -> Result<Vec<TranscriptCue>> {
     let mut statement = connection.prepare(

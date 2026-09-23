@@ -10,6 +10,8 @@ Operation 22 pins published inputs. Operation 23 originally hashed retained file
 
 Operation 24's [evidence storage and bounded read-only inspection](../decisions/0033-language-evidence.md) are implemented. No detector runs yet. Completing operation 23's recognition gate remains mandatory before operation 25 can claim useful translation. Historical operation numbers remain stable.
 
+Catalog v26 adds [transcript revision storage](../decisions/0035-transcript-revision-storage.md): separate verification/recognition job kinds, exact worker/profile/parent bindings, immutable text revisions and explicit zero-cue completed coverage. Legacy rows and language-evidence foreign keys remain intact. Only schema fixtures exercise recognition results; no production recognition writer or dispatch exists. Local IPC remains v26.
+
 ## Confirmed scope and working limits
 
 - The initial survey is French, Spanish, Portuguese, Arabic, Swahili, Hindi, Mandarin, and English, confirmed on 2026-09-22. A majority of evaluated speech duration must be non-English. Survey membership is not a support claim.

@@ -25,7 +25,7 @@ pub(crate) mod schedules;
 pub mod sources;
 pub(crate) mod transcripts;
 
-pub const SCHEMA_VERSION: u32 = 25;
+pub const SCHEMA_VERSION: u32 = 26;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -199,6 +199,19 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     }
     if (0..=24).contains(&version) {
         transaction.execute_batch(include_str!("025-analysis-jobs.sql"))?;
+    }
+    if (0..=25).contains(&version) {
+        transaction.execute_batch(include_str!("026-transcript-revisions.sql"))?;
+        transaction.execute_batch(include_str!("026-transcript-invariants.sql"))?;
+        transcripts::audit(transaction)?;
+        analysis_jobs::audit(transaction)?;
+        let violations: i64 =
+            transaction.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })?;
+        if violations != 0 {
+            return Err(Error::CatalogIntegrity);
+        }
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

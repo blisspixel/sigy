@@ -54,6 +54,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Analysis inputs](decisions/0031-analysis-inputs.md) pin a published checksum and its gaps. The pin has no source URL. [Legacy transcripts](decisions/0032-local-transcripts.md) preserve empty original-script history. [Retained-input verification](decisions/0034-retained-input-verification.md) runs supervised checksum jobs; new transcription refuses work until a measured recognizer is configured. [Language evidence](decisions/0033-language-evidence.md) adds revision-bound storage and bounded read-only inspection. No detector or speech recognizer runs yet. The [language pipeline plan](development/language-pipeline.md) covers supervised local recognition, aligned English translation, automated evaluation, and bounded provider validation. [Dated research](../research/30-language-pipeline-evaluation.md) records candidates and limitations.
 
+[Transcript revision storage](decisions/0035-transcript-revision-storage.md) prepares immutable recognition rows and zero-cue completed coverage while preserving legacy history. It adds no production recognition writer or native dispatch.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:

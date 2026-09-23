@@ -1,0 +1,17 @@
+# Transcript revision storage
+
+Date: 2026-09-23. Status: storage foundation implemented; recognition admission, publication and native dispatch remain unavailable.
+
+Catalog schema v26 separates retained-input verification jobs from future local recognition jobs and permits immutable original-script transcript revisions. It preserves v23 legacy placeholders, their empty cues and zero-USD decisions, and v24 language-evidence payloads and foreign keys. Existing verification behavior and local IPC v26 remain unchanged. `analysis transcribe` still refuses work. The existing transcript view continues to expose legacy placeholders; bounded recognition reads and a production writer belong to the next increment.
+
+A recognition revision binds an exact input revision, recording checksum, producing job and generation, profile ID and digest, and prior transcript revision. One job can produce at most one revision. Text outcomes declare bounded cue and UTF-8 byte counts. A `no_text` outcome has zero cues and an explicit completed coverage row. Empty output does not establish acoustic silence or a detected language. Failed, cancelled and interrupted jobs cannot carry a transcript result.
+
+The initial schema contract limits a recognition request to one retained interval, at most 60 seconds and 64 MiB. A transcript has at most 256 cues, 4,096 UTF-8 bytes per cue and 65,536 text bytes overall. These are storage and admission ceilings, not performance or quality claims. Cue times must stay inside retained media and outside gaps. Completed coverage retains the interval identity, decoded checksum, sample rate and count. Decoder mapping, native output validation and profile qualification still require implementation and evidence.
+
+The zero-USD decision seals cue and coverage insertion. Success requires that decision and its matching result; cancelled or failed work cannot retain a partial result. Publication must use one transaction. Open-time audits reject incomplete results, changed lineage and mismatched coverage. Update, deletion and replacement cannot rewrite completed history. The single active analysis-job slot and recording read-lease triggers also apply to recognition rows.
+
+There is no application operation that admits a recognition job or writes these results. Tests insert explicitly labeled fixtures to exercise the schema. If an active recognition row is encountered, recovery refuses to release its lease because native descendant cleanup is not implemented. It does not assume that acquiring the library lock proves a native process has exited. Verification recovery remains unchanged.
+
+The migration reconstructs affected tables in one immediate transaction with foreign keys enabled. Historical rows are restored before current-input insertion guards are created. Transcript/job integrity and foreign-key checks run before commit. Migration tests cover genuine v23, v24 and v25 catalogs and rollback at table, index, trigger and semantic-audit failures. Other fixtures cover original-script preservation, zero-cue completion, exact identity refusal, cancellation, retained leases, immutable replacement refusal, completion rollback and corrupted-state reopen.
+
+Continue the [language pipeline plan](../development/language-pipeline.md) with qualified native bounds, exact decoded timing, service-owned completion and bounded result reads. This increment does not complete operation 23, select a recognizer, establish language support or run paid processing. Stop an older service before opening its library with the new schema.
