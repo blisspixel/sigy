@@ -84,6 +84,8 @@ The [dated research](../../research/30-language-pipeline-evaluation.md) holds up
 
 The [frozen eight-language FLEURS screening selection](../../research/experiments/language-corpus/README.md) fixes 112 read-speech clips and disjoint parallel sentence groups. The reviewed full archives and Parquet audio chunks both exceed the initial 10 GiB download allowance; no selected audio was fetched. That screening acquisition gate remains open. It does not relax the separate broadcast challenge or qualification-set requirements below.
 
+The [first local ASR asset proposal](../../research/experiments/local-asr/README.md) identifies a pinned multilingual small CPU baseline with a disabled, file-specific acquisition manifest. It is a research candidate, not an application dependency or a measured recognizer. Reconcile prior transfer bytes before download; inspect the acquired binary archive before execution. A Radeon 780M comparison requires a separate Vulkan build plan and device-use measurement.
+
 Keep three evidence sets separate:
 
 1. A small published, licensed multilingual baseline for reproducible candidate screening. Read speech cannot qualify broadcast performance.
