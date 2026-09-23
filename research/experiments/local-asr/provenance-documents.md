@@ -1,0 +1,14 @@
+# CPU candidate provenance documents
+
+Reviewed: 2026-09-23. Four fixed, revision-pinned documents were transferred through the shared language-evaluation ledger. Each GET returned HTTP 200 with the exact declared length and quoted ETag, no redirect, and a locally measured SHA-256. The ETags are HTTP metadata, not independently verified content hashes. The raw files and publication receipts remain in ignored evaluation storage; no model weights, audio, or native member was executed for this review.
+
+| Document | Bytes | Observed SHA-256 | Finding |
+| --- | ---: | --- | --- |
+| [whisper.cpp license](https://github.com/ggml-org/whisper.cpp/blob/927cfce34f31707e17f2bff35c349632fb9e2c3a/LICENSE) | 1,078 | `94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d` | MIT text, copyright 2023-2026 the ggml authors |
+| [Converted model card](https://huggingface.co/ggerganov/whisper.cpp/blob/5359861c739e955e79d9a303bcbc70fb988958b1/README.md) | 3,196 | `21fd967098804f33fc84e803fb0e5ab7666d71801f4027cf28a65e7af09c1758` | Declares `license: mit` and lists multilingual `small` |
+| [Original Whisper license](https://github.com/openai/whisper/blob/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE) | 1,063 | `b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d` | MIT text, copyright 2022 OpenAI |
+| [Original Whisper README](https://github.com/openai/whisper/blob/86098128c0b4f24f0e2aa2994de830614b474227/README.md) | 8,246 | `38c180c2a8d8ba628a3e131ad42bf06c8a51bb681efb30fbe28d5a0f4b65f288` | Says the code and model weights are released under MIT |
+
+The four exact reservations total 13,583 bytes. Ten permanent post-cutoff reservations now bring the cumulative policy charge to **10,748,181,567 bytes** under the 100,000,000,000-byte ceiling. This includes the explicitly unmeasured historical 10 GiB charge and is not measured wire traffic. No paid service was used. The helper's 119 offline tests, formatting, warnings-denied Clippy, and build passed before the last three GETs. The first license used a separately frozen, 118-test one-object activation. Each published receipt records the exact route descriptor, revision URL, length, observed hash, and matched GET ETag. No failed request was retried.
+
+These documents support a local research candidate, not a complete legal or supply-chain qualification. The runtime ZIP contains 40 verified binary members and no separate notice files. The exact CLI/backend closure, statically incorporated components, dynamic CPU backend loading, Microsoft runtime dependencies, and redistribution notices still need reconciliation against the pinned build. The converted model card does not prove its weight conversion chain. Keep the original third-party notices intact when any of these components are shipped. Model acquisition and native execution remain separate disabled gates.
