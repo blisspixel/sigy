@@ -32,6 +32,31 @@ descriptor checks. Resolve those API gaps through a reviewed maintained safe
 interface before enabling native execution. Moving new unchecked native calls
 behind a first-party wrapper would not satisfy the workspace boundary.
 
+An alternative trusted-bootstrap design is under fixture review. Start a small
+Rust launcher with a finite authorization timeout, no model access and no
+native dispatch. The service assigns that live launcher to a job through its
+retained process handle, verifies membership and liveness, then sends one
+private authorization frame. A normal child without breakaway flags should
+inherit the job during creation, including when the service dies before the
+child reports its PID. [Windows job inheritance](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+and [assignment semantics](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-assignprocesstojobobject)
+support this candidate. Unlike a suspended launcher that awaits assignment,
+an unassigned running launcher can exit on authorization timeout or control
+pipe EOF. That pre-assignment cleanup is a trusted cooperative claim, not an
+OS-enforced guarantee. Memory allocated before job assignment is not
+retroactively checked against the job limit.
+
+This route has not solved the full native boundary. The current safe
+AppContainer wrapper inherits only its three configured standard handles,
+starts an executable by path, and does not expose the exact child token or
+primary thread for independent pre-resume inspection. Fixed paths, retained
+read pins and ACL checks would need a separate reviewed contract. Keep the
+zero-capability, effective-access, network-denial and cleanup gates below.
+Do not use a non-escalating process-group shutdown that clears kill-on-close
+or resource limits while members survive. A trusted fixture must falsify the
+inheritance and authorization sequence before this candidate can replace the
+at-create job-list design.
+
 ## Evidence before resume
 
 Inspect the suspended child through retained handles: AppContainer status,
