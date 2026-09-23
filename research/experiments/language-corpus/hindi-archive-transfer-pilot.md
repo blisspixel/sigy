@@ -1,0 +1,11 @@
+# Hindi calibration archive transfer
+
+Reviewed: 2026-09-23. This is one verified whole-archive transfer for the frozen [three-clip pilot](three-clip-pilot.json). It does not verify a selected audio member, decode speech, run recognition or score Hindi.
+
+The [HEAD pilot](hindi-archive-head-pilot.md) qualified the revision-pinned Hindi train archive route before the GET. A separately frozen, independently audited route reserved the full **1,256,867,167 bytes** in the shared experiment ledger before DNS. One HTTPS GET followed the allowed checked redirect to `us.aws.cdn.hf.co`, required the reviewed quoted ETag and exact final Content-Length before reading, and published only after the full body matched the publisher SHA-256 `bb6f52bfb27ca91c54539480111163eb9245305008cfe0526c6f4af3bfdd04e9`. An independent local file hash and size check agreed. The ETag is opaque metadata, not the content hash.
+
+The published payload receipt SHA-256 is `497e1db84fd96b9437600c88c84b0ba88b91a5ab82da8db4e87897d6d16ae243`. Its route descriptor is `53d4ac7d1110718e241b0e821da8e503d030793e167fe1ed8bf964c918bc0353`, and it binds the earlier HEAD receipt SHA-256 `a5c4c7b9403d9801d173ff22f02fe4af98d81335072d84156fc96d2b12ccc4af`. The 4,596 progress rows start with a full reservation, advance monotonically with no error detail, and end at `verified` then `published` for the exact size. Their file SHA-256 is `d5412bc9ad4613e955dbffaa0194d5ee94ccf197e62d0d7641b9760a13d9fd27`. The retained archive and receipts are in ignored evaluation storage; no signed redirect URL was retained.
+
+The prior 21 ledger entries remain byte-for-byte unchanged. The new 22-entry journal has SHA-256 `c60a8fa92c812a59e0af1bfd2f6a3e27de2b0cecd6228396b06a1b0838eb4be1` and cumulative conservative policy charge **13,608,843,985 bytes** under the 100,000,000,000-byte cap, including the historical 10 GiB charge. This is reserved application-body policy accounting, not measured wire traffic. Paid spend remains USD 0.
+
+The next gate is a bounded full archive scan, notice review and selective extraction of `hi_in/train/2934636319415126502.wav`. The actual member size, RIFF layout and hash are not yet observed. The reference remains evaluator-only and outside worker inputs. A verified archive is not a decoded or recognized clip, so the three-file end-to-end pilot remains open.
