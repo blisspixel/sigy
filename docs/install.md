@@ -25,7 +25,7 @@ macOS or Linux:
 sh -c 'f=$(mktemp) || exit; curl --proto "=https" --tlsv1.2 -fsS https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.sh -o "$f" && sh "$f"; s=$?; rm -f "$f"; exit "$s"'
 ```
 
-After installation, open a new shell and run `sigy --version`. If the command is not found, add `$HOME/.cargo/bin` to `PATH`. On Windows the equivalent directory is `$env:USERPROFILE\.cargo\bin`. A failed fetch or build should be resolved before first use; a printed installer message alone is not a version check.
+After installation, open a new shell and run `sigy --version`. On Windows, type `sigy`; PowerShell resolves the installed `sigy.exe` through `PATH`. If the command is not found, add `$HOME/.cargo/bin` to `PATH`. On Windows the equivalent directory is `$env:USERPROFILE\.cargo\bin`. A failed fetch or build should be resolved before first use; a printed installer message alone is not a version check.
 
 ## Install from a checkout
 

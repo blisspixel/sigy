@@ -29,6 +29,10 @@ fn help_and_version_work_without_initializing_a_library() -> TestResult {
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(!output.stdout.is_empty());
+        if arguments == ["--help"] {
+            let help = String::from_utf8(output.stdout)?;
+            assert!(help.contains("Usage: sigy [OPTIONS] <COMMAND>"), "{help}");
+        }
     }
     Ok(())
 }

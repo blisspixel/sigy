@@ -4,6 +4,8 @@ Sigy is a local-first place to explore radio and podcasts, keep recordings, and 
 
 **Development preview:** The current build has local Windows x86_64 test evidence, but it is not the first complete release. Radio discovery, listening, recordings, schedules, podcast episodes, and a list explorer work in bounded forms. Speech recognition, translation, topic monitoring, the globe, hardware adapters, and cipher tools are still being built. The [progress record](docs/development/progress.md) separates tested behavior from planned work.
 
+The [source-only development prerelease](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20260923) marks this checkpoint. It contains no prebuilt application binary or model. Use the source installer below for the current build.
+
 ## Why use it
 
 - Keep station discovery, saved sources, podcasts, recordings, and their history in one private library.
@@ -67,6 +69,10 @@ sigy update
 ```
 
 `--check` fetches `main` into the managed source checkout and compares commits without installing. On Windows, an update finishes after the running `sigy` process exits. Let recordings finish, then stop the service before replacing its binary; see the [update guide](docs/install.md#updating).
+
+## Next build step
+
+The next build step is to resolve the Spanish decoder's workspace preflight timeout, then run local recognition and reference scoring on the three verified Arabic, Hindi, and Spanish calibration clips. The original audio is verified, but Spanish decoding and model execution have not run. That small end-to-end check comes before a ten-clip run or the frozen 112-clip screen. It will expose timing, resource use, and transcription errors early, without implying language support from successful downloads alone. The [language pipeline plan](docs/development/language-pipeline.md) gives the gates; the [progress record](docs/development/progress.md) shows which have passed.
 
 ## Learn more
 

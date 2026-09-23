@@ -26,7 +26,12 @@ mod style;
 mod update;
 
 #[derive(Debug, Parser)]
-#[command(version, about = "Local-first signals discovery and analysis")]
+#[command(
+    name = "sigy",
+    bin_name = "sigy",
+    version,
+    about = "Local-first signals discovery and analysis"
+)]
 struct Cli {
     /// Library directory. Required except for `update`, help, and version.
     #[arg(long)]
