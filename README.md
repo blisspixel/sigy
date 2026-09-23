@@ -48,10 +48,16 @@ sigy --data-dir $library library init
 sigy --data-dir $library doctor
 sigy --data-dir $library service start
 sigy --data-dir $library radio refresh first-page --limit 100
+sigy --data-dir $library radio refresh-status first-page
+```
+
+Repeat `refresh-status` until it reports completion, then open the explorer:
+
+```powershell
 sigy --data-dir $library tui
 ```
 
-On macOS or Linux, set `library="$HOME/.sigy/library"` and use the same `sigy --data-dir "$library"` commands. `radio refresh` explicitly contacts a station directory; opening the explorer does not contact a stream. The refresh runs in the service, so its results may appear shortly after the command returns. Use a new request ID for another refresh. [First-use and recording steps](docs/install.md#first-use) explain FFmpeg configuration, service status, and safe updates.
+On macOS or Linux, set `library="$HOME/.sigy/library"` and use the same `sigy --data-dir "$library"` commands. `radio refresh` explicitly contacts a station directory; opening the explorer does not contact a stream. Use a new request ID for another refresh. [First-use and recording steps](docs/install.md#first-use) explain FFmpeg configuration, service status, and safe updates.
 
 To check for or install a newer `main` commit:
 

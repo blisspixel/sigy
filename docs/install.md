@@ -53,10 +53,15 @@ sigy --data-dir $library service start
 sigy --data-dir $library service status
 sigy --data-dir $library radio refresh first-page --limit 100
 sigy --data-dir $library radio refresh-status first-page
+```
+
+Repeat `refresh-status` until it reports completion, then open the explorer:
+
+```powershell
 sigy --data-dir $library tui
 ```
 
-On macOS or Linux, set `library="$HOME/.sigy/library"` and use `sigy --data-dir "$library"` with the same subcommands. The initial library has paid processing disabled. `doctor` checks local state without contacting a station or changing the catalog. The refresh fetches one bounded directory page; it does not contact station streams. Wait for `refresh-status` to report completion before expecting rows, and use a fresh request ID for another refresh. Quitting the explorer leaves the service running. Stop it explicitly with `sigy --data-dir PATH service stop`.
+On macOS or Linux, set `library="$HOME/.sigy/library"` and use `sigy --data-dir "$library"` with the same subcommands. The initial library has paid processing disabled. `doctor` checks local state without contacting a station or changing the catalog. The refresh fetches one bounded directory page; it does not contact station streams. Use a fresh request ID for another refresh. Quitting the explorer leaves the service running. Stop it explicitly with `sigy --data-dir PATH service stop`.
 
 Before recording, configure the absolute path of a trusted FFmpeg executable. For example, replace the placeholder below with its actual installed path:
 
