@@ -2,6 +2,7 @@
 /target/
 /research/experiments/terminal/target/
 /research/experiments/native-boundary/target/
+/research/experiments/language-scorer/target/
 
 # Local credentials and application state never belong in source control.
 .env

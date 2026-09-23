@@ -84,6 +84,8 @@ The [dated research](../../research/30-language-pipeline-evaluation.md) holds up
 
 The [frozen eight-language FLEURS screening selection](../../research/experiments/language-corpus/README.md) fixes 112 read-speech clips and disjoint parallel sentence groups. The reviewed full archives and Parquet audio chunks both exceed the initial 10 GiB download allowance; no selected audio was fetched. That screening acquisition gate remains open. It does not relax the separate broadcast challenge or qualification-set requirements below.
 
+The [offline screening scorer](../../research/experiments/language-scorer/README.md) now fixes text normalization, selection identity, per-language CER/WER accounting, and explicit failed, unsupported, and abstained coverage. Its tests use synthetic text and the frozen metadata only. The scoring rules are reproducible, while recognition quality remains unmeasured until licensed audio and verified references are acquired. Keep evaluator references and result files outside worker inputs.
+
 The [first local ASR asset proposal](../../research/experiments/local-asr/README.md) identifies a pinned multilingual small CPU baseline with a disabled, file-specific acquisition manifest. It is a research candidate, not an application dependency or a measured recognizer. Reconcile prior transfer bytes before download; inspect the acquired binary archive before execution. A Radeon 780M comparison requires a separate Vulkan build plan and device-use measurement.
 
 Keep three evidence sets separate:
