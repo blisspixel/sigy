@@ -42,7 +42,7 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-13 | Both desktops and small always-on machines require tested capability profiles. |
 | C-14 | User-configured network providers, including OpenRouter, are supported design targets alongside local processing. |
 | C-15 | Paid functionality requires excellent enforced cost controls and transparent accounting, with no surprise spend. |
-| C-16 | This phase produces intent, README, roadmap, detailed designs, and dated topic research before any implementation code. |
+| C-16 | The completed documentation baseline produced intent, README, roadmap, detailed designs, and dated topic research before implementation began; subsequent work updates these alongside measured evidence. |
 | C-17 | Most expected listening is non-English. Identify language or languages within content blocks, preserve originals, and translate primarily into English. |
 | C-18 | Music research and identification must represent predominantly non-English material and regional catalog coverage. |
 | C-19 | Radio/source and processing integrations must be extensible, including sources whose observations are not audio. |

@@ -1,0 +1,43 @@
+{
+  "schema": "sigy-fleurs-three-clip-pilot-v1",
+  "status": "selected_no_audio_get",
+  "source_interpretation": "small end-to-end implementation subset; three FLEURS calibration clips from different language archives; independent provider origins not required",
+  "dataset_revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+  "frozen_selection_sha256": "487632ee83967f868afa6313d54f544a32cb07075d3b446701b05af870389fd9",
+  "partition": "calibration",
+  "archive_total_declared_bytes": 3810213582,
+  "selected_total_duration_ms": 34620,
+  "pilot": [
+    {
+      "config": "ar_eg",
+      "sentence_group_id": 1087,
+      "asset_id": "ar_eg/train/16932136382444340406.wav",
+      "duration_ms": 10320,
+      "archive_path": "data/ar_eg/audio/train.tar.gz",
+      "archive_declared_bytes": 1113698891,
+      "archive_lfs_sha256": "b19fa9435c0d7587bf0ede7c9da134567b2eb55a06e2e7523547f0a6fcb3eef7"
+    },
+    {
+      "config": "hi_in",
+      "sentence_group_id": 264,
+      "asset_id": "hi_in/train/2934636319415126502.wav",
+      "duration_ms": 12960,
+      "archive_path": "data/hi_in/audio/train.tar.gz",
+      "archive_declared_bytes": 1256867167,
+      "archive_lfs_sha256": "bb6f52bfb27ca91c54539480111163eb9245305008cfe0526c6f4af3bfdd04e9"
+    },
+    {
+      "config": "es_419",
+      "sentence_group_id": 773,
+      "asset_id": "es_419/train/9301998606286834650.wav",
+      "duration_ms": 11340,
+      "archive_path": "data/es_419/audio/train.tar.gz",
+      "archive_declared_bytes": 1439647524,
+      "archive_lfs_sha256": "f832ccb74a59f53ec3bceb77e26826d0516ba6a2e8cd1e9a7f8876615a056985"
+    }
+  ],
+  "stage_exit": "Each clip must complete verified archive transfer, safe extraction, decode, local original-script recognition, evaluator-only reference scoring, provenance, elapsed-time and resource receipts before ten are admitted.",
+  "holdout_references_opened": false,
+  "audio_download_enabled": false,
+  "model_execution_enabled": false
+}

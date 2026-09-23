@@ -26,7 +26,7 @@ A new capability should fit the same journey: choose a source or artifact, choos
 - Present useful results early, with progressively available original material, uncertainty, timing, and processing detail.
 - Make experimentation reversible through replay, saved settings, clear reset behavior, and separate practice sessions.
 - Preserve equivalent CLI automation for experienced users. Friendly defaults and precise control should reinforce each other.
-- Validate common journeys with people who did not design the system, including newcomers to radio and local models.
+- Validate common journeys with task-based newcomer and experienced-user walkthroughs, rendered interface inspection, and checks of whether the results and limits can be understood. Record feedback from people outside the design when available; do not claim it happened when it did not.
 
 ## 2. First complete release
 
