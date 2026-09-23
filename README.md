@@ -12,9 +12,9 @@ Sigy is a local-first place to explore radio and podcasts, keep recordings, and 
 
 ## Preview
 
-![Sigy list explorer with an empty local catalog on Windows](docs/images/tui.png)
+![Sigy list explorer with a selected station from one directory page](docs/images/tui.png)
 
-The current list explorer on Windows, before a directory refresh. It shows the empty state honestly; the globe and map are not implemented. Selecting a station does not start playback, capture, refresh, or a directory click.
+Rendered current explorer with one 16-station Radio Browser cache page. Directory health and languages are provider metadata; no stream is playing or recording. The globe and map are not implemented. Selecting a station does not start playback, capture, refresh, or a directory click.
 
 ![Current Sigy command-line help on Windows](docs/images/cli.png)
 
