@@ -13,6 +13,25 @@ sigy_git() {
     fi
 }
 
+sigy_check_managed_source() {
+    origin=$(git -C "$root" config --local --get remote.origin.url) || {
+        echo "Managed sigy source has no readable origin." >&2
+        exit 1
+    }
+    if [ "$origin" != "$repo" ]; then
+        echo "Managed sigy source origin is not $repo." >&2
+        exit 1
+    fi
+    dirty=$(git -C "$root" status --porcelain=v1 --untracked-files=all) || {
+        echo "Cannot inspect managed sigy source changes." >&2
+        exit 1
+    }
+    if [ -n "$dirty" ]; then
+        echo "Managed sigy source has local changes. Preserve them and use a clean source directory." >&2
+        exit 1
+    fi
+}
+
 if [ -n "${SIGY_SRC:-}" ]; then
     root=$SIGY_SRC
     from_github=1
@@ -32,6 +51,11 @@ else
     fi
 fi
 
+case "$root" in
+    /*) ;;
+    *) root="$(pwd)/$root" ;;
+esac
+
 if [ "$from_github" -eq 1 ]; then
     if ! command -v git >/dev/null 2>&1; then
         echo "git is missing. Install Git to fetch $repo." >&2
@@ -45,8 +69,10 @@ if [ "$from_github" -eq 1 ]; then
         fi
         sigy_git clone --depth 1 --branch main "$repo" "$root"
     fi
-    sigy_git -C "$root" -c core.abbrev=40 fetch --depth 1 origin main
+    sigy_check_managed_source
+    sigy_git -C "$root" -c core.abbrev=40 fetch --depth 1 "$repo" main
     git -C "$root" checkout --detach FETCH_HEAD
+    sigy_check_managed_source
 fi
 
 cd "$root"
@@ -70,12 +96,15 @@ if ! command -v cargo >/dev/null 2>&1; then
     . "$HOME/.cargo/env"
 fi
 
+unset SIGY_GIT_COMMIT
+commit=""
 if git -C "$root" -c core.abbrev=40 rev-parse HEAD >/dev/null 2>&1; then
-    commit=$(git -C "$root" -c core.abbrev=40 rev-parse HEAD)
-    SIGY_GIT_COMMIT=$commit
-    export SIGY_GIT_COMMIT
-else
-    commit=""
+    local_changes=$(git -C "$root" status --porcelain=v1 --untracked-files=all) || local_changes=unknown
+    if [ -z "$local_changes" ]; then
+        commit=$(git -C "$root" -c core.abbrev=40 rev-parse HEAD)
+        SIGY_GIT_COMMIT=$commit
+        export SIGY_GIT_COMMIT
+    fi
 fi
 
 cargo install --path crates/sigy --locked --force
@@ -85,7 +114,9 @@ if [ -n "$commit" ]; then
     printf '%s\n' "$commit" > "$HOME/.sigy/installed-commit"
     echo "Installed sigy at $commit."
 else
-    echo "Installed sigy."
+    mkdir -p "$HOME/.sigy"
+    printf '\n' > "$HOME/.sigy/installed-commit"
+    echo "Installed sigy without a clean commit identity."
 fi
 echo "Check later with: sigy update --check"
 echo "Install a newer main commit with: sigy update"

@@ -27,13 +27,13 @@ These scripts fetch the latest public `main` from [blisspixel/sigy](https://gith
 Windows PowerShell:
 
 ```powershell
-iex (Invoke-RestMethod https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.ps1)
+& { $ErrorActionPreference = 'Stop'; iex (Invoke-RestMethod -Uri https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.ps1) }
 ```
 
 macOS or Linux:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsS https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.sh | sh
+sh -c 'f=$(mktemp) || exit; curl --proto "=https" --tlsv1.2 -fsS https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.sh -o "$f" && sh "$f"; s=$?; rm -f "$f"; exit "$s"'
 ```
 
 The installers do not configure an operating-system startup service or install FFmpeg. Recording and playback need a trusted local FFmpeg executable. [Installation and update details](docs/install.md) cover prerequisites, installing from a checkout, and current platform limits.
@@ -60,7 +60,7 @@ sigy update --check
 sigy update
 ```
 
-`--check` reports the recorded and latest commits without installing. On Windows, an update finishes after the running `sigy` process exits. Stop an active service before replacing its binary; see the [update guide](docs/install.md#updating).
+`--check` fetches `main` into the managed source checkout and compares commits without installing. On Windows, an update finishes after the running `sigy` process exits. Let recordings finish, then stop the service before replacing its binary; see the [update guide](docs/install.md#updating).
 
 ## Learn more
 

@@ -28,6 +28,18 @@ function Invoke-SigyGit {
         throw "git failed with exit code $LASTEXITCODE"
     }
 }
+
+function Assert-SigyManagedSource {
+    param([string]$SourceRoot)
+    $origin = & git -C $SourceRoot config --local --get remote.origin.url
+    if ($LASTEXITCODE -ne 0 -or [string]$origin -ne $repo) {
+        throw "Managed sigy source origin is not $repo."
+    }
+    $dirty = & git -C $SourceRoot status --porcelain=v1 --untracked-files=all
+    if ($LASTEXITCODE -ne 0 -or $dirty) {
+        throw "Managed sigy source has local changes or cannot be inspected. Preserve it and use a clean source directory."
+    }
+}
 $root = $null
 $fromGitHub = $false
 
@@ -36,7 +48,7 @@ if ($env:SIGY_SRC) {
     $fromGitHub = $true
 } elseif ($PSScriptRoot) {
     $candidate = Split-Path -Parent $PSScriptRoot
-    if (Test-Path (Join-Path $candidate "crates\sigy\Cargo.toml")) {
+    if (Test-Path -LiteralPath (Join-Path $candidate "crates\sigy\Cargo.toml")) {
         $root = $candidate
     }
 }
@@ -46,32 +58,36 @@ if (-not $root) {
     $fromGitHub = $true
 }
 
+$root = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine((Get-Location).ProviderPath, $root))
+
 if ($fromGitHub) {
     $git = Get-Command git -ErrorAction SilentlyContinue
     if (-not $git) {
         throw "git is missing. Install Git to fetch $repo."
     }
-    $parent = Split-Path -Parent $root
+    $parent = [System.IO.Path]::GetDirectoryName($root)
     if ($parent) {
-        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+        [void][System.IO.Directory]::CreateDirectory($parent)
     }
-    if (-not (Test-Path (Join-Path $root ".git"))) {
-        if (Test-Path $root) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root ".git"))) {
+        if (Test-Path -LiteralPath $root) {
             throw "$root exists and is not a sigy checkout."
         }
         Invoke-SigyGit clone --depth 1 --branch main $repo $root
     }
-    Invoke-SigyGit -C $root -c core.abbrev=40 fetch --depth 1 origin main
+    Assert-SigyManagedSource $root
+    Invoke-SigyGit -C $root -c core.abbrev=40 fetch --depth 1 $repo main
     & git -C $root checkout --detach FETCH_HEAD
     if ($LASTEXITCODE -ne 0) {
         throw "git checkout failed with exit code $LASTEXITCODE"
     }
+    Assert-SigyManagedSource $root
 }
 
-Set-Location $root
+Set-Location -LiteralPath $root
 
 $cargoHome = Join-Path $env:USERPROFILE ".cargo\bin"
-if (Test-Path (Join-Path $cargoHome "cargo.exe")) {
+if (Test-Path -LiteralPath (Join-Path $cargoHome "cargo.exe")) {
     $env:Path = "$cargoHome;$env:Path"
 }
 
@@ -88,10 +104,14 @@ if (-not $cargo) {
 }
 
 $commit = ""
-& git -C $root -c core.abbrev=40 rev-parse HEAD 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) {
-    $commit = (& git -C $root -c core.abbrev=40 rev-parse HEAD).Trim()
-    $env:SIGY_GIT_COMMIT = $commit
+Remove-Item Env:SIGY_GIT_COMMIT -ErrorAction SilentlyContinue
+$resolvedCommit = & git -C $root -c core.abbrev=40 rev-parse HEAD 2>$null
+if ($LASTEXITCODE -eq 0 -and $resolvedCommit) {
+    $localChanges = & git -C $root status --porcelain=v1 --untracked-files=all
+    if ($LASTEXITCODE -eq 0 -and -not $localChanges) {
+        $commit = ([string]$resolvedCommit).Trim()
+        $env:SIGY_GIT_COMMIT = $commit
+    }
 }
 
 & cargo install --path crates/sigy --locked --force
@@ -101,11 +121,14 @@ if ($LASTEXITCODE -ne 0) {
 
 if ($commit) {
     $meta = Join-Path $env:USERPROFILE ".sigy"
-    New-Item -ItemType Directory -Force -Path $meta | Out-Null
+    [void][System.IO.Directory]::CreateDirectory($meta)
     Set-Content -LiteralPath (Join-Path $meta "installed-commit") -Value $commit
     Write-Host "Installed sigy at $commit."
 } else {
-    Write-Host "Installed sigy."
+    $meta = Join-Path $env:USERPROFILE ".sigy"
+    [void][System.IO.Directory]::CreateDirectory($meta)
+    Set-Content -LiteralPath (Join-Path $meta "installed-commit") -Value ""
+    Write-Host "Installed sigy without a clean commit identity."
 }
 Write-Host "Check later with: sigy update --check"
 Write-Host "Install a newer main commit with: sigy update"

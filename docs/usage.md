@@ -13,7 +13,7 @@ sigy update --check
 sigy update
 ```
 
-`sigy update` fetches `main` from <https://github.com/blisspixel/sigy> and installs that commit with Cargo. When GitHub CLI is logged in, Git uses that login. `--check` only reports the recorded commit and that tip. It exits with an error when no commit is recorded or a newer commit is available. The command does not select a library, contact a station, or run `cargo verify`. On Windows the install finishes after this process exits, because Windows cannot replace the running executable. Stop a running service before that replacement.
+`sigy update` fetches `main` from <https://github.com/blisspixel/sigy> and installs that commit with Cargo. When GitHub CLI is logged in, Git uses that login. `--check` fetches and checks out the managed source tree, then reports the binary's embedded commit, or a legacy installed marker, and that tip without installing. It refuses a dirty or different-origin managed checkout and exits with an error when no commit is recorded or a newer commit is available. The command does not select a library, contact a station, or run `cargo verify`. On Windows the install finishes after this process exits, because Windows cannot replace the running executable. Let active recordings finish, then stop the service before that replacement.
 
 ## Doctor
 

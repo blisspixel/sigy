@@ -59,15 +59,14 @@ fn installed_commit() -> Option<String> {
     let recorded = record_path()
         .ok()
         .and_then(|path| fs::read_to_string(path).ok());
-    let recorded = recorded
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| is_commit(value));
-    recorded.map(str::to_owned).or_else(|| {
-        BUILT_FROM
-            .filter(|value| is_commit(value))
-            .map(str::to_owned)
-    })
+    select_installed_commit(BUILT_FROM, recorded.as_deref())
+}
+
+fn select_installed_commit(built_from: Option<&str>, recorded: Option<&str>) -> Option<String> {
+    built_from
+        .filter(|value| is_commit(value))
+        .or_else(|| recorded.map(str::trim).filter(|value| is_commit(value)))
+        .map(str::to_owned)
 }
 
 fn git_prefix(use_gh: bool) -> Vec<&'static str> {
@@ -123,9 +122,10 @@ fn git(directory: Option<&Path>, args: &[&str], use_gh: bool) -> Result<String, 
 
 fn ensure_checkout(directory: &Path, use_gh: bool) -> Result<(), String> {
     if directory.join(".git").is_dir() {
+        validate_managed_checkout(directory, use_gh)?;
         git(
             Some(directory),
-            &["fetch", "--depth", "1", "origin", "main"],
+            &["fetch", "--depth", "1", REPOSITORY, "main"],
             use_gh,
         )?;
         git(
@@ -133,6 +133,7 @@ fn ensure_checkout(directory: &Path, use_gh: bool) -> Result<(), String> {
             &["checkout", "--detach", "FETCH_HEAD"],
             use_gh,
         )?;
+        validate_managed_checkout(directory, use_gh)?;
         return Ok(());
     }
     if directory.exists() {
@@ -157,6 +158,29 @@ fn ensure_checkout(directory: &Path, use_gh: bool) -> Result<(), String> {
         ],
         use_gh,
     )?;
+    validate_managed_checkout(directory, use_gh)?;
+    Ok(())
+}
+
+fn validate_managed_checkout(directory: &Path, use_gh: bool) -> Result<(), String> {
+    let origin = git(
+        Some(directory),
+        &["config", "--local", "--get", "remote.origin.url"],
+        use_gh,
+    )?;
+    if origin != REPOSITORY {
+        return Err("managed source origin differs from the Sigy repository".into());
+    }
+    let changes = git(
+        Some(directory),
+        &["status", "--porcelain=v1", "--untracked-files=all"],
+        use_gh,
+    )?;
+    if !changes.is_empty() {
+        return Err(
+            "managed source has local changes; preserve it and use a clean directory".into(),
+        );
+    }
     Ok(())
 }
 
@@ -223,7 +247,7 @@ fn spawn_windows_helper(path: &Path) -> Result<(), String> {
 
 fn windows_installer(pid: u32, directory: &Path, record: &Path, commit: &str) -> String {
     format!(
-        "Wait-Process -Id {pid} -ErrorAction SilentlyContinue\n$env:SIGY_GIT_COMMIT = '{commit}'\n$env:Path = \"$env:USERPROFILE\\.cargo\\bin;$env:Path\"\nSet-Location -LiteralPath '{directory}'\n& cargo install --path crates/sigy --locked --force\nif ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}\nSet-Content -LiteralPath '{record}' -Value \"{commit}`n\"\n",
+        "$ErrorActionPreference = 'Stop'\nWait-Process -Id {pid} -ErrorAction SilentlyContinue\n$env:SIGY_GIT_COMMIT = '{commit}'\n$env:Path = \"$env:USERPROFILE\\.cargo\\bin;$env:Path\"\nSet-Location -LiteralPath '{directory}'\n& cargo install --path crates/sigy --locked --force\nif ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}\nSet-Content -LiteralPath '{record}' -Value \"{commit}`n\"\n",
         directory = powershell_quote(directory),
         record = powershell_quote(record),
     )
@@ -340,6 +364,55 @@ mod tests {
     }
 
     #[test]
+    fn running_binary_commit_outweighs_a_global_install_marker() {
+        let built = "a".repeat(40);
+        let recorded = "b".repeat(40);
+        assert_eq!(
+            super::select_installed_commit(Some(&built), Some(&recorded)),
+            Some(built)
+        );
+        assert_eq!(
+            super::select_installed_commit(None, Some(&recorded)),
+            Some(recorded)
+        );
+    }
+
+    #[test]
+    fn managed_checkout_requires_the_fixed_origin_and_clean_tree()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::{fs, process::Command};
+
+        let temp = tempfile::tempdir()?;
+        let source = temp.path().join("managed");
+        let init = Command::new("git").arg("init").arg(&source).output()?;
+        assert!(init.status.success());
+        let add_origin = Command::new("git")
+            .arg("-C")
+            .arg(&source)
+            .args(["remote", "add", "origin", super::REPOSITORY])
+            .output()?;
+        assert!(add_origin.status.success());
+        super::validate_managed_checkout(&source, false)?;
+
+        fs::write(source.join("local-edit.txt"), "untracked")?;
+        assert!(super::validate_managed_checkout(&source, false).is_err());
+        fs::remove_file(source.join("local-edit.txt"))?;
+        let wrong_origin = Command::new("git")
+            .arg("-C")
+            .arg(&source)
+            .args([
+                "remote",
+                "set-url",
+                "origin",
+                "https://example.org/other.git",
+            ])
+            .output()?;
+        assert!(wrong_origin.status.success());
+        assert!(super::validate_managed_checkout(&source, false).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn windows_helper_waits_for_the_running_process() {
         let script = super::windows_installer(
             42,
@@ -348,8 +421,41 @@ mod tests {
             "abcdef1",
         );
         assert!(script.contains("Wait-Process -Id 42"));
+        assert!(script.contains("$ErrorActionPreference = 'Stop'"));
         assert!(script.contains("SIGY_GIT_COMMIT = 'abcdef1'"));
         assert!(script.contains("cargo install --path crates/sigy --locked --force"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_helper_missing_checkout_never_invokes_cargo()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::{fs, process::Command};
+
+        let temp = tempfile::tempdir()?;
+        let home = temp.path().join("home");
+        let cargo_bin = home.join(".cargo").join("bin");
+        fs::create_dir_all(&cargo_bin)?;
+        fs::write(
+            cargo_bin.join("cargo.cmd"),
+            "@echo off\r\necho invoked > \"%USERPROFILE%\\.cargo\\called\"\r\nexit /b 0\r\n",
+        )?;
+        let record = home.join(".sigy").join("installed-commit");
+        let helper = temp.path().join("helper.ps1");
+        fs::write(
+            &helper,
+            super::windows_installer(999_999, &temp.path().join("missing"), &record, "abcdef1"),
+        )?;
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(&helper)
+            .env("USERPROFILE", &home)
+            .current_dir(temp.path())
+            .output()?;
+        assert!(!output.status.success());
+        assert!(!home.join(".cargo").join("called").exists());
+        assert!(!record.exists());
+        Ok(())
     }
 
     #[test]

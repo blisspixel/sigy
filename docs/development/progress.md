@@ -12,6 +12,8 @@ The user chose to keep Sigy on 2026-09-21; naming exploration is deferred. An op
 
 The public README now gives a bounded product preview, two labeled screenshots, source-install commands, a first-use path, update commands, and links to detailed guidance. The [install guide](../install.md) records prerequisites and platform limits. On Windows, both checked-in installer scripts passed syntax checks and isolated checkout-path invocation with a stub Cargo. A real `cargo install --path crates/sigy --locked --force` completed into an isolated root; that binary passed version/help, initialized a fresh library, ran `doctor`, and started, reported, and stopped its service. The GitHub one-liners, actual macOS/Linux execution, and OS startup are not qualified by those checks.
 
+An independent installer review found and corrected fetch-status, checkout-path, source-identity, and Windows update-helper failures. The scripts now refuse a changed or different-origin managed tree before fetching, preserve a clean commit identity, and do not claim one for a dirty local checkout. `sigy update` prefers the running binary's embedded commit to an older global marker. A Windows PowerShell 5.1 and Git for Windows shell harness passed 16 local Git/stub-Cargo and synthetic wrapper cases, including relative and bracketed paths, refusal before Cargo, failed Cargo, and download status propagation. The Windows helper's missing-checkout regression test and `cargo verify` passed. These tests do not qualify a fresh Rustup bootstrap, actual macOS/Linux installs, or a tagged release.
+
 ## Work sequence
 
 | Work | Current state | Evidence and remaining scope |
