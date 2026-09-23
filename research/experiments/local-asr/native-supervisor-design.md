@@ -57,6 +57,18 @@ or resource limits while members survive. A trusted fixture must falsify the
 inheritance and authorization sequence before this candidate can replace the
 at-create job-list design.
 
+An ignored Windows trusted fixture has now exercised this bootstrap sequence
+with ordinary Rust children on the current host. Eleven finite cases and
+three pure tests passed. The normal child was observed in the same job while
+still suspended. Authorization refusals, dead or unadoptable launchers and a
+one-process cap produced no child. Every case reaped its launcher, joined
+bounded output readers and reached zero active job members. The exact local
+receipts remain ignored. This supports job inheritance and the authorization
+protocol for trusted code. It
+does not test AppContainer composition, token or ACL inspection, abrupt
+supervisor death, hostile descendant escape, network denial, resource-limit
+enforcement under load, or durable lease recovery. No model ran.
+
 ## Evidence before resume
 
 Inspect the suspended child through retained handles: AppContainer status,
