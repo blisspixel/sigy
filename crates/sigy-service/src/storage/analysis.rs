@@ -181,6 +181,17 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // A first pin cannot have a worker. Replacements must not move the pin
+        // while native cleanup is still outstanding, even during cancellation.
+        if revision > 1 {
+            let native_active: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM analysis_jobs WHERE analysis_id = ?1 AND kind = 'local_asr' AND state IN ('running', 'cancelling'))",
+                [id], |row| row.get(0),
+            )?;
+            if native_active {
+                return Err(Error::Analysis("native-worker-active"));
+            }
+        }
         if let Some(previous) = supersede {
             let changed = transaction.execute(
                 "UPDATE analysis_inputs SET state = 'superseded' WHERE id = ?1 AND revision = ?2 AND state = 'admitted'",

@@ -1,4 +1,4 @@
-//! Immutable transcript storage. Recognition dispatch and publication are not implemented.
+//! Legacy transcript inspection. Recognition storage lives in `storage::recognition`.
 //! The decision is zero USD and is not a ledger request.
 
 #[cfg(test)]

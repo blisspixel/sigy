@@ -17,6 +17,7 @@ mod playlists;
 pub(crate) mod podcast_feeds;
 pub(crate) mod podcast_text;
 pub mod podcasts;
+pub mod recognition;
 pub use clicks::ClickStatus;
 pub(crate) mod analysis;
 pub(crate) mod analysis_jobs;
