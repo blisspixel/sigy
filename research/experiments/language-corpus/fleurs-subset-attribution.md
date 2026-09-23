@@ -25,7 +25,7 @@ The card's locally computed Git blob ID is `dcc0872174e54ad416dee938651d777378d4
 
 The legal text came from one bounded, no-redirect HTTPS GET of the official fixed URL. Its received length and SHA-256 match both payload and publication receipts. The retained UTF-8 document contains the introductory notices, Sections 1 through 8, and the closing Creative Commons notice and contact line. Its source URL has no immutable revision, its weak HEAD ETag is not a content hash, and no independent expected content hash was supplied. Structural inspection and clean EOF do not establish an independently authenticated complete upstream version. This record freezes the reviewed copy without making that stronger claim.
 
-The legal-text attempt retains its full 131,073-byte reservation despite receiving 18,657 bytes. Together with all three card reservations and the explicitly unmeasured historical policy charge, the shared ledger charges 10,738,066,000 bytes. Those are conservative accounting charges, not measured wire traffic.
+The legal-text attempt retains its full 131,073-byte reservation despite receiving 18,657 bytes. Together with all three card reservations and the explicitly unmeasured historical policy charge, the shared ledger charged 10,738,066,000 bytes at this provenance checkpoint. A later CPU runtime reservation increased the current charge; see the [local ASR record](../local-asr/README.md). These are conservative accounting charges, not measured wire traffic.
 
 ## Selected material and changes
 
