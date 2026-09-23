@@ -1,3 +1,4 @@
+use crate::explorer::text::sanitize;
 use crate::style::{Ink, Tone};
 use clap::Subcommand;
 use sigy_service::control::{AnalysisDisposition, AnalysisOperation, AnalysisPage, Operation};
@@ -191,7 +192,7 @@ pub fn render(writer: &mut impl Write, page: &AnalysisPage, ink: Ink) -> io::Res
             if cue.script.is_empty() {
                 writeln!(writer)?;
             } else {
-                writeln!(writer, " {}", cue.script)?;
+                writeln!(writer, " {}", sanitize(&cue.script, 4096))?;
             }
         }
     }
@@ -247,6 +248,56 @@ mod tests {
         assert!(text.contains("No paid request."));
         assert!(text.contains("Wording uncertain."));
         assert!(!text.contains("example.com"));
+        Ok(())
+    }
+
+    #[test]
+    fn transcript_display_strips_terminal_controls_without_changing_stored_text()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let script = "alpha\u{1b}[31m\nbeta\u{202e}gamma";
+        let page = AnalysisPage {
+            languages: None,
+            input: AnalysisView {
+                id: "pin".into(),
+                revision: 1,
+                recording_id: "one".into(),
+                media_sha256: "ab".repeat(32),
+                state: "published".into(),
+                planned_us: 1_000_000,
+                intervals: Vec::new(),
+                gaps: Vec::new(),
+            },
+            disposition: None,
+            transcript: Some(TranscriptView {
+                revision: 1,
+                role: "original".into(),
+                profile: "local-unmeasured".into(),
+                cues: vec![TranscriptCueView {
+                    ordinal: 0,
+                    start_us: 0,
+                    end_us: 1_000_000,
+                    script: script.into(),
+                    wording: "uncertain".into(),
+                }],
+            }),
+            decision: Some(AnalysisDecisionView {
+                amount_usd: "0.000000".into(),
+                paid_request: false,
+            }),
+        };
+        let mut buffer = Vec::new();
+        render(&mut buffer, &page, Ink::stdout(false))?;
+        let output = String::from_utf8(buffer)?;
+        assert!(output.contains("alpha[31mbetagamma"));
+        assert!(!output.contains('\u{1b}'));
+        assert!(!output.contains('\u{202e}'));
+        assert!(!output.contains("alpha[31m\nbeta"));
+        assert_eq!(
+            page.transcript
+                .as_ref()
+                .map(|row| row.cues[0].script.as_str()),
+            Some(script)
+        );
         Ok(())
     }
 }
