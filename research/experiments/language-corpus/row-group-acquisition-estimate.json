@@ -1,0 +1,526 @@
+[
+  {
+    "config": "ar_eg",
+    "split": "test",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 428,
+        "clips": 10,
+        "audio_bytes": 297193566,
+        "start": 14741,
+        "filenames": [
+          "12573432383919116225.wav",
+          "12204476716206763723.wav",
+          "1344467485396888615.wav",
+          "2193380615276037266.wav",
+          "340583128298859124.wav",
+          "17478671098956178055.wav",
+          "7474859911916760877.wav",
+          "18022802087819036852.wav",
+          "2083545745901774375.wav",
+          "13697395296517873707.wav"
+        ],
+        "metadata_only_bytes": 89972.0
+      }
+    ],
+    "expected_clips": 10,
+    "matched_clips": 10.0,
+    "audio_bytes": 297193566.0
+  },
+  {
+    "config": "ar_eg",
+    "split": "train",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 1000,
+        "clips": 2,
+        "audio_bytes": 656802584,
+        "start": 33368,
+        "filenames": [
+          "16932136382444340406.wav",
+          "1588456282972737237.wav"
+        ],
+        "metadata_only_bytes": 230425.0
+      },
+      {
+        "group": 1,
+        "rows": 1000,
+        "clips": 2,
+        "audio_bytes": 655061615,
+        "start": 657066102,
+        "filenames": [
+          "17774835588458712173.wav",
+          "4522086286757294008.wav"
+        ],
+        "metadata_only_bytes": 229899.0
+      }
+    ],
+    "expected_clips": 4,
+    "matched_clips": 4.0,
+    "audio_bytes": 1311864199.0
+  },
+  {
+    "config": "cmn_hans_cn",
+    "split": "test",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 945,
+        "clips": 10,
+        "audio_bytes": 695547100,
+        "start": 30812,
+        "filenames": [
+          "4010462455058470974.wav",
+          "7307792880988283491.wav",
+          "2367286864389832748.wav",
+          "3301332850967638732.wav",
+          "12220327484257658904.wav",
+          "4682076507572177734.wav",
+          "15209730399349565944.wav",
+          "12040319549933401783.wav",
+          "11109877895501140381.wav",
+          "17564154424245082678.wav"
+        ],
+        "metadata_only_bytes": 119507.0
+      }
+    ],
+    "expected_clips": 10,
+    "matched_clips": 10.0,
+    "audio_bytes": 695547100.0
+  },
+  {
+    "config": "cmn_hans_cn",
+    "split": "train",
+    "groups": [
+      {
+        "group": 1,
+        "rows": 1000,
+        "clips": 2,
+        "audio_bytes": 682248910,
+        "start": 685964672,
+        "filenames": [
+          "304610932906170353.wav",
+          "18152716459129597633.wav"
+        ],
+        "metadata_only_bytes": 209831.0
+      },
+      {
+        "group": 3,
+        "rows": 246,
+        "clips": 2,
+        "audio_bytes": 166240696,
+        "start": 2047956773,
+        "filenames": [
+          "8930282551822848499.wav",
+          "9349711015265152814.wav"
+        ],
+        "metadata_only_bytes": 60575.0
+      }
+    ],
+    "expected_clips": 4,
+    "matched_clips": 4.0,
+    "audio_bytes": 848489606.0
+  },
+  {
+    "config": "en_us",
+    "split": "test",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 647,
+        "clips": 10,
+        "audio_bytes": 401614288,
+        "start": 21748,
+        "filenames": [
+          "776561182148076732.wav",
+          "4491697341889976683.wav",
+          "5049759849654620438.wav",
+          "12316410148883063626.wav",
+          "11987168412167267165.wav",
+          "8158297484454595266.wav",
+          "559615000143317446.wav",
+          "11820398005906165915.wav",
+          "16327101627424867030.wav",
+          "18320871674783850842.wav"
+        ],
+        "metadata_only_bytes": 100987.0
+      }
+    ],
+    "expected_clips": 10,
+    "matched_clips": 10.0,
+    "audio_bytes": 401614288.0
+  },
+  {
+    "config": "en_us",
+    "split": "train",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 1000,
+        "clips": 2,
+        "audio_bytes": 650997530,
+        "start": 33647,
+        "filenames": [
+          "159492824346201912.wav",
+          "12899506343997225612.wav"
+        ],
+        "metadata_only_bytes": 200226.0
+      },
+      {
+        "group": 1,
+        "rows": 1000,
+        "clips": 1,
+        "audio_bytes": 669860606,
+        "start": 651231124,
+        "filenames": "2971144117652385766.wav",
+        "metadata_only_bytes": 199545.0
+      },
+      {
+        "group": 2,
+        "rows": 602,
+        "clips": 1,
+        "audio_bytes": 400103714,
+        "start": 1321278757,
+        "filenames": "8781798431543386023.wav",
+        "metadata_only_bytes": 129336.0
+      }
+    ],
+    "expected_clips": 4,
+    "matched_clips": 4.0,
+    "audio_bytes": 1720961850.0
+  },
+  {
+    "config": "es_419",
+    "split": "test",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 908,
+        "clips": 10,
+        "audio_bytes": 702909072,
+        "start": 28850,
+        "filenames": [
+          "3296144528867922017.wav",
+          "6974420150424516456.wav",
+          "17957000333653026721.wav",
+          "12757306550322335750.wav",
+          "9842314857425204122.wav",
+          "11440454609460760458.wav",
+          "5736216171127087339.wav",
+          "11600719265254705552.wav",
+          "11155344078243799092.wav",
+          "15316934724386257719.wav"
+        ],
+        "metadata_only_bytes": 123488.0
+      }
+    ],
+    "expected_clips": 10,
+    "matched_clips": 10.0,
+    "audio_bytes": 702909072.0
+  },
+  {
+    "config": "es_419",
+    "split": "train",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 1000,
+        "clips": 1,
+        "audio_bytes": 657940204,
+        "start": 33306,
+        "filenames": "13320858866134341774.wav",
+        "metadata_only_bytes": 221222.0
+      },
+      {
+        "group": 1,
+        "rows": 1000,
+        "clips": 1,
+        "audio_bytes": 665111098,
+        "start": 658194506,
+        "filenames": "18118144988866964999.wav",
+        "metadata_only_bytes": 223152.0
+      },
+      {
+        "group": 2,
+        "rows": 796,
+        "clips": 2,
+        "audio_bytes": 522468193,
+        "start": 1323522399,
+        "filenames": [
+          "8957261904601052060.wav",
+          "9301998606286834650.wav"
+        ],
+        "metadata_only_bytes": 183900.0
+      }
+    ],
+    "expected_clips": 4,
+    "matched_clips": 4.0,
+    "audio_bytes": 1845519495.0
+  },
+  {
+    "config": "fr_fr",
+    "split": "test",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 676,
+        "clips": 10,
+        "audio_bytes": 445346434,
+        "start": 22103,
+        "filenames": [
+          "5626587633335144215.wav",
+          "18379323280161634683.wav",
+          "10991225759022624703.wav",
+          "17885323158320780436.wav",
+          "8796377610986171777.wav",
+          "18268464756755448881.wav",
+          "118005971910520590.wav",
+          "2863289997318799678.wav",
+          "8448688083956555378.wav",
+          "1063626966878784571.wav"
+        ],
+        "metadata_only_bytes": 109942.0
+      }
+    ],
+    "expected_clips": 10,
+    "matched_clips": 10.0,
+    "audio_bytes": 445346434.0
+  },
+  {
+    "config": "fr_fr",
+    "split": "train",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 1000,
+        "clips": 2,
+        "audio_bytes": 730771729,
+        "start": 33134,
+        "filenames": [
+          "13293224501818121552.wav",
+          "11112706364025826490.wav"
+        ],
+        "metadata_only_bytes": 219678.0
+      },
+      {
+        "group": 1,
+        "rows": 1000,
+        "clips": 1,
+        "audio_bytes": 713057796,
+        "start": 731024486,
+        "filenames": "2904958256878266562.wav",
+        "metadata_only_bytes": 218709.0
+      },
+      {
+        "group": 2,
+        "rows": 1000,
+        "clips": 1,
+        "audio_bytes": 732557378,
+        "start": 1444300972,
+        "filenames": "757611113219543206.wav",
+        "metadata_only_bytes": 220049.0
+      }
+    ],
+    "expected_clips": 4,
+    "matched_clips": 4.0,
+    "audio_bytes": 2176386903.0
+  },
+  {
+    "config": "hi_in",
+    "split": "test",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 418,
+        "clips": 10,
+        "audio_bytes": 305796483,
+        "start": 14253,
+        "filenames": [
+          "11847046500833945297.wav",
+          "16985526409501635751.wav",
+          "17192853365649646500.wav",
+          "2815903452265068889.wav",
+          "436068764837767002.wav",
+          "17538987337957377962.wav",
+          "7037862691881688112.wav",
+          "5650107975346696997.wav",
+          "6012737451821984774.wav",
+          "11679504829817040349.wav"
+        ],
+        "metadata_only_bytes": 99297.0
+      }
+    ],
+    "expected_clips": 10,
+    "matched_clips": 10.0,
+    "audio_bytes": 305796483.0
+  },
+  {
+    "config": "hi_in",
+    "split": "train",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 1000,
+        "clips": 2,
+        "audio_bytes": 722822183,
+        "start": 33711,
+        "filenames": [
+          "17512382642704834946.wav",
+          "1661258379266277852.wav"
+        ],
+        "metadata_only_bytes": 276362.0
+      },
+      {
+        "group": 1,
+        "rows": 1000,
+        "clips": 1,
+        "audio_bytes": 718004263,
+        "start": 723131849,
+        "filenames": "2934636319415126502.wav",
+        "metadata_only_bytes": 273834.0
+      },
+      {
+        "group": 2,
+        "rows": 120,
+        "clips": 1,
+        "audio_bytes": 88111960,
+        "start": 1441381419,
+        "filenames": "9207457166478158214.wav",
+        "metadata_only_bytes": 41278.0
+      }
+    ],
+    "expected_clips": 4,
+    "matched_clips": 4.0,
+    "audio_bytes": 1528938406.0
+  },
+  {
+    "config": "pt_br",
+    "split": "test",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 919,
+        "clips": 10,
+        "audio_bytes": 741639201,
+        "start": 29311,
+        "filenames": [
+          "12318040826348294212.wav",
+          "10975421434030537102.wav",
+          "17874662414195815793.wav",
+          "14281411931478805083.wav",
+          "15817469692780685988.wav",
+          "10481332407254391001.wav",
+          "7070061327323516320.wav",
+          "5422349373860352148.wav",
+          "13296851653014739916.wav",
+          "12473800247917858593.wav"
+        ],
+        "metadata_only_bytes": 119481.0
+      }
+    ],
+    "expected_clips": 10,
+    "matched_clips": 10.0,
+    "audio_bytes": 741639201.0
+  },
+  {
+    "config": "pt_br",
+    "split": "train",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 1000,
+        "clips": 1,
+        "audio_bytes": 828619022,
+        "start": 33560,
+        "filenames": "1247937673627672329.wav",
+        "metadata_only_bytes": 206718.0
+      },
+      {
+        "group": 1,
+        "rows": 1000,
+        "clips": 3,
+        "audio_bytes": 824535177,
+        "start": 828859059,
+        "filenames": [
+          "17760300667935747772.wav",
+          "16257070509365437712.wav",
+          "4550860285485481058.wav"
+        ],
+        "metadata_only_bytes": 207287.0
+      }
+    ],
+    "expected_clips": 4,
+    "matched_clips": 4.0,
+    "audio_bytes": 1653154199.0
+  },
+  {
+    "config": "sw_ke",
+    "split": "test",
+    "groups": [
+      {
+        "group": 0,
+        "rows": 487,
+        "clips": 10,
+        "audio_bytes": 440629079,
+        "start": 16686,
+        "filenames": [
+          "16719835725986152231.wav",
+          "1876278503742167836.wav",
+          "1810134380886761331.wav",
+          "9294076291112991661.wav",
+          "3544053479480671481.wav",
+          "12744576682678071730.wav",
+          "8400164703204964924.wav",
+          "5267814562375333876.wav",
+          "10016904238639700311.wav",
+          "11611968813365661257.wav"
+        ],
+        "metadata_only_bytes": 83389.0
+      }
+    ],
+    "expected_clips": 10,
+    "matched_clips": 10.0,
+    "audio_bytes": 440629079.0
+  },
+  {
+    "config": "sw_ke",
+    "split": "train",
+    "groups": [
+      {
+        "group": 1,
+        "rows": 1000,
+        "clips": 2,
+        "audio_bytes": 998884286,
+        "start": 1008207685,
+        "filenames": [
+          "17623555475101543415.wav",
+          "4093223410493050081.wav"
+        ],
+        "metadata_only_bytes": 194774.0
+      },
+      {
+        "group": 2,
+        "rows": 1000,
+        "clips": 1,
+        "audio_bytes": 1009870690,
+        "start": 2007286745,
+        "filenames": "6681118601328790274.wav",
+        "metadata_only_bytes": 196723.0
+      },
+      {
+        "group": 3,
+        "rows": 70,
+        "clips": 1,
+        "audio_bytes": 75855821,
+        "start": 3017323646,
+        "filenames": "9695849195606707283.wav",
+        "metadata_only_bytes": 19975.0
+      }
+    ],
+    "expected_clips": 4,
+    "matched_clips": 4.0,
+    "audio_bytes": 2084610797.0
+  }
+]

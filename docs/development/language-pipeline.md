@@ -82,6 +82,8 @@ The existing process wrapper's root-process `try_wait` result does not prove tha
 
 The [dated research](../../research/30-language-pipeline-evaluation.md) holds upstream candidates, licenses, and capability limits. Use small comparable experiments before choosing a default. Capture complete runtime, model, tokenizer, quantization, prompt/template, decoder, driver, hardware, corpus, and normalization identities. Hash actual assets; a mutable model tag is not sufficient provenance.
 
+The [frozen eight-language FLEURS screening selection](../../research/experiments/language-corpus/README.md) fixes 112 read-speech clips and disjoint parallel sentence groups. The reviewed full archives and Parquet audio chunks both exceed the initial 10 GiB download allowance; no selected audio was fetched. That screening acquisition gate remains open. It does not relax the separate broadcast challenge or qualification-set requirements below.
+
 Keep three evidence sets separate:
 
 1. A small published, licensed multilingual baseline for reproducible candidate screening. Read speech cannot qualify broadcast performance.

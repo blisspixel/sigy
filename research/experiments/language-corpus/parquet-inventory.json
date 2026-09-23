@@ -1,0 +1,135 @@
+{
+  "partial": false,
+  "pending": [],
+  "failed": [],
+  "files": [
+    {
+      "dataset": "google/fleurs",
+      "config": "ar_eg",
+      "split": "test",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/ar_eg/test/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 297291130
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "ar_eg",
+      "split": "train",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/ar_eg/train/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 1381311999
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "cmn_hans_cn",
+      "split": "test",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/cmn_hans_cn/test/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 695674033
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "cmn_hans_cn",
+      "split": "train",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/cmn_hans_cn/train/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 2214262858
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "en_us",
+      "split": "test",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/en_us/test/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 401722686
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "en_us",
+      "split": "train",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/en_us/train/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 1721501976
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "es_419",
+      "split": "test",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/es_419/test/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 703040007
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "es_419",
+      "split": "train",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/es_419/train/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 1846159618
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "fr_fr",
+      "split": "test",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/fr_fr/test/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 445464011
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "fr_fr",
+      "split": "train",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/fr_fr/train/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 2315335738
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "hi_in",
+      "split": "test",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/hi_in/test/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 305903369
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "hi_in",
+      "split": "train",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/hi_in/train/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 1529543468
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "pt_br",
+      "split": "test",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/pt_br/test/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 741766051
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "pt_br",
+      "split": "train",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/pt_br/train/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 2317882060
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "sw_ke",
+      "split": "test",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/sw_ke/test/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 440719642
+    },
+    {
+      "dataset": "google/fleurs",
+      "config": "sw_ke",
+      "split": "train",
+      "url": "https://huggingface.co/datasets/google/fleurs/resolve/refs%2Fconvert%2Fparquet/sw_ke/train/0000.parquet",
+      "filename": "0000.parquet",
+      "size": 3093209341
+    }
+  ]
+}
