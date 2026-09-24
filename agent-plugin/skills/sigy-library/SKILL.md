@@ -1,6 +1,6 @@
 ---
 name: sigy-library
-description: Use the Sigy MCP tools to inspect one local library, search the cached radio directory, subscribe to a podcast, refresh one feed, download one enclosure, and play a retained recording. Use when the user asks about Sigy, a station, a recording, or a podcast in the configured library.
+description: Use the Sigy MCP tools to inspect one local library, search the cached radio directory, subscribe to a podcast, refresh one feed, download one enclosure, play a retained recording, and transcribe and translate it locally. Use when the user asks about Sigy, a station, a recording, or a podcast in the configured library.
 license: Apache-2.0
 compatibility: Requires the sigy executable on the client command path, or an mcp.json command edited to that executable. MCP 2026-07-28 over stdio. The server library is the --data-dir given at startup.
 ---
@@ -22,6 +22,8 @@ Sigy is a local catalog. The MCP server runs the same commands as the CLI agains
 - `podcast_download` is explicit. It reserves 512 MiB and 30 minutes before connecting. Reusing the recording id does not download again.
 - `record_start` records an already registered source revision. It does not accept a URL. Radio attempts stay within 15 minutes and 256 MiB.
 - `listen_file` plays a retained file or one sealed segment. Pass `destination` `null` unless the user asked for speakers. An episode enclosure has no live listen: do not call a live listen on that revision. `listen_pause` is not `record_pause`.
+- `analysis_transcribe` and `analysis_translate` run local models the user already configured; there is no tool that adds a profile, an executable path, or a paid provider. A job id is an idempotency key: reuse returns the stored job and never reruns it. Poll `analysis_job` until the job is no longer queued or running.
+- `analysis_transcript` and `analysis_translation` return machine output. Quote it as machine-recognized or machine-translated, keep the original script beside any English, cite the media time, and do not treat a translation as independent support for what it says. An untranslated cue carries its reason, such as `unsupported-language`.
 - `service_stop` stops the controller. Quit of an agent does not, by itself, stop a recording. Call `service_stop` only when the user asked to stop the service.
 
 ## Library path

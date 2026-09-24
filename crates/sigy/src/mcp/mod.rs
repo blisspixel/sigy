@@ -259,6 +259,36 @@ mod tests {
     }
 
     #[test]
+    fn analysis_tools_exist_but_profiles_and_executables_are_not_agent_tools() -> Result<(), String>
+    {
+        let list = tools::tool_list();
+        let tools = list["tools"].as_array().ok_or("tools")?;
+        let names: Vec<&str> = tools
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        for expected in [
+            "analysis_transcribe",
+            "analysis_translate",
+            "analysis_transcript",
+            "analysis_translation",
+            "analysis_job",
+        ] {
+            if !names.contains(&expected) {
+                return Err(format!("missing {expected}"));
+            }
+        }
+        let text = list.to_string();
+        if names.iter().any(|name| name.contains("profile"))
+            || text.contains("runtime_dir")
+            || text.contains("\"model\"")
+        {
+            return Err(text);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn an_unsupported_version_lists_the_modern_revision() -> Result<(), String> {
         let response = dispatch(
             Path::new("unused"),
