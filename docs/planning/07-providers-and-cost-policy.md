@@ -99,11 +99,11 @@ Unknown charges remain visible and conservatively reserved until authoritative e
 
 Provider-managed continuous jobs need an enforceable expiry, finite total liability, or provider-side spending bound that remains effective if Sigy is offline. A local stop timer cannot bound a remote job that keeps billing after a host failure. Prefer bounded clip requests for music identification until a continuous-service contract passes this requirement. Creating paid subscriptions or enabling automatic renewal is a separate explicit action, never an incidental monitor operation.
 
-A budget period uses an explicit time zone and rollover policy. In-flight commitments remain accounted for across the boundary. Clock rollback, forward jumps, and daylight-saving changes cannot renew a budget twice or free unresolved reservations.
+The default paid allowance is a one-time lifetime amount approved by the user (for example USD 20 total) that draws down and never resets or refills automatically, as the user required on 2026-09-24. A periodic budget exists only if the user explicitly creates one; it then uses an explicit time zone and rollover policy. In-flight commitments remain accounted for across the boundary. Clock rollback, forward jumps, and daylight-saving changes cannot renew a budget twice or free unresolved reservations.
 
 ## 7. Independent provider-side controls
 
-Recommend a dedicated limited key for Sigy. Inspect available key limits and reset behavior without requiring a powerful account-management key for routine inference.
+Recommend a dedicated limited key for Sigy, with a hard, non-resetting credit limit (for OpenRouter, `limit` with `limit_reset: null`) as a second line of defense behind Sigy's ledger. Inspect available key limits and reset behavior without requiring a powerful account-management key for routine inference.
 
 For OpenRouter, research supports key-limit inspection, routing price restrictions, usage reporting, and generation lookup. Provider-side budget controls are a second boundary. Their in-flight and billing semantics still need contract tests; an account balance is not the Sigy budget.
 
@@ -121,7 +121,7 @@ Before activation, show task-specific destination and limits: which processing s
 
 During a run, show settled cost, reserved maximum, unresolved charges, remaining budget, current estimated burn rate, and projected time to the limit. Estimates are labeled and never drive enforcement alone.
 
-At the cap, the affected processing stage pauses. Capture may continue only within its separately authorized retention and storage budget. The user can use an already approved local alternative, wait for the next period if authorized, or revise the policy.
+At the cap, the affected processing stage pauses. Capture may continue only within its separately authorized retention and storage budget. The user can use an already approved local alternative or explicitly approve a new allowance; nothing refills on its own.
 
 CLI and TUI expose the same inspectable ledger. Exports redact secrets and preserve pricing/usage evidence needed to explain costs. Provider test commands distinguish free connectivity checks from paid sample inference.
 

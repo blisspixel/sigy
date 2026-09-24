@@ -8,7 +8,7 @@ This record holds current state only. The detailed narrative from 2026-09-20 to 
 
 | Item | Current value |
 | --- | --- |
-| Catalog schema / local IPC | v27 / v27 |
+| Catalog schema / local IPC | v28 / v28 |
 | Verification | `cargo verify`: 339 tests passed, 13 native-media tests ignored, warnings-denied Clippy, build, and `cargo audit` of 312 crates against 1,269 advisories. `cargo verify-media`: 13 of 13 on FFmpeg 9.0.1 |
 | Host | Windows 11 x86_64, Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Two build jobs, two test threads, one media-test thread |
 | Other platforms | Build from source only. macOS, Linux and small always-on hosts are unqualified |
@@ -37,8 +37,8 @@ States: **done** means the operation's local exit evidence exists on this host; 
 | 23 | Local transcription | partial | [native recognition worker](../decisions/0039-native-recognition-worker.md) runs in the service with fault fixtures; [three-clip calibration](../../research/experiments/local-asr/three-clip-calibration.md). Per-language benchmark checks remain |
 | 24 | Language spans | partial | [language evidence](../decisions/0033-language-evidence.md) storage; recognizer block labels stored as unevaluated evidence. Measured detection remains |
 | 25 | English translation aligned to a transcript | open | Engine selection in progress |
-| 26 | Provider configuration, dispatch off | partial | Being implemented |
-| 27 | Billing faults before any live provider | partial | [exact provider pricing](../decisions/0037-exact-provider-pricing.md); fault dispatcher being implemented |
+| 26 | Provider configuration, dispatch off | done locally | [provider configuration and billing faults](../decisions/0040-provider-configuration-and-billing-faults.md): immutable routes, secret references only, exact price snapshots |
+| 27 | Billing faults before any live provider | done locally | [exact provider pricing](../decisions/0037-exact-provider-pricing.md) and [billing faults](../decisions/0040-provider-configuration-and-billing-faults.md): an offline dispatcher proves every listed fault, including a lifetime allowance that never refills. No live transport exists |
 | 28 | Live queue over committed segments | open | |
 | 29 | Corrections as appended revisions | open | |
 | 30 to 35 | Monitor bounds, scheduling, cited findings, briefings, projection history, classification off | open | |
@@ -67,10 +67,10 @@ New downloads so far total about 15.6 GB of the 100 GB ceiling (see the history 
 - **Quality:** no language is qualified. The 32-clip calibration and the frozen holdout remain.
 - **Durability:** physical power loss, complete media backup and restore on another host, and the 5000 ms segment window as a measured guarantee are unproven.
 - **Platforms:** only this Windows host. Unix parent-death and peer checks, installers and OS startup are unqualified.
-- **Public stations:** the [live station pilot](../../research/experiments/local-asr/live-station-pilot.md) recorded and transcribed four of eight public news stations (Spanish, Arabic, Portuguese, Swahili). A stream-edge header delay that blocked a Canadian French station is fixed but not yet re-recorded.
+- **Public stations:** the [live station pilot](../../research/experiments/local-asr/live-station-pilot.md) recorded and transcribed four of eight public news stations (Spanish, Arabic, Portuguese, Swahili). A stream-edge header delay that blocked the Canadian French station is fixed, and that station has since been recorded and transcribed.
 - **Live HLS:** three of those eight stations (Chinese, Hindi and one Arabic) publish only live HLS, which `record hls` does not accept. This is a material coverage gap.
 - **Chunking:** a station recording of more than 60 seconds cannot yet be transcribed; a 60-second request publishes 63 to 74 seconds.
-- **Paid processing:** dispatch is unavailable; the product's default paid budget is zero.
+- **Paid processing:** dispatch is unavailable; the product's default paid budget is zero. When enabled, paid use draws down a one-time lifetime allowance that never refills.
 
 ## Spending ledger
 
