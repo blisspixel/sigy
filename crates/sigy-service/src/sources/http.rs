@@ -28,6 +28,9 @@ use super::{
 };
 use crate::{Error, Result};
 
+/// Longest silence tolerated while waiting for headers or the next body bytes.
+const STALL_TIMEOUT: Duration = Duration::from_secs(12);
+
 pub const MAXIMUM_BODY_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAXIMUM_DURATION: Duration = Duration::from_mins(15);
 /// Episode downloads reserve this whole ceiling. Radio acquisition cannot use it.
@@ -330,7 +333,9 @@ impl HttpAcquirer {
             .connect_timeout(Duration::from_secs(5).min(limits.duration))
             // Overall deadlines belong to the transfer. A shorter read timeout
             // would race an intentional recording limit and discard its receipt.
-            .read_timeout(Duration::from_secs(5))
+            // Some stream edges pre-fill a buffer before sending headers: one
+            // observed on 2026-09-24 answered after about 5.4 seconds.
+            .read_timeout(STALL_TIMEOUT)
             .timeout(limits.duration + Duration::from_secs(5))
             .dns_resolver(resolver::CheckedResolver::new(
                 source.network,

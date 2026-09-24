@@ -1871,6 +1871,8 @@ struct SegmentServer {
     url: String,
     hits: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     stop: Arc<AtomicBool>,
+    /// Holds the stream open after the second segment until the test releases it.
+    release: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<std::io::Result<()>>>,
 }
 
@@ -1882,8 +1884,10 @@ impl SegmentServer {
         let url = format!("http://127.0.0.1:{}/audio", listener.local_addr()?.port());
         let hits = std::sync::Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
         let hits_worker = hits.clone();
         let stop_worker = stop.clone();
+        let release_worker = release.clone();
         let worker = thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(40);
             while !stop_worker.load(Ordering::Relaxed) && Instant::now() < deadline {
@@ -1903,7 +1907,13 @@ impl SegmentServer {
                         write_paced(&mut stream, &first, Duration::from_millis(3500))?;
                         thread::sleep(Duration::from_millis(3500));
                         write_paced(&mut stream, &second, Duration::from_millis(3500))?;
+                        // Keep the tail open while the test inspects it, without depending on
+                        // how long playback takes on a loaded host. Stay under the stall timeout.
+                        let hold = Instant::now() + Duration::from_secs(10);
                         thread::sleep(Duration::from_millis(3000));
+                        while !release_worker.load(Ordering::Relaxed) && Instant::now() < hold {
+                            thread::sleep(Duration::from_millis(20));
+                        }
                         stream.write_all(b"0\r\n\r\n")?;
                         stream.flush()?;
                         let _ = stream.shutdown(std::net::Shutdown::Write);
@@ -1928,8 +1938,14 @@ impl SegmentServer {
             url,
             hits,
             stop,
+            release,
             worker: Some(worker),
         })
+    }
+
+    fn release_tail(&self) {
+        self.release
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn hits(&self) -> usize {
@@ -2044,7 +2060,9 @@ fn running_capture_seals_ordered_segments_on_one_socket() -> TestResult {
         intervals[1]["decoded_start_us"],
         intervals[0]["decoded_end_us"]
     );
-    play_two_segments_without_stopping_capture(directory.path(), intervals)?;
+    let checked = play_two_segments_without_stopping_capture(directory.path(), intervals);
+    server.release_tail();
+    checked?;
     server.finish()?;
     let done = wait_recording(directory.path(), "segments", "completed")?;
     assert_eq!(server.hits(), 1);

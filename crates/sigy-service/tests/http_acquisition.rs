@@ -513,3 +513,41 @@ fn environment_proxies_cannot_redirect_an_attempt() -> TestResult {
     assert!(matches!(proxy.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
     Ok(())
 }
+
+#[tokio::test]
+async fn a_stream_edge_that_prefills_before_headers_is_not_a_connection_failure() -> TestResult {
+    // Observed on a public stream edge on 2026-09-24: HTTP/1.0 headers after about 5.4 s.
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await?;
+        let mut request = Vec::new();
+        while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+            request.push(socket.read_u8().await?);
+        }
+        tokio::time::sleep(Duration::from_millis(6500)).await;
+        socket
+            .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: audio/mpeg\r\n\r\nabcdef")
+            .await?;
+        Ok::<_, std::io::Error>(())
+    });
+    let source = HttpSource::new(
+        "Premiere",
+        &format!("http://fixture.invalid:{}/live.mp3", address.port()),
+        NetworkScope::PinnedAddress {
+            address: address.ip(),
+        },
+    )?;
+    let mut received = Vec::new();
+    let receipt = HttpAcquirer::default()
+        .acquire(
+            &source,
+            AcquisitionLimits::new(100, Duration::from_secs(20))?,
+            &mut received,
+        )
+        .await?;
+    assert_eq!(received, b"abcdef");
+    assert_eq!(receipt.end, TransferEnd::EndOfBody);
+    server.await??;
+    Ok(())
+}

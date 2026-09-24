@@ -55,7 +55,7 @@ The [roadmap](../../ROADMAP.md#whats-next) explains the order and which work pro
 
 The [language pipeline plan](language-pipeline.md) is the active build goal, including the [2026-09-24 decisions](language-pipeline.md#2026-09-24-decisions): bounded native execution with network isolation recorded as a limitation, a portable CPU baseline with optional acceleration, a required speech-activity gate, lighter acquisition records, and bounded public station audio for validation.
 
-Current evidence: whisper.cpp b5130 with `ggml-large-v3-turbo-q5_0` and the Silero VAD transcribed the three FLEURS calibration clips with loose CER of 1.7% (Arabic), 9.3% (Hindi) and 0% (Spanish), and produced no text for silence. With two capped threads it ran 6 to 16 times slower than real time. Three read-speech clips qualify no language. Canadian French, Navajo and Klingon remain required cases with no tested model.
+Current evidence: whisper.cpp b5130 with `ggml-large-v3-turbo-q5_0` and the Silero VAD transcribed the three FLEURS calibration clips with loose CER of 1.7% (Arabic), 9.3% (Hindi) and 0% (Spanish), and produced no text for silence. With two capped threads it ran 6 to 16 times slower than real time. Three read-speech clips qualify no language. Canadian French, Navajo and Klingon remain required cases with no tested model. A first manual translation check of the three calibration transcripts with Hy-MT2 1.8B through llama.cpp b11146 produced one critical meaning error in Arabic and one wrong verb in Hindi; translation needs its own calibrated error checks before any claim.
 
 New downloads so far total about 15.6 GB of the 100 GB ceiling (see the history file for the itemized policy charges and the [three-clip record](../../research/experiments/local-asr/three-clip-calibration.md) for the two added models).
 
@@ -67,7 +67,9 @@ New downloads so far total about 15.6 GB of the 100 GB ceiling (see the history 
 - **Quality:** no language is qualified. The 32-clip calibration and the frozen holdout remain.
 - **Durability:** physical power loss, complete media backup and restore on another host, and the 5000 ms segment window as a measured guarantee are unproven.
 - **Platforms:** only this Windows host. Unix parent-death and peer checks, installers and OS startup are unqualified.
-- **Public stations:** bounded public station recordings are authorized for validation but none has been recorded yet.
+- **Public stations:** the [live station pilot](../../research/experiments/local-asr/live-station-pilot.md) recorded and transcribed four of eight public news stations (Spanish, Arabic, Portuguese, Swahili). A stream-edge header delay that blocked a Canadian French station is fixed but not yet re-recorded.
+- **Live HLS:** three of those eight stations (Chinese, Hindi and one Arabic) publish only live HLS, which `record hls` does not accept. This is a material coverage gap.
+- **Chunking:** a station recording of more than 60 seconds cannot yet be transcribed; a 60-second request publishes 63 to 74 seconds.
 - **Paid processing:** dispatch is unavailable; the product's default paid budget is zero.
 
 ## Spending ledger
