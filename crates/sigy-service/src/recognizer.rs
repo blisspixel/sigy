@@ -22,16 +22,15 @@ use std::{
 };
 
 use processkit::{ProcessGroup, ProcessGroupOptions};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::{io::AsyncReadExt, sync::watch};
 
 use crate::{
     Error, Result,
     recognition::{
-        LocalAsrFailure, LocalAsrInput, LocalAsrJob, LocalAsrOutcome, MAX_ASR_CUES,
-        MAX_ASR_TEXT_BYTES, MAX_MODEL_BYTES, MAX_VAD_BYTES, ReapedLocalAsr, RecognitionCoverage,
-        RecognitionCue, RecognitionOutput, RecognitionProfile, WHISPER_CPP_CLI,
+        LocalAsrFailure, LocalAsrInput, LocalAsrJob, LocalAsrOutcome, MAX_MODEL_BYTES,
+        MAX_VAD_BYTES, ReapedLocalAsr, RecognitionCoverage, RecognitionOutput, RecognitionProfile,
+        WHISPER_CPP_CLI,
     },
     storage::dvr::hex,
 };
@@ -215,6 +214,7 @@ pub(crate) fn not_started(job: &LocalAsrJob) -> ReapedLocalAsr {
     ReapedLocalAsr::drained(
         job,
         LocalAsrOutcome::Failed(LocalAsrFailure::RecognizerFailed),
+        None,
         Drained(()),
     )
 }
@@ -241,15 +241,16 @@ pub(crate) async fn run(
         .join(SCRATCH)
         .join(format!("{}-g{}", task.job.request.id, task.job.generation));
     let prepared = prepare_scratch(&scratch);
-    let (outcome, proof) = match prepared {
+    let (outcome, language, proof) = match prepared {
         Ok(()) => attempt(&task, &scratch, &mut signal).await?,
         Err(_) => (
             LocalAsrOutcome::Failed(LocalAsrFailure::RecognizerFailed),
+            None,
             Drained(()),
         ),
     };
     let _ = std::fs::remove_dir_all(&scratch);
-    Ok(ReapedLocalAsr::drained(&task.job, outcome, proof))
+    Ok(ReapedLocalAsr::drained(&task.job, outcome, language, proof))
 }
 
 fn prepare_scratch(scratch: &Path) -> Result<()> {
@@ -272,8 +273,8 @@ async fn attempt(
     task: &RecognitionTask,
     scratch: &Path,
     signal: &mut watch::Receiver<bool>,
-) -> Result<(LocalAsrOutcome, Drained)> {
-    let fail = |failure| Ok((LocalAsrOutcome::Failed(failure), Drained(())));
+) -> Result<(LocalAsrOutcome, Option<String>, Drained)> {
+    let fail = |failure| Ok((LocalAsrOutcome::Failed(failure), None, Drained(())));
     let input_path = crate::recordings::media_path(&task.directory, &task.input.object_key)?;
     let expected = (task.input.source_sha256.clone(), task.input.byte_length);
     let stop = Arc::new(AtomicBool::new(false));
@@ -282,18 +283,18 @@ async fn attempt(
     })
     .await?;
     if stop.load(Ordering::Acquire) || stopped(signal) {
-        return Ok((LocalAsrOutcome::Cancelled, Drained(())));
+        return Ok((LocalAsrOutcome::Cancelled, None, Drained(())));
     }
     let Ok((true, input_path)) = checked else {
         return fail(LocalAsrFailure::InputUnavailable);
     };
     if stopped(signal) {
-        return Ok((LocalAsrOutcome::Cancelled, Drained(())));
+        return Ok((LocalAsrOutcome::Cancelled, None, Drained(())));
     }
     let profile = task.profile.clone();
     let assets = blocking(&stop, signal, move |stop| verify_assets(&profile, stop)).await?;
     if stop.load(Ordering::Acquire) || stopped(signal) {
-        return Ok((LocalAsrOutcome::Cancelled, Drained(())));
+        return Ok((LocalAsrOutcome::Cancelled, None, Drained(())));
     }
     if !matches!(assets, Ok(true)) {
         return fail(LocalAsrFailure::ProfileUnavailable);
@@ -302,7 +303,7 @@ async fn attempt(
     let decoded = decode(task, &input_path, expected_samples, signal).await?;
     let pcm = match decoded {
         Stage::Done(pcm) => pcm,
-        Stage::Stopped(outcome) => return Ok((outcome, Drained(()))),
+        Stage::Stopped(outcome) => return Ok((outcome, None, Drained(()))),
     };
     let sample_count = (pcm.len() / 2) as u64;
     let decoded_sha256 = hex(&Sha256::digest(&pcm));
@@ -312,12 +313,12 @@ async fn attempt(
     }
     drop(pcm);
     if stopped(signal) {
-        return Ok((LocalAsrOutcome::Cancelled, Drained(())));
+        return Ok((LocalAsrOutcome::Cancelled, None, Drained(())));
     }
     let recognized = recognize(task, scratch, &wav, signal).await?;
     let json = match recognized {
         Stage::Done(json) => json,
-        Stage::Stopped(outcome) => return Ok((outcome, Drained(()))),
+        Stage::Stopped(outcome) => return Ok((outcome, None, Drained(()))),
     };
     let coverage = RecognitionCoverage {
         interval_ordinal: task.input.interval_ordinal,
@@ -328,9 +329,11 @@ async fn attempt(
         sample_rate: SAMPLE_RATE,
         sample_count,
     };
-    let Ok(cues) = parse_whisper_json(&json, &task.input, sample_count) else {
+    let Ok(parsed) = parse_whisper_json(&json, &task.input, sample_count) else {
         return fail(LocalAsrFailure::InvalidOutput);
     };
+    let cues = parsed.cues;
+    let language = parsed.language.filter(|_| !cues.is_empty());
     Ok((
         LocalAsrOutcome::Succeeded(RecognitionOutput {
             profile_sha256: task.job.request.profile_sha256.clone(),
@@ -338,6 +341,7 @@ async fn attempt(
             coverage,
             cues,
         }),
+        language,
         Drained(()),
     ))
 }
@@ -620,85 +624,62 @@ fn read_output(path: &Path) -> Option<Vec<u8>> {
     (bytes.len() as u64 <= MAX_OUTPUT_BYTES).then_some(bytes)
 }
 
-#[derive(Deserialize)]
-struct WhisperJson {
-    transcription: Vec<WhisperSegment>,
-}
-
-#[derive(Deserialize)]
-struct WhisperSegment {
-    offsets: WhisperOffsets,
-    text: String,
-}
-
-#[derive(Deserialize)]
-struct WhisperOffsets {
-    from: i64,
-    to: i64,
-}
-
-/// Map untrusted recognizer JSON onto the pinned media clock.
-///
-/// Offsets are milliseconds from the decoded interval start. Surrounding whitespace is
-/// formatting and is trimmed; a segment with no remaining text is not a cue. A segment
-/// end past the pinned interval end is bounded to that end, because the recognizer
-/// rounds to its own frame grid. Every other inconsistency rejects the whole output.
-pub(crate) fn parse_whisper_json(
-    json: &[u8],
+/// The recognizer's block language label for one published text transcript.
+/// It covers the whole interval at block resolution. It is recognizer evidence, not a
+/// measured language capability, so the route stays unevaluated.
+pub(crate) fn language_evidence(
+    job: &LocalAsrJob,
     input: &LocalAsrInput,
-    sample_count: u64,
-) -> std::result::Result<Vec<RecognitionCue>, &'static str> {
-    let parsed: WhisperJson = serde_json::from_slice(json).map_err(|_| "malformed")?;
-    if parsed.transcription.len() > MAX_ASR_CUES * 4 {
-        return Err("too many segments");
+    code: &str,
+) -> crate::languages::LanguageEvidence {
+    use crate::languages::{
+        LanguageEvidence, LanguageLabel, LanguageMethod, LanguageRoute, LanguageSpan,
+        TranscriptReference,
+    };
+    let request = &job.request;
+    LanguageEvidence {
+        id: request.id.clone(),
+        revision: 1,
+        analysis_id: request.analysis_id.clone(),
+        analysis_revision: request.analysis_revision,
+        transcript: Some(TranscriptReference {
+            id: request.analysis_id.clone(),
+            revision: request.parent_revision + 1,
+        }),
+        method: LanguageMethod {
+            origin: "recognizer".into(),
+            profile: request.profile.clone(),
+            profile_sha256: request.profile_sha256.clone(),
+            resolution: "block".into(),
+            alias_map: "whisper-cpp-codes-v1".into(),
+        },
+        outcome: "succeeded".into(),
+        reason: None,
+        spans: vec![LanguageSpan {
+            ordinal: 0,
+            interval_ordinal: input.interval_ordinal,
+            start_us: input.start_us,
+            end_us: input.end_us,
+            cue_ordinal: None,
+            observation: "identified".into(),
+            languages: vec![LanguageLabel {
+                tag: whisper::language_tag(code),
+                provider_label: code.to_owned(),
+            }],
+            route: LanguageRoute {
+                task: "transcription".into(),
+                capability: "unevaluated".into(),
+                profile: request.profile.clone(),
+                profile_sha256: request.profile_sha256.clone(),
+                basis: "declared".into(),
+                basis_sha256: request.profile_sha256.clone(),
+            },
+        }],
     }
-    let decoded_end = input.start_us + sample_count * 1_000_000 / u64::from(SAMPLE_RATE);
-    let mut cues = Vec::new();
-    let mut previous_end = input.start_us;
-    let mut text_bytes = 0_usize;
-    for segment in parsed.transcription {
-        let script = segment.text.trim();
-        if script.is_empty() {
-            continue;
-        }
-        let (Ok(from), Ok(to)) = (
-            u64::try_from(segment.offsets.from),
-            u64::try_from(segment.offsets.to),
-        ) else {
-            return Err("negative offset");
-        };
-        if to <= from {
-            return Err("empty segment");
-        }
-        let start = from
-            .checked_mul(1_000)
-            .and_then(|value| value.checked_add(input.start_us))
-            .ok_or("offset range")?;
-        let end = to
-            .checked_mul(1_000)
-            .and_then(|value| value.checked_add(input.start_us))
-            .ok_or("offset range")?
-            .min(input.end_us);
-        if start >= decoded_end || start >= end || start < previous_end {
-            return Err("segment outside decoded audio or out of order");
-        }
-        if script.len() > 4096 || script.chars().any(|c| c == '\0') {
-            return Err("segment text");
-        }
-        text_bytes += script.len();
-        if cues.len() == MAX_ASR_CUES || text_bytes > MAX_ASR_TEXT_BYTES {
-            return Err("output limit");
-        }
-        cues.push(RecognitionCue {
-            ordinal: u32::try_from(cues.len()).map_err(|_| "output limit")?,
-            start_us: start,
-            end_us: end,
-            script: script.to_owned(),
-        });
-        previous_end = end;
-    }
-    Ok(cues)
 }
+
+mod whisper;
+pub(crate) use whisper::parse_whisper_json;
 
 #[cfg(test)]
 mod tests;

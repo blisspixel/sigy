@@ -32,6 +32,10 @@ Containment uses ProcessKit 3.3.4: a Windows Job Object with kill-on-close, or L
 
 Offsets are milliseconds from the decoded interval start and are added to the pinned media clock. Surrounding whitespace is trimmed; a segment with no remaining text is not a cue. A segment end past the pinned interval end is bounded to that end, because the recognizer rounds to its own frame grid; this is the only adjustment. A negative, empty, reversed, overlapping or late segment, NUL text, more than 256 cues, more than 4,096 bytes in one cue, more than 65,536 text bytes, invalid UTF-8 or malformed JSON rejects the whole result as `invalid-worker-output`. Wording remains `uncertain`. A result with no cues is published as `no_text` coverage; it does not assert silence or a language.
 
+## Language evidence
+
+After a text result commits, the recognizer's reported language code becomes one language-evidence revision with the job's ID: origin `recognizer`, block resolution over the whole interval, bound to the exact transcript revision, with the original code kept as the provider label and a documented mapping (`whisper-cpp-codes-v1`, where `jw` becomes `jv`). The route capability is `unevaluated` until per-language quality is measured. A `no_text` result publishes no language observation, because the recognizer names a language even for silence. Evidence is published in a separate transaction; if that fails, the transcript stands and the evidence is visibly absent.
+
 ## Recovery and replay
 
 Exact replay of a job ID returns the stored job and never reruns the recognizer or selects a new model. A changed request under the same ID is refused. An omitted parent revision resolves to the current transcript revision at first admission. Cancellation stops hashing between reads, or ends the decoder or recognizer group, and the job becomes `cancelled`. On restart, running and cancelling recognition jobs become `interrupted` with a new generation, so a late completion from the old process is refused as stale, and stale scratch directories are removed. On Windows, kill-on-close ends the previous service's recognizer with that service; the media test observes this. On Linux this relies on the cgroup being torn down with the service and is not yet tested.
@@ -50,5 +54,5 @@ A manual run on this host used whisper.cpp b5130 with `ggml-large-v3-turbo-q5_0`
 - Profile files are hashed before launch and could change between the hash and the load.
 - One interval of at most 60 seconds per job; longer recordings are not yet chunked.
 - Hashing a large model takes seconds on each run.
-- Language evidence from the recognizer is not yet stored.
+- The recognizer's language label is one block label per run, taken from its first window. It is stored as `recognizer` evidence with an `unevaluated` route; a mixed-language recording gets one label.
 - There is no quality, capacity or platform claim.

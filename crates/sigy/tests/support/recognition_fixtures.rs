@@ -302,6 +302,29 @@ fn speech_and_replay(directory: &Path) -> TestResult {
     assert_eq!(page["cues"][1]["script"], "le monde");
     assert_eq!(page["cues"][1]["end_us"], 1_000_000);
 
+    // The recognizer's block language label is stored as evidence for that transcript.
+    let languages = success(
+        directory,
+        &["analysis", "languages", "list", "pin", "--revision", "1"],
+    )?
+    .to_string();
+    assert!(languages.contains("\"asr-speech\""), "{languages}");
+    assert!(languages.contains("\"recognizer\""), "{languages}");
+    let evidence = success(
+        directory,
+        &[
+            "analysis",
+            "languages",
+            "show",
+            "asr-speech",
+            "--revision",
+            "1",
+        ],
+    )?
+    .to_string();
+    assert!(evidence.contains("\"tag\":\"fr\""), "{evidence}");
+    assert!(evidence.contains("\"unevaluated\""), "{evidence}");
+
     // Exact replay returns the stored job and never runs the recognizer again.
     transcribe(directory, "asr-speech", "speech")?;
     assert_eq!(newest(directory)?["transcript"]["revision"], 1);
@@ -333,6 +356,22 @@ fn faults(directory: &Path, assets: &Assets) -> TestResult {
     assert_eq!(silent["transcript"]["outcome"], "no_text");
     assert_eq!(silent["transcript"]["revision"], 2);
     assert_eq!(silent["transcript"]["parent_revision"], 1);
+    assert!(
+        !invoke(
+            directory,
+            &[
+                "analysis",
+                "languages",
+                "show",
+                "asr-silent",
+                "--revision",
+                "1"
+            ]
+        )?
+        .status
+        .success(),
+        "no text publishes no language observation"
+    );
 
     for (job, mode) in [
         ("asr-garbage", "garbage"),

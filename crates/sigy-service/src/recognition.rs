@@ -192,19 +192,27 @@ pub(crate) struct ReapedLocalAsr {
     request: LocalAsrRequest,
     generation: u32,
     outcome: LocalAsrOutcome,
+    /// The recognizer's own block language code, kept outside the replayed output.
+    language: Option<String>,
 }
 
 impl ReapedLocalAsr {
     pub(crate) fn drained(
         job: &LocalAsrJob,
         outcome: LocalAsrOutcome,
+        language: Option<String>,
         _proof: crate::recognizer::Drained,
     ) -> Self {
         Self {
             request: job.request.clone(),
             generation: job.generation,
             outcome,
+            language,
         }
+    }
+
+    pub(crate) fn language(&self) -> Option<&str> {
+        self.language.as_deref()
     }
 
     pub(crate) fn matches(&self, work: &LocalAsrWork) -> bool {
@@ -221,6 +229,7 @@ impl ReapedLocalAsr {
             request: work.job.request.clone(),
             generation: work.job.generation,
             outcome,
+            language: None,
         }
     }
 }

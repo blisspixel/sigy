@@ -41,7 +41,9 @@ fn segments_map_to_the_pinned_media_clock_in_original_script() -> TestResult {
         ]
         .join(","),
     );
-    let cues = parse_whisper_json(&body, &pinned, 181_440).map_err(str::to_owned)?;
+    let parsed = parse_whisper_json(&body, &pinned, 181_440).map_err(str::to_owned)?;
+    assert_eq!(parsed.language.as_deref(), Some("es"));
+    let cues = parsed.cues;
     assert_eq!(cues.len(), 2);
     assert_eq!(
         (cues[0].ordinal, cues[0].start_us, cues[0].end_us),
@@ -59,12 +61,14 @@ fn empty_transcription_is_valid_no_text_and_blank_segments_are_skipped() -> Test
     assert!(
         parse_whisper_json(&json(""), &pinned, 160_000)
             .map_err(str::to_owned)?
+            .cues
             .is_empty()
     );
     let blank = json(&segment(0, 1000, " \t "));
     assert!(
         parse_whisper_json(&blank, &pinned, 160_000)
             .map_err(str::to_owned)?
+            .cues
             .is_empty()
     );
     Ok(())
@@ -74,7 +78,8 @@ fn empty_transcription_is_valid_no_text_and_blank_segments_are_skipped() -> Test
 fn a_segment_end_past_the_interval_is_bounded_but_a_start_past_audio_is_refused() -> TestResult {
     let pinned = input(0, 10_320_000);
     let cues = parse_whisper_json(&json(&segment(6000, 11_000, "fin")), &pinned, 165_120)
-        .map_err(str::to_owned)?;
+        .map_err(str::to_owned)?
+        .cues;
     assert_eq!(cues[0].end_us, 10_320_000);
     assert!(parse_whisper_json(&json(&segment(10_320, 11_000, "late")), &pinned, 165_120).is_err());
     Ok(())
@@ -300,5 +305,41 @@ fn stale_scratch_is_removed_and_a_file_in_its_place_is_refused() -> TestResult {
     assert!(!root.path().join(SCRATCH).exists());
     std::fs::write(root.path().join(SCRATCH), b"not a directory")?;
     assert!(clear_scratch(root.path()).is_err());
+    Ok(())
+}
+
+#[test]
+fn language_codes_are_bounded_and_mapped_without_losing_the_original() -> TestResult {
+    let pinned = input(0, 10_000_000);
+    let with = |language: &str| {
+        format!(
+            r#"{{"result":{{"language":{language}}},"transcription":[{}]}}"#,
+            segment(0, 500, "texte")
+        )
+        .into_bytes()
+    };
+    let code = |language: &str| {
+        parse_whisper_json(&with(language), &pinned, 160_000).map(|parsed| parsed.language)
+    };
+    assert_eq!(
+        code("\"fr\"").map_err(str::to_owned)?.as_deref(),
+        Some("fr")
+    );
+    assert_eq!(
+        code("\"haw\"").map_err(str::to_owned)?.as_deref(),
+        Some("haw")
+    );
+    for malformed in [
+        "\"FR\"",
+        "\"f\"",
+        "\"fr-CA\"",
+        "\"toolongcode\"",
+        "null",
+        "3",
+    ] {
+        assert_eq!(code(malformed).ok().flatten(), None, "{malformed}");
+    }
+    assert_eq!(whisper::language_tag("jw"), "jv");
+    assert_eq!(whisper::language_tag("zh"), "zh");
     Ok(())
 }

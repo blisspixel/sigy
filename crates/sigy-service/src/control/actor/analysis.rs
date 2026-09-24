@@ -280,9 +280,22 @@ impl Actor {
             return Err(Error::StorageIntegrity);
         };
         let reaped = result?;
-        self.library
+        let now = now_ms()?;
+        let job = self
+            .library
             .store_mut()
-            .finish_local_asr(&work, &reaped, now_ms()?)?;
+            .finish_local_asr(&work, &reaped, now)?;
+        if job.state == "succeeded"
+            && let Some(code) = reaped.language()
+        {
+            // Best effort after the transcript commit: missing evidence stays visibly absent
+            // and never rewrites or fails the published transcript.
+            let evidence = recognizer::language_evidence(&job, &work.input, code);
+            let _ = self
+                .library
+                .store_mut()
+                .publish_language_evidence(evidence, now);
+        }
         Ok(())
     }
 }
