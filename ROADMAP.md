@@ -21,7 +21,7 @@ The first complete release depends on one chain: recognition, then translation, 
 | 2 | **Live HLS and longer recordings.** Record live HLS stations; transcribe recordings longer than 60 seconds and multi-segment captures | Many world stations are HLS only, and real broadcasts are longer than a minute |
 | 3 | **Accelerated profiles.** Vulkan, CUDA, ROCm and Metal builds as separate measured profiles with device evidence; CPU stays the fallback | Must work well on any machine and use its GPU when present |
 | 4 | **Globe and day/night map (operation 36).** Rendering on the existing geometry with offline coastlines and station coordinates | Needed for the terminal experience in stage 4 |
-| 5 | **Backup and restore, corrections, monitor storage (operations 38, 29, 30 to 34)** | Storage contracts can be proven on existing transcripts and translations |
+| 5 | **Topic monitoring (operations 30 to 35)** following the [topic monitoring design](docs/design/topic-monitoring.md), with corrections (operation 29). Backup and restore (operation 38) has its first slice | Monitoring is the stage 6 promise and can now build on real transcripts and translations |
 | 6 | **Live queue, visualizers, release qualification (operations 28, 37, 39 to 41)** | Needs measured capacity first |
 
 Portability is a requirement, not a later polish step. The CPU profile is the baseline on any supported machine. GPU backends and a user-run Ollama are optional accelerations that are detected, measured, and never assumed.
