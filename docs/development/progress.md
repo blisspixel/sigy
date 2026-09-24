@@ -1,8 +1,10 @@
 # Implementation progress
 
-Updated: 2026-09-23. Status: active evaluation and implementation.
+Updated: 2026-09-24. Status: active evaluation and implementation.
 
 ## Current objective
+
+On 2026-09-24 the first local recognition ran in a research harness: whisper.cpp b5130 under Windows Job Object bounds transcribed the Arabic, Hindi, and Spanish calibration clips in original script, and a speech-activity gate removed a hallucinated word on a silence control. See the [three-clip calibration](../../research/experiments/local-asr/three-clip-calibration.md) and the [2026-09-24 decisions](language-pipeline.md#2026-09-24-decisions). The application still refuses transcription until the service worker below exists.
 
 Build the first complete release by the [roadmap build order](../../ROADMAP.md#build-order), one verified operation at a time. Operations 1 through 22 have their recorded bounded evidence below. Operation 23 has legacy transcript persistence groundwork and supervised input verification, but it does not recognize speech. New transcribe requests now fail without creating empty cues. Operation 24 now has language-evidence storage and read-only inspection; actual recognition remains an open operation 23 gate before translation in operation 25. The [language pipeline plan](language-pipeline.md) records the current build goal, dependencies, model comparisons, and validation criteria.
 
@@ -55,6 +57,7 @@ Pushing `main` or opening a pull request runs `cargo verify` on one standard Git
 | 2026-09-22 | Native process boundary probe and CI maintenance | 0 | 0 | Local bounded child fixtures and action-pin review; no model, paid request, or hosted compute allocation |
 | 2026-09-22 | Local network-boundary screen and ASR asset plan | 0 | 0 | One finite trusted-child loopback run and metadata-only model review; no model or paid request |
 | 2026-09-22 | Offline language scorer and worker-boundary review | 0 | 0 | Synthetic scorer tests and source-level native worker study; no audio, model, or paid request |
+| 2026-09-24 | Three-clip local recognition calibration | 0 | 0 | Two pinned public model downloads and local CPU inference; no paid request |
 
 The plan proposes an initial paid batch of at most USD 2 after billing qualification. It has no reservation yet. Record the concrete request manifest, exact maximum liability, runtime ledger reference, and later settlement here before executing a batch. The user raised the [new-download and experiment-workspace ceilings to 100 GB each](language-pipeline.md#confirmed-scope-and-working-limits) on 2026-09-22; acquisition still needs exact reservations and existing user models stay untouched.
 

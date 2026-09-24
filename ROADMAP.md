@@ -1,12 +1,27 @@
 # Roadmap
 
-Last updated: 2026-09-22
+Last updated: 2026-09-24
 
 This roadmap is organized by evidence and exit criteria. It does not assign speculative completion dates. Implementation has begun on the Rust foundation; the complete release remains ahead. [Current evidence and active work](docs/development/progress.md) distinguish completed slices from these planned stages.
 
-The current foundation is recorded in [implementation progress](docs/development/progress.md): the Rust service, exact ledger, Windows controller, capture journal, source authority, radio and podcast acquisition, segmented recording and retention, playback, the list explorer, civil schedules, and saved directory refresh. Local Windows fixtures cover those increments. Analysis pins and empty transcript revisions exist; speech recognition and translation do not. The next work follows the [language pipeline plan](docs/development/language-pipeline.md). A prior live directory metadata check is recorded separately. No stage below is exited.
+The current foundation is recorded in [implementation progress](docs/development/progress.md): the Rust service, exact ledger, Windows controller, capture journal, source authority, radio and podcast acquisition, segmented recording and retention, playback, the list explorer, civil schedules, and saved directory refresh. Local Windows fixtures cover those increments. Analysis pins and empty transcript revisions exist. A first [three-clip recognition calibration](research/experiments/local-asr/three-clip-calibration.md) has run in a research harness; the application does not yet recognize speech or translate. The next work follows the [language pipeline plan](docs/development/language-pipeline.md). No stage below is exited.
 
 The product journey is to explore signals and discover their meaning in context. Each milestone must make the path from observation to interpretation inspectable, preserve uncertainty, and support learning and correction. These are planned acceptance requirements, not claims about the current implementation.
+
+## What's next
+
+The first complete release depends on one chain: recognition, then translation, then the live queue, then monitoring, then release qualification. Recognition is the current bottleneck, so it comes first. Work that does not depend on recognition runs alongside it.
+
+| Order | Work | Why now |
+| --- | --- | --- |
+| 1 | **Recognition in the service (operation 23).** A supervised worker runs a pinned recognizer under Job Object bounds with a speech-activity gate, parses bounded output as untrusted, and publishes immutable original-script transcripts. Expand calibration from three clips to ten, then the 32-clip calibration partition | Every later language, translation, and monitoring feature needs real transcripts. The three-clip calibration showed the path works and that a speech-activity gate is required |
+| 2 | **Billing faults and provider configuration (operations 26 and 27).** Exact per-token price parsing, worst-case liability, a fake transport that injects timeouts, missing usage, and credit refusals, with no network | Unlocks the bounded paid comparison and model-judged translation checks. Independent of recognition |
+| 3 | **Language evidence and translation (operations 24 and 25).** Store recognizer language labels as acoustic evidence; translate cue by cue with the original preserved, scored with chrF++ against FLEURS parallel references | Turns transcripts into understanding, which is the core promise |
+| 4 | **Globe and day/night map (operation 36).** Orthographic projection, offline coastlines, and a solar terminator from one explicit instant, all without new dependencies | The terminal experience needs it for stage 4 and it does not wait on language work |
+| 5 | **Backup and restore rehearsal, corrections, monitor storage (operations 38, 29, 30 to 34)** on fixture transcripts | Storage contracts can be proven before live language output exists |
+| 6 | **Live queue, visualizers, release qualification (operations 28, 37, 39 to 41)** | Needs measured recognition capacity first |
+
+Portability is a requirement, not a later polish step. The CPU profile is the baseline on any supported machine. GPU backends and a user-run Ollama are optional accelerations that are detected, measured, and never assumed.
 
 | Stage | Scope | Exit criteria |
 | --- | --- | --- |
@@ -29,7 +44,7 @@ Stages 3 through 6 are internal engineering milestones. An explorer-only build i
 
 ## Build order
 
-The implementation goal is the first complete release in stage 7: radio exploration, recordings, live translation, and bounded topic monitoring, with a complete CLI and an optional TUI, on declared profiles only. Reach that release by the operations below, in order. Stages 8 through 13 stay after it. The numbered operations preserve recorded history; they do not postpone safety, recovery, usability, or security checks until a final phase.
+The implementation goal is the first complete release in stage 7: radio exploration, recordings, live translation, and bounded topic monitoring, with a complete CLI and an optional TUI, on declared profiles only. Reach that release through the operations below in dependency order; independent operations may proceed in parallel, as [what's next](#whats-next) describes. Stages 8 through 13 stay after it. The numbered operations preserve recorded history; they do not postpone safety, recovery, usability, or security checks until a final phase.
 
 Stage numbers are exit bars, not a claim that the code must be written in stage order. A passing operation does not exit a stage. Backup, restore and power-loss rehearsals begin as the affected boundaries change; final qualification repeats them against the release schema and declared filesystem. Stage 3 is exited only by that final evidence. Stage 4 is exited only when listening, podcasts, segmented DVR, the list explorer, the globe, and the visualizers all meet their checks together.
 

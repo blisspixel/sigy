@@ -1,6 +1,14 @@
 # Retained-recording language pipeline
 
-Updated: 2026-09-23. Status: authorized build goal and implementation plan. Model selection, recognition, language spans, translation, and provider dispatch are not implemented by this document.
+Updated: 2026-09-24. Status: authorized build goal and implementation plan. Language spans, translation, and provider dispatch are not implemented. The first local recognition calibration has run in a research harness; the application does not yet recognize speech.
+
+## 2026-09-24 decisions
+
+- **Bounded native execution now.** The user chose to run pinned, hash-checked native recognizers under enforceable Windows Job Object bounds (process count, committed memory, CPU rate, kill-on-close, bounded output, wall deadline, verified empty job) without waiting for AppContainer network denial or job assignment at creation. Those remain release gates for recognition on user recordings, recorded as limitations until proven. Never describe a Job Object as a network sandbox.
+- **Portable baseline, optional acceleration.** Sigy must work on any supported machine. The CPU profile is the baseline and must not depend on this host's Radeon 780M, a GPU SDK, or an installed Ollama. GPU backends and a user-run Ollama are optional profiles, detected at runtime, used only when present, and claimed only when measured. Thread counts and model size are chosen per host from measured profiles.
+- **Speech-activity gate required.** The [three-clip calibration](../../research/experiments/local-asr/three-clip-calibration.md) showed the recognizer emitting text for digital silence without VAD and none with the Silero VAD. Product recognition profiles include a measured speech-activity gate.
+- **Less ceremony, same honesty.** New acquisitions are recorded in one experiment manifest with bytes, hashes, licenses, and origins, not a separate document per request. HEAD-only pilots are no longer required before a hash-verified transfer. Notices and source closure gate redistribution, not local execution.
+- **Bounded public station audio.** The user authorized short recordings from a small number of public stations listed in Radio Browser (about ten stations, 60 to 120 seconds each, direct streams) for decode and recognition validation. Recordings stay local and are not committed.
 
 ## Goal and current evidence
 
@@ -16,7 +24,7 @@ Catalog v26 adds [transcript revision storage](../decisions/0035-transcript-revi
 
 - The initial survey is French, Spanish, Portuguese, Arabic, Swahili, Hindi, Mandarin, and English, confirmed on 2026-09-22. A majority of evaluated speech duration must be non-English. Survey membership is not a support claim.
 - Canadian French, Navajo, and Klingon remain required substantive content-processing cases under the [language contract](../design/languages.md). Generic French does not qualify Canadian French. An honest unsupported result does not fulfill substantive support. Missing models and lawful reference corpora remain explicit gaps.
-- Start on the current Windows laptop: Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Read-only inspection found display driver `32.0.31007.5012` and Ollama `0.34.2`. Compare a CPU baseline with an available iGPU backend. Other machines follow later; no platform or acceleration matrix is qualified.
+- Start on the current Windows laptop: Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Read-only inspection found display driver `32.0.31007.5012` and Ollama `0.34.2`. Compare a CPU baseline with an available iGPU backend. This laptop is the first measurement host, not the target; the CPU baseline must stay usable without its GPU or Ollama. Other machines follow later; no platform or acceleration matrix is qualified.
 - Ollama, OpenRouter, and native local workers are task-specific adapter targets. Endpoint compatibility, model capability, language quality, and host capacity are separate checks. A text completion endpoint is not automatically an ASR endpoint. A local URL does not establish that execution stays local.
 - The application uses one supervised recognition interface with configurable, measured model profiles. Language identification, routing, and unsupported outcomes are data and policy decisions, not separate application executables per language. The language-specific binaries under ignored `.agents/` isolate first-pilot acquisition and decoding evidence; they are not installed or shipped with Sigy. Consolidate that disposable tooling after the three-file path is validated.
 - Validation must run without newly arranged human reviewers, as requested on 2026-09-22. Use published reference material, deterministic metrics, and calibrated independent model checks. Label results as benchmark-tested and model-reviewed where applicable; do not claim human review or unrestricted language quality. Missing independent reference evidence stays a limitation, not a requirement to recruit people before implementation can continue.
