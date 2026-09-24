@@ -36,6 +36,7 @@ This folder records primary-source findings, measured experiments, design implic
 | Explicit redirect grants, checked hops and recording provenance | [28. HTTP redirects](28-http-redirects.md) |
 | User-controlled proxies, DNS trust, external VPNs and route evidence | [29. Network routing](29-network-routing.md) |
 | Native ASR/translation candidates, iGPU comparison, automated quality evidence, and bounded remote validation | [30. Retained-recording language evaluation](30-language-pipeline-evaluation.md) |
+| Job queues, execution isolation, containers, clusters, serverless GPU and hosted providers for scaling | [31. Scaling and execution](31-scaling-and-execution.md) |
 
 ## Evidence discipline
 
