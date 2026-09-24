@@ -3,9 +3,10 @@ use crate::style::{Ink, Tone};
 use clap::Subcommand;
 use sigy_service::control::{
     AnalysisDisposition, AnalysisOperation, AnalysisPage, Operation, ProfileOperation,
-    RecognitionView,
+    RecognitionView, TranslationProfileOperation,
 };
 use sigy_service::recognition::{LocalAsrJob, RecognitionProfile, TranscriptCuePage};
+use sigy_service::translation::{TranslationJob, TranslationPage, TranslationProfile};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -81,7 +82,75 @@ pub enum AnalysisCommand {
         #[command(subcommand)]
         command: ProfileCommand,
     },
+    /// Translate a recognized transcript into English with a local profile. Runs in the service.
+    Translate {
+        /// Job ID. Repeating the same request returns the same job and never reruns it.
+        id: String,
+        /// Analysis pin whose transcript is translated.
+        #[arg(long)]
+        input: String,
+        /// Transcript revision. Defaults to the newest.
+        #[arg(long)]
+        transcript_revision: Option<i64>,
+        /// Translation profile ID.
+        #[arg(long)]
+        profile: String,
+    },
+    /// Show original and English text side by side. Machine translation, unreviewed.
+    Translation {
+        id: String,
+        #[arg(long)]
+        transcript_revision: Option<i64>,
+        #[arg(long)]
+        revision: Option<i64>,
+        #[arg(long)]
+        after: Option<u32>,
+    },
+    /// Manage local translation profiles. Files are hashed now and before every run.
+    TranslationProfile {
+        #[command(subcommand)]
+        command: TranslationProfileCommand,
+    },
 }
+
+#[derive(Debug, Subcommand)]
+pub enum TranslationProfileCommand {
+    /// Hash a local llama.cpp runtime and translation model into a profile.
+    Add {
+        id: String,
+        /// Directory holding llama-completion and its libraries.
+        #[arg(long)]
+        runtime_dir: PathBuf,
+        /// Executable file name inside the runtime directory.
+        #[arg(long, default_value = DEFAULT_TRANSLATOR)]
+        executable: String,
+        /// Translation model file (GGUF).
+        #[arg(long)]
+        model: PathBuf,
+        /// Source languages the model declares, as comma-separated codes such as ar,es,fr.
+        /// Other detected languages are left untranslated with a reason.
+        #[arg(long)]
+        languages: String,
+        #[arg(long)]
+        threads: Option<u32>,
+        /// Committed-memory ceiling for one translator process, in MiB.
+        #[arg(long, default_value_t = 3072)]
+        memory_mib: u64,
+        /// Wall deadline for one cue, in seconds.
+        #[arg(long, default_value_t = 120)]
+        cue_deadline_seconds: u64,
+    },
+    List,
+    Show {
+        id: String,
+    },
+}
+
+const DEFAULT_TRANSLATOR: &str = if cfg!(windows) {
+    "llama-completion.exe"
+} else {
+    "llama-completion"
+};
 
 #[derive(Debug, Subcommand)]
 pub enum ProfileCommand {
@@ -188,8 +257,70 @@ impl AnalysisCommand {
             Self::Profile { command } => AnalysisOperation::Profile {
                 command: command.operation()?,
             },
+            Self::Translate {
+                id,
+                input,
+                transcript_revision,
+                profile,
+            } => AnalysisOperation::Translate {
+                id: id.clone(),
+                input: input.clone(),
+                transcript_revision: *transcript_revision,
+                profile: profile.clone(),
+            },
+            Self::Translation {
+                id,
+                transcript_revision,
+                revision,
+                after,
+            } => AnalysisOperation::Translation {
+                id: id.clone(),
+                transcript_revision: *transcript_revision,
+                revision: *revision,
+                after: *after,
+            },
+            Self::TranslationProfile { command } => AnalysisOperation::TranslationProfile {
+                command: command.operation()?,
+            },
         }
         .into())
+    }
+}
+
+impl TranslationProfileCommand {
+    fn operation(&self) -> Result<TranslationProfileOperation, Box<dyn std::error::Error>> {
+        Ok(match self {
+            Self::Add {
+                id,
+                runtime_dir,
+                executable,
+                model,
+                languages,
+                threads,
+                memory_mib,
+                cue_deadline_seconds,
+            } => {
+                let profile = sigy_service::recognizer::translate::describe_translation_profile(
+                    id,
+                    &std::path::absolute(runtime_dir)?,
+                    executable,
+                    &std::path::absolute(model)?,
+                    languages,
+                    threads.unwrap_or_else(default_threads),
+                    memory_mib
+                        .checked_mul(1024 * 1024)
+                        .ok_or("memory limit is too large")?,
+                    cue_deadline_seconds
+                        .checked_mul(1000)
+                        .ok_or("deadline is too large")?,
+                )?;
+                TranslationProfileOperation::Add {
+                    profile: Box::new(profile),
+                }
+            }
+            Self::List => TranslationProfileOperation::List {},
+            Self::Show { id } => TranslationProfileOperation::Show { id: id.clone() },
+        })
     }
 }
 
@@ -259,8 +390,128 @@ pub fn render_recognition(writer: &mut impl Write, view: &RecognitionView) -> io
         }
         RecognitionView::Job { job } => render_recognition_job(writer, job),
         RecognitionView::Transcript { page } => render_transcript(writer, page),
-        RecognitionView::Empty { id } => writeln!(writer, "No transcript for {id}."),
+        RecognitionView::Empty { id } => writeln!(writer, "Nothing stored yet for {id}."),
+        RecognitionView::TranslationProfiles { profiles } => {
+            if profiles.is_empty() {
+                writeln!(
+                    writer,
+                    "No translation profiles. Add one with analysis translation-profile add."
+                )?;
+            }
+            for profile in profiles {
+                render_translation_profile(writer, profile)?;
+            }
+            Ok(())
+        }
+        RecognitionView::TranslationProfile { profile, created } => {
+            writeln!(
+                writer,
+                "{}",
+                if *created {
+                    "Translation profile stored."
+                } else {
+                    "Translation profile."
+                }
+            )?;
+            render_translation_profile(writer, profile)
+        }
+        RecognitionView::TranslationJob { job } => render_translation_job(writer, job),
+        RecognitionView::Translation { page } => render_translation(writer, page),
     }
+}
+
+fn render_translation_profile(
+    writer: &mut impl Write,
+    profile: &TranslationProfile,
+) -> io::Result<()> {
+    writeln!(
+        writer,
+        "{} | {} | {} | declared languages {} | {} threads | {} MiB | {} s per cue | profile sha256 {}.",
+        profile.id,
+        profile.engine,
+        profile.template,
+        profile.languages,
+        profile.threads,
+        profile.memory_bytes / (1024 * 1024),
+        profile.cue_deadline_ms / 1000,
+        profile.profile_sha256
+    )?;
+    writeln!(
+        writer,
+        "Runtime {} ({} files, sha256 {}). Model sha256 {} ({} bytes). Declared languages are not measured quality.",
+        sanitize(&profile.runtime_dir, 1024),
+        profile.runtime_files,
+        profile.runtime_sha256,
+        profile.model_sha256,
+        profile.model_bytes
+    )
+}
+
+fn render_translation_job(writer: &mut impl Write, job: &TranslationJob) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Translation {} generation {}: {}.",
+        job.request.id, job.generation, job.state
+    )?;
+    writeln!(
+        writer,
+        "Transcript {} revision {} | profile {} | {} USD.",
+        job.request.transcript_id,
+        job.request.transcript_revision,
+        job.request.profile,
+        job.amount_usd
+    )?;
+    if let Some(reason) = &job.reason {
+        writeln!(writer, "Reason {reason}.")?;
+    }
+    if job.state == "succeeded" {
+        writeln!(
+            writer,
+            "Read it with: sigy analysis translation {}",
+            job.request.transcript_id
+        )?;
+    }
+    Ok(())
+}
+
+fn render_translation(writer: &mut impl Write, page: &TranslationPage) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Translation {} of transcript {} revision {} | profile {} | {} of {} cues translated | {} USD.",
+        page.revision,
+        page.transcript_id,
+        page.transcript_revision,
+        page.profile,
+        page.translated_count,
+        page.cue_count,
+        page.amount_usd
+    )?;
+    writeln!(
+        writer,
+        "Machine translation into English, unreviewed. It can be wrong; the original is the evidence."
+    )?;
+    for pair in &page.pairs {
+        writeln!(
+            writer,
+            "[{} - {}] {}",
+            clock(pair.start_us),
+            clock(pair.end_us),
+            sanitize(&pair.original, 4096)
+        )?;
+        match (&pair.english, &pair.reason) {
+            (Some(english), _) => writeln!(writer, "    en: {}", sanitize(english, 4096))?,
+            (None, Some(reason)) => writeln!(writer, "    en: (untranslated: {reason})")?,
+            (None, None) => writeln!(writer, "    en: (untranslated)")?,
+        }
+    }
+    if let Some(next) = page.next_after_ordinal {
+        writeln!(
+            writer,
+            "More cues: sigy analysis translation {} --transcript-revision {} --revision {} --after {next}",
+            page.transcript_id, page.transcript_revision, page.revision
+        )?;
+    }
+    Ok(())
 }
 
 fn render_profile(writer: &mut impl Write, profile: &RecognitionProfile) -> io::Result<()> {

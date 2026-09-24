@@ -26,8 +26,9 @@ pub(crate) mod providers;
 pub(crate) mod schedules;
 pub mod sources;
 pub(crate) mod transcripts;
+pub(crate) mod translations;
 
-pub const SCHEMA_VERSION: u32 = 28;
+pub const SCHEMA_VERSION: u32 = 29;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -216,11 +217,19 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
             return Err(Error::CatalogIntegrity);
         }
     }
+    migrate_recent(transaction, version)
+}
+
+/// Migrations after the v26 transcript rebuild.
+fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> {
     if (0..=26).contains(&version) {
         transaction.execute_batch(include_str!("027-recognition-profiles.sql"))?;
     }
     if (0..=27).contains(&version) {
         transaction.execute_batch(include_str!("028-provider-routes.sql"))?;
+    }
+    if (0..=28).contains(&version) {
+        transaction.execute_batch(include_str!("029-translations.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

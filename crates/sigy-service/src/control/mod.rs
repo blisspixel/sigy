@@ -29,7 +29,7 @@ pub use crate::storage::analysis_jobs::AnalysisJob;
 pub use analysis::{
     AnalysisDecisionView, AnalysisDisposition, AnalysisGapView, AnalysisIntervalView,
     AnalysisOperation, AnalysisPage, AnalysisView, LanguageOperation, ProfileOperation,
-    RecognitionView, TranscriptCueView, TranscriptView,
+    RecognitionView, TranscriptCueView, TranscriptView, TranslationProfileOperation,
 };
 pub use discovery::{DirectoryOperation, DirectoryPolicyPage, PolicyDisposition, StationPage};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
@@ -48,7 +48,7 @@ pub use provider::{
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 28;
+pub const PROTOCOL_VERSION: u32 = 29;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;

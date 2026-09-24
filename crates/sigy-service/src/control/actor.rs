@@ -38,6 +38,11 @@ pub(super) enum Message {
         generation: u32,
         result: Result<crate::recognition::ReapedLocalAsr>,
     },
+    TranslationFinished {
+        id: String,
+        generation: u32,
+        result: Result<crate::translation::TranslationOutcome>,
+    },
     DirectoryFinished {
         id: String,
         result: Result<crate::discovery::RefreshBatch>,
@@ -119,6 +124,7 @@ struct Actor {
     podcast_worker: Option<Worker>,
     text_worker: Option<Worker>,
     analysis_worker: Option<analysis::AnalysisWorker>,
+    translation_worker: Option<analysis::TranslationWorker>,
     listen_workers: HashMap<String, LiveListen>,
     playback: super::playback::PlaySessions,
     acquirer: HttpAcquirer,
@@ -726,6 +732,9 @@ impl Actor {
         if let Some(active) = &self.analysis_worker {
             active.worker.stop.send_replace(true);
         }
+        if let Some(active) = &self.translation_worker {
+            active.worker.stop.send_replace(true);
+        }
         if let Some(worker) = &self.directory_worker {
             worker.stop.send_replace(true);
         }
@@ -758,6 +767,7 @@ impl Actor {
             && self.podcast_worker.is_none()
             && self.text_worker.is_none()
             && self.analysis_worker.is_none()
+            && self.translation_worker.is_none()
     }
 }
 
@@ -790,6 +800,7 @@ pub(super) fn spawn(
         podcast_worker: None,
         text_worker: None,
         analysis_worker: None,
+        translation_worker: None,
         listen_workers: HashMap::new(),
         playback: super::playback::PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
@@ -845,6 +856,14 @@ fn dispatch(
             result,
         } => {
             let failed = actor.finish_recognition(&id, generation, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::TranslationFinished {
+            id,
+            generation,
+            result,
+        } => {
+            let failed = actor.finish_translation(&id, generation, result).is_err();
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::DirectoryFinished { id, result } => {

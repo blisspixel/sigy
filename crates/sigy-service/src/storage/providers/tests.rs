@@ -127,14 +127,17 @@ fn snapshots_and_exports_name_the_variable_and_never_hold_its_value() -> TestRes
 }
 
 #[test]
-fn provider_requests_round_trip_on_ipc_v28() -> TestResult {
+fn provider_requests_round_trip_on_current_ipc() -> TestResult {
     let request = control::Request::new(Operation::Provider {
         command: ProviderOperation::AddRoute {
             route: route_spec("OPENROUTER_API_KEY"),
         },
     });
     let text = serde_json::to_string(&request)?;
-    assert!(text.contains("\"version\":28"), "{text}");
+    assert!(
+        text.contains(&format!("\"version\":{}", crate::control::PROTOCOL_VERSION)),
+        "{text}"
+    );
     let decoded: control::Request = serde_json::from_str(&text)?;
     assert!(matches!(
         decoded.operation,
@@ -254,7 +257,7 @@ fn schema_28_applies_to_a_v27_catalog_and_rolls_back_on_failure() -> TestResult 
     store.set_budget_limit("global", "2".parse()?)?;
     store.reserve("kept", "model-v1", "0.5".parse()?, &[])?;
     drop(store);
-    let downgrade = "DROP TABLE provider_attempts; DROP TABLE provider_price_snapshots; DROP TABLE provider_route_pairs; DROP TABLE provider_routes; PRAGMA user_version = 27;";
+    let downgrade = "DROP TABLE translation_cues; DROP TABLE translations; DROP TABLE translation_jobs; DROP TABLE translation_profiles; DROP TABLE provider_attempts; DROP TABLE provider_price_snapshots; DROP TABLE provider_route_pairs; DROP TABLE provider_routes; PRAGMA user_version = 27;";
     let connection = rusqlite::Connection::open(&path)?;
     connection.execute_batch(downgrade)?;
     // A conflicting object makes the migration fail part way through.
@@ -276,7 +279,6 @@ fn schema_28_applies_to_a_v27_catalog_and_rolls_back_on_failure() -> TestResult 
         .connection
         .pragma_query_value(None, "user_version", |row| row.get(0))?;
     assert_eq!(version, i64::from(crate::storage::SCHEMA_VERSION));
-    assert_eq!(version, 28);
     assert_eq!(store.budget("global")?.reserved(), "0.5".parse()?);
     assert!(store.reservation("kept")?.is_some());
     store.audit_ledger()?;

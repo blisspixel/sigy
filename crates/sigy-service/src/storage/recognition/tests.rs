@@ -677,3 +677,234 @@ fn profiles_are_immutable_exact_replays_and_bounded() -> TestResult {
     assert_eq!(store.recognition_profiles()?.len(), 1);
     Ok(())
 }
+
+mod translation {
+    //! Translation storage fixtures over a published recognition transcript.
+    use super::*;
+    use crate::translation::{
+        TranslatedCue, TranslationOutcome, TranslationProfile, TranslationRequest,
+        TranslationResult,
+    };
+
+    fn profile() -> Result<TranslationProfile> {
+        let root = std::env::temp_dir();
+        let mut profile = TranslationProfile {
+            id: "mt".into(),
+            engine: crate::translation::LLAMA_CPP_COMPLETION.into(),
+            template: crate::translation::HY_MT2_PLAIN.into(),
+            runtime_dir: root.join("runtime").display().to_string(),
+            executable: "llama-completion.exe".into(),
+            runtime_sha256: "4".repeat(64),
+            runtime_files: 3,
+            runtime_bytes: 300,
+            model_path: root.join("model.gguf").display().to_string(),
+            model_sha256: "5".repeat(64),
+            model_bytes: 1000,
+            languages: "ar,es,fr".into(),
+            threads: 2,
+            memory_bytes: 1 << 30,
+            cue_deadline_ms: 60_000,
+            profile_sha256: String::new(),
+        };
+        profile.profile_sha256 = profile.identity()?;
+        Ok(profile)
+    }
+
+    fn transcribed(path: &Path) -> Result<Store> {
+        let mut store = setup(path, false)?;
+        let work = admit(&mut store, "asr", 0)?;
+        store.finish_local_asr(&work, &proof(&work, "Una feria mundial"), 21)?;
+        store.add_translation_profile(&profile()?, 22)?;
+        Ok(store)
+    }
+
+    fn request(id: &str) -> Result<TranslationRequest> {
+        let profile = profile()?;
+        Ok(TranslationRequest {
+            id: id.into(),
+            transcript_id: "pin".into(),
+            transcript_revision: 1,
+            profile: profile.id,
+            profile_sha256: profile.profile_sha256,
+        })
+    }
+
+    fn translated(ordinal: u32, text: &str) -> TranslatedCue {
+        TranslatedCue {
+            ordinal,
+            state: "translated".into(),
+            english: Some(text.into()),
+            reason: None,
+        }
+    }
+
+    #[test]
+    fn a_translation_maps_each_source_cue_once_with_zero_cost_and_replays() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let mut store = transcribed(&directory.path().join("catalog"))?;
+        let (job, work) = store.admit_translation(&request("mt-1")?, 30)?;
+        let work = work.ok_or("fresh admission has work")?;
+        assert_eq!(work.cues.len(), 1);
+        assert_eq!(work.cues[0].script, "Una feria mundial");
+        assert!(store.admit_translation(&request("mt-1")?, 31)?.1.is_none());
+        assert!(matches!(
+            store.admit_translation(&request("mt-2")?, 31),
+            Err(Error::Analysis("worker-busy"))
+        ));
+        let outcome = TranslationOutcome::synthetic_fixture(
+            &job,
+            TranslationResult::Succeeded(vec![translated(0, "A world fair")]),
+        );
+        assert_eq!(
+            store.finish_translation(&work, &outcome, 32)?.state,
+            "succeeded"
+        );
+        let page = store.translation_page("pin", 1, 1, None)?;
+        assert_eq!(page.pairs[0].original, "Una feria mundial");
+        assert_eq!(page.pairs[0].english.as_deref(), Some("A world fair"));
+        assert_eq!((page.cue_count, page.translated_count), (1, 1));
+        assert_eq!(page.amount_usd, "0.000000");
+        assert_eq!(
+            store.finish_translation(&work, &outcome, 33)?.state,
+            "succeeded"
+        );
+        assert_eq!(store.latest_translation_revision("pin", 1)?, 1);
+        assert!(
+            store
+                .connection
+                .execute("UPDATE translation_cues SET english = 'changed'", [])
+                .is_err()
+        );
+        assert!(
+            store
+                .connection
+                .execute("DELETE FROM translations", [])
+                .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn misaligned_or_hostile_results_fail_without_rows() -> TestResult {
+        let cases = [
+            Vec::new(),
+            vec![translated(1, "wrong ordinal")],
+            vec![translated(0, "one"), translated(1, "extra")],
+            vec![translated(0, "")],
+            vec![translated(0, &"x".repeat(4097))],
+            vec![translated(0, "nul\0byte")],
+            vec![TranslatedCue {
+                ordinal: 0,
+                state: "untranslated".into(),
+                english: Some("both".into()),
+                reason: Some("deadline".into()),
+            }],
+            vec![TranslatedCue {
+                ordinal: 0,
+                state: "partial".into(),
+                english: None,
+                reason: None,
+            }],
+        ];
+        for (index, cues) in cases.into_iter().enumerate() {
+            let directory = tempfile::tempdir()?;
+            let mut store = transcribed(&directory.path().join("catalog"))?;
+            let (job, work) = store.admit_translation(&request("mt")?, 30)?;
+            let work = work.ok_or("work")?;
+            let outcome =
+                TranslationOutcome::synthetic_fixture(&job, TranslationResult::Succeeded(cues));
+            let finished = store.finish_translation(&work, &outcome, 31)?;
+            assert_eq!(
+                (finished.state.as_str(), finished.reason.as_deref()),
+                ("failed", Some("invalid-worker-output")),
+                "case {index}"
+            );
+            assert_eq!(
+                store.latest_translation_revision("pin", 1)?,
+                0,
+                "case {index}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn untranslated_cues_keep_reasons_and_cancellation_wins() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let mut store = transcribed(&directory.path().join("catalog"))?;
+        let (job, work) = store.admit_translation(&request("mt")?, 30)?;
+        let work = work.ok_or("work")?;
+        let skipped = TranslationOutcome::synthetic_fixture(
+            &job,
+            TranslationResult::Succeeded(vec![TranslatedCue {
+                ordinal: 0,
+                state: "untranslated".into(),
+                english: None,
+                reason: Some("unsupported-language".into()),
+            }]),
+        );
+        store.finish_translation(&work, &skipped, 31)?;
+        let page = store.translation_page("pin", 1, 1, None)?;
+        assert_eq!(page.translated_count, 0);
+        assert_eq!(
+            page.pairs[0].reason.as_deref(),
+            Some("unsupported-language")
+        );
+
+        let (job, work) = store.admit_translation(&request("mt-cancel")?, 40)?;
+        let work = work.ok_or("work")?;
+        assert_eq!(
+            store.cancel_translation("mt-cancel", 1)?.state,
+            "cancelling"
+        );
+        let late = TranslationOutcome::synthetic_fixture(
+            &job,
+            TranslationResult::Succeeded(vec![translated(0, "late")]),
+        );
+        assert_eq!(
+            store.finish_translation(&work, &late, 41)?.state,
+            "cancelled"
+        );
+        assert_eq!(store.latest_translation_revision("pin", 1)?, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn restart_interrupts_and_a_stale_worker_cannot_publish() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("catalog");
+        let mut store = transcribed(&path)?;
+        let (job, work) = store.admit_translation(&request("mt")?, 30)?;
+        let work = work.ok_or("work")?;
+        drop(store);
+        let mut reopened = Store::open(&path)?;
+        reopened.recover_translation_jobs()?;
+        let recovered = reopened.translation_job("mt")?;
+        assert_eq!(
+            (recovered.state.as_str(), recovered.generation),
+            ("interrupted", 2)
+        );
+        let outcome = TranslationOutcome::synthetic_fixture(
+            &job,
+            TranslationResult::Succeeded(vec![translated(0, "stale")]),
+        );
+        assert!(matches!(
+            reopened.finish_translation(&work, &outcome, 31),
+            Err(Error::Analysis("stale-worker"))
+        ));
+        assert_eq!(reopened.latest_translation_revision("pin", 1)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn only_recognized_text_can_be_translated() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let mut store = setup(&directory.path().join("catalog"), true)?;
+        store.add_translation_profile(&profile()?, 22)?;
+        assert!(matches!(
+            store.admit_translation(&request("mt")?, 30),
+            Err(Error::Analysis("transcript-has-no-recognized-text"))
+        ));
+        Ok(())
+    }
+}

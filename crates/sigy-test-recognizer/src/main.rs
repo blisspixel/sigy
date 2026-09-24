@@ -1,11 +1,12 @@
 //! A stand-in for `whisper-cli` used only by the native-media tests.
 //!
 //! The service clears the environment and fixes the argument template, so the fault
-//! to inject is taken from this executable's file name: `recognizer-<mode>[.exe]`.
+//! to inject is taken from this executable's file name: `recognizer-<mode>[.exe]` or,
+//! as a stand-in for `llama-completion`, `translator-<mode>[.exe]`.
 //! It never reads the network and writes only the requested output file.
 
 use std::{
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::ExitCode,
     time::Duration,
@@ -54,6 +55,7 @@ fn run(mode: &str, arguments: &[String]) -> Result<u8, Box<dyn std::error::Error
         || !arguments.iter().any(|argument| argument == "--vad")
         || !arguments.iter().any(|argument| argument == "--no-gpu")
         || std::env::var_os("SIGY_TEST_FFMPEG").is_some()
+        || std::env::var("OMP_WAIT_POLICY").as_deref() != Ok("PASSIVE")
     {
         return Ok(9);
     }
@@ -103,21 +105,51 @@ fn run(mode: &str, arguments: &[String]) -> Result<u8, Box<dyn std::error::Error
     Ok(0)
 }
 
+/// Stand-in for `llama-completion`: the prompt file ends with the source cue text.
+fn translate(mode: &str, arguments: &[String]) -> Result<u8, Box<dyn std::error::Error>> {
+    for flag in ["-m", "-f", "-n", "-t"] {
+        value(arguments, flag).ok_or(flag)?;
+    }
+    if !arguments.iter().any(|argument| argument == "--offline")
+        || std::env::var_os("SIGY_TEST_FFMPEG").is_some()
+        || std::env::var("OMP_WAIT_POLICY").as_deref() != Ok("PASSIVE")
+    {
+        return Ok(9);
+    }
+    let prompt = std::fs::read_to_string(value(arguments, "-f").ok_or("-f")?)?;
+    let source = prompt.rsplit("\n\n").next().unwrap_or_default();
+    let mut stdout = std::io::stdout();
+    match mode {
+        "echo" => write!(stdout, "\u{1b}[33m\u{1b}[0mEN {source} [end of text]\n\n")?,
+        "flood" => stdout.write_all(&vec![b'y'; 200 * 1024])?,
+        "fail" => return Ok(3),
+        "hang" => std::thread::sleep(Duration::from_secs(600)),
+        _ => return Ok(8),
+    }
+    Ok(0)
+}
+
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().collect();
     if arguments.iter().any(|argument| argument == "--grandchild") {
         std::thread::sleep(Duration::from_secs(600));
         return ExitCode::SUCCESS;
     }
-    let mode = std::env::current_exe()
+    let stem = std::env::current_exe()
         .ok()
         .and_then(|path| {
             path.file_stem()
                 .map(|stem| stem.to_string_lossy().into_owned())
         })
-        .and_then(|stem| stem.strip_prefix("recognizer-").map(str::to_owned))
         .unwrap_or_default();
-    match run(&mode, &arguments) {
+    if let Some(mode) = stem.strip_prefix("translator-") {
+        return match translate(mode, &arguments) {
+            Ok(code) => ExitCode::from(code),
+            Err(_) => ExitCode::from(7),
+        };
+    }
+    let mode = stem.strip_prefix("recognizer-").unwrap_or_default();
+    match run(mode, &arguments) {
         Ok(code) => ExitCode::from(code),
         Err(_) => ExitCode::from(7),
     }

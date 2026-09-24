@@ -595,7 +595,11 @@ async fn recognize(
 }
 
 fn runtime_environment(command: &mut tokio::process::Command, runtime: &Path) {
-    command.env("PATH", runtime);
+    // Idle OpenMP threads must sleep rather than spin. Under a job CPU rate limit and a
+    // busy host, spinning measured about 17 times slower per generated token (2026-09-24).
+    command
+        .env("PATH", runtime)
+        .env("OMP_WAIT_POLICY", "PASSIVE");
     #[cfg(windows)]
     if let Some(root) = std::env::var_os("SystemRoot") {
         let mut path = runtime.as_os_str().to_owned();
@@ -678,6 +682,7 @@ pub(crate) fn language_evidence(
     }
 }
 
+pub mod translate;
 mod whisper;
 pub(crate) use whisper::parse_whisper_json;
 

@@ -181,6 +181,164 @@ fn running_images(name: &str) -> std::io::Result<usize> {
         .count())
 }
 
+fn add_translator(
+    directory: &Path,
+    root: &Path,
+    model: &Path,
+    (id, mode, languages): (&str, &str, &str),
+    deadline_seconds: &str,
+) -> TestResult {
+    let runtime = root.join(format!("translator-runtime-{id}"));
+    std::fs::create_dir(&runtime)?;
+    let executable = format!("translator-{mode}{}", std::env::consts::EXE_SUFFIX);
+    std::fs::copy(stand_in()?, runtime.join(&executable))?;
+    let created = success(
+        directory,
+        &[
+            "analysis",
+            "translation-profile",
+            "add",
+            id,
+            "--runtime-dir",
+            runtime.to_str().ok_or("path")?,
+            "--executable",
+            &executable,
+            "--model",
+            model.to_str().ok_or("path")?,
+            "--languages",
+            languages,
+            "--threads",
+            "1",
+            "--memory-mib",
+            "256",
+            "--cue-deadline-seconds",
+            deadline_seconds,
+        ],
+    )?;
+    assert_eq!(created["recognition"]["created"], true);
+    Ok(())
+}
+
+fn translate(
+    directory: &Path,
+    job: &str,
+    profile: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let started = success(
+        directory,
+        &[
+            "analysis",
+            "translate",
+            job,
+            "--input",
+            "pin",
+            "--transcript-revision",
+            "1",
+            "--profile",
+            profile,
+        ],
+    )?;
+    assert_eq!(started["recognition"]["job"]["request"]["id"], job);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let response = success(directory, &["analysis", "job", job])?;
+        let job_view = response["recognition"]["job"].clone();
+        if !matches!(job_view["state"].as_str(), Some("running" | "cancelling")) {
+            return Ok(job_view);
+        }
+        assert!(
+            Instant::now() < deadline,
+            "translation deadline: {response}"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Translation of the speech transcript (revision 1: `bonjour`, `le monde`, label `fr`).
+fn translation_phase(directory: &Path, root: &Path) -> TestResult {
+    let model = root.join("translator.gguf");
+    std::fs::write(&model, b"fixture translation model")?;
+    for (id, mode, languages, deadline) in [
+        ("mt-echo", "echo", "es,fr", "30"),
+        ("mt-es", "echo", "es", "30"),
+        ("mt-fail", "fail", "fr", "30"),
+        ("mt-flood", "flood", "fr", "30"),
+        ("mt-hang", "hang", "fr", "1"),
+    ] {
+        add_translator(directory, root, &model, (id, mode, languages), deadline)?;
+    }
+    let done = translate(directory, "tr-echo", "mt-echo")?;
+    assert_eq!(done["state"], "succeeded", "{done}");
+    assert_eq!(done["amount_usd"], "0.000000");
+    let page = success(
+        directory,
+        &[
+            "analysis",
+            "translation",
+            "pin",
+            "--transcript-revision",
+            "1",
+        ],
+    )?;
+    let page = &page["recognition"]["page"];
+    assert_eq!(page["translated_count"], 2, "{page}");
+    assert_eq!(page["pairs"][0]["original"], "bonjour");
+    assert_eq!(page["pairs"][0]["english"], "EN bonjour");
+    assert_eq!(page["pairs"][1]["english"], "EN le monde");
+    assert_eq!(page["pairs"][1]["start_us"], 500_000);
+    // Exact replay returns the stored job; a changed request under the same ID is refused.
+    translate(directory, "tr-echo", "mt-echo")?;
+    assert!(
+        !invoke(
+            directory,
+            &[
+                "analysis",
+                "translate",
+                "tr-echo",
+                "--input",
+                "pin",
+                "--transcript-revision",
+                "1",
+                "--profile",
+                "mt-es"
+            ],
+        )?
+        .status
+        .success()
+    );
+    for (job, profile, reason) in [
+        ("tr-es", "mt-es", "unsupported-language"),
+        ("tr-fail", "mt-fail", "translator-failed"),
+        ("tr-flood", "mt-flood", "output-limit"),
+        ("tr-hang", "mt-hang", "deadline"),
+    ] {
+        let finished = translate(directory, job, profile)?;
+        assert_eq!(finished["state"], "succeeded", "{job}: {finished}");
+        let page = success(
+            directory,
+            &[
+                "analysis",
+                "translation",
+                "pin",
+                "--transcript-revision",
+                "1",
+            ],
+        )?;
+        let page = &page["recognition"]["page"];
+        assert_eq!(page["job_id"], job, "{page}");
+        assert_eq!(page["translated_count"], 0, "{job}: {page}");
+        assert_eq!(page["pairs"][0]["reason"], reason, "{job}: {page}");
+        assert!(page["pairs"][0]["english"].is_null());
+    }
+    // A changed model file fails closed before any translator process starts.
+    std::fs::write(&model, b"replaced model")?;
+    let changed = translate(directory, "tr-changed", "mt-echo")?;
+    assert_eq!(changed["state"], "failed");
+    assert_eq!(changed["reason"], "profile-unavailable");
+    std::fs::write(&model, b"fixture translation model")?;
+    Ok(())
+}
+
 fn record_and_pin(directory: &Path) -> Result<RunningChild, Box<dyn std::error::Error>> {
     let decoder = std::env::var("SIGY_TEST_FFMPEG")?;
     let (url, server) = serve_once(tone())?;
@@ -283,6 +441,7 @@ fn contained_recognition_publishes_bounded_text_and_fails_closed_on_faults() -> 
     )?;
 
     speech_and_replay(directory.path())?;
+    translation_phase(directory.path(), files.path())?;
     faults(directory.path(), &assets)?;
     cancel_and_kill(directory.path(), &mut service)
 }

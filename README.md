@@ -6,7 +6,7 @@ The world is broadcasting all the time: thousands of radio stations, podcasts in
 
 Signals intelligence has usually meant government analysts and expensive equipment. Sigy brings the useful, lawful part of it to anyone with a laptop and some curiosity: open sources, your own machine, your own library, and results you can check.
 
-> **Development preview.** Radio and podcast discovery, listening, recording, schedules, a terminal explorer, and early local speech recognition work today on Windows. Translation and topic monitoring are being built now. See [what works today](#what-works-today) and the [progress record](docs/development/progress.md).
+> **Development preview.** Radio and podcast discovery, listening, recording, schedules, a terminal explorer, and early local speech recognition and translation work today on Windows. Topic monitoring is being built now. See [what works today](#what-works-today) and the [progress record](docs/development/progress.md).
 
 ## What Sigy is for
 
@@ -35,8 +35,9 @@ Signals intelligence has usually meant government analysts and expensive equipme
 | Podcasts | Subscribe, refresh RSS, download and play episodes, fetch publisher transcripts and chapters |
 | Terminal explorer | List explorer with search, favorites, health, recordings, and playback |
 | Agents | An MCP server so an assistant can use the same operations inside your library |
-| Speech recognition | Early: transcribe a retained recording in its original script with your own local whisper.cpp model, on the CPU, fully offline. Measured on three reference clips only |
-| Translation, topic monitoring, globe, visualizers | Planned for the first complete release |
+| Speech recognition | Early: transcribe a retained recording in its original script with your own local whisper.cpp model, on the CPU, fully offline. Measured on 32 reference clips across eight languages and tried on five live stations |
+| Translation | Early: translate recognized text into English with your own local llama.cpp model, cue by cue beside the original. Not yet quality-checked |
+| Topic monitoring, globe, visualizers | Planned for the first complete release |
 | Receive-only hardware, Morse, historical ciphers | Planned after the first complete release |
 
 Tested formats: WAV, MP3, AAC, FLAC, and Ogg Vorbis, decoded by a local FFmpeg 9.0.1. macOS and Linux build from source but are not yet qualified.
@@ -89,7 +90,7 @@ Update with `sigy update --check` and `sigy update`. Let recordings finish and s
 
 ## Now building
 
-Sigy can now transcribe a retained recording on your own machine: a hash-pinned multilingual recognizer runs under strict process limits, and the text keeps its original script and exact media time. The next steps are measuring recognition across more languages, storing the detected language, and English translation, then topic monitoring. The [roadmap](ROADMAP.md#whats-next) explains the order and the reasons, and the [language pipeline plan](docs/development/language-pipeline.md) defines how quality is measured.
+Sigy can now transcribe a retained recording on your own machine: a hash-pinned multilingual recognizer runs under strict process limits, and the text keeps its original script and exact media time. Early English translation runs the same way, cue by cue beside the original. The next steps are reference-scored translation checks, longer recordings, live HLS stations, and then topic monitoring. The [roadmap](ROADMAP.md#whats-next) explains the order and the reasons, and the [language pipeline plan](docs/development/language-pipeline.md) defines how quality is measured.
 
 ## Learn more
 

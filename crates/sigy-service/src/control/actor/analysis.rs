@@ -14,6 +14,13 @@ pub(super) struct AnalysisWorker {
     pub recognition: Option<LocalAsrWork>,
 }
 
+pub(super) struct TranslationWorker {
+    pub id: String,
+    pub generation: u32,
+    pub worker: Worker,
+    pub work: crate::translation::TranslationWork,
+}
+
 pub(crate) struct TranscribeRequest {
     pub id: String,
     pub input: String,
@@ -158,8 +165,23 @@ impl Actor {
                 })?;
                 id
             }
+            Op::Translate {
+                id,
+                input,
+                transcript_revision,
+                profile,
+            } => {
+                self.start_translation(&id, &input, transcript_revision, &profile)?;
+                id
+            }
             Op::Cancel { id, generation } => {
-                self.cancel_verification(&id, generation)?;
+                if self.library.store().analysis_job_kind(&id)?.is_none()
+                    && self.library.store().translation_job(&id).is_ok()
+                {
+                    self.cancel_translation(&id, generation)?;
+                } else {
+                    self.cancel_verification(&id, generation)?;
+                }
                 id
             }
             command => return Ok(super::super::Operation::Analysis { command }),
@@ -296,6 +318,115 @@ impl Actor {
                 .store_mut()
                 .publish_language_evidence(evidence, now);
         }
+        Ok(())
+    }
+}
+
+impl Actor {
+    fn start_translation(
+        &mut self,
+        id: &str,
+        input: &str,
+        transcript_revision: Option<i64>,
+        profile: &str,
+    ) -> Result<()> {
+        use crate::translation::TranslationRequest;
+        let store = self.library.store();
+        let profile = store.translation_profile(profile)?;
+        let transcript_revision = match transcript_revision {
+            Some(revision) => revision,
+            None => match store.translation_job(id) {
+                Ok(job) => job.request.transcript_revision,
+                Err(Error::NotFound) => store.latest_transcript_revision(input)?,
+                Err(error) => return Err(error),
+            },
+        };
+        let request = TranslationRequest {
+            id: id.to_owned(),
+            transcript_id: input.to_owned(),
+            transcript_revision,
+            profile: profile.id.clone(),
+            profile_sha256: profile.profile_sha256.clone(),
+        };
+        if let Ok(job) = store.translation_job(id) {
+            // Replay returns history and never runs the translator again.
+            return if job.request == request {
+                Ok(())
+            } else {
+                Err(Error::IdempotencyConflict)
+            };
+        }
+        if self.translation_worker.is_some() {
+            return Err(Error::Analysis("worker-busy"));
+        }
+        let (_, work) = self
+            .library
+            .store_mut()
+            .admit_translation(&request, now_ms()?)?;
+        let Some(work) = work else {
+            return Ok(());
+        };
+        let task = recognizer::translate::TranslationTask {
+            directory: self.library.directory().to_path_buf(),
+            profile,
+            job: work.job.clone(),
+            cues: work.cues.clone(),
+            language: work.language.clone(),
+        };
+        let worker_id = work.job.request.id.clone();
+        let generation = work.job.generation;
+        let worker = self.spawn_worker(
+            move |signal| recognizer::translate::run(task, signal),
+            move |result| Message::TranslationFinished {
+                id: worker_id,
+                generation,
+                result,
+            },
+        )?;
+        self.translation_worker = Some(TranslationWorker {
+            id: work.job.request.id.clone(),
+            generation: work.job.generation,
+            worker,
+            work,
+        });
+        Ok(())
+    }
+
+    fn cancel_translation(&mut self, id: &str, generation: u32) -> Result<()> {
+        let job = self
+            .library
+            .store_mut()
+            .cancel_translation(id, generation)?;
+        if matches!(job.state.as_str(), "running" | "cancelling")
+            && let Some(active) = &self.translation_worker
+            && active.id == id
+            && active.generation == generation
+        {
+            active.worker.stop.send_replace(true);
+        }
+        Ok(())
+    }
+
+    /// An error result means process cleanup was not proven; the caller stops the service.
+    pub(super) fn finish_translation(
+        &mut self,
+        id: &str,
+        generation: u32,
+        result: Result<crate::translation::TranslationOutcome>,
+    ) -> Result<()> {
+        let Some(active) = &self.translation_worker else {
+            return Ok(());
+        };
+        if active.id != id || active.generation != generation {
+            return Ok(());
+        }
+        let Some(active) = self.translation_worker.take() else {
+            return Ok(());
+        };
+        let outcome = result?;
+        self.library
+            .store_mut()
+            .finish_translation(&active.work, &outcome, now_ms()?)?;
         Ok(())
     }
 }

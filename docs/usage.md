@@ -240,6 +240,17 @@ Sigy does not download a recognizer or model. `analysis profile add` hashes a lo
 
 A text result also stores the recognizer's one language label for that run; `analysis languages list PIN --revision N` shows it as `recognizer` evidence with an `unevaluated` route. It is not a measured language identification.
 
+### English translation
+
+```text
+sigy --data-dir PATH_TO_LIBRARY analysis translation-profile add hymt2-cpu --runtime-dir PATH_TO_LLAMA_CPP --model PATH_TO_GGUF --languages ar,es,fr,hi,pt,zh
+sigy --data-dir PATH_TO_LIBRARY analysis translate mt-001 --input pin-001 --profile hymt2-cpu
+sigy --data-dir PATH_TO_LIBRARY analysis job mt-001
+sigy --data-dir PATH_TO_LIBRARY analysis translation pin-001
+```
+
+Sigy does not download a translator or model. `analysis translation-profile add` hashes a local [llama.cpp](https://github.com/ggml-org/llama.cpp) runtime directory with `llama-completion` and a GGUF model. `--languages` lists the source languages the model declares; a transcript whose recognized language is not listed stays untranslated with the reason `unsupported-language`, and English stays untranslated as `source-english`. `analysis translate` requires a running service, translates each cue of one recognized transcript revision in its own bounded local process, and makes no paid request. `analysis translation` shows the original and English side by side. The English is unreviewed machine translation and can be wrong; the original is the evidence. See [local translation worker](decisions/0041-local-translation-worker.md).
+
 Older `local-unmeasured` rows stay readable as legacy placeholders with no recognized speech. See [local transcripts](decisions/0032-local-transcripts.md).
 
 `analysis languages` inspects stored evidence without running detection. `list` returns up to 16 evidence tracks for the exact pin revision; continue with `--after EVIDENCE_ID` when shown. `show` returns up to 16 spans from the exact evidence revision; continue with `--after ORDINAL`. Observation, processing outcome, and route capability remain separate. Empty legacy transcripts have no language observations, and no production detector publishes evidence yet. There is no command to manufacture evidence. See [language evidence](decisions/0033-language-evidence.md).

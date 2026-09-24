@@ -1,5 +1,6 @@
 use super::{Operation, Snapshot};
 use crate::recognition::{LocalAsrJob, RecognitionProfile, TranscriptCuePage};
+use crate::translation::{TranslationJob, TranslationPage, TranslationProfile};
 use crate::{
     Error, Result,
     domain::money::Usd,
@@ -52,6 +53,29 @@ pub enum AnalysisOperation {
     Profile {
         command: ProfileOperation,
     },
+    /// Translate one recognized transcript revision into English with a local profile.
+    /// Runs in the service. The job ID is the idempotency key. No paid request is made.
+    Translate {
+        id: String,
+        input: String,
+        /// Transcript revision to translate. Omitted means the newest.
+        #[serde(default)]
+        transcript_revision: Option<i64>,
+        profile: String,
+    },
+    /// Read the original and English cue pairs of a stored translation.
+    Translation {
+        id: String,
+        #[serde(default)]
+        transcript_revision: Option<i64>,
+        #[serde(default)]
+        revision: Option<i64>,
+        #[serde(default)]
+        after: Option<u32>,
+    },
+    TranslationProfile {
+        command: TranslationProfileOperation,
+    },
     Languages {
         command: LanguageOperation,
     },
@@ -97,6 +121,19 @@ pub enum ProfileOperation {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TranslationProfileOperation {
+    /// Store one immutable profile. Files are re-hashed before every run.
+    Add {
+        profile: Box<TranslationProfile>,
+    },
+    List {},
+    Show {
+        id: String,
+    },
+}
+
 /// Recognition results carried by a snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -116,6 +153,19 @@ pub enum RecognitionView {
     },
     Empty {
         id: String,
+    },
+    TranslationProfiles {
+        profiles: Vec<TranslationProfile>,
+    },
+    TranslationProfile {
+        profile: TranslationProfile,
+        created: bool,
+    },
+    TranslationJob {
+        job: TranslationJob,
+    },
+    Translation {
+        page: TranslationPage,
     },
 }
 
@@ -221,11 +271,23 @@ pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Sna
             after,
         } => return transcript(store, &id, revision, after),
         AnalysisOperation::Profile { command } => return profile(store, command, now),
-        AnalysisOperation::Transcribe { .. } => return Err(Error::ServiceRequired),
+        AnalysisOperation::Translation {
+            id,
+            transcript_revision,
+            revision,
+            after,
+        } => return translation(store, &id, transcript_revision, revision, after),
+        AnalysisOperation::TranslationProfile { command } => {
+            return translation_profile(store, command, now);
+        }
         AnalysisOperation::Languages { command } => return languages(store, command),
         AnalysisOperation::Job { id } => {
             let mut snapshot = super::snapshot(store)?;
-            if store.analysis_job_kind(&id)?.as_deref() == Some("local_asr") {
+            if store.analysis_job_kind(&id)?.is_none()
+                && let Ok(job) = store.translation_job(&id)
+            {
+                snapshot.recognition = Some(Box::new(RecognitionView::TranslationJob { job }));
+            } else if store.analysis_job_kind(&id)?.as_deref() == Some("local_asr") {
                 snapshot.recognition = Some(Box::new(RecognitionView::Job {
                     job: store.local_asr_job(&id)?,
                 }));
@@ -234,7 +296,10 @@ pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Sna
             }
             return Ok(snapshot);
         }
-        AnalysisOperation::Verify { .. } | AnalysisOperation::Cancel { .. } => {
+        AnalysisOperation::Verify { .. }
+        | AnalysisOperation::Cancel { .. }
+        | AnalysisOperation::Transcribe { .. }
+        | AnalysisOperation::Translate { .. } => {
             return Err(Error::ServiceRequired);
         }
     };
@@ -257,6 +322,59 @@ fn transcript(
         RecognitionView::Transcript {
             page: store.transcript_cues_page(id, revision, after)?,
         }
+    };
+    let mut snapshot = super::snapshot(store)?;
+    snapshot.recognition = Some(Box::new(view));
+    Ok(snapshot)
+}
+
+fn translation(
+    store: &Store,
+    id: &str,
+    transcript_revision: Option<i64>,
+    revision: Option<i64>,
+    after: Option<u32>,
+) -> Result<Snapshot> {
+    let transcript_revision = match transcript_revision {
+        Some(value) => value,
+        None => store.latest_transcript_revision(id)?,
+    };
+    let revision = match revision {
+        Some(value) => value,
+        None => store.latest_translation_revision(id, transcript_revision)?,
+    };
+    let view = if revision == 0 {
+        RecognitionView::Empty { id: id.to_owned() }
+    } else {
+        RecognitionView::Translation {
+            page: store.translation_page(id, transcript_revision, revision, after)?,
+        }
+    };
+    let mut snapshot = super::snapshot(store)?;
+    snapshot.recognition = Some(Box::new(view));
+    Ok(snapshot)
+}
+
+fn translation_profile(
+    store: &mut Store,
+    command: TranslationProfileOperation,
+    now: i64,
+) -> Result<Snapshot> {
+    let view = match command {
+        TranslationProfileOperation::Add { profile } => {
+            let created = store.add_translation_profile(&profile, now)?;
+            RecognitionView::TranslationProfile {
+                profile: store.translation_profile(&profile.id)?,
+                created,
+            }
+        }
+        TranslationProfileOperation::List {} => RecognitionView::TranslationProfiles {
+            profiles: store.translation_profiles()?,
+        },
+        TranslationProfileOperation::Show { id } => RecognitionView::TranslationProfile {
+            profile: store.translation_profile(&id)?,
+            created: false,
+        },
     };
     let mut snapshot = super::snapshot(store)?;
     snapshot.recognition = Some(Box::new(view));

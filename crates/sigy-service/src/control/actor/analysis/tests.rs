@@ -76,6 +76,7 @@ fn actor(root: &Path, sender: &mpsc::Sender<Message>) -> Result<Actor> {
         podcast_worker: None,
         text_worker: None,
         analysis_worker: None,
+        translation_worker: None,
         listen_workers: HashMap::new(),
         playback: PlaySessions::default(),
         acquirer: HttpAcquirer::default(),

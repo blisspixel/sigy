@@ -8,7 +8,7 @@ This record holds current state only. The detailed narrative from 2026-09-20 to 
 
 | Item | Current value |
 | --- | --- |
-| Catalog schema / local IPC | v28 / v28 |
+| Catalog schema / local IPC | v29 / v29 |
 | Verification | `cargo verify`: 339 tests passed, 13 native-media tests ignored, warnings-denied Clippy, build, and `cargo audit` of 312 crates against 1,269 advisories. `cargo verify-media`: 13 of 13 on FFmpeg 9.0.1 |
 | Host | Windows 11 x86_64, Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Two build jobs, two test threads, one media-test thread |
 | Other platforms | Build from source only. macOS, Linux and small always-on hosts are unqualified |
@@ -36,7 +36,7 @@ States: **done** means the operation's local exit evidence exists on this host; 
 | 22 | Analysis pins on published inputs | done | [analysis inputs](../decisions/0031-analysis-inputs.md) |
 | 23 | Local transcription | partial | [native recognition worker](../decisions/0039-native-recognition-worker.md) runs in the service with fault fixtures; [three-clip calibration](../../research/experiments/local-asr/three-clip-calibration.md). Per-language benchmark checks remain |
 | 24 | Language spans | partial | [language evidence](../decisions/0033-language-evidence.md) storage; recognizer block labels stored as unevaluated evidence. Measured detection remains |
-| 25 | English translation aligned to a transcript | open | Engine selection in progress |
+| 25 | English translation aligned to a transcript | partial | [local translation worker](../decisions/0041-local-translation-worker.md): per-cue contained llama.cpp translation with reasons for untranslated cues, fault fixtures. Reference-scored quality checks remain |
 | 26 | Provider configuration, dispatch off | done locally | [provider configuration and billing faults](../decisions/0040-provider-configuration-and-billing-faults.md): immutable routes, secret references only, exact price snapshots |
 | 27 | Billing faults before any live provider | done locally | [exact provider pricing](../decisions/0037-exact-provider-pricing.md) and [billing faults](../decisions/0040-provider-configuration-and-billing-faults.md): an offline dispatcher proves every listed fault, including a lifetime allowance that never refills. No live transport exists |
 | 28 | Live queue over committed segments | open | |
