@@ -67,8 +67,8 @@ New downloads so far total about 25.3 GB of the 100 GB ceiling (see the history 
 - **Quality:** no language is qualified. The 32-clip calibration and the frozen holdout remain.
 - **Durability:** physical power loss, complete media backup and restore on another host, and the 5000 ms segment window as a measured guarantee are unproven.
 - **Platforms:** only this Windows host. Unix parent-death and peer checks, installers and OS startup are unqualified.
-- **Public stations:** the [live station pilot](../../research/experiments/local-asr/live-station-pilot.md) recorded and transcribed four of eight public news stations (Spanish, Arabic, Portuguese, Swahili). A stream-edge header delay that blocked the Canadian French station is fixed, and that station has since been recorded and transcribed.
-- **Live HLS:** [live HLS](../decisions/0042-live-hls.md) recording and master-variant resolution now pass loopback fixtures; a capture ends at its first gap. The three HLS-only pilot stations (Chinese, Hindi, one Arabic) have not yet been recorded.
+- **Public stations:** the [live station pilot](../../research/experiments/local-asr/live-station-pilot.md) has recorded and transcribed all eight public stations (Spanish, two Arabic, Portuguese, Swahili, Canadian French, Chinese, Hindi). A stream-edge header delay that blocked the Canadian French station is fixed, and that station has since been recorded and transcribed.
+- **Live HLS:** [live HLS](../decisions/0042-live-hls.md) recording and master-variant resolution pass loopback fixtures and recorded the three HLS-only pilot stations (Chinese, Hindi, Arabic) after two compatibility fixes; a capture still ends at its first gap.
 - **Chunking:** a station recording of more than 60 seconds cannot yet be transcribed; a 60-second request publishes 63 to 74 seconds.
 - **Paid processing:** dispatch is unavailable; the product's default paid budget is zero. When enabled, paid use draws down a one-time lifetime allowance that never refills.
 
