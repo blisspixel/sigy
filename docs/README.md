@@ -56,6 +56,8 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Transcript revision storage](decisions/0035-transcript-revision-storage.md) prepares immutable recognition rows and zero-cue completed coverage while preserving legacy history. The [recognition storage API](decisions/0036-recognition-storage-api.md) adds public read-only Rust inspection and internal test staging for admission, cancellation and atomic publication. Mutations and native dispatch remain closed until a supervisor can prove cleanup.
 
+[Globe geometry](decisions/0038-globe-geometry.md) adds orthographic and equirectangular projection and a geometric solar terminator from one explicit instant. Nothing renders the globe yet.
+
 Planned [network routing](design/network-routing.md) covers optional user-configured proxies, external VPN compatibility and the distinction between personal-machine and server deployment. It preserves explicit destinations, DNS policy and route evidence.
 
 The [planning index](planning/README.md) records confirmed requirements and the status of the design. Detailed documents cover:
