@@ -336,3 +336,146 @@ fn podcast_unsubscribe_stops_polls_without_a_source_or_capture() -> TestResult {
     );
     Ok(())
 }
+
+const CANARY: &str = "sk-or-v1-canary-0123456789abcdef";
+const ROUTE_ADD: [&str; 16] = [
+    "provider",
+    "route",
+    "add",
+    "or-es-en",
+    "--provider",
+    "openrouter",
+    "--origin",
+    "https://openrouter.ai",
+    "--model",
+    "vendor/model",
+    "--upstream",
+    "deepinfra",
+    "--secret-env",
+    "SIGY_TEST_PROVIDER_KEY",
+    "--pair",
+    "es:en",
+];
+const PRICE_ADD: [&str; 14] = [
+    "provider",
+    "price",
+    "add",
+    "p1",
+    "--route",
+    "or-es-en",
+    "--retrieved",
+    "2026-09-24T00:00:00Z",
+    "--prompt",
+    "0.00000015",
+    "--completion",
+    "0.0000006",
+    "--note",
+    "fixture catalog, not a real price",
+];
+
+fn provider_invoke(
+    library: &std::path::Path,
+    json: bool,
+    arguments: &[&str],
+) -> std::io::Result<std::process::Output> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sigy"));
+    command
+        .env("SIGY_TEST_PROVIDER_KEY", CANARY)
+        .arg("--data-dir")
+        .arg(library);
+    if json {
+        command.arg("--json");
+    }
+    common::output(command.args(arguments))
+}
+
+fn contains_canary(bytes: &[u8]) -> bool {
+    bytes
+        .windows(CANARY.len())
+        .any(|window| window == CANARY.as_bytes())
+}
+
+#[test]
+fn provider_configuration_names_the_secret_and_never_prints_its_value() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let library = directory.path().join("library");
+    let mut outputs = Vec::new();
+    for (json, arguments) in [
+        (true, &["library", "init"][..]),
+        (true, &ROUTE_ADD[..]),
+        (false, &ROUTE_ADD[..]),
+        (true, &PRICE_ADD[..]),
+        (true, &["provider", "route", "show", "or-es-en"][..]),
+        (false, &["provider", "route", "show", "or-es-en"][..]),
+        (true, &["provider", "route", "list"][..]),
+        (false, &["provider", "price", "show", "p1"][..]),
+        (true, &["library", "status"][..]),
+    ] {
+        let output = provider_invoke(&library, json, arguments)?;
+        assert!(
+            output.status.success(),
+            "{arguments:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!contains_canary(&output.stdout) && !contains_canary(&output.stderr));
+        outputs.push(output);
+    }
+    let shown: serde_json::Value =
+        serde_json::from_slice(&outputs.get(4).ok_or("route show")?.stdout)?;
+    assert_eq!(shown["provider_dispatch_available"], false);
+    assert_eq!(shown["budgets"][0]["limit_usd"], "0.000000");
+    let route = &shown["provider"]["routes"][0];
+    assert_eq!(route["secret_env"], "SIGY_TEST_PROVIDER_KEY");
+    assert_eq!(route["allow_fallbacks"], false);
+    assert_eq!(route["dispatch_available"], false);
+    assert_eq!(route["language_pairs"][0]["validation"], "unvalidated");
+    assert_eq!(
+        shown["provider"]["prices"][0]["rates"][0]["usd"],
+        "0.00000015"
+    );
+    let human = String::from_utf8(outputs.get(2).ok_or("human add")?.stdout.clone())?;
+    assert!(
+        human.contains("SIGY_TEST_PROVIDER_KEY (name only"),
+        "{human}"
+    );
+    assert!(human.contains("Unchanged."), "{human}");
+    for entry in std::fs::read_dir(&library)? {
+        let path = entry?.path();
+        if path.is_file() {
+            assert!(
+                !contains_canary(&std::fs::read(&path)?),
+                "{} holds the secret value",
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn provider_commands_refuse_key_text_and_offer_no_send() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let library = directory.path().join("library");
+    assert!(
+        provider_invoke(&library, true, &["library", "init"])?
+            .status
+            .success()
+    );
+    let mut pasted = ROUTE_ADD;
+    pasted[13] = CANARY;
+    let refused = provider_invoke(&library, true, &pasted)?;
+    assert!(!refused.status.success());
+    let listed = provider_invoke(&library, true, &["provider", "route", "list"])?;
+    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout)?;
+    assert_eq!(listed["provider"]["routes"], serde_json::json!([]));
+    let help = provider_invoke(&library, false, &["provider", "--help"])?;
+    let help = String::from_utf8(help.stdout)?;
+    assert!(help.contains("route") && help.contains("price"), "{help}");
+    for word in ["send", "test", "dispatch", "call", "run"] {
+        assert!(
+            !help.lines().any(|line| line.trim_start().starts_with(word)),
+            "{help}"
+        );
+    }
+    Ok(())
+}

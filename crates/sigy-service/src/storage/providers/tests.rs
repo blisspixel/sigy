@@ -127,6 +127,27 @@ fn snapshots_and_exports_name_the_variable_and_never_hold_its_value() -> TestRes
 }
 
 #[test]
+fn provider_requests_round_trip_on_ipc_v28() -> TestResult {
+    let request = control::Request::new(Operation::Provider {
+        command: ProviderOperation::AddRoute {
+            route: route_spec("OPENROUTER_API_KEY"),
+        },
+    });
+    let text = serde_json::to_string(&request)?;
+    assert!(text.contains("\"version\":28"), "{text}");
+    let decoded: control::Request = serde_json::from_str(&text)?;
+    assert!(matches!(
+        decoded.operation,
+        Operation::Provider {
+            command: ProviderOperation::AddRoute { route }
+        } if route == route_spec("OPENROUTER_API_KEY")
+    ));
+    let extra = text.replace("\"task\":", "\"secret_value\":\"x\",\"task\":");
+    assert!(serde_json::from_str::<control::Request>(&extra).is_err());
+    Ok(())
+}
+
+#[test]
 fn a_configured_route_leaves_the_default_global_budget_disabled() -> TestResult {
     let directory = tempfile::tempdir()?;
     let mut store = Store::open(&directory.path().join("catalog.sqlite3"))?;

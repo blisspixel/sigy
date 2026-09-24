@@ -243,6 +243,22 @@ mod tests {
     }
 
     #[test]
+    fn provider_configuration_is_not_an_agent_tool() -> Result<(), String> {
+        let list = tools::tool_list();
+        let tools = list["tools"].as_array().ok_or("tools")?;
+        if tools.is_empty()
+            || tools.iter().any(|tool| {
+                tool["name"]
+                    .as_str()
+                    .is_none_or(|name| name.contains("provider"))
+            })
+        {
+            return Err(list.to_string());
+        }
+        Ok(())
+    }
+
+    #[test]
     fn an_unsupported_version_lists_the_modern_revision() -> Result<(), String> {
         let response = dispatch(
             Path::new("unused"),
