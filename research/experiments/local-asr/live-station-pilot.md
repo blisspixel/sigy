@@ -37,6 +37,12 @@ A 60-second request published 63 to 74 seconds of decoded audio, because station
 
 Wall time includes decoding, profile hashing in a debug build, and CPU contention with a concurrent calibration run on the same host. It is not a capacity measurement. Every job reported zero USD and ended with its process group empty.
 
+## Translation follow-up
+
+The same day, the Canadian French transcript was translated through `analysis translate` with llama.cpp b11146 and Hy-MT2 1.8B Q4_K_M (four threads, one contained process per cue). The first run, on a host saturated by parallel builds, finished 7 of 20 cues before their 120-second deadlines. After contained workers switched to passive OpenMP waiting, a second run translated all 20 cues in 76 seconds. The Swahili transcript stayed untranslated as an undeclared language.
+
+Observed errors, without a reference translation: `itinerance` became "itinerancy", although in Quebec French it means homelessness, a regional false friend; `Plonge` became "Trapped" instead of "Immersed"; and a cue that continues a sentence (`soit la cause`) became "or the cause", because each cue is translated without its neighbors. Cue-level translation therefore needs bounded neighboring context, and Canadian French needs its own reference checks.
+
 ## Findings
 
 - The end-to-end path works on live broadcasts: directory, registration, recording, pinning, contained recognition, original-script storage and language evidence.
