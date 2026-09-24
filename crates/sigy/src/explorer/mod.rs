@@ -1,6 +1,7 @@
 //! List explorer. The client uses the existing catalog owner and leaves on quit.
 
 mod client;
+mod globe;
 mod screen;
 mod state;
 mod terminal;

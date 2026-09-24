@@ -122,7 +122,7 @@ fn normalize(path: &std::path::Path) -> Result<String, String> {
     Ok(text.replace('\\', "/"))
 }
 
-fn hash_file(path: &std::path::Path) -> Result<String, String> {
+pub(crate) fn hash_file(path: &std::path::Path) -> Result<String, String> {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
     let digest = Sha256::digest(bytes);
     let alphabet = b"0123456789abcdef";

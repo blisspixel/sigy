@@ -38,7 +38,8 @@ It starts with internet radio and podcasts, which need nothing but a computer. T
 | Agents | An MCP server so an assistant can use the same operations inside your library |
 | Speech recognition | Early: transcribe a retained recording in its original script with your own local whisper.cpp model, on the CPU, fully offline. Measured on 32 reference clips across eight languages and tried on five live stations |
 | Translation | Early: translate recognized text into English with your own local llama.cpp model, cue by cue beside the original. Not yet quality-checked |
-| Topic monitoring, globe, visualizers | Planned for the first complete release |
+| Globe and day/night map | Early: an orthographic globe or flat map in the terminal with offline coastlines, geometric night at an explicit time, and stations placed by directory coordinates |
+| Topic monitoring, visualizers | Planned for the first complete release |
 | Software-defined radio, LoRa and Meshtastic (receive-only) | Planned; source contracts for IQ samples and packets are designed, and devices will be tested with real hardware |
 | Morse, historical ciphers | Planned after the first complete release |
 

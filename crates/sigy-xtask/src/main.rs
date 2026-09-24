@@ -1,5 +1,6 @@
 //! Workspace verification. This is a development tool, not the Sigy application.
 
+mod coastline;
 mod vendor;
 
 use std::{
@@ -39,6 +40,16 @@ fn run() -> Result<(), Error> {
     match command.as_str() {
         "verify" => verify(&root),
         "verify-media" => verify_media(&root, args.next()),
+        "coastline" => {
+            let source = args
+                .next()
+                .ok_or_else(|| Error::Check("usage: coastline SOURCE_GEOJSON".into()))?;
+            coastline::convert(
+                Path::new(&source),
+                &root.join("crates/sigy/assets/ne_110m_coastline.txt"),
+            )
+            .map_err(Error::Check)
+        }
         other => Err(Error::Check(format!(
             "unknown command {other}; use verify or verify-media"
         ))),

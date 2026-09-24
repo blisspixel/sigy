@@ -11,7 +11,8 @@ use crate::style::{Tone, tone_for_state};
 use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, known, sanitize};
 
-pub const HELP_PRIMARY: &str = "Help: / search, arrows select, v filter, f favorite, q quit";
+pub const HELP_PRIMARY: &str =
+    "Help: / search, arrows select, v filter, f favorite, 7 globe, q quit";
 pub const HELP_SELECTION: &str = "Selection does not start audio, capture, refresh, or a click.";
 pub const RECOVERY: &str = "Too small\nq quits\nService\nstays up";
 
@@ -23,14 +24,14 @@ pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
     }
     if area.height < 16 || area.width < 60 {
         let sections = compact_sections(model);
-        render_sections(frame, area, &sections);
+        render_sections(frame, area, &sections, model);
         return;
     }
     let sections = full_sections(model);
-    render_sections(frame, area, &sections);
+    render_sections(frame, area, &sections, model);
 }
 
-fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section]) {
+fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], model: &Explorer) {
     let constraints: Vec<Constraint> = sections
         .iter()
         .map(|section| match section.height {
@@ -40,6 +41,10 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section]) {
         .collect();
     let rects = Layout::vertical(constraints).split(area);
     for (section, rect) in sections.iter().zip(rects.iter()) {
+        if section.globe {
+            render_globe(frame, *rect, section, model);
+            continue;
+        }
         let mut lines = section.lines.clone();
         if section.linear_focus
             && let Some(first) = lines.first_mut()
@@ -50,11 +55,25 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section]) {
     }
 }
 
+fn render_globe(frame: &mut Frame<'_>, area: Rect, section: &Section, model: &Explorer) {
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
+    let mut header = super::globe::header(model);
+    if section.linear_focus {
+        header.spans.insert(0, Span::raw("Focus "));
+    }
+    frame.render_widget(Paragraph::new(header).style(section.style), rows[0]);
+    frame.render_widget(
+        super::globe::GlobeWidget::new(model, color_on(model)),
+        rows[1],
+    );
+}
+
 struct Section {
     height: Height,
     lines: Vec<Line<'static>>,
     style: Style,
     linear_focus: bool,
+    globe: bool,
 }
 
 enum Height {
@@ -116,7 +135,9 @@ fn many(lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
 }
 
 fn fill(lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
-    section(Height::Fill, lines, focused, model)
+    let mut section = section(Height::Fill, lines, focused, model);
+    section.globe = model.workspace() == Workspace::Globe;
+    section
 }
 
 fn section(height: Height, lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
@@ -126,6 +147,7 @@ fn section(height: Height, lines: Vec<Line<'static>>, focused: bool, model: &Exp
         lines,
         style: focus_style(model, focused && !linear_focus),
         linear_focus,
+        globe: false,
     }
 }
 
@@ -217,6 +239,7 @@ fn workspace_line(model: &Explorer) -> Line<'static> {
         Workspace::Recordings,
         Workspace::Monitors,
         Workspace::Findings,
+        Workspace::Globe,
         Workspace::System,
     ]
     .into_iter()
@@ -441,6 +464,8 @@ fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
             Workspace::Live => live_lines(model),
             Workspace::Recordings => recording_lines(model),
             Workspace::System => system_lines(model),
+            // Drawn as a canvas by `render_sections`; see `explorer::globe`.
+            Workspace::Globe => Vec::new(),
             Workspace::Monitors | Workspace::Findings => unavailable_lines(model),
         }
     } else {
@@ -454,9 +479,11 @@ fn unavailable_lines(model: &Explorer) -> Vec<Line<'static>> {
     let text = match model.workspace() {
         Workspace::Findings => "Findings unavailable. No finding operation exists yet.",
         Workspace::Monitors => "Monitors unavailable. No monitor operation exists yet.",
-        Workspace::Explore | Workspace::Live | Workspace::Recordings | Workspace::System => {
-            "This workspace has no operation yet."
-        }
+        Workspace::Explore
+        | Workspace::Live
+        | Workspace::Recordings
+        | Workspace::Globe
+        | Workspace::System => "This workspace has no operation yet.",
     };
     vec![Line::from(paint(color, Tone::Muted, text))]
 }
@@ -466,7 +493,7 @@ fn explore_lines(model: &Explorer) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(paint(
         color,
         Tone::Muted,
-        "Globe and map unavailable. This view is the list.",
+        "This view is the list. Press 7 for the globe and day/night map.",
     ))];
     if model.rows().is_empty() {
         lines.push(plain(
@@ -647,8 +674,8 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
 mod tests {
     use super::{HELP_PRIMARY, HELP_SELECTION, render};
     use crate::explorer::state::{
-        BudgetLine, Desk, DirectoryView, Explorer, Health, Link, Modes, PlaybackView, QuotaView,
-        RecordingLine, RefreshView, StationRow, Workspace,
+        BudgetLine, Coordinates, Desk, DirectoryView, Explorer, Health, Key, Link, Modes,
+        PlaybackView, QuotaView, RecordingLine, RefreshView, StationRow, Workspace,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -705,6 +732,7 @@ mod tests {
                 directory_languages: "navajo".into(),
                 observed_ms: 4_000,
                 hls: false,
+                coordinates: None,
             }],
             quota: Some(QuotaView {
                 quota: 50,
@@ -756,6 +784,94 @@ mod tests {
         (lines.join("\n"), colored)
     }
 
+    fn globe_model(monochrome: bool) -> Explorer {
+        let mut model = sample();
+        let mut desk = sample_desk();
+        desk.stations[0].coordinates = Some(Coordinates {
+            latitude: 35.68,
+            longitude: 139.69,
+        });
+        model.apply_desk(desk);
+        if !monochrome {
+            model = Explorer::new(
+                Modes {
+                    reduced_motion: true,
+                    linear: false,
+                    monochrome: false,
+                },
+                10_000,
+            );
+            let mut desk = sample_desk();
+            desk.stations[0].coordinates = Some(Coordinates {
+                latitude: 35.68,
+                longitude: 139.69,
+            });
+            model.apply_desk(desk);
+        }
+        model.handle(Key::Char('7'));
+        model
+    }
+
+    fn braille(text: &str) -> usize {
+        text.chars()
+            .filter(|c| ('\u{2801}'..='\u{28ff}').contains(c))
+            .count()
+    }
+
+    #[test]
+    fn globe_draws_coastline_station_and_an_explicit_instant() {
+        let mut model = globe_model(true);
+        assert_eq!(model.workspace(), Workspace::Globe);
+        model.handle(Key::Char('c'));
+        let (text, colored) = frame(&model, 160, 48);
+        assert!(text.contains("Globe centered 140E 36N"), "{text}");
+        assert!(
+            text.contains("geometric night at 1970-01-01 00:00 UTC"),
+            "{text}"
+        );
+        assert!(text.contains("1 of 1 stations on this page have directory coordinates"));
+        assert!(braille(&text) > 200, "coastline and night were not drawn");
+        assert!(text.contains('@'), "the selected station is not marked");
+        assert!(!colored, "monochrome drew color");
+    }
+
+    #[test]
+    fn rotating_away_hides_the_station_and_the_flat_map_shows_it() {
+        let mut model = globe_model(true);
+        model.handle(Key::Char('c'));
+        for _ in 0..12 {
+            model.handle(Key::Char('l'));
+        }
+        let (far, _) = frame(&model, 160, 48);
+        assert!(far.contains("Globe centered 40W 36N"), "{far}");
+        assert!(!far.contains('@'), "a far-side station was drawn");
+        model.handle(Key::Char('m'));
+        let (flat, _) = frame(&model, 160, 48);
+        assert!(flat.contains("Flat map"), "{flat}");
+        assert!(flat.contains('@'));
+        assert!(braille(&flat) > 200);
+    }
+
+    #[test]
+    fn globe_uses_color_only_when_monochrome_is_off_and_fits_small_terminals() {
+        let model = globe_model(false);
+        let (_, colored) = frame(&model, 120, 36);
+        assert!(colored);
+        let (small, _) = frame(&globe_model(true), 80, 24);
+        assert!(small.contains("Globe centered"), "{small}");
+        let (tiny, _) = frame(&globe_model(true), 40, 10);
+        assert!(!tiny.is_empty());
+    }
+
+    #[test]
+    fn unmapped_stations_are_counted_not_placed() {
+        let mut model = sample();
+        model.handle(Key::Char('7'));
+        let (text, _) = frame(&model, 160, 48);
+        assert!(text.contains("0 of 1 stations on this page have directory coordinates"));
+        assert!(!text.contains('@'));
+    }
+
     #[test]
     fn eighty_by_twenty_four_keeps_search_identity_playback_and_help() {
         let model = sample();
@@ -784,7 +900,7 @@ mod tests {
             .find(|line| line.contains("Playback:"))
             .unwrap_or("");
         assert!(!playback.contains("directory health"));
-        assert!(text.contains("Globe and map unavailable"));
+        assert!(text.contains("Press 7 for the globe"));
     }
 
     #[test]

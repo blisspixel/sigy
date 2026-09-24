@@ -303,6 +303,13 @@ fn rows_from(page: &sigy_service::control::StationPage) -> Vec<StationRow> {
             directory_languages: sanitize(&station.languages.join(", "), 80),
             observed_ms: station.observed_ms,
             hls: station.hls,
+            coordinates: match (station.latitude, station.longitude) {
+                (Some(latitude), Some(longitude)) => Some(super::state::Coordinates {
+                    latitude,
+                    longitude,
+                }),
+                _ => None,
+            },
         })
         .collect()
 }

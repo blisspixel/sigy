@@ -42,7 +42,7 @@ States: **done** means the operation's local exit evidence exists on this host; 
 | 28 | Live queue over committed segments | open | |
 | 29 | Corrections as appended revisions | open | |
 | 30 to 35 | Monitor bounds, scheduling, cited findings, briefings, projection history, classification off | open | |
-| 36 | Globe and day/night map | partial | [globe geometry](../decisions/0038-globe-geometry.md); no rendering or coastline data yet |
+| 36 | Globe and day/night map | partial | [globe geometry](../decisions/0038-globe-geometry.md) and [terminal globe](../decisions/0044-terminal-globe.md): globe and flat map with offline coastlines, geometric night and page stations. Clustering, map and list agreement on one filter, and a measurement with capture running remain |
 | 37 | Truthful visualizers | open | |
 | 38 | Backup and restore of the release schema | partial | A v25 to v26 disposable backup rehearsal only; see history |
 | 39 | Power-loss behavior of a segment seal | open | |

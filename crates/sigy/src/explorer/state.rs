@@ -12,6 +12,7 @@ pub enum Workspace {
     Recordings,
     Monitors,
     Findings,
+    Globe,
     System,
 }
 
@@ -24,6 +25,7 @@ impl Workspace {
             Self::Recordings => "Recordings",
             Self::Monitors => "Monitors unavailable",
             Self::Findings => "Findings unavailable",
+            Self::Globe => "Globe",
             Self::System => "System",
         }
     }
@@ -32,7 +34,7 @@ impl Workspace {
     pub const fn available(self) -> bool {
         matches!(
             self,
-            Self::Explore | Self::Live | Self::Recordings | Self::System
+            Self::Explore | Self::Live | Self::Recordings | Self::Globe | Self::System
         )
     }
 
@@ -41,8 +43,9 @@ impl Workspace {
             (Self::Explore, true) | (Self::Recordings, false) => Self::Live,
             (Self::Live, true) | (Self::Monitors, false) => Self::Recordings,
             (Self::Recordings, true) | (Self::Findings, false) => Self::Monitors,
-            (Self::Monitors, true) | (Self::System, false) => Self::Findings,
-            (Self::Findings, true) | (Self::Explore, false) => Self::System,
+            (Self::Monitors, true) | (Self::Globe, false) => Self::Findings,
+            (Self::Findings, true) | (Self::System, false) => Self::Globe,
+            (Self::Globe, true) | (Self::Explore, false) => Self::System,
             (Self::System, true) | (Self::Live, false) => Self::Explore,
         }
     }
@@ -111,7 +114,14 @@ impl Health {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Directory coordinates: where a directory says a stream is located.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Coordinates {
+    pub latitude: f64,
+    pub longitude: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StationRow {
     pub id: String,
     pub name: String,
@@ -120,6 +130,7 @@ pub struct StationRow {
     pub directory_languages: String,
     pub observed_ms: i64,
     pub hls: bool,
+    pub coordinates: Option<Coordinates>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -191,7 +202,7 @@ pub enum Link {
     Disconnected,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Desk {
     pub link: Link,
     pub observed_ms: i64,
@@ -249,7 +260,7 @@ pub enum Key {
     Redraw,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Explorer {
     focus: Focus,
     workspace: Workspace,
@@ -281,6 +292,14 @@ pub struct Explorer {
     pending_favorite: Option<u64>,
     status: String,
     draw: Draw,
+    globe: GlobeView,
+}
+
+/// What the Globe workspace shows. Changing it never contacts a station.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GlobeView {
+    center: (f64, f64),
+    flat: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,7 +343,43 @@ impl Explorer {
             status: "Quit detaches this client. It does not stop the service or a recording."
                 .into(),
             draw: Draw::Needed,
+            globe: GlobeView {
+                center: (0.0, 20.0),
+                flat: false,
+            },
         }
+    }
+
+    /// Longitude and latitude of the globe's center, in degrees.
+    #[must_use]
+    pub const fn globe_center(&self) -> (f64, f64) {
+        self.globe.center
+    }
+
+    #[must_use]
+    pub const fn flat_map(&self) -> bool {
+        self.globe.flat
+    }
+
+    fn globe_key(&mut self, key: char) -> bool {
+        let (lon, lat) = self.globe.center;
+        match key {
+            'h' => self.globe.center = (wrap_longitude(lon - 15.0), lat),
+            'l' => self.globe.center = (wrap_longitude(lon + 15.0), lat),
+            'k' => self.globe.center = (lon, (lat + 15.0).min(90.0)),
+            'j' => self.globe.center = (lon, (lat - 15.0).max(-90.0)),
+            'm' => self.globe.flat = !self.globe.flat,
+            'c' => match self.selected().and_then(|row| row.coordinates) {
+                Some(place) => {
+                    self.globe.center = (place.longitude, place.latitude);
+                    self.status =
+                        "Centered on the selected station's directory coordinates.".into();
+                }
+                None => self.status = "The selected station has no directory coordinates.".into(),
+            },
+            _ => return false,
+        }
+        true
     }
 
     #[must_use]
@@ -581,6 +636,12 @@ impl Explorer {
         if self.focus == Focus::Search {
             return self.edit_search(key);
         }
+        if self.workspace == Workspace::Globe
+            && let Key::Char(character) = key
+            && self.globe_key(character)
+        {
+            return Effect::None;
+        }
         match key {
             Key::Char('q') | Key::Quit => Effect::Detach,
             Key::Char('/') => {
@@ -612,7 +673,7 @@ impl Explorer {
             Key::Char('v') => self.toggle_favorite_filter(),
             Key::Char('f') => self.toggle_favorite(),
             Key::Char('r') => self.reload(),
-            Key::Char(character @ '1'..='6') => {
+            Key::Char(character @ '1'..='7') => {
                 self.workspace = workspace_from_digit(character);
                 Effect::None
             }
@@ -746,8 +807,14 @@ fn workspace_from_digit(character: char) -> Workspace {
         '4' => Workspace::Monitors,
         '5' => Workspace::Findings,
         '6' => Workspace::System,
+        '7' => Workspace::Globe,
         _ => Workspace::Explore,
     }
+}
+
+/// Longitude in [-180, 180).
+fn wrap_longitude(value: f64) -> f64 {
+    (value + 180.0).rem_euclid(360.0) - 180.0
 }
 
 #[cfg(test)]
@@ -774,6 +841,7 @@ mod tests {
             directory_languages: "navajo".into(),
             observed_ms: 1_000,
             hls: false,
+            coordinates: None,
         }
     }
 
@@ -944,6 +1012,37 @@ mod tests {
         assert_eq!(model.workspace(), Workspace::Findings);
         assert_eq!(model.handle(Key::Char('6')), Effect::None);
         assert_eq!(model.workspace(), Workspace::System);
+    }
+
+    #[test]
+    fn globe_keys_rotate_clamp_wrap_and_center_without_effects() {
+        let mut model = Explorer::new(modes(), 0);
+        assert!(matches!(model.handle(Key::Char('7')), Effect::None));
+        assert_eq!(model.workspace(), Workspace::Globe);
+        assert_eq!(model.globe_center(), (0.0, 20.0));
+        for _ in 0..13 {
+            assert!(matches!(model.handle(Key::Char('h')), Effect::None));
+        }
+        assert_eq!(model.globe_center(), (165.0, 20.0));
+        for _ in 0..10 {
+            model.handle(Key::Char('k'));
+        }
+        assert_eq!(model.globe_center(), (165.0, 90.0));
+        for _ in 0..20 {
+            model.handle(Key::Char('j'));
+        }
+        assert_eq!(model.globe_center(), (165.0, -90.0));
+        assert!(!model.flat_map());
+        model.handle(Key::Char('m'));
+        assert!(model.flat_map());
+        model.handle(Key::Char('c'));
+        assert_eq!(model.globe_center(), (165.0, -90.0));
+        assert!(model.status().contains("no directory coordinates"));
+        // Globe keys only act in the Globe workspace.
+        model.handle(Key::Char('1'));
+        model.handle(Key::Char('h'));
+        assert_eq!(model.globe_center(), (165.0, -90.0));
+        assert!(matches!(model.handle(Key::Char('f')), Effect::None));
     }
 
     #[test]
