@@ -179,6 +179,7 @@ fn populated_v30(path: &Path) -> Result<()> {
     store.admit_verification("running", "pin", 1, 24)?;
     drop(store);
     let mut connection = Connection::open(path)?;
+    crate::storage::monitors::revert_032_for_tests(&connection)?;
     job_pool::revert_031_for_tests(&mut connection)?;
     Ok(())
 }
