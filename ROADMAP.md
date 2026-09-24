@@ -10,16 +10,18 @@ The product journey is to explore signals and discover their meaning in context.
 
 ## What's next
 
-The first complete release depends on one chain: recognition, then translation, then the live queue, then monitoring, then release qualification. Recognition is the current bottleneck, so it comes first. Work that does not depend on recognition runs alongside it.
+The first complete release depends on one chain: recognition, then translation, then the live queue, then monitoring, then release qualification. Work that does not depend on that chain runs alongside it. Status as of 2026-09-24:
 
-| Order | Work | Why now |
+| Order | Work | State and why |
 | --- | --- | --- |
-| 1 | **Recognition in the service (operation 23).** A supervised worker runs a pinned recognizer under Job Object bounds with a speech-activity gate, parses bounded output as untrusted, and publishes immutable original-script transcripts. Expand calibration from three clips to ten, then the 32-clip calibration partition | Every later language, translation, and monitoring feature needs real transcripts. The three-clip calibration showed the path works and that a speech-activity gate is required |
-| 2 | **Billing faults and provider configuration (operations 26 and 27).** Exact per-token price parsing, worst-case liability, a fake transport that injects timeouts, missing usage, and credit refusals, with no network | Unlocks the bounded paid comparison and model-judged translation checks. Independent of recognition |
-| 3 | **Language evidence and translation (operations 24 and 25).** Store recognizer language labels as acoustic evidence; translate cue by cue with the original preserved, scored with chrF++ against FLEURS parallel references | Turns transcripts into understanding, which is the core promise |
-| 4 | **Globe and day/night map (operation 36).** Orthographic projection, offline coastlines, and a solar terminator from one explicit instant, all without new dependencies | The terminal experience needs it for stage 4 and it does not wait on language work |
-| 5 | **Backup and restore rehearsal, corrections, monitor storage (operations 38, 29, 30 to 34)** on fixture transcripts | Storage contracts can be proven before live language output exists |
-| 6 | **Live queue, visualizers, release qualification (operations 28, 37, 39 to 41)** | Needs measured recognition capacity first |
+| Done | **Recognition, language labels and translation workers (operations 23 to 25).** Contained local recognizer and translator, recognizer language evidence, 32-clip calibration, five live stations | The pipeline runs end to end locally. Quality claims still need reference-scored checks |
+| Done locally | **Billing faults and provider configuration (operations 26 and 27).** Exact pricing, lifetime allowance that never refills, offline fault dispatcher | Unlocks a bounded paid comparison without surprise bills |
+| 1 | **Translation quality checks.** chrF++ and critical-error checks against FLEURS parallel English references for reference text and recognizer output; compare local models | Fluent output can be wrong; one manual check already found a critical meaning error |
+| 2 | **Live HLS and longer recordings.** Record live HLS stations; transcribe recordings longer than 60 seconds and multi-segment captures | Many world stations are HLS only, and real broadcasts are longer than a minute |
+| 3 | **Accelerated profiles.** Vulkan, CUDA, ROCm and Metal builds as separate measured profiles with device evidence; CPU stays the fallback | Must work well on any machine and use its GPU when present |
+| 4 | **Globe and day/night map (operation 36).** Rendering on the existing geometry with offline coastlines and station coordinates | Needed for the terminal experience in stage 4 |
+| 5 | **Backup and restore, corrections, monitor storage (operations 38, 29, 30 to 34)** | Storage contracts can be proven on existing transcripts and translations |
+| 6 | **Live queue, visualizers, release qualification (operations 28, 37, 39 to 41)** | Needs measured capacity first |
 
 Portability is a requirement, not a later polish step. The CPU profile is the baseline on any supported machine. GPU backends and a user-run Ollama are optional accelerations that are detected, measured, and never assumed.
 
