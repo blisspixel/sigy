@@ -1,0 +1,21 @@
+# 0037: Exact provider pricing
+
+Date: 2026-09-24. Status: groundwork implemented in `sigy-core::pricing`. No network access, price retrieval, reservation, or dispatch is added.
+
+## Decision
+
+Represent catalog prices as exact per-unit USD rates in integer attodollars (10^-18 USD, `u128`). The OpenRouter model catalog, reviewed on 2026-09-24, reports pricing fields as decimal strings in USD per token with precision finer than the ledger's micro-unit. `Rate::parse` accepts only an unsigned decimal with a canonical whole part and at most 18 fractional digits. Signs (including `-0`), exponents, whitespace, grouping separators, non-ASCII digits, text over 64 bytes, and overflow are typed errors. A negative catalog value, which can denote a variable price, is therefore refused rather than treated as zero. Display prints the canonical exact decimal, so a displayed rate parses back to the same value.
+
+Provider maximum-price routing fields use USD per million tokens. `Rate::per_million_decimal` shifts the exact value by six decimal places and returns the decimal text; it never rounds. The receiving service may still hold that number as a floating-point value; that behavior needs its own contract test.
+
+`Liability::worst_case` computes one request's upper bound from a `PriceSnapshot` and proven `UnitBounds`: the request fee, plus the prompt token bound at the highest of the prompt, cache-write, and cache-read rates, plus the completion token bound at the higher of the completion and internal-reasoning rates. The completion bound must be the enforced total for reasoning plus visible output, because reasoning is billed as completion-class output. Taking the maximum per token covers any mix of cache classes without assuming a cache hit. A zero completion bound is refused because providers treat it as unset. The exact attodollar total is rounded up to the ledger micro-unit only at the end. Every multiplication, sum, and conversion is checked; overflow is an error.
+
+Image, audio, and web-search charges have no proven unit bound in this model. Any nonzero rate for one of them, or any nonzero charge an adapter could not recognize, makes the route ineligible with a typed error instead of an estimate. Prompt and completion rates are mandatory constructor arguments. An adapter may leave another dimension at zero only when its source documents absence as no charge. A free route yields a zero liability, which the existing budget refuses to reserve.
+
+`ReportedCost::parse` reads a provider-reported cost from its JSON number text under RFC 8259 grammar, including exponents, without floating point. Negative values including `-0`, non-JSON tokens, more than 36 significant digits, exponents over six digits, and values beyond the ledger range are refused. A nonzero remainder below one attodollar rounds up and is flagged. The micro-unit value rounds up. The JSON text must be the raw token; a value already decoded to a double has lost that exactness.
+
+## Limitations and evidence needed
+
+Per-token maximum pricing assumes each prompt token is billed in exactly one class. A provider that bills a cache write in addition to the prompt rate, adds unlisted fees, or rounds per request would exceed this bound; the operation 27 billing-fault fixtures and a reconciliation that compares settled charges with reservations must detect that. Token bounds themselves come from a proven tokenizer bound or provider-enforced limit, which this module does not establish. Price freshness, routing, destination qualification, retries, and fallback remain the ledger and provider adapter's responsibility.
+
+Unit tests cover exact parsing and display, the largest representable rate, per-token to per-million conversion, round-up at and around the micro boundary, reasoning and cache classes, ineligible dimensions, overflow at every stage, and hostile text such as `1e999`, `-0`, `0.0000000000000000001`, ` 1`, and `1,0`. `sigy-core` remains dependency-free. This does not complete [operation 27](../../ROADMAP.md#build-order); see the [paid validation allocation](../development/language-pipeline.md#paid-validation-allocation) and [providers and cost policy](../planning/07-providers-and-cost-policy.md).
