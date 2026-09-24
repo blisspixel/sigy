@@ -12,6 +12,7 @@ use sigy_service::{
 };
 
 mod analysis;
+mod backup;
 mod dvr;
 mod explorer;
 mod languages;
@@ -143,6 +144,21 @@ enum LibraryCommand {
     Init,
     /// Validate the catalog and report its current state.
     Status,
+    /// Copy the catalog and every retained recording into a new directory, with hashes.
+    /// Stop the service first; the backup holds the library lock while it runs.
+    Backup {
+        /// A directory that does not exist yet.
+        destination: std::path::PathBuf,
+    },
+    /// Check every file in a backup against its manifest. Reads nothing else.
+    VerifyBackup { backup: std::path::PathBuf },
+    /// Restore a verified backup into a new library directory.
+    Restore {
+        backup: std::path::PathBuf,
+        /// The new library directory. It must not exist yet.
+        #[arg(long)]
+        into: std::path::PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -215,6 +231,11 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
 }
 
 async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    if let Command::Library { command } = &cli.command
+        && let Some(result) = backup::execute(cli, command)
+    {
+        return result;
+    }
     if let Command::Listen { command } = &cli.command {
         return listen::execute(library_dir(cli)?, command, cli.json).await;
     }

@@ -44,7 +44,7 @@ States: **done** means the operation's local exit evidence exists on this host; 
 | 30 to 35 | Monitor bounds, scheduling, cited findings, briefings, projection history, classification off | open | |
 | 36 | Globe and day/night map | partial | [globe geometry](../decisions/0038-globe-geometry.md) and [terminal globe](../decisions/0044-terminal-globe.md): globe and flat map with offline coastlines, geometric night and page stations. Clustering, map and list agreement on one filter, and a measurement with capture running remain |
 | 37 | Truthful visualizers | open | |
-| 38 | Backup and restore of the release schema | partial | A v25 to v26 disposable backup rehearsal only; see history |
+| 38 | Backup and restore of the release schema | partial | [backup and restore](../decisions/0045-library-backup-and-restore.md): offline backup with hashed media, verification, staged restore; rehearsed on a live-data library at v30. Clean-host and release-schema reruns remain |
 | 39 | Power-loss behavior of a segment seal | open | |
 | 40 | Routing decision | open | [network routing](../design/network-routing.md) remains a design |
 | 41 | Release qualification | open | |

@@ -36,6 +36,17 @@ sigy --data-dir PATH_TO_LIBRARY budget show
 
 `library init` creates the catalog with paid processing disabled. `budget set` can store a finite limit. It does not configure or call a provider. Provider dispatch is unavailable.
 
+### Backup and restore
+
+```text
+sigy --data-dir PATH_TO_LIBRARY service stop
+sigy --data-dir PATH_TO_LIBRARY library backup NEW_BACKUP_DIRECTORY
+sigy library verify-backup BACKUP_DIRECTORY
+sigy library restore BACKUP_DIRECTORY --into NEW_LIBRARY_DIRECTORY
+```
+
+A backup copies the catalog and every retained recording into a new directory with a manifest of sizes and SHA-256 hashes. Stop the service first; a backup refuses a library the service holds. `verify-backup` checks every file against the manifest. `restore` verifies the backup, builds the new library beside the destination, checks that every recording the catalog needs is present, and only then moves it into place, so a failed restore leaves nothing behind. On its next start, the service treats work that was running at backup time as interrupted. Backups are not encrypted and hashes are not signatures; store them somewhere you trust. See [backup and restore](decisions/0045-library-backup-and-restore.md).
+
 ## Service
 
 ```text
