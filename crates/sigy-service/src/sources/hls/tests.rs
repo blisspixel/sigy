@@ -697,3 +697,19 @@ async fn unusable_first_documents_fail_before_any_segment() -> TestResult {
     assert!(written.is_empty());
     Ok(())
 }
+
+#[test]
+fn a_repeated_codecs_claim_is_unknown_but_other_repeats_stay_malformed() -> TestResult {
+    // Shape observed on a national broadcaster's master playlist on 2026-09-24.
+    let entries = master(
+        b"#EXTM3U\n#EXT-X-STREAM-INF:PROGRAM-ID=1,AVERAGE-BANDWIDTH=32000,BANDWIDTH=32000,CODECS=\"mp4a.40.29\",CODECS=\"mp4a.40.5\"\nlow.m3u8\n#EXT-X-STREAM-INF:PROGRAM-ID=1,AVERAGE-BANDWIDTH=64000,BANDWIDTH=64000,CODECS=\"mp4a.40.29\",CODECS=\"mp4a.40.5\"\nhigh.m3u8\n",
+    )?;
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].bandwidth, Some(32_000));
+    assert_eq!(entries[0].codecs, None);
+    assert_eq!(entries[0].audio_only, None);
+    assert!(
+        master(b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=32000,BANDWIDTH=64000\nlow.m3u8\n").is_err()
+    );
+    Ok(())
+}

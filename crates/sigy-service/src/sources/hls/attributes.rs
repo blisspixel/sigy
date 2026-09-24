@@ -10,13 +10,20 @@ enum Value<'a> {
     Plain(&'a str),
 }
 
-/// A parsed attribute list. Names are unique; quoted strings cannot contain a quote.
+/// A parsed attribute list. Quoted strings cannot contain a quote. A repeated name is
+/// malformed wherever it is read, except where a reader accepts it as ambiguous.
 pub(super) struct Attributes<'a> {
     pairs: Vec<(&'a str, Value<'a>)>,
 }
 
 impl<'a> Attributes<'a> {
     pub(super) fn parse(text: &'a str) -> Result<Self> {
+        Self::parse_allowing_repeated(text, &[])
+    }
+
+    /// Parse, accepting a repeated name only in `repeatable`. A value read under such a
+    /// name through `quoted_unless_repeated` is unknown rather than either copy.
+    pub(super) fn parse_allowing_repeated(text: &'a str, repeatable: &[&str]) -> Result<Self> {
         let mut pairs: Vec<(&'a str, Value<'a>)> = Vec::new();
         let mut rest = text;
         while !rest.is_empty() {
@@ -28,7 +35,8 @@ impl<'a> Attributes<'a> {
                 || !name
                     .bytes()
                     .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'-')
-                || pairs.iter().any(|(existing, _)| *existing == name)
+                || (!repeatable.contains(&name)
+                    && pairs.iter().any(|(existing, _)| *existing == name))
             {
                 return Err(invalid());
             }
@@ -55,6 +63,14 @@ impl<'a> Attributes<'a> {
         Ok(Self { pairs })
     }
 
+    fn repeated(&self, name: &str) -> bool {
+        self.pairs
+            .iter()
+            .filter(|(existing, _)| *existing == name)
+            .count()
+            > 1
+    }
+
     fn get(&self, name: &str) -> Option<Value<'a>> {
         self.pairs
             .iter()
@@ -66,8 +82,19 @@ impl<'a> Attributes<'a> {
         self.get(name).is_some()
     }
 
+    /// A quoted informational value that is unknown when the publisher repeats it.
+    pub(super) fn quoted_unless_repeated(&self, name: &str) -> Result<Option<&'a str>> {
+        if self.repeated(name) {
+            return Ok(None);
+        }
+        self.quoted(name)
+    }
+
     /// A quoted-string value. A plain value under this name is malformed.
     pub(super) fn quoted(&self, name: &str) -> Result<Option<&'a str>> {
+        if self.repeated(name) {
+            return Err(invalid());
+        }
         match self.get(name) {
             None => Ok(None),
             Some(Value::Quoted(text)) => Ok(Some(text)),

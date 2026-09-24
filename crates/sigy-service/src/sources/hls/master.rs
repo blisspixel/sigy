@@ -118,12 +118,14 @@ fn push(
 }
 
 fn variant(value: &str) -> Result<Variant> {
-    let attributes = Attributes::parse(value)?;
+    // Some broadcasters repeat CODECS. It is a publisher claim that grants nothing, so a
+    // repeated value becomes unknown instead of rejecting the whole master playlist.
+    let attributes = Attributes::parse_allowing_repeated(value, &["CODECS"])?;
     let bandwidth = attributes.integer("BANDWIDTH")?.ok_or_else(invalid)?;
     if !(1..=MAX_BANDWIDTH).contains(&bandwidth) {
         return Err(invalid());
     }
-    let codecs = attributes.quoted("CODECS")?;
+    let codecs = attributes.quoted_unless_repeated("CODECS")?;
     if let Some(codecs) = codecs
         && !valid_codecs(codecs)
     {

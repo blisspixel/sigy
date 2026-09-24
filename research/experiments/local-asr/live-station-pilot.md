@@ -43,6 +43,10 @@ The same day, the Canadian French transcript was translated through `analysis tr
 
 Observed errors, without a reference translation: `itinerance` became "itinerancy", although in Quebec French it means homelessness, a regional false friend; `Plonge` became "Trapped" instead of "Immersed"; and a cue that continues a sentence (`soit la cause`) became "or the cause", because each cue is translated without its neighbors. Cue-level translation therefore needs bounded neighboring context, and Canadian French needs its own reference checks.
 
+## Live HLS follow-up
+
+After [live HLS](../../../docs/decisions/0042-live-hls.md) landed, the three HLS stations were tried the same day. CRI Chinese served a live media playlist directly; `record hls --live` published 45.1 seconds of MPEG transport stream. Al Jazeera Arabic served a master playlist with one audio-only AAC variant; after `source playlist resolve` and an explicit accept, it recorded 60.0 seconds. Both transcribed through the service: CRI as a serialized historical novel with homophone errors on classical court terms (for example 预纸 for 谕旨, an imperial edict), and Al Jazeera as coherent Modern Standard Arabic discussion. AIR Delhi's master playlist repeats `CODECS` in every variant and was rejected; the parser now treats a repeated `CODECS` as unknown.
+
 ## Findings
 
 - The end-to-end path works on live broadcasts: directory, registration, recording, pinning, contained recognition, original-script storage and language evidence.
