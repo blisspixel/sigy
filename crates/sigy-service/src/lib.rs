@@ -6,6 +6,7 @@ pub mod backup;
 pub mod control;
 pub mod discovery;
 mod error;
+mod execution;
 pub mod languages;
 pub mod library;
 mod podcast;

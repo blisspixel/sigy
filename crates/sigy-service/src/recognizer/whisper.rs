@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 use super::SAMPLE_RATE;
-use crate::recognition::{LocalAsrInput, MAX_ASR_CUES, MAX_ASR_TEXT_BYTES, RecognitionCue};
+use crate::recognition::{MAX_ASR_CUES, MAX_ASR_TEXT_BYTES, RecognitionCue};
 
 #[derive(Deserialize)]
 struct WhisperJson {
@@ -46,16 +46,17 @@ struct WhisperOffsets {
 /// rounds to its own frame grid. Every other inconsistency rejects the whole output.
 pub(crate) fn parse_whisper_json(
     json: &[u8],
-    input: &LocalAsrInput,
+    start_us: u64,
+    end_us: u64,
     sample_count: u64,
 ) -> std::result::Result<WhisperOutput, &'static str> {
     let parsed: WhisperJson = serde_json::from_slice(json).map_err(|_| "malformed")?;
     if parsed.transcription.len() > MAX_ASR_CUES * 4 {
         return Err("too many segments");
     }
-    let decoded_end = input.start_us + sample_count * 1_000_000 / u64::from(SAMPLE_RATE);
+    let decoded_end = start_us + sample_count * 1_000_000 / u64::from(SAMPLE_RATE);
     let mut cues = Vec::new();
-    let mut previous_end = input.start_us;
+    let mut previous_end = start_us;
     let mut text_bytes = 0_usize;
     for segment in parsed.transcription {
         let script = segment.text.trim();
@@ -73,13 +74,13 @@ pub(crate) fn parse_whisper_json(
         }
         let start = from
             .checked_mul(1_000)
-            .and_then(|value| value.checked_add(input.start_us))
+            .and_then(|value| value.checked_add(start_us))
             .ok_or("offset range")?;
         let end = to
             .checked_mul(1_000)
-            .and_then(|value| value.checked_add(input.start_us))
+            .and_then(|value| value.checked_add(start_us))
             .ok_or("offset range")?
-            .min(input.end_us);
+            .min(end_us);
         if start >= decoded_end || start >= end || start < previous_end {
             return Err("segment outside decoded audio or out of order");
         }

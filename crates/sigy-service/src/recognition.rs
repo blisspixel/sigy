@@ -34,7 +34,7 @@ pub const TRANSCRIPT_PAGE_ITEMS: usize = 16;
 
 /// The only native adapter. Its argument template is part of the profile identity.
 pub const WHISPER_CPP_CLI: &str = "whisper-cpp-cli-v1";
-const WHISPER_TEMPLATE: &str = "language=auto;translate=off;vad=on;gpu=off;processors=1";
+pub(crate) const WHISPER_TEMPLATE: &str = "language=auto;translate=off;vad=on;gpu=off;processors=1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -184,7 +184,8 @@ impl LocalAsrFailure {
 }
 
 /// A sealed service capability for a completed, drained native process tree.
-/// Only the native supervisor can obtain the drain proof that constructs it.
+/// Only an executor envelope, which carries containment evidence that only the
+/// execution module can construct, can produce it.
 /// Library-lock ownership, model output, caller assertions and process exit alone
 /// cannot construct this value.
 #[derive(Debug)]
@@ -197,18 +198,43 @@ pub(crate) struct ReapedLocalAsr {
 }
 
 impl ReapedLocalAsr {
-    pub(crate) fn drained(
+    /// Accept an executor's envelope for exactly this job generation and spec. Only the
+    /// execution module can construct an envelope, and only with containment evidence.
+    /// # Errors
+    /// Refuses an envelope for another task, generation or spec, or another task kind.
+    pub(crate) fn from_envelope(
         job: &LocalAsrJob,
-        outcome: LocalAsrOutcome,
-        language: Option<String>,
-        _proof: crate::recognizer::Drained,
-    ) -> Self {
-        Self {
+        envelope: crate::execution::ResultEnvelope,
+        spec_sha256: Option<&str>,
+    ) -> Result<Self> {
+        use crate::execution::{RecognitionResult, TaskResult};
+        let result = envelope.accept(&job.request.id, job.generation, spec_sha256)?;
+        let TaskResult::Recognition(result) = result else {
+            return Err(Error::StorageIntegrity);
+        };
+        let (outcome, language) = match result {
+            RecognitionResult::Succeeded {
+                coverage,
+                cues,
+                language,
+            } => (
+                LocalAsrOutcome::Succeeded(RecognitionOutput {
+                    profile_sha256: job.request.profile_sha256.clone(),
+                    manifest_sha256: job.manifest_sha256.clone(),
+                    coverage,
+                    cues,
+                }),
+                language,
+            ),
+            RecognitionResult::Failed(failure) => (LocalAsrOutcome::Failed(failure), None),
+            RecognitionResult::Cancelled => (LocalAsrOutcome::Cancelled, None),
+        };
+        Ok(Self {
             request: job.request.clone(),
             generation: job.generation,
             outcome,
             language,
-        }
+        })
     }
 
     pub(crate) fn language(&self) -> Option<&str> {

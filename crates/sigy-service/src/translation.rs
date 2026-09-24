@@ -198,7 +198,7 @@ pub struct TranslatedCue {
     pub reason: Option<String>,
 }
 
-/// A worker result, constructible only with proof that its processes drained.
+/// A worker result, constructible only from an executor envelope with containment evidence.
 #[derive(Debug)]
 pub(crate) struct TranslationOutcome {
     job_id: String,
@@ -207,16 +207,24 @@ pub(crate) struct TranslationOutcome {
 }
 
 impl TranslationOutcome {
-    pub(crate) fn drained(
+    /// Accept an executor's envelope for exactly this job generation and spec. Only the
+    /// execution module can construct an envelope, and only with containment evidence.
+    /// # Errors
+    /// Refuses an envelope for another task, generation or spec, or another task kind.
+    pub(crate) fn from_envelope(
         job: &TranslationJob,
-        result: TranslationResult,
-        _proof: crate::recognizer::Drained,
-    ) -> Self {
-        Self {
+        envelope: crate::execution::ResultEnvelope,
+        spec_sha256: Option<&str>,
+    ) -> Result<Self> {
+        let result = envelope.accept(&job.request.id, job.generation, spec_sha256)?;
+        let crate::execution::TaskResult::Translation(result) = result else {
+            return Err(Error::StorageIntegrity);
+        };
+        Ok(Self {
             job_id: job.request.id.clone(),
             generation: job.generation,
             result,
-        }
+        })
     }
 
     #[cfg(test)]

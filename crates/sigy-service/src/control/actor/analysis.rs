@@ -272,7 +272,7 @@ impl Actor {
                 Ok(())
             }
             Err(error) => {
-                let reaped = recognizer::not_started(&work.job);
+                let reaped = recognizer::not_started(&work.job)?;
                 self.library
                     .store_mut()
                     .finish_local_asr(&work, &reaped, now_ms()?)?;

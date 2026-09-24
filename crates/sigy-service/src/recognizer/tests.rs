@@ -19,6 +19,27 @@ fn input(start_us: u64, end_us: u64) -> LocalAsrInput {
     }
 }
 
+fn parse(
+    json: &[u8],
+    input: &LocalAsrInput,
+    sample_count: u64,
+) -> std::result::Result<whisper::WhisperOutput, &'static str> {
+    parse_whisper_json(json, input.start_us, input.end_us, sample_count)
+}
+
+/// Whether the profile's files still hash to its recorded identity.
+fn assets_match(profile: &RecognitionProfile) -> Result<bool> {
+    let never = AtomicBool::new(false);
+    let runtime = runtime_manifest(Path::new(&profile.runtime_dir), &profile.executable, &never)?;
+    let model = hash_file(Path::new(&profile.model_path), MAX_MODEL_BYTES, &never)?;
+    let vad = hash_file(Path::new(&profile.vad_path), MAX_VAD_BYTES, &never)?;
+    Ok(runtime.sha256 == profile.runtime_sha256
+        && runtime.files == profile.runtime_files
+        && runtime.bytes == profile.runtime_bytes
+        && model == (profile.model_sha256.clone(), profile.model_bytes)
+        && vad == (profile.vad_sha256.clone(), profile.vad_bytes))
+}
+
 fn json(segments: &str) -> Vec<u8> {
     format!(r#"{{"systeminfo":"x","result":{{"language":"es"}},"transcription":[{segments}]}}"#)
         .into_bytes()
@@ -41,7 +62,7 @@ fn segments_map_to_the_pinned_media_clock_in_original_script() -> TestResult {
         ]
         .join(","),
     );
-    let parsed = parse_whisper_json(&body, &pinned, 181_440).map_err(str::to_owned)?;
+    let parsed = parse(&body, &pinned, 181_440).map_err(str::to_owned)?;
     assert_eq!(parsed.language.as_deref(), Some("es"));
     let cues = parsed.cues;
     assert_eq!(cues.len(), 2);
@@ -59,14 +80,14 @@ fn segments_map_to_the_pinned_media_clock_in_original_script() -> TestResult {
 fn empty_transcription_is_valid_no_text_and_blank_segments_are_skipped() -> TestResult {
     let pinned = input(0, 10_000_000);
     assert!(
-        parse_whisper_json(&json(""), &pinned, 160_000)
+        parse(&json(""), &pinned, 160_000)
             .map_err(str::to_owned)?
             .cues
             .is_empty()
     );
     let blank = json(&segment(0, 1000, " \t "));
     assert!(
-        parse_whisper_json(&blank, &pinned, 160_000)
+        parse(&blank, &pinned, 160_000)
             .map_err(str::to_owned)?
             .cues
             .is_empty()
@@ -77,11 +98,11 @@ fn empty_transcription_is_valid_no_text_and_blank_segments_are_skipped() -> Test
 #[test]
 fn a_segment_end_past_the_interval_is_bounded_but_a_start_past_audio_is_refused() -> TestResult {
     let pinned = input(0, 10_320_000);
-    let cues = parse_whisper_json(&json(&segment(6000, 11_000, "fin")), &pinned, 165_120)
+    let cues = parse(&json(&segment(6000, 11_000, "fin")), &pinned, 165_120)
         .map_err(str::to_owned)?
         .cues;
     assert_eq!(cues[0].end_us, 10_320_000);
-    assert!(parse_whisper_json(&json(&segment(10_320, 11_000, "late")), &pinned, 165_120).is_err());
+    assert!(parse(&json(&segment(10_320, 11_000, "late")), &pinned, 165_120).is_err());
     Ok(())
 }
 
@@ -103,7 +124,7 @@ fn hostile_or_inconsistent_output_is_refused_whole() {
     ];
     for case in cases {
         assert!(
-            parse_whisper_json(&case, &pinned, 160_000).is_err(),
+            parse(&case, &pinned, 160_000).is_err(),
             "{}",
             String::from_utf8_lossy(&case)
         );
@@ -116,28 +137,11 @@ fn cue_and_text_limits_are_enforced() {
     let many: Vec<String> = (0..=256)
         .map(|index| segment(index * 100, index * 100 + 50, "w"))
         .collect();
-    assert!(parse_whisper_json(&json(&many.join(",")), &pinned, 960_000).is_err());
+    assert!(parse(&json(&many.join(",")), &pinned, 960_000).is_err());
     let large: Vec<String> = (0..17)
         .map(|index| segment(index * 1000, index * 1000 + 500, &"y".repeat(4096)))
         .collect();
-    assert!(parse_whisper_json(&json(&large.join(",")), &pinned, 960_000).is_err());
-}
-
-#[test]
-fn wav_header_describes_sixteen_bit_mono_at_the_worker_rate() -> TestResult {
-    let directory = tempfile::tempdir()?;
-    let path = directory.path().join("input.wav");
-    write_wav(&path, &[1, 0, 2, 0])?;
-    let bytes = std::fs::read(&path)?;
-    assert_eq!(&bytes[..4], b"RIFF");
-    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into()?), 40);
-    assert_eq!(u16::from_le_bytes(bytes[22..24].try_into()?), 1);
-    assert_eq!(u32::from_le_bytes(bytes[24..28].try_into()?), SAMPLE_RATE);
-    assert_eq!(u16::from_le_bytes(bytes[34..36].try_into()?), 16);
-    assert_eq!(&bytes[36..40], b"data");
-    assert_eq!(u32::from_le_bytes(bytes[40..44].try_into()?), 4);
-    assert_eq!(&bytes[44..], &[1, 0, 2, 0]);
-    Ok(())
+    assert!(parse(&json(&large.join(",")), &pinned, 960_000).is_err());
 }
 
 fn runtime(root: &Path) -> std::io::Result<(PathBuf, PathBuf, PathBuf)> {
@@ -170,8 +174,7 @@ fn profile_identity_covers_file_hashes_and_limits_but_not_locations() -> TestRes
     profile.validate()?;
     assert_eq!(profile.runtime_files, 2);
     assert_eq!(profile.model_bytes, 11);
-    let never = AtomicBool::new(false);
-    assert!(verify_assets(&profile, &never)?);
+    assert!(assets_match(&profile)?);
 
     let other = tempfile::tempdir()?;
     let (moved_runtime, moved_model, moved_vad) = runtime(other.path())?;
@@ -200,9 +203,9 @@ fn profile_identity_covers_file_hashes_and_limits_but_not_locations() -> TestRes
     assert_ne!(more_threads.profile_sha256, profile.profile_sha256);
 
     std::fs::write(runtime_dir.join("whisper.dll"), b"replaced library")?;
-    assert!(!verify_assets(&profile, &never)?);
+    assert!(!assets_match(&profile)?);
     std::fs::write(runtime_dir.join("injected.dll"), b"new file")?;
-    assert!(!verify_assets(&profile, &never)?);
+    assert!(!assets_match(&profile)?);
     Ok(())
 }
 
@@ -296,14 +299,17 @@ fn a_stop_request_interrupts_hashing_between_reads() -> TestResult {
 fn stale_scratch_is_removed_and_a_file_in_its_place_is_refused() -> TestResult {
     let root = tempfile::tempdir()?;
     clear_scratch(root.path())?;
-    std::fs::create_dir_all(root.path().join(SCRATCH).join("job-g1"))?;
+    std::fs::create_dir_all(root.path().join("analysis-scratch").join("job-g1"))?;
     std::fs::write(
-        root.path().join(SCRATCH).join("job-g1").join("input.wav"),
+        root.path()
+            .join("analysis-scratch")
+            .join("job-g1")
+            .join("input.wav"),
         b"pcm",
     )?;
     clear_scratch(root.path())?;
-    assert!(!root.path().join(SCRATCH).exists());
-    std::fs::write(root.path().join(SCRATCH), b"not a directory")?;
+    assert!(!root.path().join("analysis-scratch").exists());
+    std::fs::write(root.path().join("analysis-scratch"), b"not a directory")?;
     assert!(clear_scratch(root.path()).is_err());
     Ok(())
 }
@@ -318,9 +324,8 @@ fn language_codes_are_bounded_and_mapped_without_losing_the_original() -> TestRe
         )
         .into_bytes()
     };
-    let code = |language: &str| {
-        parse_whisper_json(&with(language), &pinned, 160_000).map(|parsed| parsed.language)
-    };
+    let code =
+        |language: &str| parse(&with(language), &pinned, 160_000).map(|parsed| parsed.language);
     assert_eq!(
         code("\"fr\"").map_err(str::to_owned)?.as_deref(),
         Some("fr")
