@@ -1,10 +1,10 @@
 # Sigy
 
-**Signal intelligence for everyone.**
+**Practical signal intelligence for everyone.**
 
-The world is broadcasting all the time: thousands of radio stations, podcasts in every language, and signals most people never hear. Sigy is a local-first toolkit for exploring those signals and working out what they mean. Find a station on the other side of the world, record it, read what was said in its original language, get an English translation, and follow a topic across many sources. Every answer links back to the exact moment of audio it came from.
+The world is broadcasting all the time: internet radio and podcasts in every language, and on the airwaves shortwave, FM, CB, LoRa mesh networks and countless signals most people never hear. Sigy is a local-first toolkit for exploring those signals and working out what they mean. Find a station on the other side of the world, record it, read what was said in its original language, get an English translation, and follow a topic across many sources. Every answer links back to the exact moment it came from.
 
-Signals intelligence has usually meant government analysts and expensive equipment. Sigy brings the useful, lawful part of it to anyone with a laptop and some curiosity: open sources, your own machine, your own library, and results you can check.
+It starts with internet radio and podcasts, which need nothing but a computer. The same design extends to receive-only software-defined radio (such as a HackRF), LoRa and Meshtastic devices, and other signals: every source, whether a stream, a recording, IQ samples or packets, flows through the same capture, evidence and analysis pipeline. Your own machine, your own library, results you can check.
 
 > **Development preview.** Radio and podcast discovery, listening, recording, schedules, a terminal explorer, and early local speech recognition and translation work today on Windows. Topic monitoring is being built now. See [what works today](#what-works-today) and the [progress record](docs/development/progress.md).
 
@@ -14,7 +14,8 @@ Signals intelligence has usually meant government analysts and expensive equipme
 - **Keep what matters.** Record live streams and podcast episodes into a private library. Pause and rewind a running capture, schedule recordings in any time zone, and hold the parts you want to keep.
 - **Understand any language.** Most of the world's audio is not in English. Sigy is designed to transcribe speech in its original script, identify the language (including mixed and uncertain speech), and translate into English, with the original always beside the translation.
 - **Follow a topic.** Ask Sigy to watch a subject across sources, within limits you set. Findings cite the exact recording, transcript, and translation behind them, show where reports agree or conflict, and say when evidence is missing.
-- **Play and learn.** Later stages add shortwave, CB, and spectrum views for receive-only radios, Morse practice, and a visual Enigma machine. Curiosity is reason enough.
+- **Tune the airwaves.** Planned hardware support turns a software-defined radio or a LoRa device into another source: an AM/FM dial, shortwave and CB scanning, spectrum and waterfall views, and Meshtastic packet inspection, all receive-only and recorded with the same evidence as a stream.
+- **Play and learn.** Morse practice, timing and packet puzzles, and a visual Enigma machine. Curiosity is reason enough.
 
 ## Principles
 
@@ -38,7 +39,8 @@ Signals intelligence has usually meant government analysts and expensive equipme
 | Speech recognition | Early: transcribe a retained recording in its original script with your own local whisper.cpp model, on the CPU, fully offline. Measured on 32 reference clips across eight languages and tried on five live stations |
 | Translation | Early: translate recognized text into English with your own local llama.cpp model, cue by cue beside the original. Not yet quality-checked |
 | Topic monitoring, globe, visualizers | Planned for the first complete release |
-| Receive-only hardware, Morse, historical ciphers | Planned after the first complete release |
+| Software-defined radio, LoRa and Meshtastic (receive-only) | Planned; source contracts for IQ samples and packets are designed, and devices will be tested with real hardware |
+| Morse, historical ciphers | Planned after the first complete release |
 
 Tested formats: WAV, MP3, AAC, FLAC, and Ogg Vorbis, decoded by a local FFmpeg 9.0.1. macOS and Linux build from source but are not yet qualified.
 
@@ -99,8 +101,14 @@ Sigy can now transcribe a retained recording on your own machine: a hash-pinned 
 - [Product intent](INTENT.md) and [roadmap](ROADMAP.md)
 - [Architecture and design](docs/README.md)
 
-## Lawful use and license
+## Use responsibly
 
-Use Sigy only with sources and material you are authorized to access. Reception, recording, decryption, transmission, and redistribution can require different permissions where you live. Transcriptions, translations, and findings can be wrong; check important results against the original material. The [lawful-use guide](docs/usage.md#lawful-use) has more detail. These notices are general information, not legal advice or permission.
+Laws about receiving, recording, decoding, storing and sharing signals and broadcasts vary by country and region, and they can differ for internet streams, radio frequencies, encrypted traffic and personal data. You are solely responsible for knowing and following every law, regulation, license condition and terms of service that applies to you, your equipment, your location and your use. Only access sources you are permitted to access, keep hardware receive-only unless you hold the required authorization, and respect privacy and copyright. That a signal can be received does not mean you may record, decode, publish or reuse it. The [usage guide](docs/usage.md#lawful-use) has more detail.
 
-Copyright 2026 Nick Seal. Sigy is licensed under the [Apache License, Version 2.0](LICENSE), including its warranty disclaimer and liability limits. Third-party software and content retain their own licenses and notices. See [contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md).
+Transcriptions, translations and findings are machine output and can be wrong. Check anything important against the original.
+
+Sigy is provided "as is", without warranty of any kind. The authors and contributors are not liable for any claim, damage or other liability arising from its use or misuse, as set out in the license. Nothing in this project is legal advice.
+
+## License
+
+Copyright 2026 Nick Seal. Sigy is licensed under the [Apache License, Version 2.0](LICENSE), including its warranty disclaimer and limitation of liability. Third-party software and content retain their own licenses and notices. See [contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md).
