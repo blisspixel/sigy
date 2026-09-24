@@ -722,3 +722,83 @@ fn an_upstream_error_may_still_charge_and_is_reconciled_by_generation() -> TestR
     assert_eq!(fake.sends.len(), 1);
     fixture.audit()
 }
+
+#[test]
+fn a_consumed_lifetime_allowance_stays_consumed_across_restart_and_dates() -> TestResult {
+    // The allowance covers exactly two worst-case attempts.
+    let Fixture {
+        _directory,
+        path,
+        mut store,
+    } = Fixture::new("0.00092", None)?;
+    let mut fake = Fake::new(
+        path.clone(),
+        [
+            completed("gen-1", "0.00046"),
+            Sent::TimedOut {
+                generation_id: None,
+            },
+        ],
+    );
+    dispatch(&mut store, &mut fake, &request("r1"), NOW)?;
+    assert_eq!(
+        dispatch(&mut store, &mut fake, &request("r2"), NOW)?,
+        Dispatched::Pending(Pending::TimedOut)
+    );
+    let consumed = store.budget("global")?;
+    assert_eq!(consumed.available(), Usd::ZERO);
+    assert!(matches!(
+        dispatch(&mut store, &mut fake, &request("r3"), NOW),
+        Err(Error::Budget(BudgetError::InsufficientFunds))
+    ));
+    drop(store);
+    let mut store = Store::open(&path)?;
+    assert_eq!(store.recover_submitted()?, 0);
+    // A new day, a new month and a new year: a fresh price snapshot does not refill anything.
+    for (index, (retrieved, now)) in [
+        ("2020-01-02T00:00:00Z", RETRIEVED_MS + 86_400_000),
+        ("2020-02-01T00:00:00Z", 1_580_515_200_000),
+        ("2021-01-01T00:00:00Z", 1_609_459_200_000),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let snapshot = format!("later-{index}");
+        let price = PriceDraft::from_spec(
+            &PriceSpec {
+                id: snapshot.clone(),
+                route_id: ROUTE.into(),
+                retrieved: retrieved.into(),
+                valid_hours: 24,
+                rates: vec![
+                    RateSpec {
+                        dimension: "prompt".into(),
+                        usd: "0.000001".into(),
+                    },
+                    RateSpec {
+                        dimension: "completion".into(),
+                        usd: "0.000002".into(),
+                    },
+                ],
+                source_note: "fixture catalog, not a real price".into(),
+            },
+            now,
+        )?;
+        store.add_price_snapshot(&price, now)?;
+        let id = format!("later-request-{index}");
+        let later = DispatchRequest {
+            snapshot_id: &snapshot,
+            ..request(&id)
+        };
+        assert!(matches!(
+            dispatch(&mut store, &mut fake, &later, now + 1),
+            Err(Error::Budget(BudgetError::InsufficientFunds))
+        ));
+        assert!(store.reservation(&id)?.is_none());
+    }
+    assert_eq!(store.budget("global")?, consumed);
+    assert_eq!(fake.sends.len(), 2);
+    store.audit_ledger()?;
+    store.audit_providers()?;
+    Ok(())
+}

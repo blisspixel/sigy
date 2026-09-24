@@ -468,6 +468,12 @@ fn provider_commands_refuse_key_text_and_offer_no_send() -> TestResult {
     let listed = provider_invoke(&library, true, &["provider", "route", "list"])?;
     let listed: serde_json::Value = serde_json::from_slice(&listed.stdout)?;
     assert_eq!(listed["provider"]["routes"], serde_json::json!([]));
+    let budget = provider_invoke(&library, false, &["budget", "show"])?;
+    let budget = String::from_utf8(budget.stdout)?;
+    assert!(
+        budget.contains("global: lifetime limit $0.000000 (never resets)"),
+        "{budget}"
+    );
     let help = provider_invoke(&library, false, &["provider", "--help"])?;
     let help = String::from_utf8(help.stdout)?;
     assert!(help.contains("route") && help.contains("price"), "{help}");

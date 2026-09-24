@@ -96,7 +96,7 @@ enum Command {
         #[command(subcommand)]
         command: provider::ProviderCommand,
     },
-    /// Inspect or explicitly configure lifetime spending limits.
+    /// Inspect or explicitly configure lifetime spending allowances. They never reset.
     Budget {
         #[command(subcommand)]
         command: BudgetCommand,
@@ -149,7 +149,7 @@ enum LibraryCommand {
 enum BudgetCommand {
     /// Show settled, reserved, and remaining amounts in USD.
     Show,
-    /// Set a finite limit. This does not configure or invoke a provider.
+    /// Set a finite lifetime allowance. It never resets or refills; only this command changes it.
     Set {
         /// Global or a named provider/task budget scope.
         #[arg(default_value = "global")]
@@ -381,7 +381,7 @@ fn render_status(stdout: &mut impl Write, view: &Snapshot, ink: style::Ink) -> i
     for budget in &view.budgets {
         writeln!(
             stdout,
-            "{}: limit ${}, settled ${}, reserved ${}, available ${}{}",
+            "{}: lifetime limit ${} (never resets), settled ${}, reserved ${}, available ${}{}",
             budget.scope,
             budget.limit_usd,
             budget.settled_usd,
