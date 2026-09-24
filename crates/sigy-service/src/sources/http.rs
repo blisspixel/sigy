@@ -989,12 +989,49 @@ fn validate_headers(headers: &header::HeaderMap, media: MediaPolicy) -> Result<A
         .ok_or(Error::Acquisition("invalid audio content type"))?;
     match mime.to_ascii_lowercase().as_str() {
         "audio/mpeg" => Ok(AudioContentType::Mpeg),
-        "audio/aac" | "audio/aacp" => Ok(AudioContentType::Aac),
+        // `audio/x-aac` is a legacy alias observed on a national broadcaster (2026-09-24).
+        "audio/aac" | "audio/aacp" | "audio/x-aac" => Ok(AudioContentType::Aac),
         "audio/flac" | "audio/x-flac" => Ok(AudioContentType::Flac),
         "audio/ogg" | "application/ogg" => Ok(AudioContentType::Ogg),
         "audio/wav" | "audio/wave" | "audio/x-wav" => Ok(AudioContentType::Wave),
         "video/mp2t" if media == MediaPolicy::HlsSegment => Ok(AudioContentType::MpegTs),
         _ => Err(Error::Acquisition("unsupported audio content type")),
+    }
+}
+
+#[cfg(test)]
+mod content_type_tests {
+    use super::{AudioContentType, MediaPolicy, header, validate_headers};
+
+    fn classify(mime: &str, media: MediaPolicy) -> Option<AudioContentType> {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_str(mime).ok()?,
+        );
+        validate_headers(&headers, media).ok()
+    }
+
+    #[test]
+    fn aac_aliases_and_segment_only_transport_streams() {
+        for mime in [
+            "audio/aac",
+            "audio/aacp",
+            "audio/x-aac",
+            "AUDIO/X-AAC; charset=binary",
+        ] {
+            assert_eq!(
+                classify(mime, MediaPolicy::Audio),
+                Some(AudioContentType::Aac),
+                "{mime}"
+            );
+        }
+        assert_eq!(classify("video/mp2t", MediaPolicy::Audio), None);
+        assert_eq!(
+            classify("video/mp2t", MediaPolicy::HlsSegment),
+            Some(AudioContentType::MpegTs)
+        );
+        assert_eq!(classify("audio/x-mpegurl", MediaPolicy::Audio), None);
     }
 }
 
