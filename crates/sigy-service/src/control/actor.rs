@@ -963,7 +963,8 @@ async fn segment_reply(
 fn failure(error: &Error) -> Failure {
     Failure {
         code: match error {
-            Error::InvalidInput(_) | Error::Money(_) => "invalid_request",
+            Error::InvalidInput(_) | Error::Money(_) | Error::Pricing(_) => "invalid_request",
+            Error::ProviderRefused(_) => "provider_refused",
             Error::DestinationDenied => "destination_denied",
             Error::IdempotencyConflict => "idempotency_conflict",
             Error::NotFound => "not_found",

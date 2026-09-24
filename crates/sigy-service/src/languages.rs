@@ -219,7 +219,7 @@ fn validate_span_origin(method: &LanguageMethod, span: &LanguageSpan) -> Result<
     Ok(())
 }
 
-fn normalize_tag(value: &str) -> Result<String> {
+pub(crate) fn normalize_tag(value: &str) -> Result<String> {
     if value.is_empty() || value.len() > 128 {
         return Err(Error::InvalidInput("language tag size"));
     }

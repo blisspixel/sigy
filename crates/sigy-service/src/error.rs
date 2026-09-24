@@ -1,4 +1,4 @@
-use sigy_core::{budget::BudgetError, money::MoneyError};
+use sigy_core::{budget::BudgetError, money::MoneyError, pricing::PricingError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -22,6 +22,10 @@ pub enum Error {
     Budget(#[from] BudgetError),
     #[error(transparent)]
     Money(#[from] MoneyError),
+    #[error(transparent)]
+    Pricing(#[from] PricingError),
+    #[error("paid provider work refused: {0}")]
+    ProviderRefused(&'static str),
     #[error("invalid {0}")]
     InvalidInput(&'static str),
     #[error("catalog schema {found} is newer than supported schema {supported}")]

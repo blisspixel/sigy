@@ -9,6 +9,7 @@ pub mod languages;
 pub mod library;
 mod podcast;
 pub(crate) mod processing;
+mod providers;
 pub mod recognition;
 pub mod recognizer;
 pub mod recordings;

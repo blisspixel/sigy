@@ -132,57 +132,12 @@ impl Store {
         maximum: Usd,
         additional_budgets: &[&str],
     ) -> Result<Admission> {
-        validate_key(id, "request ID")?;
-        validate_key(context, "request context")?;
-        if additional_budgets.len() > 15 {
-            return Err(Error::InvalidInput("request scope count"));
-        }
-        let mut budgets = BTreeSet::from(["global"]);
-        for id in additional_budgets {
-            validate_key(id, "budget ID")?;
-            budgets.insert(*id);
-        }
-        let budgets: Vec<String> = budgets.into_iter().map(str::to_owned).collect();
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(existing) = read_reservation(&tx, id)? {
-            if existing.context != context
-                || existing.maximum != maximum
-                || existing.budgets != budgets
-            {
-                return Err(Error::IdempotencyConflict);
-            }
-            return Ok(Admission {
-                reservation: existing,
-                newly_reserved: false,
-            });
-        }
-        for scope in &budgets {
-            let balance = read_balance(&tx, scope)?.reserve(maximum)?;
-            write_balance(&tx, scope, balance)?;
-        }
-        tx.execute("INSERT INTO requests(id, context, maximum_micros, state, created_ms) VALUES (?1, ?2, ?3, 'reserved', ?4)", params![id, context, maximum.micros(), now_ms()?])?;
-        for scope in &budgets {
-            tx.execute(
-                "INSERT INTO request_budgets(request_id, budget_id) VALUES (?1, ?2)",
-                params![id, scope],
-            )?;
-        }
-        event(&tx, id, "reserved", Some(maximum))?;
+        let admission = reserve_in(&tx, id, context, maximum, additional_budgets)?;
         tx.commit()?;
-        Ok(Admission {
-            reservation: Reservation {
-                id: id.to_owned(),
-                context: context.to_owned(),
-                maximum,
-                state: RequestState::Reserved,
-                actual: None,
-                evidence: None,
-                budgets,
-            },
-            newly_reserved: true,
-        })
+        Ok(admission)
     }
 
     /// Persist this transition before sending. An unchanged result is not permission to resend.
@@ -332,6 +287,61 @@ impl Store {
         }
         Ok(())
     }
+}
+
+/// Reserves inside a caller's immediate transaction so related rows commit atomically.
+pub(crate) fn reserve_in(
+    tx: &Connection,
+    id: &str,
+    context: &str,
+    maximum: Usd,
+    additional_budgets: &[&str],
+) -> Result<Admission> {
+    validate_key(id, "request ID")?;
+    validate_key(context, "request context")?;
+    if additional_budgets.len() > 15 {
+        return Err(Error::InvalidInput("request scope count"));
+    }
+    let mut budgets = BTreeSet::from(["global"]);
+    for id in additional_budgets {
+        validate_key(id, "budget ID")?;
+        budgets.insert(*id);
+    }
+    let budgets: Vec<String> = budgets.into_iter().map(str::to_owned).collect();
+    if let Some(existing) = read_reservation(tx, id)? {
+        if existing.context != context || existing.maximum != maximum || existing.budgets != budgets
+        {
+            return Err(Error::IdempotencyConflict);
+        }
+        return Ok(Admission {
+            reservation: existing,
+            newly_reserved: false,
+        });
+    }
+    for scope in &budgets {
+        let balance = read_balance(tx, scope)?.reserve(maximum)?;
+        write_balance(tx, scope, balance)?;
+    }
+    tx.execute("INSERT INTO requests(id, context, maximum_micros, state, created_ms) VALUES (?1, ?2, ?3, 'reserved', ?4)", params![id, context, maximum.micros(), now_ms()?])?;
+    for scope in &budgets {
+        tx.execute(
+            "INSERT INTO request_budgets(request_id, budget_id) VALUES (?1, ?2)",
+            params![id, scope],
+        )?;
+    }
+    event(tx, id, "reserved", Some(maximum))?;
+    Ok(Admission {
+        reservation: Reservation {
+            id: id.to_owned(),
+            context: context.to_owned(),
+            maximum,
+            state: RequestState::Reserved,
+            actual: None,
+            evidence: None,
+            budgets,
+        },
+        newly_reserved: true,
+    })
 }
 
 fn read_balance(connection: &Connection, id: &str) -> Result<Balance> {

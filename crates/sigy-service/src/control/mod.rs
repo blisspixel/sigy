@@ -11,6 +11,7 @@ mod listen;
 mod playback;
 mod playlist;
 mod podcast;
+mod provider;
 mod schedule;
 mod server;
 
@@ -23,6 +24,7 @@ use crate::{
     storage::{Store, sources::SourceRevision},
 };
 
+pub use crate::providers::{PriceSpec, RateSpec, RouteSpec};
 pub use crate::storage::analysis_jobs::AnalysisJob;
 pub use analysis::{
     AnalysisDecisionView, AnalysisDisposition, AnalysisGapView, AnalysisIntervalView,
@@ -39,10 +41,14 @@ pub use podcast::{
     PodcastEpisodeView, PodcastFeedView, PodcastIdentityKind, PodcastOperation, PodcastPage,
     PodcastView, PublisherTextView,
 };
+pub use provider::{
+    LanguagePairView, PriceSnapshotView, ProviderOperation, ProviderPage, ProviderRouteView,
+    RateView,
+};
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 27;
+pub const PROTOCOL_VERSION: u32 = 28;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -120,6 +126,10 @@ pub enum Operation {
     },
     /// Read-only preflight. It does not refresh, delete, or contact a network.
     Doctor {},
+    /// Store or read provider routes and price snapshots. Nothing is sent.
+    Provider {
+        command: ProviderOperation,
+    },
 }
 
 impl std::fmt::Debug for Operation {
@@ -141,6 +151,7 @@ impl std::fmt::Debug for Operation {
             Self::Schedule { .. } => "schedule",
             Self::Analysis { .. } => "analysis",
             Self::Doctor {} => "doctor",
+            Self::Provider { .. } => "provider",
         };
         f.debug_struct("Operation")
             .field("kind", &kind)
@@ -219,6 +230,8 @@ pub struct Snapshot {
     pub analysis_job: Option<AnalysisJob>,
     #[serde(default)]
     pub recognition: Option<Box<RecognitionView>>,
+    #[serde(default)]
+    pub provider: Option<ProviderPage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -283,6 +296,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         Operation::Podcast { command } => return podcast::apply(store, command),
         Operation::Schedule { command } => return schedule::apply(store, command),
         Operation::Analysis { command } => return analysis::apply(store, command),
+        Operation::Provider { command } => return provider::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
                 recording_metadata = Some(crate::recordings::metadata::export(
@@ -408,6 +422,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         analysis: None,
         analysis_job: None,
         recognition: None,
+        provider: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

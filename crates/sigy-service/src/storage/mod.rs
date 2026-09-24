@@ -22,11 +22,12 @@ pub use clicks::ClickStatus;
 pub(crate) mod analysis;
 pub(crate) mod analysis_jobs;
 pub(crate) mod directory_policy;
+pub(crate) mod providers;
 pub(crate) mod schedules;
 pub mod sources;
 pub(crate) mod transcripts;
 
-pub const SCHEMA_VERSION: u32 = 27;
+pub const SCHEMA_VERSION: u32 = 28;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -103,6 +104,7 @@ impl Store {
         store.audit_transcripts()?;
         store.audit_language_evidence()?;
         store.audit_analysis_jobs()?;
+        store.audit_providers()?;
         Ok(store)
     }
 
@@ -216,6 +218,9 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     }
     if (0..=26).contains(&version) {
         transaction.execute_batch(include_str!("027-recognition-profiles.sql"))?;
+    }
+    if (0..=27).contains(&version) {
+        transaction.execute_batch(include_str!("028-provider-routes.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,
