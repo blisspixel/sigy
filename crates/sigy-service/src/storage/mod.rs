@@ -26,7 +26,7 @@ pub(crate) mod schedules;
 pub mod sources;
 pub(crate) mod transcripts;
 
-pub const SCHEMA_VERSION: u32 = 26;
+pub const SCHEMA_VERSION: u32 = 27;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -213,6 +213,9 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
         if violations != 0 {
             return Err(Error::CatalogIntegrity);
         }
+    }
+    if (0..=26).contains(&version) {
+        transaction.execute_batch(include_str!("027-recognition-profiles.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

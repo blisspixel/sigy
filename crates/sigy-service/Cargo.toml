@@ -27,6 +27,7 @@ flate2.workspace = true
 jiff.workspace = true
 oxilangtag.workspace = true
 process-wrap.workspace = true
+processkit.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 widestring.workspace = true

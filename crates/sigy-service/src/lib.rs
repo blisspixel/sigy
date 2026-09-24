@@ -10,6 +10,7 @@ pub mod library;
 mod podcast;
 pub(crate) mod processing;
 pub mod recognition;
+pub mod recognizer;
 pub mod recordings;
 mod schedule;
 pub mod sources;

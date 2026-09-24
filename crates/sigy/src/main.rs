@@ -189,7 +189,7 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
     } else if let Command::Schedule { command } = &cli.command {
         command.operation()?
     } else if let Command::Analysis { command } = &cli.command {
-        command.operation()
+        command.operation()?
     } else if let Command::Dvr { command } = &cli.command {
         command.operation()?
     } else if matches!(cli.command, Command::Doctor { .. }) {
@@ -260,6 +260,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         dvr::render_records(&mut stdout, &page, ink)?;
     } else if let Some(page) = view.schedule {
         schedule::render(&mut stdout, &page)?;
+    } else if let Some(recognition) = &view.recognition {
+        analysis::render_recognition(&mut stdout, recognition)?;
     } else if let Some(job) = &view.analysis_job {
         analysis::render_job(&mut stdout, job)?;
     } else if let Some(page) = &view.analysis {

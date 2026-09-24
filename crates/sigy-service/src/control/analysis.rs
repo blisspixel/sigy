@@ -1,4 +1,5 @@
 use super::{Operation, Snapshot};
+use crate::recognition::{LocalAsrJob, RecognitionProfile, TranscriptCuePage};
 use crate::{
     Error, Result,
     domain::money::Usd,
@@ -29,10 +30,27 @@ pub enum AnalysisOperation {
         id: String,
         revision: i64,
     },
-    /// Refused until a measured recognizer is configured. No paid request is reserved.
+    /// Run one supervised local recognizer on a published pin. The job ID is the
+    /// idempotency key. No source URL is read and no paid request is reserved.
     Transcribe {
         id: String,
+        input: String,
         revision: i64,
+        profile: String,
+        /// The transcript revision this result follows. Omitted means the current one.
+        #[serde(default)]
+        parent_revision: Option<i64>,
+    },
+    /// Read one stored transcript revision's cues. Omitted revision means the newest.
+    Transcript {
+        id: String,
+        #[serde(default)]
+        revision: Option<i64>,
+        #[serde(default)]
+        after: Option<u32>,
+    },
+    Profile {
+        command: ProfileOperation,
     },
     Languages {
         command: LanguageOperation,
@@ -63,6 +81,41 @@ pub enum LanguageOperation {
         id: String,
         revision: u32,
         after: Option<u32>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProfileOperation {
+    /// Store one immutable profile. Files are re-hashed before every run.
+    Add {
+        profile: Box<RecognitionProfile>,
+    },
+    List {},
+    Show {
+        id: String,
+    },
+}
+
+/// Recognition results carried by a snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RecognitionView {
+    Profiles {
+        profiles: Vec<RecognitionProfile>,
+    },
+    Profile {
+        profile: RecognitionProfile,
+        created: bool,
+    },
+    Job {
+        job: LocalAsrJob,
+    },
+    Transcript {
+        page: TranscriptCuePage,
+    },
+    Empty {
+        id: String,
     },
 }
 
@@ -162,15 +215,23 @@ pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Sna
         AnalysisOperation::Publish { id, revision } => {
             (None, store.publish_analysis(&id, revision)?)
         }
-        AnalysisOperation::Transcribe { .. } => {
-            return Err(Error::InvalidInput(
-                "no measured recognizer is configured; analysis verify checks retained input",
-            ));
-        }
+        AnalysisOperation::Transcript {
+            id,
+            revision,
+            after,
+        } => return transcript(store, &id, revision, after),
+        AnalysisOperation::Profile { command } => return profile(store, command, now),
+        AnalysisOperation::Transcribe { .. } => return Err(Error::ServiceRequired),
         AnalysisOperation::Languages { command } => return languages(store, command),
         AnalysisOperation::Job { id } => {
             let mut snapshot = super::snapshot(store)?;
-            snapshot.analysis_job = Some(store.analysis_job(&id)?);
+            if store.analysis_job_kind(&id)?.as_deref() == Some("local_asr") {
+                snapshot.recognition = Some(Box::new(RecognitionView::Job {
+                    job: store.local_asr_job(&id)?,
+                }));
+            } else {
+                snapshot.analysis_job = Some(store.analysis_job(&id)?);
+            }
             return Ok(snapshot);
         }
         AnalysisOperation::Verify { .. } | AnalysisOperation::Cancel { .. } => {
@@ -178,6 +239,50 @@ pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Sna
         }
     };
     finish(store, record, disposition)
+}
+
+fn transcript(
+    store: &Store,
+    id: &str,
+    revision: Option<i64>,
+    after: Option<u32>,
+) -> Result<Snapshot> {
+    let revision = match revision {
+        Some(revision) => revision,
+        None => store.latest_transcript_revision(id)?,
+    };
+    let view = if revision == 0 {
+        RecognitionView::Empty { id: id.to_owned() }
+    } else {
+        RecognitionView::Transcript {
+            page: store.transcript_cues_page(id, revision, after)?,
+        }
+    };
+    let mut snapshot = super::snapshot(store)?;
+    snapshot.recognition = Some(Box::new(view));
+    Ok(snapshot)
+}
+
+fn profile(store: &mut Store, command: ProfileOperation, now: i64) -> Result<Snapshot> {
+    let view = match command {
+        ProfileOperation::Add { profile } => {
+            let created = store.add_recognition_profile(&profile, now)?;
+            RecognitionView::Profile {
+                profile: store.recognition_profile(&profile.id)?,
+                created,
+            }
+        }
+        ProfileOperation::List {} => RecognitionView::Profiles {
+            profiles: store.recognition_profiles()?,
+        },
+        ProfileOperation::Show { id } => RecognitionView::Profile {
+            profile: store.recognition_profile(&id)?,
+            created: false,
+        },
+    };
+    let mut snapshot = super::snapshot(store)?;
+    snapshot.recognition = Some(Box::new(view));
+    Ok(snapshot)
 }
 
 fn finish(

@@ -332,7 +332,17 @@ fn verify_retained_analysis(directory: &std::path::Path, bytes: usize) -> TestRe
     assert!(
         !invoke(
             directory,
-            &["analysis", "transcribe", "pin", "--revision", "1"]
+            &[
+                "analysis",
+                "transcribe",
+                "asr",
+                "--input",
+                "pin",
+                "--revision",
+                "1",
+                "--profile",
+                "unconfigured"
+            ]
         )?
         .status
         .success()

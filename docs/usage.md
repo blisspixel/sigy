@@ -223,7 +223,22 @@ sigy --data-dir PATH_TO_LIBRARY analysis languages show EVIDENCE_ID --revision 1
 
 `analysis verify` requires a running service and checks retained input in one supervised local job. It reads at most 512 MiB across 1024 files, with a 64 KiB buffer and cancellation/deadline checks between reads. A blocked filesystem read can delay the 60-second deadline; the recording remains protected until the reader actually stops. There is no queue, and history is limited to 256 jobs. `analysis job` reports running, cancelling, verified, cancelled, failed, or interrupted. Exact replay does not read again. Restart interrupts active work without resuming it. These commands perform no recognition, translation, or paid request. See [retained-input verification](decisions/0034-retained-input-verification.md).
 
-`analysis transcribe PIN --revision N` is unavailable until a measured recognizer is configured and creates no empty result. Older `local-unmeasured` rows stay readable as legacy placeholders with no recognized speech. See [local transcripts](decisions/0032-local-transcripts.md).
+### Speech recognition
+
+```text
+sigy --data-dir PATH_TO_LIBRARY analysis profile add turbo-cpu --runtime-dir PATH_TO_WHISPER_CPP --model PATH_TO_GGML_MODEL --vad-model PATH_TO_SILERO_VAD --threads 4
+sigy --data-dir PATH_TO_LIBRARY analysis profile list
+sigy --data-dir PATH_TO_LIBRARY analysis transcribe asr-001 --input pin-001 --revision 1 --profile turbo-cpu
+sigy --data-dir PATH_TO_LIBRARY analysis job asr-001
+sigy --data-dir PATH_TO_LIBRARY analysis transcript pin-001
+sigy --data-dir PATH_TO_LIBRARY analysis cancel asr-001 --generation 1
+```
+
+Sigy does not download a recognizer or model. `analysis profile add` hashes a local [whisper.cpp](https://github.com/ggml-org/whisper.cpp) runtime directory, a ggml model and a Silero speech-activity model into an immutable profile. The speech-activity model is required: without it the recognizer can write words for silence. The defaults are half the available processors (at most four), a 3 GiB memory ceiling and a 600-second deadline. The profile runs on the CPU on any supported machine; GPU use is off in this profile type.
+
+`analysis transcribe` requires a running service. It re-hashes the profile files, decodes one published interval of at most 60 seconds to 16 kHz mono with the configured FFmpeg, and runs the recognizer in a contained process group with process-count, memory, CPU and deadline limits. `analysis transcript` shows machine-recognized text in the original script with its media time. The text is unreviewed and can be wrong. A recording with no recognized speech shows `no_text`. Repeating a job ID returns the stored job and never runs again; use a new ID to transcribe again. Restart interrupts a running job. No paid request is made. The recognizer is not network-sandboxed by the operating system; use runtimes and models you trust. See [native recognition worker](decisions/0039-native-recognition-worker.md).
+
+Older `local-unmeasured` rows stay readable as legacy placeholders with no recognized speech. See [local transcripts](decisions/0032-local-transcripts.md).
 
 `analysis languages` inspects stored evidence without running detection. `list` returns up to 16 evidence tracks for the exact pin revision; continue with `--after EVIDENCE_ID` when shown. `show` returns up to 16 spans from the exact evidence revision; continue with `--after ORDINAL`. Observation, processing outcome, and route capability remain separate. Empty legacy transcripts have no language observations, and no production detector publishes evidence yet. There is no command to manufacture evidence. See [language evidence](decisions/0033-language-evidence.md).
 

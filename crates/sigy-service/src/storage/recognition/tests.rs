@@ -158,7 +158,7 @@ fn unicode_success_is_atomic_zero_cost_and_replays_after_media_expiry() -> TestR
 }
 
 #[test]
-fn cancellation_and_restart_hold_lease_until_synthetic_cleanup() -> TestResult {
+fn cancellation_holds_lease_and_restart_interrupts_with_new_generation() -> TestResult {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("catalog");
     let mut store = setup(&path, false)?;
@@ -177,12 +177,18 @@ fn cancellation_and_restart_hold_lease_until_synthetic_cleanup() -> TestResult {
     );
     drop(store);
     let mut reopened = Store::open(&path)?;
-    assert!(matches!(
-        reopened.recover_analysis_jobs(),
-        Err(Error::Analysis("native-recovery-unavailable"))
-    ));
-    assert_eq!(reopened.local_asr_job("asr")?.state, "cancelling");
-    assert!(reopened.begin_delete("one", true).is_err());
+    // The previous service's contained group ended with its process. Restart
+    // interrupts the job, advances its generation and never replays it.
+    reopened.recover_analysis_jobs()?;
+    let recovered = reopened.local_asr_job("asr")?;
+    assert_eq!(
+        (
+            recovered.generation,
+            recovered.state.as_str(),
+            recovered.reason.as_deref()
+        ),
+        (2, "interrupted", Some("service-restarted"))
+    );
     assert!(
         reopened
             .admit_local_asr(&request("asr", 0), 99)?
@@ -190,15 +196,11 @@ fn cancellation_and_restart_hold_lease_until_synthetic_cleanup() -> TestResult {
             .is_none()
     );
     let queued = proof(&work, "queued speech");
-    assert_eq!(
-        reopened.finish_local_asr(&work, &queued, 22)?.state,
-        "cancelled"
-    );
+    assert!(matches!(
+        reopened.finish_local_asr(&work, &queued, 22),
+        Err(Error::Analysis("stale-worker"))
+    ));
     assert_eq!(counts(&reopened)?, (0, 0, 0, 0));
-    assert_eq!(
-        reopened.finish_local_asr(&work, &queued, 99)?.state,
-        "cancelled"
-    );
     reopened.begin_delete("one", false)?;
     Ok(())
 }
@@ -331,15 +333,19 @@ fn every_publication_stage_rolls_back_and_keeps_durable_lease_on_sql_failure() -
         assert_eq!(store.local_asr_job("asr")?.state, "running");
         assert!(store.begin_delete("one", false).is_err());
         drop(store);
+        // A failed commit keeps the lease. Restart interrupts the job with a new
+        // generation, so the old completion can never publish afterward.
         let mut reopened = Store::open(&path)?;
-        assert!(reopened.recover_analysis_jobs().is_err());
         reopened
             .connection
             .execute_batch("DROP TRIGGER fixture_fault;")?;
-        assert_eq!(
-            reopened.finish_local_asr(&work, &completed, 22)?.state,
-            "succeeded"
-        );
+        reopened.recover_analysis_jobs()?;
+        assert_eq!(reopened.local_asr_job("asr")?.state, "interrupted");
+        assert!(matches!(
+            reopened.finish_local_asr(&work, &completed, 22),
+            Err(Error::Analysis("stale-worker"))
+        ));
+        assert_eq!(counts(&reopened)?, (0, 0, 0, 0), "{table}");
     }
     Ok(())
 }
@@ -602,5 +608,72 @@ fn request_and_input_limits_refuse_before_admission() -> TestResult {
             .connection
             .query_row("SELECT count(*) FROM analysis_jobs", [], |row| row.get(0))?;
     assert_eq!(jobs, 0);
+    Ok(())
+}
+
+fn stored_profile(id: &str, threads: u32) -> Result<crate::recognition::RecognitionProfile> {
+    let root = std::env::temp_dir();
+    let mut profile = crate::recognition::RecognitionProfile {
+        id: id.into(),
+        engine: crate::recognition::WHISPER_CPP_CLI.into(),
+        runtime_dir: root.join("runtime").display().to_string(),
+        executable: "whisper-cli.exe".into(),
+        runtime_sha256: "1".repeat(64),
+        runtime_files: 3,
+        runtime_bytes: 300,
+        model_path: root.join("model.bin").display().to_string(),
+        model_sha256: "2".repeat(64),
+        model_bytes: 1000,
+        vad_path: root.join("vad.bin").display().to_string(),
+        vad_sha256: "3".repeat(64),
+        vad_bytes: 10,
+        threads,
+        memory_bytes: 1 << 30,
+        deadline_ms: 60_000,
+        profile_sha256: String::new(),
+    };
+    profile.profile_sha256 = profile.identity()?;
+    Ok(profile)
+}
+
+#[test]
+fn profiles_are_immutable_exact_replays_and_bounded() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let profile = stored_profile("cpu", 2)?;
+    assert!(store.add_recognition_profile(&profile, 5)?);
+    assert!(!store.add_recognition_profile(&profile, 6)?);
+    assert_eq!(store.recognition_profile("cpu")?, profile);
+    assert!(matches!(
+        store.add_recognition_profile(&stored_profile("cpu", 3)?, 7),
+        Err(Error::IdempotencyConflict)
+    ));
+    let mut forged = stored_profile("forged", 2)?;
+    forged.memory_bytes *= 2;
+    assert!(store.add_recognition_profile(&forged, 8).is_err());
+    assert!(store.add_recognition_profile(&profile, -1).is_err());
+    // The same file hashes and limits under another name is the same identity.
+    assert!(
+        store
+            .add_recognition_profile(&stored_profile("alias", 2)?, 9)
+            .is_err()
+    );
+    assert!(
+        store
+            .connection
+            .execute("UPDATE recognition_profiles SET threads = 8", [])
+            .is_err()
+    );
+    assert!(
+        store
+            .connection
+            .execute("DELETE FROM recognition_profiles", [])
+            .is_err()
+    );
+    assert!(matches!(
+        store.recognition_profile("absent"),
+        Err(Error::NotFound)
+    ));
+    assert_eq!(store.recognition_profiles()?.len(), 1);
     Ok(())
 }

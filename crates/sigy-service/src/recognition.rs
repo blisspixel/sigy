@@ -1,6 +1,7 @@
-//! Local recognition storage contracts. These values do not qualify a native worker.
-//! Mutation APIs and cleanup capabilities remain internal test staging until the
-//! native supervisor can prove cleanup. External callers can only inspect history.
+//! Local recognition contracts. Admission, cancellation and publication are
+//! crate-private and reachable only through the service supervisor, which must prove
+//! that a native process tree is drained before it can construct a completion.
+//! External callers can inspect history and describe profiles.
 //!
 //! ```compile_fail
 //! use sigy_service::{recognition::LocalAsrRequest, storage::Store};
@@ -21,9 +22,9 @@
 //! let _ = serde_json::from_str::<ReapedLocalAsr>("{}");
 //! ```
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
-#[cfg(test)]
 use crate::{Error, Result, storage::validate_key};
 
 pub const MAX_ASR_CUES: usize = 256;
@@ -31,7 +32,12 @@ pub const MAX_ASR_TEXT_BYTES: usize = 65_536;
 pub const TRANSCRIPT_PAGE_BYTES: usize = 65_536;
 pub const TRANSCRIPT_PAGE_ITEMS: usize = 16;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// The only native adapter. Its argument template is part of the profile identity.
+pub const WHISPER_CPP_CLI: &str = "whisper-cpp-cli-v1";
+const WHISPER_TEMPLATE: &str = "language=auto;translate=off;vad=on;gpu=off;processors=1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LocalAsrRequest {
     pub id: String,
     pub analysis_id: String,
@@ -43,7 +49,6 @@ pub struct LocalAsrRequest {
 }
 
 impl LocalAsrRequest {
-    #[cfg(test)]
     pub(crate) fn validate(&self) -> Result<()> {
         validate_key(&self.id, "analysis job ID")?;
         validate_key(&self.analysis_id, "analysis input ID")?;
@@ -62,7 +67,8 @@ impl LocalAsrRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LocalAsrJob {
     pub request: LocalAsrRequest,
     pub generation: u32,
@@ -109,7 +115,8 @@ impl LocalAsrWork {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RecognitionCue {
     pub ordinal: u32,
     pub start_us: u64,
@@ -118,7 +125,8 @@ pub struct RecognitionCue {
     pub script: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RecognitionCoverage {
     pub interval_ordinal: u32,
     pub start_us: u64,
@@ -152,10 +160,15 @@ pub enum LocalAsrFailure {
     RecognizerFailed,
     Deadline,
     WorkerPanicked,
+    /// A profile file is missing, changed, or no longer matches its recorded hash.
+    ProfileUnavailable,
+    /// The host cannot enforce the profile's process, memory and CPU limits.
+    LimitsUnavailable,
+    /// The recognizer's output failed bounded validation.
+    InvalidOutput,
 }
 
 impl LocalAsrFailure {
-    #[cfg(test)]
     pub(crate) fn reason(self) -> &'static str {
         match self {
             Self::InputUnavailable => "input-unavailable",
@@ -163,14 +176,17 @@ impl LocalAsrFailure {
             Self::RecognizerFailed => "recognizer-failed",
             Self::Deadline => "deadline",
             Self::WorkerPanicked => "worker-panicked",
+            Self::ProfileUnavailable => "profile-unavailable",
+            Self::LimitsUnavailable => "limits-unavailable",
+            Self::InvalidOutput => "invalid-worker-output",
         }
     }
 }
 
 /// A sealed service capability for a completed, drained native process tree.
-/// There is deliberately no production constructor yet. Library-lock ownership,
-/// model output, caller assertions and process exit alone cannot construct this value.
-#[cfg(test)]
+/// Only the native supervisor can obtain the drain proof that constructs it.
+/// Library-lock ownership, model output, caller assertions and process exit alone
+/// cannot construct this value.
 #[derive(Debug)]
 pub(crate) struct ReapedLocalAsr {
     request: LocalAsrRequest,
@@ -178,8 +194,19 @@ pub(crate) struct ReapedLocalAsr {
     outcome: LocalAsrOutcome,
 }
 
-#[cfg(test)]
 impl ReapedLocalAsr {
+    pub(crate) fn drained(
+        job: &LocalAsrJob,
+        outcome: LocalAsrOutcome,
+        _proof: crate::recognizer::Drained,
+    ) -> Self {
+        Self {
+            request: job.request.clone(),
+            generation: job.generation,
+            outcome,
+        }
+    }
+
     pub(crate) fn matches(&self, work: &LocalAsrWork) -> bool {
         self.request == work.job.request && self.generation == work.job.generation
     }
@@ -188,6 +215,7 @@ impl ReapedLocalAsr {
         &self.outcome
     }
 
+    #[cfg(test)]
     pub(crate) fn synthetic_fixture(work: &LocalAsrWork, outcome: LocalAsrOutcome) -> Self {
         Self {
             request: work.job.request.clone(),
@@ -197,7 +225,112 @@ impl ReapedLocalAsr {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// One immutable local recognizer configuration. Paths locate files; hashes identify them.
+/// The profile hash covers the engine, argument template, file hashes and limits, not paths.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecognitionProfile {
+    pub id: String,
+    pub engine: String,
+    pub runtime_dir: String,
+    pub executable: String,
+    pub runtime_sha256: String,
+    pub runtime_files: u32,
+    pub runtime_bytes: u64,
+    pub model_path: String,
+    pub model_sha256: String,
+    pub model_bytes: u64,
+    pub vad_path: String,
+    pub vad_sha256: String,
+    pub vad_bytes: u64,
+    pub threads: u32,
+    pub memory_bytes: u64,
+    pub deadline_ms: u64,
+    pub profile_sha256: String,
+}
+
+pub const MAX_PROFILE_PATH_BYTES: usize = 1024;
+pub const MAX_MODEL_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+pub const MAX_VAD_BYTES: u64 = 64 * 1024 * 1024;
+pub const MIN_WORKER_MEMORY: u64 = 256 * 1024 * 1024;
+pub const MAX_WORKER_MEMORY: u64 = 64 * 1024 * 1024 * 1024;
+pub const MAX_WORKER_THREADS: u32 = 64;
+pub const MAX_WORKER_DEADLINE_MS: u64 = 3_600_000;
+
+impl RecognitionProfile {
+    /// The identity recorded on every job and transcript produced with this profile.
+    /// # Errors
+    /// Fails only if serialization fails.
+    pub fn identity(&self) -> Result<String> {
+        Ok(sha256_hex(&serde_json::to_vec(&(
+            "sigy-recognition-profile-v1",
+            &self.engine,
+            WHISPER_TEMPLATE,
+            &self.executable,
+            &self.runtime_sha256,
+            self.runtime_files,
+            self.runtime_bytes,
+            &self.model_sha256,
+            self.model_bytes,
+            &self.vad_sha256,
+            self.vad_bytes,
+            self.threads,
+            self.memory_bytes,
+            self.deadline_ms,
+        ))?))
+    }
+
+    /// Validate bounds and the derived identity. Files are checked by the worker.
+    /// # Errors
+    /// Refuses invalid names, paths, hashes, limits or a mismatched identity.
+    pub fn validate(&self) -> Result<()> {
+        validate_key(&self.id, "recognition profile")?;
+        let invalid = Error::InvalidInput("recognition profile");
+        if matches!(self.id.as_str(), "local-unmeasured" | "retained-sha256-v1")
+            || self.engine != WHISPER_CPP_CLI
+            || !absolute_path(&self.runtime_dir)
+            || !absolute_path(&self.model_path)
+            || !absolute_path(&self.vad_path)
+            || !file_name(&self.executable)
+            || !is_sha256(&self.runtime_sha256)
+            || !is_sha256(&self.model_sha256)
+            || !is_sha256(&self.vad_sha256)
+            || !(1..=256).contains(&self.runtime_files)
+            || !(1..=1024 * 1024 * 1024).contains(&self.runtime_bytes)
+            || !(1..=MAX_MODEL_BYTES).contains(&self.model_bytes)
+            || !(1..=MAX_VAD_BYTES).contains(&self.vad_bytes)
+            || !(1..=MAX_WORKER_THREADS).contains(&self.threads)
+            || !(MIN_WORKER_MEMORY..=MAX_WORKER_MEMORY).contains(&self.memory_bytes)
+            || !(1_000..=MAX_WORKER_DEADLINE_MS).contains(&self.deadline_ms)
+        {
+            return Err(invalid);
+        }
+        if self.identity()? != self.profile_sha256 {
+            return Err(invalid);
+        }
+        Ok(())
+    }
+}
+
+fn absolute_path(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_PROFILE_PATH_BYTES
+        && !value.chars().any(char::is_control)
+        && std::path::Path::new(value).is_absolute()
+}
+
+fn file_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value != "."
+        && value != ".."
+        && !value
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TranscriptSummary {
     pub id: String,
     pub revision: i64,
@@ -218,13 +351,15 @@ pub struct TranscriptSummary {
     pub wording: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TranscriptRevisionPage {
     pub revisions: Vec<TranscriptSummary>,
     pub next_after_revision: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TranscriptCuePage {
     pub transcript: TranscriptSummary,
     pub coverage: Option<RecognitionCoverage>,
@@ -233,10 +368,13 @@ pub struct TranscriptCuePage {
     pub next_after_ordinal: Option<u32>,
 }
 
-#[cfg(test)]
 pub(crate) fn is_sha256(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    crate::storage::dvr::hex(&Sha256::digest(bytes))
 }

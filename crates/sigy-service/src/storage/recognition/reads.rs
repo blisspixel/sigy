@@ -1,7 +1,5 @@
-#[cfg(test)]
 use super::LocalAsrJob;
 use super::{Connection, Error, OptionalExtension, Result, Store, params, validate_key};
-#[cfg(test)]
 use crate::recognition::{MAX_ASR_CUES, RecognitionOutput};
 use crate::recognition::{
     RecognitionCoverage, RecognitionCue, TRANSCRIPT_PAGE_BYTES, TRANSCRIPT_PAGE_ITEMS,
@@ -11,6 +9,18 @@ use crate::recognition::{
 const SUMMARY: &str = "SELECT t.id, t.revision, t.analysis_revision, t.recording_id, t.media_sha256, t.kind, t.outcome, t.parent_revision, t.profile, t.profile_sha256, t.job_id, t.job_generation, (SELECT count(*) FROM transcript_cues c WHERE c.transcript_id = t.id AND c.revision = t.revision), coalesce(t.text_bytes, 0), t.created_ms FROM transcripts t JOIN analysis_decisions d ON d.transcript_id = t.id AND d.transcript_revision = t.revision";
 
 impl Store {
+    /// The newest transcript revision for one analysis input, or zero.
+    /// # Errors
+    /// Refuses a malformed ID.
+    pub fn latest_transcript_revision(&self, id: &str) -> Result<i64> {
+        validate_key(id, "transcript ID")?;
+        Ok(self.connection.query_row(
+            "SELECT coalesce(max(revision), 0) FROM transcripts WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )?)
+    }
+
     /// Read at most sixteen immutable revisions after an exact revision cursor.
     /// Historical reads do not require retained audio or a current input revision.
     /// # Errors
@@ -166,7 +176,6 @@ fn coverage(
     ).optional()?)
 }
 
-#[cfg(test)]
 pub(super) fn output(connection: &Connection, job: &LocalAsrJob) -> Result<RecognitionOutput> {
     let id = &job.request.analysis_id;
     let revision = job.request.parent_revision + 1;

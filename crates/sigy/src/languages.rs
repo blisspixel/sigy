@@ -167,7 +167,7 @@ mod tests {
             return Err("wrong command".into());
         };
         assert!(matches!(
-            command.operation(),
+            command.operation()?,
             sigy_service::control::Operation::Analysis {
                 command: sigy_service::control::AnalysisOperation::Languages {
                     command: LanguageOperation::Show {

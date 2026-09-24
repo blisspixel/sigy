@@ -1,11 +1,9 @@
-//! Bounded service storage operations. No native dispatch or cleanup adapter is enabled.
+//! Bounded recognition storage. Mutations are crate-private and used by the supervisor.
 
 use rusqlite::{Connection, OptionalExtension, params};
-#[cfg(test)]
 use sha2::{Digest, Sha256};
 
 use super::{Store, validate_key};
-#[cfg(test)]
 use crate::recognition::{LocalAsrInput, LocalAsrWork};
 use crate::{
     Error, Result,
@@ -13,25 +11,21 @@ use crate::{
 };
 
 mod jobs;
-#[cfg(test)]
+mod profiles;
 mod publish;
 mod reads;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
 mod validation;
 
-#[cfg(test)]
 fn sha256(bytes: &[u8]) -> String {
     super::dvr::hex(&Sha256::digest(bytes))
 }
 
-#[cfg(test)]
 fn sql_integer(value: u64) -> Result<i64> {
     i64::try_from(value).map_err(|_| Error::InvalidInput("recognition integer range"))
 }
 
-#[cfg(test)]
 fn manifest(input: &LocalAsrInput) -> Result<String> {
     Ok(sha256(&serde_json::to_vec(&(
         "sigy-local-asr-input-v1",
@@ -60,7 +54,6 @@ fn find_job(connection: &Connection, id: &str) -> Result<Option<LocalAsrJob>> {
 }
 
 /// Recheck retained catalog identity inside the publication/admission transaction.
-#[cfg(test)]
 fn current_input(connection: &Connection, work: &LocalAsrWork) -> Result<bool> {
     let input = &work.input;
     let request = &work.job.request;
@@ -71,7 +64,6 @@ fn current_input(connection: &Connection, work: &LocalAsrWork) -> Result<bool> {
     Ok(timeline.is_some_and(|timeline| sha256(timeline.as_bytes()) == input.timeline_sha256))
 }
 
-#[cfg(test)]
 impl Store {
     fn local_asr_input(&self, request: &LocalAsrRequest) -> Result<LocalAsrInput> {
         let pin = self.published_analysis(&request.analysis_id, request.analysis_revision)?;

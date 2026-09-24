@@ -216,7 +216,7 @@ fn genuine_v23_v24_v25_migrations_preserve_legacy_language_and_verification() ->
             reopened
                 .connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))?,
-            26
+            crate::storage::SCHEMA_VERSION
         );
         drop(reopened);
         Store::open(&path)?;
@@ -445,10 +445,6 @@ fn recognition_sql_refuses_wrong_identity_incomplete_output_and_cancellation() -
         [],
     )?;
     assert!(header(&store.connection, "asr", 1, "").is_err());
-    assert!(matches!(
-        store.recover_analysis_jobs(),
-        Err(Error::Analysis("native-recovery-unavailable"))
-    ));
     assert!(store.begin_delete("one", true).is_err());
     assert!(
         store
@@ -546,11 +542,9 @@ fn completion_failure_rolls_back_every_result_row_and_keeps_native_lease() -> Te
     assert!(store.begin_delete("one", true).is_err());
     drop(store);
     let mut reopened = Store::open(&path)?;
-    assert!(matches!(
-        reopened.recover_analysis_jobs(),
-        Err(Error::Analysis("native-recovery-unavailable"))
-    ));
     assert!(reopened.begin_delete("one", true).is_err());
     assert!(reopened.prune_candidates(true)?.is_empty());
+    reopened.recover_analysis_jobs()?;
+    assert_eq!(reopened.local_asr_job("asr")?.state, "interrupted");
     Ok(())
 }

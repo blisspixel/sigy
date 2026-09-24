@@ -1,8 +1,6 @@
-#[cfg(test)]
 use rusqlite::TransactionBehavior;
 
 use super::{Error, LocalAsrJob, Result, Store, find_job, validate_key};
-#[cfg(test)]
 use super::{LocalAsrRequest, LocalAsrWork, current_input, manifest, params, sql_integer};
 
 impl Store {
@@ -10,7 +8,6 @@ impl Store {
     /// A replay returns history and no work capability, even after media expiry.
     /// # Errors
     /// Refuses changed replay, stale pins/parents, occupied worker slots or invalid bounds.
-    #[cfg(test)]
     pub(crate) fn admit_local_asr(
         &mut self,
         request: &LocalAsrRequest,
@@ -83,7 +80,6 @@ impl Store {
     /// Request cancellation of the exact generation. The durable read lease stays active.
     /// # Errors
     /// Refuses missing IDs, another job kind or a stale generation.
-    #[cfg(test)]
     pub(crate) fn cancel_local_asr(&mut self, id: &str, generation: u32) -> Result<LocalAsrJob> {
         let job = self.local_asr_job(id)?;
         if job.generation != generation {

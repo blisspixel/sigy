@@ -88,7 +88,7 @@ impl Store {
     ) -> Result<(AnalysisJob, Option<VerificationInput>)> {
         validate_key(id, "analysis job ID")?;
         let existing = match self.find_analysis_job(id) {
-            Err(Error::Analysis("recognition-job-interface-unavailable")) => {
+            Err(Error::Analysis("recognition-job")) => {
                 return Err(Error::IdempotencyConflict);
             }
             result => result?,
@@ -141,7 +141,7 @@ impl Store {
             )
             .optional()?;
         if kind.as_deref().is_some_and(|kind| kind != "verify") {
-            return Err(Error::Analysis("recognition-job-interface-unavailable"));
+            return Err(Error::Analysis("recognition-job"));
         }
         read_verification_job(&self.connection, id)
     }
@@ -214,16 +214,26 @@ impl Store {
         }
     }
 
+    /// The stored kind of one analysis job, if it exists.
+    /// # Errors
+    /// Refuses a malformed ID.
+    pub fn analysis_job_kind(&self, id: &str) -> Result<Option<String>> {
+        validate_key(id, "analysis job ID")?;
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT kind FROM analysis_jobs WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     pub(crate) fn recover_analysis_jobs(&mut self) -> Result<()> {
-        let native: bool = self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM analysis_jobs WHERE kind = 'local_asr' AND state IN ('running', 'cancelling'))",
-            [], |row| row.get(0),
-        )?;
-        if native {
-            // Native cleanup is not implemented. Never release a native read lease
-            // merely because the service restarted or its library lock was acquired.
-            return Err(Error::Analysis("native-recovery-unavailable"));
-        }
+        // A native recognizer runs in a contained group owned by the previous service
+        // process. Its kill-on-close handle ended with that process, so the job is
+        // interrupted here and its generation advanced. See decision 0039 for the
+        // platforms where that termination is enforced.
         let now = super::now_ms()?;
         self.connection.execute("UPDATE analysis_jobs SET state = 'interrupted', generation = generation + 1, reason = 'service-restarted', finished_ms = max(created_ms, ?1) WHERE state IN ('running', 'cancelling')", [now])?;
         Ok(())

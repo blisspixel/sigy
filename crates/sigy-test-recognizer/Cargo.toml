@@ -1,0 +1,13 @@
+[package]
+name = "sigy-test-recognizer"
+description = "Fault-injecting stand-in for a local recognizer. Test fixture only; never installed."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

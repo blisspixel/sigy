@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/sigy-core", "crates/sigy-service", "crates/sigy", "crates/sigy-xtask"]
+members = ["crates/sigy-core", "crates/sigy-service", "crates/sigy", "crates/sigy-xtask", "crates/sigy-test-recognizer"]
 resolver = "3"
 exclude = ["vendor/libsqlite3-sys", "research/experiments/terminal", "research/experiments/native-boundary"]
 
@@ -42,6 +42,7 @@ oxilangtag = "0.1.6"
 ratatui = { version = "=0.30.2", default-features = false, features = ["std", "termina", "layout-cache"] }
 termina = "=0.3.3"
 process-wrap = { version = "10.0.0", default-features = false, features = ["tokio1", "job-object", "kill-on-drop", "process-group", "creation-flags"] }
+processkit = { version = "=3.3.4", default-features = false, features = ["limits"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

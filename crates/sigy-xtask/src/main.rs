@@ -119,6 +119,8 @@ fn verify(root: &Path) -> Result<(), Error> {
 
 fn verify_media(root: &Path, decoder: Option<String>) -> Result<(), Error> {
     let ffmpeg = decoder_path(decoder)?;
+    // The fault-injecting stand-in recognizer must sit beside the test binaries.
+    run_cargo(root, &["build", "--locked", "-p", "sigy-test-recognizer"])?;
     run_cargo_with(
         root,
         &[

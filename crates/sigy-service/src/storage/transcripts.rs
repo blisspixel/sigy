@@ -377,7 +377,12 @@ mod tests {
         operation: Operation,
     ) -> Result<crate::control::Snapshot> {
         let Operation::Analysis {
-            command: AnalysisOperation::Transcribe { id, revision },
+            command:
+                AnalysisOperation::Transcribe {
+                    input: id,
+                    revision,
+                    ..
+                },
         } = operation
         else {
             return Err(Error::InvalidInput("legacy fixture operation"));
@@ -477,8 +482,11 @@ mod tests {
     fn transcribe(id: &str, revision: i64) -> Operation {
         Operation::Analysis {
             command: AnalysisOperation::Transcribe {
-                id: id.to_owned(),
+                id: format!("job-{id}"),
+                input: id.to_owned(),
                 revision,
+                profile: "absent-profile".to_owned(),
+                parent_revision: None,
             },
         }
     }
@@ -497,9 +505,7 @@ mod tests {
         seal_pin(&mut library, "pin", "one")?;
         assert!(matches!(
             apply_library(&mut library, transcribe("pin", 1)),
-            Err(Error::InvalidInput(
-                "no measured recognizer is configured; analysis verify checks retained input"
-            ))
+            Err(Error::ServiceRequired)
         ));
         assert_eq!(transcript_count(library.store())?, 0);
         let jobs: i64 = library.store().connection.query_row(
@@ -592,9 +598,7 @@ mod tests {
         seal_pin(&mut library, "pin", "one")?;
         assert!(matches!(
             apply(library.store_mut(), transcribe("pin", 1)),
-            Err(Error::InvalidInput(
-                "no measured recognizer is configured; analysis verify checks retained input"
-            ))
+            Err(Error::ServiceRequired)
         ));
         assert_eq!(transcript_count(library.store())?, 0);
 

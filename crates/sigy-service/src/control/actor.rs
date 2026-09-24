@@ -33,6 +33,11 @@ pub(super) enum Message {
         generation: u32,
         result: Result<crate::processing::VerificationReceipt>,
     },
+    RecognitionFinished {
+        id: String,
+        generation: u32,
+        result: Result<crate::recognition::ReapedLocalAsr>,
+    },
     DirectoryFinished {
         id: String,
         result: Result<crate::discovery::RefreshBatch>,
@@ -123,27 +128,7 @@ impl Actor {
     fn apply(&mut self, operation: Operation) -> Result<Snapshot> {
         let mut created = None;
         let operation = match operation {
-            Operation::Analysis {
-                command:
-                    super::AnalysisOperation::Verify {
-                        id,
-                        input,
-                        revision,
-                    },
-            } => {
-                self.start_verification(&id, &input, revision)?;
-                Operation::Analysis {
-                    command: super::AnalysisOperation::Job { id },
-                }
-            }
-            Operation::Analysis {
-                command: super::AnalysisOperation::Cancel { id, generation },
-            } => {
-                self.cancel_verification(&id, generation)?;
-                Operation::Analysis {
-                    command: super::AnalysisOperation::Job { id },
-                }
-            }
+            Operation::Analysis { command } => self.analysis(command)?,
             Operation::Radio {
                 command: super::DirectoryOperation::Refresh { id, request },
             } => {
@@ -852,6 +837,14 @@ fn dispatch(
             result,
         } => {
             let failed = actor.finish_verification(&id, generation, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::RecognitionFinished {
+            id,
+            generation,
+            result,
+        } => {
+            let failed = actor.finish_recognition(&id, generation, result).is_err();
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::DirectoryFinished { id, result } => {
