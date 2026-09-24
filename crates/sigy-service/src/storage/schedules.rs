@@ -906,6 +906,7 @@ mod tests {
             }],
             observations: Vec::new(),
             segments_sealed: false,
+            gap: None,
         };
         let _ = &mut publication;
         store.publish_recording(&capture.version, &publication)?;

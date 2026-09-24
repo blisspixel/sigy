@@ -61,7 +61,7 @@ impl DvrCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecordCommand {
-    /// Record one finite HLS media playlist through the service. Master playlists fail.
+    /// Record one HLS media playlist through the service. Master playlists fail.
     Hls {
         id: String,
         #[arg(long)]
@@ -72,6 +72,10 @@ pub enum RecordCommand {
         max_mib: u64,
         #[arg(long, default_value = "temporary")]
         retention: Retention,
+        /// Reload a live playlist until the time or byte ceiling. A skipped sequence,
+        /// discontinuity, or failed reload ends the capture and records a gap.
+        #[arg(long, default_value_t = false)]
+        live: bool,
     },
     /// Start one finite recording owned by the service. Reuse the ID to reconcile.
     Start {
@@ -139,6 +143,7 @@ impl RecordCommand {
                     seconds,
                     max_mib,
                     retention,
+                    live,
                 } => RecordingOperation::Hls {
                     id: id.clone(),
                     source_revision: source.clone(),
@@ -147,6 +152,7 @@ impl RecordCommand {
                         .checked_mul(1024 * 1024)
                         .ok_or("recording byte ceiling is too large")?,
                     retention: *retention,
+                    live: *live,
                 },
                 Self::Start {
                     id,

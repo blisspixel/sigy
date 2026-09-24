@@ -61,7 +61,12 @@ impl CountingServer {
                         let Some(audio_port) = audio_port else {
                             continue;
                         };
-                        let (kind, body) = if request.contains(" /secret/hls.m3u") {
+                        let (kind, body) = if request.contains(" /secret/master.m3u8") {
+                            (
+                                "application/vnd.apple.mpegurl".to_owned(),
+                                "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000,CODECS=\"avc1.4d401f,mp4a.40.2\",RESOLUTION=1280x720\nlive/hd.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=64000,CODECS=\"mp4a.40.2\"\nlive/audio.m3u8\n".to_owned(),
+                            )
+                        } else if request.contains(" /secret/hls.m3u") {
                             (
                                 "audio/x-mpegurl".to_owned(),
                                 format!(
@@ -107,94 +112,6 @@ impl Drop for CountingServer {
     }
 }
 
-struct JsonMirror {
-    origin: String,
-    hits: Arc<AtomicUsize>,
-    stop: Arc<AtomicBool>,
-    worker: Option<thread::JoinHandle<std::io::Result<()>>>,
-}
-
-impl JsonMirror {
-    fn start() -> std::io::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
-        listener.set_nonblocking(true)?;
-        let origin = format!("http://fixture.invalid:{}", listener.local_addr()?.port());
-        let stop = Arc::new(AtomicBool::new(false));
-        let hits = Arc::new(AtomicUsize::new(0));
-        let cancelled = stop.clone();
-        let counter = hits.clone();
-        let body = serde_json::json!([{
-            "stationuuid": "12345678-1234-1234-1234-123456789abc",
-            "name": "HLS Station",
-            "url": "https://stream.example/live.m3u",
-            "hls": 1,
-            "countrycode": "US"
-        }])
-        .to_string();
-        let worker = thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(30);
-            while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
-                match listener.accept() {
-                    Ok((mut socket, _)) => {
-                        socket.set_nonblocking(false)?;
-                        socket.set_read_timeout(Some(Duration::from_secs(2)))?;
-                        socket.set_write_timeout(Some(Duration::from_secs(2)))?;
-                        let mut bytes = Vec::new();
-                        while bytes.len() < 8192 && !bytes.ends_with(b"\r\n\r\n") {
-                            let mut byte = [0];
-                            if socket.read_exact(&mut byte).is_err() {
-                                break;
-                            }
-                            bytes.push(byte[0]);
-                        }
-                        counter.fetch_add(1, Ordering::Relaxed);
-                        let response = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                            body.len()
-                        );
-                        let _ = socket.write_all(response.as_bytes());
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            Ok(())
-        });
-        Ok(Self {
-            origin,
-            hits,
-            stop,
-            worker: Some(worker),
-        })
-    }
-}
-
-impl Drop for JsonMirror {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
-}
-
-fn wait_refresh(
-    directory: &std::path::Path,
-    id: &str,
-) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let value = success(directory, &["radio", "refresh-status", id])?;
-        if value["directory_refresh"]["state"] != "running" {
-            return Ok(value);
-        }
-        assert!(Instant::now() < deadline, "refresh deadline");
-        thread::sleep(Duration::from_millis(20));
-    }
-}
-
 fn wait_playlist(
     directory: &std::path::Path,
     id: &str,
@@ -219,7 +136,7 @@ fn playlist_resolve_accepts_one_entry_without_opening_audio() -> TestResult {
     let mut service = RunningChild::start(library.path())?;
     accept_relative_entry(library.path(), &playlist, &audio)?;
     reject_hls_document(library.path(), &playlist, &audio)?;
-    reject_directory_hls(library.path(), &playlist, &audio)?;
+    resolve_master_variants(library.path(), &playlist, &audio)?;
     success(library.path(), &["service", "stop"])?;
     service.wait()?;
     Ok(())
@@ -397,7 +314,7 @@ fn reject_hls_document(
     assert_eq!(marker["playlist"]["state"], "failed");
     assert_eq!(
         marker["playlist"]["failure"],
-        "HLS playlist is not accepted"
+        "HLS media playlist is recorded with record hls"
     );
     assert_eq!(marker["playlist"]["entries"], serde_json::json!([]));
     assert!(!marker.to_string().contains("segment"));
@@ -420,65 +337,85 @@ fn reject_hls_document(
     Ok(())
 }
 
-fn reject_directory_hls(
+fn resolve_master_variants(
     directory: &std::path::Path,
     playlist: &CountingServer,
     audio: &CountingServer,
 ) -> TestResult {
-    let mirror = JsonMirror::start()?;
+    let master_url = format!("http://127.0.0.1:{}/secret/master.m3u8", playlist.port);
     success(
         directory,
         &[
-            "radio",
-            "refresh",
-            "hls-page",
-            "--mirror",
-            &mirror.origin,
+            "source",
+            "add",
+            "master:v1",
+            "--name",
+            "Master",
+            "--url",
+            &master_url,
             "--pin-address",
             "127.0.0.1",
-            "--limit",
-            "1",
-        ],
-    )?;
-    let refreshed = wait_refresh(directory, "hls-page")?;
-    assert_eq!(refreshed["directory_refresh"]["state"], "completed");
-    let station = success(directory, &["radio", "search", "--name", "HLS"])?;
-    let station_id = station["station_page"]["entries"][0]["id"]
-        .as_str()
-        .ok_or("station missing")?;
-    success(
-        directory,
-        &[
-            "radio",
-            "add",
-            station_id,
-            "--revision",
-            "directory:v1",
             "--redirects",
             "deny",
         ],
     )?;
-    let mirror_hits = mirror.hits.load(Ordering::Relaxed);
     success(
         directory,
         &[
             "source",
             "playlist",
             "resolve",
-            "flag",
+            "variants",
             "--revision",
-            "directory:v1",
+            "master:v1",
         ],
     )?;
-    let flagged = wait_playlist(directory, "flag")?;
-    assert_eq!(flagged["playlist"]["state"], "failed");
-    assert_eq!(
-        flagged["playlist"]["failure"],
-        "directory marks this source as HLS"
+    let resolved = wait_playlist(directory, "variants")?;
+    assert_eq!(resolved["playlist"]["state"], "completed", "{resolved}");
+    let entries = resolved["playlist"]["entries"]
+        .as_array()
+        .ok_or("variant list")?;
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["kind"], "hls_variant");
+    assert_eq!(entries[0]["bandwidth"], 2_500_000);
+    assert_eq!(entries[0]["codecs"], "avc1.4d401f,mp4a.40.2");
+    assert_eq!(entries[0]["audio_only"], false);
+    assert_eq!(entries[1]["bandwidth"], 64_000);
+    assert_eq!(entries[1]["audio_only"], true);
+    assert!(!resolved.to_string().contains("/secret/live"));
+    // Nothing chooses a variant, and no variant was requested.
+    assert_eq!(playlist.hits.load(Ordering::Relaxed), 3);
+    assert_eq!(playlist.nested.load(Ordering::Relaxed), 0);
+    let accepted = success(
+        directory,
+        &[
+            "source",
+            "playlist",
+            "accept",
+            "variants",
+            "--index",
+            "1",
+            "--revision",
+            "variant:v1",
+            "--name",
+            "Audio variant",
+        ],
+    )?;
+    assert_eq!(accepted["source_page"]["newly_created"], true);
+    let text = super::common::output(
+        std::process::Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(directory)
+            .args(["source", "playlist", "status", "variants"]),
+    )?;
+    let rendered = String::from_utf8(text.stdout)?;
+    assert!(
+        rendered.contains("HLS variant | 64000 bit/s declared | mp4a.40.2 | audio only"),
+        "{rendered}"
     );
-    assert_eq!(flagged["playlist"]["entries"], serde_json::json!([]));
-    assert_eq!(mirror.hits.load(Ordering::Relaxed), mirror_hits);
-    assert_eq!(playlist.hits.load(Ordering::Relaxed), 2);
+    assert!(!rendered.contains("/secret/live"));
+    assert_eq!(playlist.hits.load(Ordering::Relaxed), 3);
+    assert_eq!(playlist.nested.load(Ordering::Relaxed), 0);
     assert_eq!(audio.hits.load(Ordering::Relaxed), 0);
     Ok(())
 }

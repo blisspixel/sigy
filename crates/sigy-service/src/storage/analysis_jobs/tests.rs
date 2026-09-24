@@ -55,6 +55,7 @@ fn publish_recording(store: &mut Store, id: &str) -> Result<()> {
             }],
             observations: Vec::new(),
             segments_sealed: false,
+            gap: None,
         },
     )
 }
@@ -465,6 +466,7 @@ fn publish_two_segments(store: &mut Store) -> Result<()> {
             }],
             observations: Vec::new(),
             segments_sealed: true,
+            gap: None,
         },
     )?;
     store.admit_analysis("roll-pin", "roll", false, 10)?;

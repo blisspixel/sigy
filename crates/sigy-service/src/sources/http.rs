@@ -113,6 +113,8 @@ pub enum AudioContentType {
     Flac,
     Ogg,
     Wave,
+    /// MPEG transport stream. Accepted only for HLS media segments.
+    MpegTs,
 }
 
 impl AudioContentType {
@@ -124,6 +126,27 @@ impl AudioContentType {
             Self::Flac => "flac",
             Self::Ogg => "ogg",
             Self::Wave => "wav",
+            Self::MpegTs => "mpegts",
+        }
+    }
+}
+
+/// Which declared media types a response may carry. Direct sources never accept a transport stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MediaPolicy {
+    Audio,
+    HlsSegment,
+}
+
+impl MediaPolicy {
+    const fn accept(self) -> &'static str {
+        match self {
+            Self::Audio => {
+                "audio/mpeg, audio/aac, audio/flac, audio/ogg, audio/wav, application/ogg"
+            }
+            Self::HlsSegment => {
+                "video/mp2t, audio/aac, audio/mpeg, audio/flac, audio/ogg, audio/wav, application/ogg"
+            }
         }
     }
 }
@@ -208,12 +231,15 @@ impl HttpAcquirer {
             .try_acquire()
             .map_err(|_| Error::Acquisition("capacity reached"))?;
         let deadline = Instant::now() + limits.duration;
-        timeout_at(
+        let request = Request {
+            limits,
             deadline,
-            self.transfer(source, limits, sink, deadline, None, MetadataPolicy::Off),
-        )
-        .await
-        .map_err(|_| Error::Acquisition("deadline reached; partial body is unverified"))?
+            metadata: MetadataPolicy::Off,
+            media: MediaPolicy::Audio,
+        };
+        timeout_at(deadline, self.transfer(source, request, sink, None))
+            .await
+            .map_err(|_| Error::Acquisition("deadline reached; partial body is unverified"))?
     }
 
     /// Record a bounded stream. An intentional time limit or stop preserves the
@@ -231,6 +257,37 @@ impl HttpAcquirer {
             .await
     }
 
+    /// Record one HLS media segment. A transport stream is accepted here and nowhere else.
+    /// # Errors
+    /// Uses the same destination, header, byte and capacity checks as [`Self::record`].
+    pub(crate) async fn record_segment<W: AsyncWrite + Unpin>(
+        &self,
+        source: &HttpSource,
+        limits: AcquisitionLimits,
+        sink: &mut W,
+        stop: &mut tokio::sync::watch::Receiver<bool>,
+    ) -> Result<TransferReceipt> {
+        let _slot = self
+            .attempts
+            .try_acquire()
+            .map_err(|_| Error::Acquisition("capacity reached"))?;
+        let deadline = Instant::now() + limits.duration;
+        let request = Request {
+            limits,
+            deadline,
+            metadata: MetadataPolicy::Off,
+            media: MediaPolicy::HlsSegment,
+        };
+        timeout_at(
+            deadline + Duration::from_secs(5),
+            self.transfer(source, request, sink, Some(stop)),
+        )
+        .await
+        .map_err(|_| {
+            Error::Acquisition("recording sink deadline reached; partial body is unverified")
+        })?
+    }
+
     pub(crate) async fn record_with<W: AsyncWrite + Unpin>(
         &self,
         source: &HttpSource,
@@ -244,9 +301,15 @@ impl HttpAcquirer {
             .try_acquire()
             .map_err(|_| Error::Acquisition("capacity reached"))?;
         let deadline = Instant::now() + limits.duration;
+        let request = Request {
+            limits,
+            deadline,
+            metadata,
+            media: MediaPolicy::Audio,
+        };
         timeout_at(
             deadline + Duration::from_secs(5),
-            self.transfer(source, limits, sink, deadline, Some(stop), metadata),
+            self.transfer(source, request, sink, Some(stop)),
         )
         .await
         .map_err(|_| {
@@ -386,9 +449,13 @@ impl HttpAcquirer {
             .map_err(|_| Error::Acquisition("capacity reached"))?;
         let deadline = Instant::now() + limits.duration;
         let mut signal = Some(stop);
-        let opened = self
-            .begin(source, limits, deadline, &mut signal, MetadataPolicy::Off)
-            .await?;
+        let request = Request {
+            limits,
+            deadline,
+            metadata: MetadataPolicy::Off,
+            media: MediaPolicy::Audio,
+        };
+        let opened = self.begin(source, request, &mut signal).await?;
         Ok(AudioDownload {
             opened,
             limits,
@@ -424,31 +491,31 @@ impl HttpAcquirer {
     async fn transfer<W: AsyncWrite + Unpin>(
         &self,
         source: &HttpSource,
-        limits: AcquisitionLimits,
+        request: Request,
         sink: &mut W,
-        deadline: Instant,
         mut stop: Option<&mut tokio::sync::watch::Receiver<bool>>,
-        metadata: MetadataPolicy,
     ) -> Result<TransferReceipt> {
-        let opened = self
-            .begin(source, limits, deadline, &mut stop, metadata)
-            .await?;
-        Self::pump(opened, limits, sink, deadline, &mut stop).await
+        let opened = self.begin(source, request, &mut stop).await?;
+        Self::pump(opened, request.limits, sink, request.deadline, &mut stop).await
     }
 
     async fn begin(
         &self,
         source: &HttpSource,
-        limits: AcquisitionLimits,
-        deadline: Instant,
+        request: Request,
         stop: &mut Option<&mut tokio::sync::watch::Receiver<bool>>,
-        metadata: MetadataPolicy,
     ) -> Result<Opened> {
+        let Request {
+            limits,
+            deadline,
+            metadata,
+            media,
+        } = request;
         let connecting = self.open(
             source,
             limits,
             deadline,
-            "audio/mpeg, audio/aac, audio/flac, audio/ogg, audio/wav, application/ogg",
+            media.accept(),
             AcceptEncoding::Identity,
             metadata,
         );
@@ -464,7 +531,7 @@ impl HttpAcquirer {
             connecting.await?
         };
         let peer = response.remote_addr().ok_or(Error::DestinationDenied)?;
-        let declared_content_type = validate_headers(response.headers())?;
+        let declared_content_type = validate_headers(response.headers(), media)?;
         if limits.clean_end
             && response
                 .content_length()
@@ -627,9 +694,13 @@ impl HttpAcquirer {
         let deadline = Instant::now() + limits.duration;
         let mut owned_stop = stop.clone();
         let mut signal = Some(&mut owned_stop);
-        let opened = self
-            .begin(source, limits, deadline, &mut signal, metadata)
-            .await?;
+        let request = Request {
+            limits,
+            deadline,
+            metadata,
+            media: MediaPolicy::Audio,
+        };
+        let opened = self.begin(source, request, &mut signal).await?;
         let Opened {
             response,
             route,
@@ -836,6 +907,15 @@ async fn next_chunk(
     Ok(extra.is_some())
 }
 
+/// One request's bounds and declared-type policy.
+#[derive(Clone, Copy)]
+struct Request {
+    limits: AcquisitionLimits,
+    deadline: Instant,
+    metadata: MetadataPolicy,
+    media: MediaPolicy,
+}
+
 struct Carried {
     bytes: u64,
     declared_content_type: AudioContentType,
@@ -889,7 +969,7 @@ fn icy_interval(headers: &header::HeaderMap, metadata: MetadataPolicy) -> Result
     Ok(Some(interval_header(value)?))
 }
 
-fn validate_headers(headers: &header::HeaderMap) -> Result<AudioContentType> {
+fn validate_headers(headers: &header::HeaderMap, media: MediaPolicy) -> Result<AudioContentType> {
     let encoding = headers.get_all(header::CONTENT_ENCODING);
     for value in encoding {
         if !value.as_bytes().eq_ignore_ascii_case(b"identity") {
@@ -913,6 +993,7 @@ fn validate_headers(headers: &header::HeaderMap) -> Result<AudioContentType> {
         "audio/flac" | "audio/x-flac" => Ok(AudioContentType::Flac),
         "audio/ogg" | "application/ogg" => Ok(AudioContentType::Ogg),
         "audio/wav" | "audio/wave" | "audio/x-wav" => Ok(AudioContentType::Wave),
+        "video/mp2t" if media == MediaPolicy::HlsSegment => Ok(AudioContentType::MpegTs),
         _ => Err(Error::Acquisition("unsupported audio content type")),
     }
 }

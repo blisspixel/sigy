@@ -8,7 +8,7 @@ This record holds current state only. The detailed narrative from 2026-09-20 to 
 
 | Item | Current value |
 | --- | --- |
-| Catalog schema / local IPC | v29 / v29 |
+| Catalog schema / local IPC | v30 / v30 |
 | Verification | `cargo verify`: 339 tests passed, 13 native-media tests ignored, warnings-denied Clippy, build, and `cargo audit` of 312 crates against 1,269 advisories. `cargo verify-media`: 13 of 13 on FFmpeg 9.0.1 |
 | Host | Windows 11 x86_64, Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Two build jobs, two test threads, one media-test thread |
 | Other platforms | Build from source only. macOS, Linux and small always-on hosts are unqualified |
@@ -24,7 +24,7 @@ States: **done** means the operation's local exit evidence exists on this host; 
 | 2 | Resolve a playlist document | done | [playlist resolution](../decisions/0009-playlist-resolution.md) |
 | 3 | Directory click only when asked | done | [directory clicks](../decisions/0010-directory-clicks.md) |
 | 4 | Listen to a direct audio revision | done | [direct listen](../decisions/0011-direct-listen.md) |
-| 5 | HLS media playlist | done | [HLS media playlists](../decisions/0012-hls-media-playlist.md) |
+| 5 | HLS media playlist | done | [HLS media playlists](../decisions/0012-hls-media-playlist.md); [live HLS](../decisions/0042-live-hls.md) added |
 | 6 | ICY metadata out of the audio hash | done | [ICY observations](../decisions/0013-icy-observations.md) |
 | 7 | Decoded format ladder | done locally | [decoded formats](../decisions/0014-decoded-formats.md); no public station yet |
 | 8 | Terminal stack by measurement | done | [terminal stack](../decisions/0015-terminal-stack.md) |
@@ -68,7 +68,7 @@ New downloads so far total about 25.3 GB of the 100 GB ceiling (see the history 
 - **Durability:** physical power loss, complete media backup and restore on another host, and the 5000 ms segment window as a measured guarantee are unproven.
 - **Platforms:** only this Windows host. Unix parent-death and peer checks, installers and OS startup are unqualified.
 - **Public stations:** the [live station pilot](../../research/experiments/local-asr/live-station-pilot.md) recorded and transcribed four of eight public news stations (Spanish, Arabic, Portuguese, Swahili). A stream-edge header delay that blocked the Canadian French station is fixed, and that station has since been recorded and transcribed.
-- **Live HLS:** three of those eight stations (Chinese, Hindi and one Arabic) publish only live HLS, which `record hls` does not accept. This is a material coverage gap.
+- **Live HLS:** [live HLS](../decisions/0042-live-hls.md) recording and master-variant resolution now pass loopback fixtures; a capture ends at its first gap. The three HLS-only pilot stations (Chinese, Hindi, one Arabic) have not yet been recorded.
 - **Chunking:** a station recording of more than 60 seconds cannot yet be transcribed; a 60-second request publishes 63 to 74 seconds.
 - **Paid processing:** dispatch is unavailable; the product's default paid budget is zero. When enabled, paid use draws down a one-time lifetime allowance that never refills.
 

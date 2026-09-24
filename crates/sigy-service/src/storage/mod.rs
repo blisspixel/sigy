@@ -27,8 +27,11 @@ pub(crate) mod schedules;
 pub mod sources;
 pub(crate) mod transcripts;
 pub(crate) mod translations;
+mod widen;
+#[cfg(test)]
+mod widen_tests;
 
-pub const SCHEMA_VERSION: u32 = 29;
+pub const SCHEMA_VERSION: u32 = 30;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -204,6 +207,11 @@ fn migrate(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> 
     if (0..=24).contains(&version) {
         transaction.execute_batch(include_str!("025-analysis-jobs.sql"))?;
     }
+    migrate_from_25(transaction, version)
+}
+
+/// Migrations after v25, split from [`migrate`] to keep each function reviewable.
+fn migrate_from_25(transaction: &rusqlite::Transaction<'_>, version: i64) -> Result<()> {
     if (0..=25).contains(&version) {
         transaction.execute_batch(include_str!("026-transcript-revisions.sql"))?;
         transaction.execute_batch(include_str!("026-transcript-invariants.sql"))?;
@@ -230,6 +238,10 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=28).contains(&version) {
         transaction.execute_batch(include_str!("029-translations.sql"))?;
+    }
+    if (0..=29).contains(&version) {
+        widen::migrate_030(transaction)?;
+        transaction.execute_batch(include_str!("030-live-hls.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

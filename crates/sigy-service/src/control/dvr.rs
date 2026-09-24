@@ -33,13 +33,16 @@ pub enum RecordingOperation {
         retention: Retention,
         icy: bool,
     },
-    /// Record one finite HLS media playlist. A master playlist is rejected.
+    /// Record one HLS media playlist. A master playlist is rejected.
+    /// A finite playlist needs `#EXT-X-ENDLIST`; `live` reloads a live playlist instead.
     Hls {
         id: String,
         source_revision: String,
         seconds: u64,
         maximum_bytes: u64,
         retention: Retention,
+        #[serde(default)]
+        live: bool,
     },
     Stop {
         id: String,

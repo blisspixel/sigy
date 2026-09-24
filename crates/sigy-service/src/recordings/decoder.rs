@@ -173,7 +173,7 @@ pub(super) async fn play_file(
     seek_us: u64,
     decoded_us: u64,
 ) -> Result<PlaybackReport> {
-    if !matches!(format, "mp3" | "aac" | "flac" | "ogg" | "wav") {
+    if !crate::storage::dvr::retained_format(format) {
         return Err(Error::Acquisition("unsupported playback format"));
     }
     if seek_us >= decoded_us {

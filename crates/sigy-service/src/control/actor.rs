@@ -346,7 +346,7 @@ impl Actor {
             seconds,
             maximum_bytes: maximum,
             retention,
-            hls,
+            transport,
             icy,
         } = request;
         let source = self
@@ -386,7 +386,7 @@ impl Actor {
                 source,
                 limits,
                 decoder,
-                hls,
+                transport,
                 icy,
             },
         )
@@ -432,7 +432,7 @@ impl Actor {
                 source,
                 limits: AcquisitionLimits::episode(),
                 decoder,
-                hls: false,
+                transport: recordings::CaptureTransport::Direct,
                 icy: false,
             },
         )
@@ -546,7 +546,7 @@ impl Actor {
                 source,
                 limits,
                 decoder,
-                hls: false,
+                transport: recordings::CaptureTransport::Direct,
                 icy: false,
             },
         )
@@ -558,7 +558,7 @@ impl Actor {
             source,
             limits,
             decoder,
-            hls,
+            transport,
             icy,
         } = capture;
         let setup = (|| {
@@ -593,7 +593,7 @@ impl Actor {
                         limits,
                         decoder,
                         acquirer,
-                        hls,
+                        transport,
                         icy,
                         token,
                     },
@@ -1003,7 +1003,7 @@ struct SpawnedCapture {
     source: HttpSource,
     limits: AcquisitionLimits,
     decoder: String,
-    hls: bool,
+    transport: recordings::CaptureTransport,
     icy: bool,
 }
 
@@ -1021,7 +1021,7 @@ struct RecordingLaunch {
     seconds: u64,
     maximum_bytes: u64,
     retention: crate::storage::dvr::Retention,
-    hls: bool,
+    transport: recordings::CaptureTransport,
     icy: bool,
 }
 
@@ -1041,7 +1041,7 @@ impl RecordingLaunch {
                 seconds,
                 maximum_bytes,
                 retention,
-                hls: false,
+                transport: recordings::CaptureTransport::Direct,
                 icy,
             },
             RecordingOperation::Hls {
@@ -1050,13 +1050,18 @@ impl RecordingLaunch {
                 seconds,
                 maximum_bytes,
                 retention,
+                live,
             } => Self {
                 id,
                 source_revision,
                 seconds,
                 maximum_bytes,
                 retention,
-                hls: true,
+                transport: if live {
+                    recordings::CaptureTransport::LiveHls
+                } else {
+                    recordings::CaptureTransport::Hls
+                },
                 icy: false,
             },
             _ => return Err(Error::InvalidInput("recording command is not a start")),

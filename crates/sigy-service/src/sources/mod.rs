@@ -7,6 +7,7 @@ pub(crate) mod playlist;
 mod policy;
 mod redirects;
 
+pub use playlist::CandidateKind;
 pub use redirects::{HttpHop, RedirectPolicy};
 
 use std::{fmt, net::IpAddr};

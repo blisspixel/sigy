@@ -6,7 +6,7 @@ use std::{
 use clap::Subcommand;
 use sigy_service::{
     control::{Operation, PlaylistOperation, PlaylistView, SourcePage},
-    sources::{NetworkScope, RedirectPolicy},
+    sources::{CandidateKind, NetworkScope, RedirectPolicy},
 };
 
 #[derive(Subcommand)]
@@ -45,6 +45,7 @@ pub enum SourceCommand {
 #[derive(Debug, Subcommand)]
 pub enum PlaylistCommand {
     /// Read one playlist through the service. Does not open entry URLs or play audio.
+    /// An HLS master playlist lists its variants. No variant is fetched or chosen.
     Resolve {
         /// Unique request ID. Exact replay never fetches again.
         id: String,
@@ -185,7 +186,31 @@ pub fn render_playlist(writer: &mut impl Write, playlist: &PlaylistView) -> io::
         writeln!(writer, "Reason: {failure}")?;
     }
     for entry in &playlist.entries {
-        writeln!(writer, "  {}: {}", entry.index, entry.origin)?;
+        match entry.kind {
+            CandidateKind::Entry => writeln!(writer, "  {}: {}", entry.index, entry.origin)?,
+            CandidateKind::HlsVariant | CandidateKind::HlsAudio => {
+                let bandwidth = entry.bandwidth.map_or_else(
+                    || "bandwidth not declared".to_owned(),
+                    |bits| format!("{bits} bit/s declared"),
+                );
+                let codecs = entry.codecs.as_deref().unwrap_or("codecs not declared");
+                let content = match entry.audio_only {
+                    Some(true) => "audio only",
+                    Some(false) => "includes video",
+                    None => "content not declared",
+                };
+                let kind = if entry.kind == CandidateKind::HlsAudio {
+                    "HLS audio rendition"
+                } else {
+                    "HLS variant"
+                };
+                writeln!(
+                    writer,
+                    "  {}: {} | {kind} | {bandwidth} | {codecs} | {content}",
+                    entry.index, entry.origin
+                )?;
+            }
+        }
     }
     for acceptance in &playlist.acceptances {
         writeln!(

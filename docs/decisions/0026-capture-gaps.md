@@ -9,3 +9,5 @@ The causes are disconnect, recovery, codec change, refused renewal, capture paus
 `listen file` refuses a seek inside a gap before it starts the decoder. A seek in published audio is unchanged. This does not play many segments, and it does not exit stage 4.
 
 Catalog schema is v18. Local IPC is v18.
+
+Amended on 2026-09-24 by [live HLS](0042-live-hls.md): a live HLS capture ends at a skipped media sequence, a discontinuity, or a failed or stalled reload and records the rest of its plan as a `sequence_skip`, `discontinuity`, or `reload_failure` gap. A failed segment after audio is a `disconnect` gap and a media type change is a `codec_change` gap. The published file ends where the gap starts. Catalog schema and local IPC are v30.

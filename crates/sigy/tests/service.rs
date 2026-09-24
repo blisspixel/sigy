@@ -11,6 +11,8 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 mod common;
 #[path = "support/directory_fixtures.rs"]
 mod directory_fixtures;
+#[path = "support/hls_live_fixtures.rs"]
+mod hls_live_fixtures;
 #[path = "support/listen_fixtures.rs"]
 mod listen_fixtures;
 #[path = "support/playlist_fixtures.rs"]

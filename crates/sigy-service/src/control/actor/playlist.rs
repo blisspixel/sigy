@@ -6,12 +6,8 @@ impl Actor {
         if !self.library.store_mut().begin_playlist(id, revision)? {
             return Ok(());
         }
-        if self.library.store().linked_station_is_hls(revision)? {
-            return self.library.store_mut().fail_playlist(
-                id,
-                &Error::InvalidInput("directory marks this source as HLS"),
-            );
-        }
+        // A directory HLS flag is a hint. The document decides: a master playlist lists
+        // candidates, and a media playlist fails without storing any.
         let source = self
             .library
             .store()

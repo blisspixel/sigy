@@ -440,6 +440,7 @@ mod tests {
             }],
             observations: Vec::new(),
             segments_sealed: false,
+            gap: None,
         }
     }
 

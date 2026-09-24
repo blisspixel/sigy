@@ -83,6 +83,7 @@ fn initialize(store: &mut Store) -> Result<()> {
             }],
             observations: Vec::new(),
             segments_sealed: false,
+            gap: None,
         },
     )?;
     store.admit_analysis("pin", "one", false, 10)?;

@@ -25,6 +25,13 @@ pub enum PlaylistOperation {
 pub struct PlaylistEntryView {
     pub index: u32,
     pub origin: String,
+    pub kind: crate::sources::CandidateKind,
+    /// Declared HLS variant bandwidth in bits per second. Publisher text.
+    pub bandwidth: Option<u64>,
+    /// Declared HLS codecs. Publisher text, not a decoder result.
+    pub codecs: Option<String>,
+    /// Whether the declared codecs are all audio. None when undeclared.
+    pub audio_only: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +101,10 @@ pub(super) fn load(store: &Store, id: &str) -> Result<PlaylistView> {
             .map(|entry| PlaylistEntryView {
                 index: entry.index,
                 origin: entry.origin,
+                kind: entry.kind,
+                bandwidth: entry.bandwidth,
+                codecs: entry.codecs,
+                audio_only: entry.audio_only,
             })
             .collect(),
         acceptances: record

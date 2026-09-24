@@ -26,11 +26,11 @@ use crate::{
     library::{Library, control_directory, reject_link},
     sources::{
         HttpSource,
-        http::{AcquisitionLimits, AudioContentType, HttpAcquirer, TransferEnd},
+        http::{AcquisitionLimits, HttpAcquirer, TransferEnd},
     },
     storage::{
         captures::CaptureVersion,
-        dvr::{Publication, hex, validate_object_key},
+        dvr::{GapCause, Publication, hex, validate_object_key},
     },
 };
 
@@ -247,6 +247,16 @@ fn sync_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// How one capture reads its source. HLS captures stay one published file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CaptureTransport {
+    Direct,
+    /// A finite media playlist with `#EXT-X-ENDLIST`.
+    Hls,
+    /// A live media playlist, reloaded until a ceiling, a stop, or a gap.
+    LiveHls,
+}
+
 pub(crate) struct CaptureRequest {
     pub directory: PathBuf,
     pub key: String,
@@ -254,7 +264,7 @@ pub(crate) struct CaptureRequest {
     pub limits: AcquisitionLimits,
     pub decoder: String,
     pub acquirer: HttpAcquirer,
-    pub hls: bool,
+    pub transport: CaptureTransport,
     pub icy: bool,
     pub token: CaptureVersion,
 }
@@ -268,7 +278,7 @@ where
     C: Fn(CaptureVersion, seal::SealAction) -> Fut + Send,
     Fut: std::future::Future<Output = Result<seal::SealReply>> + Send,
 {
-    if segment::enabled(request.hls, &request.limits) {
+    if segment::enabled(request.transport, &request.limits) {
         segment::run(request, stop, catalog).await
     } else {
         single_file(request, stop).await
@@ -286,7 +296,7 @@ async fn single_file(
         limits,
         decoder,
         acquirer,
-        hls,
+        transport,
         icy,
         ..
     } = request;
@@ -303,38 +313,24 @@ async fn single_file(
         options.mode(0o600);
     }
     let mut file = options.open(&part).await?;
-    let result = if hls {
-        crate::sources::hls::record(&acquirer, &source, limits, &mut file, &mut stop).await
-    } else {
-        acquirer
-            .record_with(
-                &source,
-                limits,
-                &mut file,
-                &mut stop,
-                if icy {
-                    crate::sources::icy::MetadataPolicy::Requested
-                } else {
-                    crate::sources::icy::MetadataPolicy::Off
-                },
-            )
-            .await
-    };
+    let result = receive(
+        &acquirer,
+        &source,
+        limits,
+        (transport, icy),
+        &mut file,
+        &mut stop,
+    )
+    .await;
     // The file and its quota stay owned even when transport fails or is cancelled.
     file.flush().await?;
     file.sync_all().await?;
     drop(file);
-    let receipt = result?;
+    let (receipt, gap) = result?;
     if limits.clean_end() && receipt.end != TransferEnd::EndOfBody {
         return Err(Error::Acquisition("episode ended before a clean end"));
     }
-    let format = match receipt.declared_content_type {
-        AudioContentType::Mpeg => "mp3",
-        AudioContentType::Aac => "aac",
-        AudioContentType::Flac => "flac",
-        AudioContentType::Ogg => "ogg",
-        AudioContentType::Wave => "wav",
-    };
+    let format = receipt.declared_content_type.format_name();
     let decoded_microseconds = decoder::verify(&decoder, &part, format).await?;
     let file = tokio::fs::File::open(&part).await?;
     if file.metadata().await?.len() != receipt.bytes {
@@ -367,14 +363,63 @@ async fn single_file(
         decoded_microseconds,
         http_route: receipt.route,
         observations: receipt.observations,
-        end_reason: match receipt.end {
-            TransferEnd::EndOfBody => "end_of_body",
-            TransferEnd::ByteLimit => "byte_limit",
-            TransferEnd::DurationLimit => "duration_limit",
-            TransferEnd::UserStop => "user_stop",
+        end_reason: match (gap, receipt.end) {
+            (Some(_), _) => "stream_gap",
+            (None, TransferEnd::EndOfBody) => "end_of_body",
+            (None, TransferEnd::ByteLimit) => "byte_limit",
+            (None, TransferEnd::DurationLimit) => "duration_limit",
+            (None, TransferEnd::UserStop) => "user_stop",
         },
         segments_sealed: false,
+        gap,
     })
+}
+
+/// Copies one capture into the staging file. Only a live HLS capture can end at a gap.
+async fn receive(
+    acquirer: &HttpAcquirer,
+    source: &HttpSource,
+    limits: AcquisitionLimits,
+    (transport, icy): (CaptureTransport, bool),
+    file: &mut tokio::fs::File,
+    stop: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<(crate::sources::http::TransferReceipt, Option<GapCause>)> {
+    match transport {
+        CaptureTransport::Hls => crate::sources::hls::record(acquirer, source, limits, file, stop)
+            .await
+            .map(|receipt| (receipt, None)),
+        CaptureTransport::LiveHls => {
+            crate::sources::hls::live::record(acquirer, source, limits, file, stop)
+                .await
+                .map(|outcome| (outcome.receipt, outcome.gap.map(gap_cause)))
+        }
+        CaptureTransport::Direct => acquirer
+            .record_with(
+                source,
+                limits,
+                file,
+                stop,
+                if icy {
+                    crate::sources::icy::MetadataPolicy::Requested
+                } else {
+                    crate::sources::icy::MetadataPolicy::Off
+                },
+            )
+            .await
+            .map(|receipt| (receipt, None)),
+    }
+}
+
+/// A live HLS stop becomes a suffix gap. The capture does not resume after it.
+const fn gap_cause(gap: crate::sources::hls::live::LiveGap) -> GapCause {
+    use crate::sources::hls::live::LiveGap;
+    match gap {
+        LiveGap::SequenceSkip => GapCause::SequenceSkip,
+        LiveGap::Discontinuity => GapCause::Discontinuity,
+        LiveGap::ReloadFailure => GapCause::ReloadFailure,
+        LiveGap::SegmentFailure => GapCause::Disconnect,
+        LiveGap::CodecChange => GapCause::CodecChange,
+    }
 }
 
 pub(crate) fn check_free_space(library: &Library) -> Result<()> {

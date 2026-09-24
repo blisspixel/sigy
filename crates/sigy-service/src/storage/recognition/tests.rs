@@ -592,6 +592,7 @@ fn request_and_input_limits_refuse_before_admission() -> TestResult {
                 }],
                 observations: Vec::new(),
                 segments_sealed: false,
+                gap: None,
             },
         )?;
         store.admit_analysis(name, name, false, 20)?;

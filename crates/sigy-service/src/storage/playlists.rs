@@ -11,16 +11,49 @@ use crate::{
     Error, Result,
     sources::{
         HttpSource,
-        playlist::{ResolvedPlaylist, entry_matches_policy},
+        playlist::{CandidateKind, ResolvedPlaylist, entry_matches_policy},
     },
 };
 
 const MAX_PLAYLIST_REQUESTS: u32 = 4096;
+const MAX_BANDWIDTH: u64 = 10_000_000_000;
+const MAX_CODECS: usize = 256;
 
 pub(crate) struct PlaylistEntryRecord {
     pub index: u32,
     pub endpoint: String,
     pub origin: String,
+    pub kind: CandidateKind,
+    pub bandwidth: Option<u64>,
+    pub codecs: Option<String>,
+    pub audio_only: Option<bool>,
+}
+
+/// Candidate attributes are declared publisher text. Only their shape is checked.
+fn candidate_attributes_valid(
+    kind: CandidateKind,
+    bandwidth: Option<u64>,
+    codecs: Option<&str>,
+    audio_only: Option<bool>,
+) -> bool {
+    let codecs_valid = codecs.is_none_or(|codecs| {
+        !codecs.is_empty()
+            && codecs.len() <= MAX_CODECS
+            && codecs.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric()
+                    || matches!(byte, b'.' | b',' | b'-' | b'_' | b' ' | b'+')
+            })
+    });
+    match kind {
+        CandidateKind::Entry => bandwidth.is_none() && codecs.is_none() && audio_only.is_none(),
+        CandidateKind::HlsAudio => {
+            bandwidth.is_none() && codecs.is_none() && audio_only == Some(true)
+        }
+        CandidateKind::HlsVariant => {
+            bandwidth.is_some_and(|bandwidth| (1..=MAX_BANDWIDTH).contains(&bandwidth))
+                && codecs_valid
+        }
+    }
 }
 
 pub(crate) struct PlaylistAcceptanceRecord {
@@ -120,13 +153,22 @@ impl Store {
             )
             .and_then(|source| source.with_redirects(parent.source.redirects()))
             .map_err(|_| Error::SourceIntegrity)?;
-            if candidate.endpoint() != entry.endpoint || candidate.origin() != entry.origin {
+            if candidate.endpoint() != entry.endpoint
+                || candidate.origin() != entry.origin
+                || !candidate_attributes_valid(
+                    entry.kind,
+                    entry.bandwidth,
+                    entry.codecs.as_deref(),
+                    entry.audio_only,
+                )
+            {
                 return Err(Error::SourceIntegrity);
             }
             entry_matches_policy(&parent.source, &resolved.final_origin, &candidate)?;
             prepared.push((
                 u32::try_from(index).map_err(|_| Error::SourceIntegrity)?,
                 candidate,
+                entry,
             ));
         }
         let now = now_ms()?;
@@ -141,10 +183,24 @@ impl Store {
         {
             return Err(Error::RequestState);
         }
-        for (index, candidate) in &prepared {
+        for (index, candidate, entry) in &prepared {
+            let bandwidth = entry
+                .bandwidth
+                .map(i64::try_from)
+                .transpose()
+                .map_err(|_| Error::SourceIntegrity)?;
             tx.execute(
-                "INSERT INTO playlist_entries(resolve_id, entry_index, endpoint, origin) VALUES (?1, ?2, ?3, ?4)",
-                params![id, i64::from(*index), candidate.endpoint(), candidate.origin()],
+                "INSERT INTO playlist_entries(resolve_id, entry_index, endpoint, origin, kind, bandwidth, codecs, audio_only) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    id,
+                    i64::from(*index),
+                    candidate.endpoint(),
+                    candidate.origin(),
+                    entry.kind.as_str(),
+                    bandwidth,
+                    entry.codecs,
+                    entry.audio_only,
+                ],
             )?;
         }
         tx.commit()?;
@@ -180,22 +236,6 @@ impl Store {
     pub(crate) fn playlist(&self, id: &str) -> Result<PlaylistRecord> {
         validate_key(id, "playlist request ID")?;
         read_playlist(&self.connection, id)?.ok_or(Error::NotFound)
-    }
-
-    pub(crate) fn linked_station_is_hls(&self, revision: &str) -> Result<bool> {
-        validate_key(revision, "source revision ID")?;
-        let station_id: Option<String> = self
-            .connection
-            .query_row(
-                "SELECT station_id FROM source_directory_links WHERE source_revision = ?1 AND provider = 'radio_browser'",
-                [revision],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(station_id) = station_id else {
-            return Ok(false);
-        };
-        Ok(self.station(&station_id)?.hls)
     }
 
     /// Registers one previously resolved entry. Does not fetch or connect.
@@ -352,7 +392,15 @@ fn audit_completed(store: &Store, record: &PlaylistRecord) -> Result<()> {
         )
         .and_then(|source| source.with_redirects(parent.source.redirects()))
         .map_err(|_| Error::SourceIntegrity)?;
-        if candidate.endpoint() != entry.endpoint || candidate.origin() != entry.origin {
+        if candidate.endpoint() != entry.endpoint
+            || candidate.origin() != entry.origin
+            || !candidate_attributes_valid(
+                entry.kind,
+                entry.bandwidth,
+                entry.codecs.as_deref(),
+                entry.audio_only,
+            )
+        {
             return Err(Error::SourceIntegrity);
         }
         entry_matches_policy(&parent.source, origin, &candidate)
@@ -431,7 +479,7 @@ fn read_playlist(connection: &rusqlite::Connection, id: &str) -> Result<Option<P
 
 fn read_entries(connection: &rusqlite::Connection, id: &str) -> Result<Vec<PlaylistEntryRecord>> {
     let mut query = connection.prepare(
-        "SELECT entry_index, endpoint, origin FROM playlist_entries WHERE resolve_id = ?1 ORDER BY entry_index",
+        "SELECT entry_index, endpoint, origin, kind, bandwidth, codecs, audio_only FROM playlist_entries WHERE resolve_id = ?1 ORDER BY entry_index",
     )?;
     query
         .query_map([id], |row| {
@@ -439,15 +487,26 @@ fn read_entries(connection: &rusqlite::Connection, id: &str) -> Result<Vec<Playl
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<i64>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<bool>>(6)?,
             ))
         })?
         .map(|row| {
-            let (index, endpoint, origin) = row?;
+            let (index, endpoint, origin, kind, bandwidth, codecs, audio_only) = row?;
             let index = u32::try_from(index).map_err(|_| Error::SourceIntegrity)?;
             Ok(PlaylistEntryRecord {
                 index,
                 endpoint,
                 origin,
+                kind: CandidateKind::parse(&kind)?,
+                bandwidth: bandwidth
+                    .map(u64::try_from)
+                    .transpose()
+                    .map_err(|_| Error::SourceIntegrity)?,
+                codecs,
+                audio_only,
             })
         })
         .collect()
@@ -512,8 +571,7 @@ fn validate_origin(origin: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::{
-        discovery::radio_browser,
-        sources::{NetworkScope, RedirectPolicy, playlist::ResolvedEntry},
+        sources::{NetworkScope, playlist::ResolvedEntry},
         storage::SCHEMA_VERSION,
     };
 
@@ -536,6 +594,10 @@ mod tests {
             entries: vec![ResolvedEntry {
                 endpoint: "http://127.0.0.1:9/secret/live/main".into(),
                 origin: "http://127.0.0.1:9".into(),
+                kind: CandidateKind::Entry,
+                bandwidth: None,
+                codecs: None,
+                audio_only: None,
             }],
         }
     }
@@ -600,7 +662,7 @@ mod tests {
     }
 
     #[test]
-    fn hls_failure_and_directory_flag_store_no_entries() -> TestResult {
+    fn hls_failure_stores_no_entries() -> TestResult {
         let directory = tempfile::tempdir()?;
         let mut store = Store::open(&directory.path().join("catalog.sqlite3"))?;
         store.register_source("parent:v1", &parent()?)?;
@@ -614,41 +676,71 @@ mod tests {
         assert!(failed.entries.is_empty());
         assert!(failed.acceptances.is_empty());
         assert!(!store.begin_playlist("marker", "parent:v1")?);
+        Ok(())
+    }
 
-        let body = serde_json::json!([{
-            "stationuuid": "12345678-1234-1234-1234-123456789abc",
-            "name": "HLS Station",
-            "url": "https://stream.example/live.m3u",
-            "hls": 1,
-            "countrycode": "US"
-        }]);
-        let batch = radio_browser::parse(
-            &serde_json::to_vec(&body)?,
-            1,
-            "https://directory.example".into(),
-        )?;
-        let request = crate::discovery::RefreshRequest {
-            filter: crate::discovery::StationFilter::default(),
-            limit: 1,
-            offset: 0,
-            mirror: None,
-            network: NetworkScope::PublicInternet {},
-        };
-        assert!(store.begin_refresh("dir", &request)?);
-        store.finish_refresh("dir", batch)?;
-        store.add_station_source(
-            "12345678-1234-1234-1234-123456789abc",
-            "hls:v1",
-            RedirectPolicy::Deny,
-        )?;
-        assert!(store.linked_station_is_hls("hls:v1")?);
-        assert!(!store.linked_station_is_hls("parent:v1")?);
-        assert!(store.begin_playlist("flag", "hls:v1")?);
-        store.fail_playlist(
-            "flag",
-            &Error::InvalidInput("directory marks this source as HLS"),
-        )?;
-        assert!(store.playlist("flag")?.entries.is_empty());
+    fn variant(path: &str, bandwidth: u64, codecs: Option<&str>) -> ResolvedEntry {
+        ResolvedEntry {
+            endpoint: format!("http://127.0.0.1:9/secret/{path}"),
+            origin: "http://127.0.0.1:9".into(),
+            kind: CandidateKind::HlsVariant,
+            bandwidth: Some(bandwidth),
+            codecs: codecs.map(str::to_owned),
+            audio_only: codecs.map(|codecs| codecs.starts_with("mp4a")),
+        }
+    }
+
+    #[test]
+    fn hls_variants_keep_declared_attributes_and_accept_like_entries() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("catalog.sqlite3");
+        let mut store = Store::open(&path)?;
+        store.register_source("master:v1", &parent()?)?;
+        assert!(store.begin_playlist("variants", "master:v1")?);
+        let mut hostile = resolved();
+        hostile.entries[0].bandwidth = Some(1);
+        assert!(matches!(
+            store.finish_playlist("variants", &hostile),
+            Err(Error::SourceIntegrity)
+        ));
+        let mut hostile = resolved();
+        hostile.entries = vec![variant("low.m3u8", 1, Some("mp4a.40.2\"x"))];
+        assert!(store.finish_playlist("variants", &hostile).is_err());
+        let mut listed = resolved();
+        listed.entries = vec![
+            variant("high.m3u8", 2_500_000, Some("avc1.4d401f,mp4a.40.2")),
+            variant("low.m3u8", 64_000, Some("mp4a.40.2")),
+            variant("plain.m3u8", 96_000, None),
+            ResolvedEntry {
+                endpoint: "http://127.0.0.1:9/secret/audio.m3u8".into(),
+                origin: "http://127.0.0.1:9".into(),
+                kind: CandidateKind::HlsAudio,
+                bandwidth: None,
+                codecs: None,
+                audio_only: Some(true),
+            },
+        ];
+        store.finish_playlist("variants", &listed)?;
+        let admission = store.accept_playlist_entry("variants", 1, "low:v1", "Low")?;
+        assert!(admission.newly_created);
+        assert_eq!(
+            endpoint(&store, "low:v1")?,
+            "http://127.0.0.1:9/secret/low.m3u8"
+        );
+        drop(store);
+        let store = Store::open(&path)?;
+        let record = store.playlist("variants")?;
+        assert_eq!(record.entries.len(), 4);
+        assert_eq!(record.entries[0].kind, CandidateKind::HlsVariant);
+        assert_eq!(record.entries[0].bandwidth, Some(2_500_000));
+        assert_eq!(record.entries[0].audio_only, Some(false));
+        assert_eq!(record.entries[1].codecs.as_deref(), Some("mp4a.40.2"));
+        assert_eq!(record.entries[1].audio_only, Some(true));
+        assert_eq!(record.entries[2].codecs, None);
+        assert_eq!(record.entries[2].audio_only, None);
+        assert_eq!(record.entries[3].kind, CandidateKind::HlsAudio);
+        assert_eq!(record.acceptances.len(), 1);
+        assert_eq!(record.acceptances[0].index, 1);
         Ok(())
     }
 

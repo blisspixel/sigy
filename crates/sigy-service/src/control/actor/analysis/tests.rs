@@ -55,6 +55,7 @@ fn actor(root: &Path, sender: &mpsc::Sender<Message>) -> Result<Actor> {
             }],
             observations: Vec::new(),
             segments_sealed: false,
+            gap: None,
         },
     )?;
     let recording = library.store().recording("one")?;

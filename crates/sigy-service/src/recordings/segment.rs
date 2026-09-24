@@ -24,8 +24,13 @@ use crate::{
 
 use super::CaptureRequest;
 
-pub(super) fn enabled(hls: bool, limits: &crate::sources::http::AcquisitionLimits) -> bool {
-    !hls && !limits.clean_end() && limits.bytes() >= OPEN_SEGMENT_CEILING
+pub(super) fn enabled(
+    transport: super::CaptureTransport,
+    limits: &crate::sources::http::AcquisitionLimits,
+) -> bool {
+    transport == super::CaptureTransport::Direct
+        && !limits.clean_end()
+        && limits.bytes() >= OPEN_SEGMENT_CEILING
 }
 
 pub(super) async fn run<C, Fut>(
@@ -133,6 +138,7 @@ where
         http_route: route,
         observations,
         segments_sealed: true,
+        gap: None,
     })
 }
 

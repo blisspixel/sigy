@@ -20,6 +20,12 @@ pub(crate) const OPEN_SEGMENT_CEILING: u64 = 32 * 1024 * 1024;
 pub(crate) const SEGMENT_RECEIVE_WINDOW: std::time::Duration =
     std::time::Duration::from_millis(5_000);
 
+/// Formats a published recording may have. `mpegts` comes only from HLS segments.
+#[must_use]
+pub fn retained_format(format: &str) -> bool {
+    matches!(format, "mp3" | "aac" | "flac" | "ogg" | "wav" | "mpegts")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Retention {
@@ -134,6 +140,12 @@ pub enum GapCause {
     CapturePause,
     BackwardClock,
     LateStart,
+    /// A live HLS media sequence number expired before it was fetched.
+    SequenceSkip,
+    /// A live HLS segment started a new discontinuity sequence.
+    Discontinuity,
+    /// A live HLS reload failed, was unusable, or stopped advancing.
+    ReloadFailure,
 }
 
 impl GapCause {
@@ -147,6 +159,9 @@ impl GapCause {
             Self::CapturePause => "capture_pause",
             Self::BackwardClock => "backward_clock",
             Self::LateStart => "late_start",
+            Self::SequenceSkip => "sequence_skip",
+            Self::Discontinuity => "discontinuity",
+            Self::ReloadFailure => "reload_failure",
         }
     }
 
@@ -160,6 +175,9 @@ impl GapCause {
             Self::CapturePause => "seek is inside a capture pause gap",
             Self::BackwardClock => "seek is inside a backward clock gap",
             Self::LateStart => "seek is inside a late start gap",
+            Self::SequenceSkip => "seek is inside a skipped sequence gap",
+            Self::Discontinuity => "seek is inside a discontinuity gap",
+            Self::ReloadFailure => "seek is inside a reload failure gap",
         }
     }
 
@@ -172,6 +190,9 @@ impl GapCause {
             "capture_pause" => Ok(Self::CapturePause),
             "backward_clock" => Ok(Self::BackwardClock),
             "late_start" => Ok(Self::LateStart),
+            "sequence_skip" => Ok(Self::SequenceSkip),
+            "discontinuity" => Ok(Self::Discontinuity),
+            "reload_failure" => Ok(Self::ReloadFailure),
             _ => Err(Error::StorageIntegrity),
         }
     }
@@ -344,6 +365,8 @@ pub(crate) struct Publication {
     pub http_route: Vec<crate::sources::HttpHop>,
     pub observations: Vec<crate::sources::icy::IcyObservation>,
     pub segments_sealed: bool,
+    /// A single-file capture that ended at a stream gap records the rest of its plan as this gap.
+    pub gap: Option<GapCause>,
 }
 
 pub(crate) enum SegmentOpen {
@@ -566,10 +589,7 @@ impl Store {
             if interval.decoded_end_us <= interval.decoded_start_us
                 || interval.byte_end <= interval.byte_start
                 || interval.byte_end - interval.byte_start > interval.ceiling_bytes
-                || !matches!(
-                    interval.format.as_str(),
-                    "mp3" | "aac" | "flac" | "ogg" | "wav"
-                )
+                || !retained_format(&interval.format)
             {
                 return Err(Error::StorageIntegrity);
             }
@@ -686,7 +706,13 @@ impl Store {
         expected: &CaptureVersion,
         publication: &Publication,
     ) -> Result<()> {
+        if publication.gap.is_some() != (publication.end_reason == "stream_gap") {
+            return Err(Error::StorageIntegrity);
+        }
         if publication.segments_sealed {
+            if publication.gap.is_some() {
+                return Err(Error::StorageIntegrity);
+            }
             return self.complete_segmented_recording(expected, publication);
         }
         if publication.bytes == 0
@@ -764,6 +790,10 @@ impl Store {
             ],
         )?;
         note_segment_clock(&tx, expected.id(), 0)?;
+        if let Some(cause) = publication.gap {
+            // The published file ends where the stream broke. The rest of the plan is a hole.
+            journal_suffix_gap(&tx, expected.id(), cause)?;
+        }
         let now = now_ms()?;
         let stopped = journal::transition(&tx, job, CaptureEvent::Stop, "media_received", now)?;
         journal::transition(
@@ -862,7 +892,7 @@ impl Store {
                 .sha256
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-            || !matches!(segment.format, "mp3" | "aac" | "flac" | "ogg" | "wav")
+            || !retained_format(segment.format)
         {
             return Err(Error::StorageIntegrity);
         }

@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use reqwest::Url;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::{
@@ -13,9 +14,63 @@ use crate::{Error, Result};
 
 pub(crate) const MAX_PLAYLIST_ENTRIES: usize = 32;
 
+/// What one resolved candidate is. An HLS variant or rendition is still only a candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateKind {
+    /// An M3U or PLS entry.
+    Entry,
+    /// An `#EXT-X-STREAM-INF` variant of an HLS master playlist.
+    HlsVariant,
+    /// An `#EXT-X-MEDIA` audio rendition with its own URI.
+    HlsAudio,
+}
+
+impl CandidateKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Entry => "entry",
+            Self::HlsVariant => "hls_variant",
+            Self::HlsAudio => "hls_audio",
+        }
+    }
+
+    /// # Errors
+    /// Rejects an unknown stored kind.
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "entry" => Ok(Self::Entry),
+            "hls_variant" => Ok(Self::HlsVariant),
+            "hls_audio" => Ok(Self::HlsAudio),
+            _ => Err(Error::SourceIntegrity),
+        }
+    }
+}
+
 pub(crate) struct ResolvedEntry {
     pub endpoint: String,
     pub origin: String,
+    pub kind: CandidateKind,
+    /// Declared peak bits per second of an HLS variant. Publisher text, not a measurement.
+    pub bandwidth: Option<u64>,
+    /// Declared RFC 6381 codecs of an HLS variant. Publisher text, not a measurement.
+    pub codecs: Option<String>,
+    /// Whether the declared codecs are all audio. None when the playlist does not say.
+    pub audio_only: Option<bool>,
+}
+
+impl ResolvedEntry {
+    fn plain(source: &HttpSource) -> Self {
+        Self {
+            endpoint: source.endpoint().to_owned(),
+            origin: source.origin(),
+            kind: CandidateKind::Entry,
+            bandwidth: None,
+            codecs: None,
+            audio_only: None,
+        }
+    }
 }
 
 pub(crate) struct ResolvedPlaylist {
@@ -35,8 +90,9 @@ impl fmt::Debug for ResolvedPlaylist {
 }
 
 /// Reads one document and resolves its entries. Does not request those entries.
+/// An HLS master playlist resolves to its variants; no variant is fetched or chosen.
 /// # Errors
-/// Returns acquisition, parser, or destination-policy errors. HLS fails closed.
+/// Returns acquisition, parser, or destination-policy errors. An HLS media playlist fails.
 pub(crate) async fn resolve(
     acquirer: &HttpAcquirer,
     parent: &HttpSource,
@@ -68,7 +124,10 @@ pub(crate) fn parse_playlist(
 ) -> Result<Vec<ResolvedEntry>> {
     let lines = playlist_lines(body)?;
     if lines.iter().any(|line| hls_marker(line)) {
-        return Err(Error::InvalidInput("HLS playlist is not accepted"));
+        return match kind {
+            PlaylistKind::M3u => super::hls::master_candidates(parent, final_url, &lines),
+            PlaylistKind::Pls => Err(Error::InvalidInput("HLS playlist is not accepted")),
+        };
     }
     match kind {
         PlaylistKind::M3u => parse_m3u(parent, final_url, &lines),
@@ -223,10 +282,7 @@ fn push_entry(
         return Err(Error::InvalidInput("playlist entry limit"));
     }
     let source = authorize_entry(parent, final_url, reference)?;
-    entries.push(ResolvedEntry {
-        endpoint: source.endpoint().to_owned(),
-        origin: source.origin(),
-    });
+    entries.push(ResolvedEntry::plain(&source));
     Ok(())
 }
 
@@ -389,7 +445,9 @@ mod tests {
         );
         assert!(matches!(
             error,
-            Err(Error::InvalidInput("HLS playlist is not accepted"))
+            Err(Error::InvalidInput(
+                "HLS media playlist is recorded with record hls"
+            ))
         ));
         assert!(
             parse_playlist(
@@ -400,6 +458,15 @@ mod tests {
             )
             .is_err()
         );
+        assert!(matches!(
+            parse_playlist(
+                &source,
+                &final_url,
+                PlaylistKind::Pls,
+                b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmaster\n",
+            ),
+            Err(Error::InvalidInput("HLS playlist is not accepted"))
+        ));
         Ok(())
     }
 
