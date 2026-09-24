@@ -9,6 +9,7 @@ mod error;
 mod execution;
 pub mod languages;
 pub mod library;
+pub mod monitor;
 mod podcast;
 pub(crate) mod processing;
 mod providers;

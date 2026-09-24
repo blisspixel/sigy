@@ -8,6 +8,7 @@ mod dvr;
 mod endpoint;
 mod frame;
 mod listen;
+mod monitor;
 mod playback;
 mod playlist;
 mod podcast;
@@ -35,6 +36,7 @@ pub use discovery::{DirectoryOperation, DirectoryPolicyPage, PolicyDisposition, 
 pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use listen::{ListenOperation, ListenView};
+pub use monitor::{MonitorOperation, MonitorPage};
 pub use playback::{PlaybackOperation, PlaybackView};
 pub use playlist::{PlaylistOperation, PlaylistView};
 pub use podcast::{
@@ -48,7 +50,7 @@ pub use provider::{
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 31;
+pub const PROTOCOL_VERSION: u32 = 32;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -130,6 +132,10 @@ pub enum Operation {
     Provider {
         command: ProviderOperation,
     },
+    /// Topic monitor versions and proposals. Nothing is captured or sent.
+    Monitor {
+        command: MonitorOperation,
+    },
 }
 
 impl std::fmt::Debug for Operation {
@@ -152,6 +158,7 @@ impl std::fmt::Debug for Operation {
             Self::Analysis { .. } => "analysis",
             Self::Doctor {} => "doctor",
             Self::Provider { .. } => "provider",
+            Self::Monitor { .. } => "monitor",
         };
         f.debug_struct("Operation")
             .field("kind", &kind)
@@ -232,6 +239,8 @@ pub struct Snapshot {
     pub recognition: Option<Box<RecognitionView>>,
     #[serde(default)]
     pub provider: Option<ProviderPage>,
+    #[serde(default)]
+    pub monitor: Option<Box<MonitorPage>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,6 +306,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         Operation::Schedule { command } => return schedule::apply(store, command),
         Operation::Analysis { command } => return analysis::apply(store, command),
         Operation::Provider { command } => return provider::apply(store, command),
+        Operation::Monitor { command } => return monitor::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
                 recording_metadata = Some(crate::recordings::metadata::export(
@@ -423,6 +433,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         analysis_job: None,
         recognition: None,
         provider: None,
+        monitor: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

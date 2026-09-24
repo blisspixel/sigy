@@ -18,6 +18,7 @@ mod explorer;
 mod languages;
 mod listen;
 mod mcp;
+mod monitor;
 mod podcast;
 mod provider;
 mod radio;
@@ -91,6 +92,11 @@ enum Command {
     Library {
         #[command(subcommand)]
         command: LibraryCommand,
+    },
+    /// Follow a topic across sources within limits you set. Versions and every action are kept.
+    Monitor {
+        #[command(subcommand)]
+        command: monitor::MonitorCommand,
     },
     /// Store provider routes and dated prices. Nothing is sent to a provider.
     Provider {
@@ -214,6 +220,8 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         command.operation()?
     } else if let Command::Dvr { command } = &cli.command {
         command.operation()?
+    } else if let Command::Monitor { command } = &cli.command {
+        command.operation()?
     } else if let Command::Provider { command } = &cli.command {
         command.operation()
     } else if matches!(cli.command, Command::Doctor { .. }) {
@@ -287,6 +295,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         dvr::render_policy(&mut stdout, &policy, ink)?;
     } else if let Some(page) = view.recording_page {
         dvr::render_records(&mut stdout, &page, ink)?;
+    } else if let Some(page) = &view.monitor {
+        monitor::render(&mut stdout, page)?;
     } else if let Some(page) = &view.provider {
         provider::render(&mut stdout, page)?;
     } else if let Some(page) = view.schedule {

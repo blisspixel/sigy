@@ -277,6 +277,18 @@ Older `local-unmeasured` rows stay readable as legacy placeholders with no recog
 
 `analysis languages` inspects stored evidence without running detection. `list` returns up to 16 evidence tracks for the exact pin revision; continue with `--after EVIDENCE_ID` when shown. `show` returns up to 16 spans from the exact evidence revision; continue with `--after ORDINAL`. Observation, processing outcome, and route capability remain separate. Empty legacy transcripts have no language observations, and no production detector publishes evidence yet. There is no command to manufacture evidence. See [language evidence](decisions/0033-language-evidence.md).
 
+## Monitors
+
+```text
+sigy --data-dir PATH_TO_LIBRARY monitor create dam --name "Nile dam" --goal "Follow reports about the dam." --term "ar:سد النهضة" --term "fr:barrage" --term "en:dam" --source news-a:v1 --candidate news-b:v1 --daily-minutes 360 --total-hours 42
+sigy --data-dir PATH_TO_LIBRARY monitor show dam
+sigy --data-dir PATH_TO_LIBRARY monitor revise dam --expected-version 1 ...
+sigy --data-dir PATH_TO_LIBRARY monitor pause dam --action-id pause-001
+sigy --data-dir PATH_TO_LIBRARY monitor actions dam
+```
+
+A monitor records what you want to follow and the limits you set. Each change you make is a new version; `revise` needs the version you last saw. Rules and models can only propose actions. A proposal is applied only if your current version already allows it, such as adding a source you approved with `--candidate`; anything else, including raising a limit or enabling paid processing, is refused and kept in `monitor actions` with its reason. Paid processing is off. Monitors do not yet schedule, match terms or write briefings. See [monitor versions and actions](decisions/0046-monitor-versions-and-actions.md).
+
 ## Listening
 
 ```text
