@@ -1,17 +1,44 @@
 //! `sigy monitor`: user versions, proposals and the action log.
 
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use clap::{Args, Subcommand, ValueEnum};
 use sigy_service::{
     control::{MonitorOperation, MonitorPage, Operation},
     monitor::{
-        ActionOrigin, MonitorAction, MonitorSpec, MonitorTerm, MonitorVersion, MonitorView,
-        Proposal,
+        ActionOrigin, MonitorAction, MonitorCoverage, MonitorMatches, MonitorSpec, MonitorTerm,
+        MonitorVersion, MonitorView, PassageMatch, Proposal,
     },
 };
 
-use crate::explorer::text::sanitize;
+use crate::explorer::{text::sanitize, utc_label};
+
+/// A window on capture start times: the last `--hours` ending now, or an exact range.
+#[derive(Debug, Args)]
+pub struct WindowArgs {
+    /// Hours before now, 1 to 744.
+    #[arg(long, default_value_t = 24, value_parser = clap::value_parser!(u32).range(1..=744), conflicts_with_all = ["from_ms", "to_ms"])]
+    hours: u32,
+    /// Exact window start, Unix milliseconds.
+    #[arg(long, requires = "to_ms")]
+    from_ms: Option<i64>,
+    /// Exact window end (exclusive), Unix milliseconds.
+    #[arg(long, requires = "from_ms")]
+    to_ms: Option<i64>,
+}
+
+impl WindowArgs {
+    fn window(&self) -> Result<(i64, i64), Box<dyn std::error::Error>> {
+        if let (Some(from), Some(to)) = (self.from_ms, self.to_ms) {
+            return Ok((from, to));
+        }
+        let now = i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
+        Ok((now - i64::from(self.hours) * 3_600_000, now))
+    }
+}
 
 #[derive(Debug, Args)]
 pub struct SpecArgs {
@@ -129,6 +156,19 @@ pub enum MonitorCommand {
         #[arg(long)]
         action_id: String,
     },
+    /// Count each stage separately for the sources the monitor follows now: captures,
+    /// published audio, gaps, pins, transcripts and translations. Nothing is started.
+    Coverage {
+        id: String,
+        #[command(flatten)]
+        window: WindowArgs,
+    },
+    /// Show where the monitor's terms appear in published transcripts and English translations.
+    Matches {
+        id: String,
+        #[command(flatten)]
+        window: WindowArgs,
+    },
     /// Record a proposal from a rule or model. Only what the current version allows is applied.
     Propose {
         id: String,
@@ -173,6 +213,22 @@ impl MonitorCommand {
                 after: *after,
             },
             Self::List => MonitorOperation::List {},
+            Self::Coverage { id, window } => {
+                let (from_ms, to_ms) = window.window()?;
+                MonitorOperation::Coverage {
+                    id: id.clone(),
+                    from_ms,
+                    to_ms,
+                }
+            }
+            Self::Matches { id, window } => {
+                let (from_ms, to_ms) = window.window()?;
+                MonitorOperation::Matches {
+                    id: id.clone(),
+                    from_ms,
+                    to_ms,
+                }
+            }
             Self::Pause { id, action_id } | Self::Resume { id, action_id } => {
                 MonitorOperation::Propose {
                     id: id.clone(),
@@ -224,6 +280,154 @@ impl MonitorCommand {
 
 fn duration(seconds: u64) -> String {
     format!("{}h{:02}m", seconds / 3600, seconds % 3600 / 60)
+}
+
+fn audio(us: u64) -> String {
+    let seconds = us / 1_000_000;
+    format!(
+        "{}h{:02}m{:02}s",
+        seconds / 3600,
+        seconds % 3600 / 60,
+        seconds % 60
+    )
+}
+
+fn cue_clock(us: u64) -> String {
+    let ms = us / 1000;
+    format!("{:02}:{:02}.{:03}", ms / 60_000, ms / 1000 % 60, ms % 1000)
+}
+
+fn render_coverage(writer: &mut impl Write, coverage: &MonitorCoverage) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Monitor {} version {} | captures started {} to {}",
+        coverage.id,
+        coverage.version,
+        utc_label(coverage.from_ms),
+        utc_label(coverage.to_ms)
+    )?;
+    writeln!(
+        writer,
+        "Daily audio cap {}; monitors do not schedule or enforce it yet. Each stage is counted on its own.",
+        duration(u64::from(coverage.daily_audio_seconds))
+    )?;
+    for source in &coverage.sources {
+        writeln!(writer, "{}:", source.source)?;
+        writeln!(
+            writer,
+            "  captured: {} started, {} published, {} recorded, {} gaps ({})",
+            source.captures,
+            source.published,
+            audio(source.recorded_us),
+            source.gaps,
+            audio(source.gap_us)
+        )?;
+        writeln!(
+            writer,
+            "  analyzed: {} pinned, {} with text ({}), {} no text ({})",
+            source.pinned,
+            source.transcribed,
+            audio(source.transcribed_us),
+            source.no_text,
+            audio(source.no_text_us)
+        )?;
+        let reasons: Vec<String> = source
+            .untranslated_reasons
+            .iter()
+            .map(|(reason, count)| format!("{} {count}", sanitize(reason, 64)))
+            .collect();
+        writeln!(
+            writer,
+            "  translated: {} cues, {} untranslated{}, {} cues not yet sent to translation",
+            source.translated_cues,
+            source.untranslated_cues,
+            if reasons.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", reasons.join(", "))
+            },
+            source.cues_without_translation
+        )?;
+        if source.truncated {
+            writeln!(
+                writer,
+                "  More captures exist than one request reads; narrow the window."
+            )?;
+        }
+    }
+    for schedule in &coverage.schedules {
+        writeln!(
+            writer,
+            "Schedule {}: {} admitted, {} missed (window elapsed), {} missed (spring forward), {} waiting",
+            schedule.schedule,
+            schedule.admitted,
+            schedule.missed_elapsed,
+            schedule.missed_spring_forward,
+            schedule.waiting
+        )?;
+    }
+    Ok(())
+}
+
+fn render_match(writer: &mut impl Write, found: &PassageMatch) -> io::Result<()> {
+    writeln!(
+        writer,
+        "{} | recording {} started {} | transcript {} revision {} cue {} at {} to {}",
+        found.source,
+        found.recording_id,
+        utc_label(found.capture_start_ms),
+        found.transcript_id,
+        found.transcript_revision,
+        found.cue_ordinal,
+        cue_clock(found.start_us),
+        cue_clock(found.end_us)
+    )?;
+    writeln!(
+        writer,
+        "  {}:{} found in the {}",
+        found.term_language,
+        sanitize(&found.term, 200),
+        found.field
+    )?;
+    writeln!(writer, "  Original: {}", sanitize(&found.original, 400))?;
+    match (&found.english, found.translation_revision) {
+        (Some(english), Some(revision)) => writeln!(
+            writer,
+            "  English (translation {revision}, machine output): {}",
+            sanitize(english, 400)
+        ),
+        (None, Some(revision)) => {
+            writeln!(writer, "  English: untranslated in translation {revision}")
+        }
+        _ => writeln!(writer, "  English: not translated"),
+    }
+}
+
+fn render_matches(writer: &mut impl Write, matches: &MonitorMatches) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Monitor {} version {} | captures started {} to {} | {} transcripts read | {} matches",
+        matches.id,
+        matches.version,
+        utc_label(matches.from_ms),
+        utc_label(matches.to_ms),
+        matches.transcripts_scanned,
+        matches.matches.len()
+    )?;
+    writeln!(
+        writer,
+        "Terms match as written, ignoring letter case, with no stemming or accent folding. Recognized text is uncertain."
+    )?;
+    for found in &matches.matches {
+        render_match(writer, found)?;
+    }
+    if matches.more {
+        writeln!(
+            writer,
+            "More matches exist; narrow the window with --from-ms and --to-ms."
+        )?;
+    }
+    Ok(())
 }
 
 fn render_version(writer: &mut impl Write, version: &MonitorVersion) -> io::Result<()> {
@@ -327,6 +531,8 @@ pub fn render(writer: &mut impl Write, page: &MonitorPage) -> io::Result<()> {
             }
             Ok(())
         }
+        MonitorPage::Coverage { coverage } => render_coverage(writer, coverage),
+        MonitorPage::Matches { matches } => render_matches(writer, matches),
         MonitorPage::List { ids } => {
             if ids.is_empty() {
                 writeln!(writer, "No monitors. Create one with sigy monitor create.")?;

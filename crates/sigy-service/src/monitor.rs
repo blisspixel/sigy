@@ -252,5 +252,128 @@ pub struct MonitorView {
     pub actions: u32,
 }
 
+/// Longest window a coverage or match request may cover.
+pub const MAX_WINDOW_MS: i64 = 31 * 86_400_000;
+/// Most captures read per source for one request.
+pub const MAX_WINDOW_CAPTURES: usize = 1_024;
+/// Most passage matches returned by one request.
+pub const MATCH_PAGE: usize = 64;
+
+/// A half-open wall-clock window on capture start times.
+/// # Errors
+/// Refuses a reversed, empty or overlong window.
+pub fn check_window(from_ms: i64, to_ms: i64) -> Result<()> {
+    if from_ms < 0 || to_ms <= from_ms || to_ms - from_ms > MAX_WINDOW_MS {
+        return Err(Error::InvalidInput("monitor window"));
+    }
+    Ok(())
+}
+
+/// Case-insensitive literal containment. No normalization, stemming or diacritic folding:
+/// a term matches only text that contains it as written, ignoring letter case.
+#[must_use]
+pub fn term_matches(term: &str, text: &str) -> bool {
+    text.to_lowercase().contains(&term.to_lowercase())
+}
+
+/// Which stored text a term is compared with. English terms are compared with the English
+/// translation and the original; other terms only with the original script; `und` with both.
+#[must_use]
+pub fn searches_english(language: &str) -> bool {
+    matches!(language, "en" | "und")
+}
+
+/// Stage counts for one followed source in one window. Each stage is counted on its own;
+/// no stage implies another and nothing is combined into a single percentage.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceCoverage {
+    pub source: String,
+    /// Capture jobs that started in the window.
+    pub captures: u32,
+    /// Captures with a published, decoded file.
+    pub published: u32,
+    /// Decoded audio in published files.
+    pub recorded_us: u64,
+    /// Recorded gaps inside those captures.
+    pub gaps: u32,
+    pub gap_us: u64,
+    /// Published captures with a published analysis pin.
+    pub pinned: u32,
+    /// Pins whose latest recognition revision has text, and the audio that revision covers.
+    pub transcribed: u32,
+    pub transcribed_us: u64,
+    /// Pins whose latest recognition revision found no text.
+    pub no_text: u32,
+    pub no_text_us: u64,
+    /// Cues in the latest translation of those transcripts, by state.
+    pub translated_cues: u32,
+    pub untranslated_cues: u32,
+    /// Cues with text whose transcript has no translation at all.
+    pub cues_without_translation: u32,
+    /// Untranslated cue reasons with counts, sorted by reason.
+    pub untranslated_reasons: Vec<(String, u32)>,
+    /// More captures existed than one request reads.
+    pub truncated: bool,
+}
+
+/// Occurrences of one saved schedule in the window, by state.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduleCoverage {
+    pub schedule: String,
+    pub admitted: u32,
+    pub missed_elapsed: u32,
+    pub missed_spring_forward: u32,
+    pub waiting: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonitorCoverage {
+    pub id: String,
+    pub version: u32,
+    pub from_ms: i64,
+    pub to_ms: i64,
+    pub daily_audio_seconds: u32,
+    pub sources: Vec<SourceCoverage>,
+    pub schedules: Vec<ScheduleCoverage>,
+}
+
+/// One term found in one published cue, with everything needed to go back to the audio.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PassageMatch {
+    pub source: String,
+    pub recording_id: String,
+    pub capture_start_ms: i64,
+    pub transcript_id: String,
+    pub transcript_revision: i64,
+    pub cue_ordinal: u32,
+    /// Media clock of the cue in the pinned recording, half-open.
+    pub start_us: u64,
+    pub end_us: u64,
+    pub term_language: String,
+    pub term: String,
+    /// `original` or `english`.
+    pub field: String,
+    pub original: String,
+    pub translation_revision: Option<i64>,
+    pub english: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonitorMatches {
+    pub id: String,
+    pub version: u32,
+    pub from_ms: i64,
+    pub to_ms: i64,
+    pub transcripts_scanned: u32,
+    pub matches: Vec<PassageMatch>,
+    /// More matches, or more captures, existed than one request returns.
+    pub more: bool,
+}
+
 #[cfg(test)]
 mod tests;

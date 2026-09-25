@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 use super::{Snapshot, snapshot};
 use crate::{
     Result,
-    monitor::{ActionOrigin, MonitorAction, MonitorSpec, MonitorVersion, MonitorView, Proposal},
+    monitor::{
+        ActionOrigin, MonitorAction, MonitorCoverage, MonitorMatches, MonitorSpec, MonitorVersion,
+        MonitorView, Proposal,
+    },
     storage::{Store, monitors::VersionWrite},
 };
 
@@ -43,6 +46,18 @@ pub enum MonitorOperation {
         after: Option<u32>,
     },
     List {},
+    /// Stage counts over captures that started in `[from_ms, to_ms)`.
+    Coverage {
+        id: String,
+        from_ms: i64,
+        to_ms: i64,
+    },
+    /// Literal term matches in published transcripts and translations in that window.
+    Matches {
+        id: String,
+        from_ms: i64,
+        to_ms: i64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +79,12 @@ pub enum MonitorPage {
     },
     List {
         ids: Vec<String>,
+    },
+    Coverage {
+        coverage: Box<MonitorCoverage>,
+    },
+    Matches {
+        matches: Box<MonitorMatches>,
     },
 }
 
@@ -112,6 +133,12 @@ pub(super) fn apply(store: &mut Store, command: MonitorOperation) -> Result<Snap
         },
         MonitorOperation::List {} => MonitorPage::List {
             ids: store.monitor_ids()?,
+        },
+        MonitorOperation::Coverage { id, from_ms, to_ms } => MonitorPage::Coverage {
+            coverage: Box::new(store.monitor_coverage(&id, from_ms, to_ms)?),
+        },
+        MonitorOperation::Matches { id, from_ms, to_ms } => MonitorPage::Matches {
+            matches: Box::new(store.monitor_matches(&id, from_ms, to_ms)?),
         },
     };
     let mut view = snapshot(store)?;

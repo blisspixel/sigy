@@ -420,5 +420,7 @@ impl Store {
     }
 }
 
+mod coverage;
+
 #[cfg(test)]
 mod tests;

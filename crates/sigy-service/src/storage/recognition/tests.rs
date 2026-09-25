@@ -686,6 +686,8 @@ fn profiles_are_immutable_exact_replays_and_bounded() -> TestResult {
 mod translation {
     //! Translation storage fixtures over a published recognition transcript.
     use super::*;
+
+    mod monitor_coverage;
     use crate::translation::{
         TranslatedCue, TranslationOutcome, TranslationProfile, TranslationRequest,
         TranslationResult,

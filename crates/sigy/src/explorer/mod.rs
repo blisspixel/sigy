@@ -7,6 +7,8 @@ mod state;
 mod terminal;
 pub(crate) mod text;
 
+pub(crate) use globe::utc_label;
+
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
