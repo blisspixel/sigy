@@ -30,6 +30,8 @@ impl Library {
                 builder.mode(0o700);
             }
             builder.create(directory)?;
+            #[cfg(unix)]
+            make_private(directory)?;
         }
         let metadata = fs::symlink_metadata(directory)?;
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
@@ -96,6 +98,27 @@ pub(crate) fn reject_link(path: &Path) -> Result<()> {
     }
 }
 
+/// Initialization makes the chosen directory private to this user, because the control
+/// socket and listen pipes inside it rely on mode 0700. An existing directory created with
+/// the default umask (often 0755) is tightened; one owned by another user is refused.
+#[cfg(unix)]
+fn make_private(directory: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let metadata = fs::symlink_metadata(directory)?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(Error::InvalidInput("library directory"));
+    }
+    if metadata.uid() != rustix::process::geteuid().as_raw() {
+        return Err(Error::InvalidInput(
+            "library directory must be owned by this user",
+        ));
+    }
+    if metadata.mode() & 0o077 != 0 {
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
 /// Checks the directory boundary before publishing or trusting a control endpoint.
 pub(crate) fn control_directory(path: &Path) -> Result<PathBuf> {
     let metadata = fs::symlink_metadata(path)?;
@@ -119,4 +142,32 @@ pub(crate) fn control_directory(path: &Path) -> Result<PathBuf> {
         }
     }
     Ok(path.canonicalize()?)
+}
+
+#[cfg(all(test, unix))]
+mod unix_tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+
+    type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
+
+    #[test]
+    fn init_makes_an_existing_shared_directory_private() -> TestResult {
+        let parent = tempfile::tempdir()?;
+        let directory = parent.path().join("library");
+        fs::create_dir(&directory)?;
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o755))?;
+        assert!(control_directory(&directory).is_err());
+        drop(Library::open(&directory, true)?);
+        let mode = fs::metadata(&directory)?.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
+        assert!(control_directory(&directory).is_ok());
+        // Opening without init never changes permissions.
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o750))?;
+        drop(Library::open(&directory, false)?);
+        let mode = fs::metadata(&directory)?.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o750);
+        Ok(())
+    }
 }
