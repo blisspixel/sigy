@@ -11,13 +11,16 @@ use rusqlite::Transaction;
 use crate::{Error, Result};
 
 /// Rebuilds `table` with each `(old, new)` replacement applied once to its definition.
+/// Each column of the rebuilt table is copied from the same column, or computed from the
+/// old row by one `added` expression; a column the rebuilt table no longer has is dropped.
 /// # Errors
 /// Fails closed when a replacement does not match exactly once, a column name is not a
-/// plain identifier, or the row count changes.
+/// plain identifier, a new column has no source, or the row count changes.
 pub(super) fn rebuild(
     tx: &Transaction<'_>,
     table: &'static str,
     replacements: &[(&str, &str)],
+    added: &[(&str, &str)],
 ) -> Result<()> {
     let definition: String = tx.query_row(
         "SELECT sql FROM main.sqlite_schema WHERE type = 'table' AND name = ?1",
@@ -39,22 +42,7 @@ pub(super) fn rebuild(
             .query_map([table], |row| row.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?
     };
-    let columns = {
-        let mut statement = tx.prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid")?;
-        statement
-            .query_map([table], |row| row.get::<_, String>(0))?
-            .collect::<std::result::Result<Vec<_>, _>>()?
-    };
-    if columns.is_empty()
-        || !columns.iter().all(|name| {
-            !name.is_empty()
-                && name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-        })
-    {
-        return Err(Error::CatalogIntegrity);
-    }
+    let columns = column_names(tx, table)?;
     let list = columns.join(", ");
     let before: i64 = tx.query_row(&format!("SELECT count(*) FROM main.{table}"), [], |row| {
         row.get(0)
@@ -63,8 +51,21 @@ pub(super) fn rebuild(
         "CREATE TEMP TABLE widen_copy AS SELECT rowid AS widen_rowid, {list} FROM main.{table}; DROP TABLE main.{table};"
     ))?;
     tx.execute_batch(&rebuilt)?;
+    let targets = column_names(tx, table)?;
+    let sources = targets
+        .iter()
+        .map(
+            |name| match added.iter().find(|(column, _)| column == name) {
+                Some((_, expression)) => Ok((*expression).to_owned()),
+                None if columns.contains(name) => Ok(name.clone()),
+                None => Err(Error::CatalogIntegrity),
+            },
+        )
+        .collect::<Result<Vec<_>>>()?;
     tx.execute_batch(&format!(
-        "INSERT INTO main.{table}(rowid, {list}) SELECT widen_rowid, {list} FROM temp.widen_copy ORDER BY widen_rowid; DROP TABLE temp.widen_copy;"
+        "INSERT INTO main.{table}(rowid, {}) SELECT widen_rowid, {} FROM temp.widen_copy ORDER BY widen_rowid; DROP TABLE temp.widen_copy;",
+        targets.join(", "),
+        sources.join(", ")
     ))?;
     for statement in &dependents {
         tx.execute_batch(statement)?;
@@ -76,6 +77,25 @@ pub(super) fn rebuild(
         return Err(Error::CatalogIntegrity);
     }
     Ok(())
+}
+
+/// The table's column names in order, each a plain lowercase identifier.
+fn column_names(tx: &Transaction<'_>, table: &str) -> Result<Vec<String>> {
+    let mut statement = tx.prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid")?;
+    let columns = statement
+        .query_map([table], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if columns.is_empty()
+        || !columns.iter().all(|name| {
+            !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+    {
+        return Err(Error::CatalogIntegrity);
+    }
+    Ok(columns)
 }
 
 const RECORDINGS_030: [(&str, &str); 2] = [
@@ -103,9 +123,9 @@ const GAPS_030: [(&str, &str); 1] = [(
 pub(super) fn migrate_030(tx: &Transaction<'_>) -> Result<()> {
     // Parent rows are dropped before children point at the rebuilt table again.
     tx.pragma_update(None, "defer_foreign_keys", true)?;
-    rebuild(tx, "recordings", &RECORDINGS_030)?;
-    rebuild(tx, "recording_intervals", &INTERVALS_030)?;
-    rebuild(tx, "recording_gaps", &GAPS_030)?;
+    rebuild(tx, "recordings", &RECORDINGS_030, &[])?;
+    rebuild(tx, "recording_intervals", &INTERVALS_030, &[])?;
+    rebuild(tx, "recording_gaps", &GAPS_030, &[])?;
     let violations: i64 =
         tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
             row.get(0)
@@ -125,9 +145,9 @@ pub(crate) fn revert_030_for_tests(connection: &mut rusqlite::Connection) -> Res
     }
     let tx = connection.transaction()?;
     tx.pragma_update(None, "defer_foreign_keys", true)?;
-    rebuild(&tx, "recordings", &reverse(&RECORDINGS_030))?;
-    rebuild(&tx, "recording_intervals", &reverse(&INTERVALS_030))?;
-    rebuild(&tx, "recording_gaps", &reverse(&GAPS_030))?;
+    rebuild(&tx, "recordings", &reverse(&RECORDINGS_030), &[])?;
+    rebuild(&tx, "recording_intervals", &reverse(&INTERVALS_030), &[])?;
+    rebuild(&tx, "recording_gaps", &reverse(&GAPS_030), &[])?;
     tx.execute_batch(
         "ALTER TABLE playlist_entries DROP COLUMN audio_only; ALTER TABLE playlist_entries DROP COLUMN codecs; ALTER TABLE playlist_entries DROP COLUMN bandwidth; ALTER TABLE playlist_entries DROP COLUMN kind; PRAGMA user_version = 29;",
     )?;

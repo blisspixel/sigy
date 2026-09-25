@@ -257,7 +257,7 @@ fn rebuild_widens_one_check_and_keeps_rowids_triggers_and_child_keys() -> TestRe
     )?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     assert!(matches!(
-        widen::rebuild(&tx, "parent_rows", &[("CHECK(kind IN ('z'))", "")]),
+        widen::rebuild(&tx, "parent_rows", &[("CHECK(kind IN ('z'))", "")], &[]),
         Err(Error::CatalogIntegrity)
     ));
     tx.pragma_update(None, "defer_foreign_keys", true)?;
@@ -265,6 +265,7 @@ fn rebuild_widens_one_check_and_keeps_rowids_triggers_and_child_keys() -> TestRe
         &tx,
         "parent_rows",
         &[("CHECK(kind IN ('a'))", "CHECK(kind IN ('a', 'b'))")],
+        &[],
     )?;
     tx.commit()?;
     let violations: i64 =
