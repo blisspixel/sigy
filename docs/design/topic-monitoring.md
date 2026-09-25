@@ -33,6 +33,15 @@ Status: proposed design, 2026-09-24. This turns roadmap operations 30 to 35 into
 
 Terms are stored per language as the user wrote them, in any script. Matching runs on the original transcript text and, separately, on the English translation, after Unicode NFC normalization, case folding where the script has case, and whitespace folding. A match records which text matched (original or English), the term, and the cue range. This is deliberately simple and explainable: it finds literal mentions, misses paraphrases, and says so. A later semantic matcher is a separate, measured profile.
 
+## Decision profiles (proposed)
+
+Many judgments in monitoring are small, typed decisions rather than prose: is this passage about the monitor's goal, does this English sentence keep the original's numbers, names and negations, do these two passages report the same event. A **decision profile** answers one such question with a local model at zero cost: it takes a state (a cue, a translation pair, two passages), a question with an explicit definition, and a fixed label set, and returns a probability per label read from the model's own token probabilities, not from generated prose. Constrained output makes the result typed; a resident model (see [warm workers](scaling-architecture.md#throughput)) makes it fast enough to run on every cue.
+
+- **Proposals only.** A decision is evidence with a profile, a probability and exact input revisions. It can rank passages for review, propose a relationship, or flag a translation, but it never publishes a finding, applies an action, or changes a cap. Missing or uncalibrated decisions stay "not assessed".
+- **Calibrated before use.** Each profile is measured on labeled sets and its probabilities calibrated per language. The critical-error judge can be calibrated without human raters: take reference English from the parallel corpus, inject known errors (a changed number, a dropped negation, a swapped name or place), and measure detection and false alarms on those and on unchanged references. This replaces the paid judge the translation checks were waiting for, within the USD 0 preference.
+- **First uses, in order:** the translation critical-error judge; relevance of a passage to a monitor's goal as a ranked second pass after literal matches; repetition and contradiction proposals between findings.
+- **Model choice needs research.** Candidate small open-weight classifier and general models must be checked from primary sources for license, published weights and hashes, llama.cpp support, languages and measured latency on the target devices before a profile is added. Any general local model can serve the contract through label probabilities; a specialized model is adopted only if it measures better.
+
 ## First increments
 
 1. **Monitor versions and the action log (operation 30).** Storage for monitors, versions and actions, with the authority rules above; CLI `monitor create`, `monitor revise`, `monitor show`, `monitor actions`. Exit: out-of-policy proposals are refused and kept, rows survive restart, and nothing in a transcript can create a version or action.
