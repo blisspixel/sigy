@@ -122,6 +122,8 @@ fn translate(mode: &str, arguments: &[String]) -> Result<u8, Box<dyn std::error:
         value(arguments, flag).ok_or(flag)?;
     }
     if !arguments.iter().any(|argument| argument == "--offline")
+        || value(arguments, "-dev").as_deref() != Some("none")
+        || value(arguments, "-ngl").as_deref() != Some("0")
         || std::env::var_os("SIGY_TEST_FFMPEG").is_some()
         || std::env::var("OMP_WAIT_POLICY").as_deref() != Ok("PASSIVE")
     {

@@ -214,6 +214,9 @@ async fn translate_cue(
         .arg(&prompt)
         .args(["-n", "512", "-c", "4096", "--temp", "0", "-s", "0"])
         .args(["-t", &plan.params.threads.to_string()])
+        // A CPU profile stays on the CPU even when its runtime folder carries a GPU backend,
+        // which llama.cpp would otherwise use without saying so.
+        .args(["-dev", "none", "-ngl", "0"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
