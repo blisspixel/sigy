@@ -884,13 +884,18 @@ mod translation {
         let mut reopened = Store::open(&path)?;
         reopened.recover_translation_jobs()?;
         let recovered = reopened.translation_job("mt")?;
+        let expected = if crate::storage::job_pool::NATIVE_REQUEUE {
+            ("queued", 2, 2)
+        } else {
+            ("interrupted", 2, 1)
+        };
         assert_eq!(
             (
                 recovered.state.as_str(),
                 recovered.generation,
                 recovered.attempt
             ),
-            ("queued", 2, 2)
+            expected
         );
         let outcome = TranslationOutcome::synthetic_fixture(
             &job,

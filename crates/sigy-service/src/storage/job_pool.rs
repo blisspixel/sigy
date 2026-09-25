@@ -20,9 +20,9 @@ pub const MAX_ATTEMPTS: u32 = 3;
 pub(crate) const LEASE_MARGIN_MS: i64 = 600_000;
 
 /// Native processes are requeued only where the platform ends a dead service's contained
-/// groups. Windows Job Objects do this with kill-on-close; the Linux cgroup path is not
-/// yet tested, so there a restart still interrupts native work.
-pub(crate) const NATIVE_REQUEUE: bool = !cfg!(target_os = "linux");
+/// groups. Windows Job Objects do this with kill-on-close; that is not yet tested on Linux
+/// or macOS, so there a restart still interrupts native work.
+pub(crate) const NATIVE_REQUEUE: bool = cfg!(windows);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum JobKind {

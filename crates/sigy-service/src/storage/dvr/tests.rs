@@ -947,6 +947,11 @@ fn prune_releases_one_unprotected_segment_and_keeps_the_held_bytes() -> TestResu
         .hold_range("roll", 1_000_000, 2_000_000)?;
     let record = library.store().recording("roll")?;
     let media = directory.path().join("media");
+    // The service creates its media directory private to this user; so does the fixture.
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut std::fs::DirBuilder::new(), 0o700)
+        .create(&media)?;
+    #[cfg(not(unix))]
     std::fs::create_dir(&media)?;
     for interval in &record.intervals {
         std::fs::write(
