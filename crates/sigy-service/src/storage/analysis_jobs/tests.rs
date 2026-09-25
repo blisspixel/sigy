@@ -123,11 +123,15 @@ fn admission_replay_conflict_and_busy_preserve_one_dispatch_and_zero_cost() -> T
             Err(Error::IdempotencyConflict)
         ));
     }
-    assert!(matches!(
-        store.admit_verification("second", "pin", 1, 21),
-        Err(Error::Analysis("worker-busy"))
-    ));
-    assert!(matches!(store.analysis_job("second"), Err(Error::NotFound)));
+    // A second job on the same lineage queues; it cannot start while the first runs.
+    let (second, dispatch) = store.admit_verification("second", "pin", 1, 21)?;
+    assert!(dispatch.is_none());
+    assert_eq!((second.state.as_str(), second.started_ms), ("queued", None));
+    assert!(
+        store
+            .claim_verification("second", TEST_OWNER, 21)?
+            .is_none()
+    );
     assert!(store.finish_verification("verify", job.generation, Ok(receipt(&job)), 22)?);
     let verified = store.analysis_job("verify")?;
     assert_eq!(verified.state, "verified");
@@ -163,7 +167,7 @@ fn concurrent_admission_cannot_create_two_active_readers() -> TestResult {
     for worker in workers {
         match worker.join().map_err(|_| "admission thread panicked")? {
             Ok((_, Some(_))) => admitted += 1,
-            Err(Error::Analysis("worker-busy")) => refused += 1,
+            Ok((job, None)) if job.state == "queued" => refused += 1,
             other => return Err(format!("unexpected admission: {other:?}").into()),
         }
     }
@@ -172,7 +176,13 @@ fn concurrent_admission_cannot_create_two_active_readers() -> TestResult {
         store
             .connection
             .query_row("SELECT count(*) FROM analysis_jobs", [], |row| row.get(0))?;
-    assert_eq!(rows, 1);
+    assert_eq!(rows, 2);
+    let active: i64 = store.connection.query_row(
+        "SELECT count(*) FROM analysis_jobs WHERE state IN ('running', 'cancelling')",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(active, 1);
     assert_no_paid_work(&store)?;
     Ok(())
 }
@@ -227,10 +237,21 @@ fn restart_invalidates_workers_and_preserves_replay_after_expiry() -> TestResult
         assert_lease(&mut store)?;
         store.recover_analysis_jobs()?;
         let recovered = store.analysis_job("verify")?;
-        assert_eq!(recovered.state, "interrupted");
         assert_eq!(recovered.generation, job.generation + 1);
-        assert_eq!(recovered.reason.as_deref(), Some("service-restarted"));
-        assert!(recovered.finished_ms.is_some());
+        if cancelling {
+            // Cancellation wins: cancelling work is never requeued.
+            assert_eq!(recovered.state, "interrupted");
+            assert_eq!(recovered.reason.as_deref(), Some("service-restarted"));
+            assert!(recovered.finished_ms.is_some());
+        } else {
+            assert_eq!(recovered.state, "queued");
+            assert_eq!((recovered.attempt, recovered.started_ms), (2, None));
+            assert!(recovered.reason.is_none());
+        }
+        assert_eq!(
+            store.ended_attempts("analysis", "verify")?,
+            vec![(1, job.generation)]
+        );
         store.recover_analysis_jobs()?;
         assert_eq!(store.analysis_job("verify")?, recovered);
         assert!(!store.finish_verification("verify", job.generation, Ok(receipt(&job)), 22)?);
@@ -540,3 +561,5 @@ fn expired_segments_release_partially_then_delete_the_final_recording() -> TestR
     assert_eq!(reopened.store().recording("roll")?.charged_bytes, 0);
     Ok(())
 }
+
+mod pool;

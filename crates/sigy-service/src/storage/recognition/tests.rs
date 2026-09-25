@@ -96,14 +96,13 @@ fn admission_is_exact_replay_without_redispatch_and_shares_worker_slot() -> Test
             Err(Error::IdempotencyConflict)
         ));
     }
-    assert!(matches!(
-        store.admit_local_asr(&request("other", 0), 21),
-        Err(Error::Analysis("worker-busy"))
-    ));
-    assert!(matches!(
-        store.admit_verification("other", "pin", 1, 21),
-        Err(Error::Analysis("worker-busy"))
-    ));
+    // Other jobs on the same transcript lineage queue behind the running one.
+    let (other, dispatch) = store.admit_local_asr(&request("other", 0), 21)?;
+    assert!(dispatch.is_none());
+    assert_eq!(other.state, "queued");
+    let (verify, dispatch) = store.admit_verification("verify-other", "pin", 1, 21)?;
+    assert!(dispatch.is_none());
+    assert_eq!(verify.state, "queued");
     assert!(matches!(
         store.admit_verification("asr", "pin", 1, 21),
         Err(Error::IdempotencyConflict)
@@ -340,7 +339,12 @@ fn every_publication_stage_rolls_back_and_keeps_durable_lease_on_sql_failure() -
             .connection
             .execute_batch("DROP TRIGGER fixture_fault;")?;
         reopened.recover_analysis_jobs()?;
-        assert_eq!(reopened.local_asr_job("asr")?.state, "interrupted");
+        let expected = if crate::storage::job_pool::NATIVE_REQUEUE {
+            "queued"
+        } else {
+            "interrupted"
+        };
+        assert_eq!(reopened.local_asr_job("asr")?.state, expected);
         assert!(matches!(
             reopened.finish_local_asr(&work, &completed, 22),
             Err(Error::Analysis("stale-worker"))
@@ -748,10 +752,9 @@ mod translation {
         assert_eq!(work.cues.len(), 1);
         assert_eq!(work.cues[0].script, "Una feria mundial");
         assert!(store.admit_translation(&request("mt-1")?, 31)?.1.is_none());
-        assert!(matches!(
-            store.admit_translation(&request("mt-2")?, 31),
-            Err(Error::Analysis("worker-busy"))
-        ));
+        let (queued, dispatch) = store.admit_translation(&request("mt-2")?, 31)?;
+        assert!(dispatch.is_none());
+        assert_eq!(queued.state, "queued");
         let outcome = TranslationOutcome::synthetic_fixture(
             &job,
             TranslationResult::Succeeded(vec![translated(0, "A world fair")]),
@@ -882,8 +885,12 @@ mod translation {
         reopened.recover_translation_jobs()?;
         let recovered = reopened.translation_job("mt")?;
         assert_eq!(
-            (recovered.state.as_str(), recovered.generation),
-            ("interrupted", 2)
+            (
+                recovered.state.as_str(),
+                recovered.generation,
+                recovered.attempt
+            ),
+            ("queued", 2, 2)
         );
         let outcome = TranslationOutcome::synthetic_fixture(
             &job,

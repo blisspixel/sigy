@@ -123,8 +123,7 @@ struct Actor {
     click_worker: Option<Worker>,
     podcast_worker: Option<Worker>,
     text_worker: Option<Worker>,
-    analysis_worker: Option<analysis::AnalysisWorker>,
-    translation_worker: Option<analysis::TranslationWorker>,
+    pool: analysis::Pool,
     listen_workers: HashMap<String, LiveListen>,
     playback: super::playback::PlaySessions,
     acquirer: HttpAcquirer,
@@ -728,13 +727,8 @@ impl Actor {
         }
     }
 
-    fn stop(&self) {
-        if let Some(active) = &self.analysis_worker {
-            active.worker.stop.send_replace(true);
-        }
-        if let Some(active) = &self.translation_worker {
-            active.worker.stop.send_replace(true);
-        }
+    fn stop(&mut self) {
+        self.pool.stop();
         if let Some(worker) = &self.directory_worker {
             worker.stop.send_replace(true);
         }
@@ -766,8 +760,7 @@ impl Actor {
             && self.click_worker.is_none()
             && self.podcast_worker.is_none()
             && self.text_worker.is_none()
-            && self.analysis_worker.is_none()
-            && self.translation_worker.is_none()
+            && self.pool.is_empty()
     }
 }
 
@@ -799,8 +792,9 @@ pub(super) fn spawn(
         click_worker: None,
         podcast_worker: None,
         text_worker: None,
-        analysis_worker: None,
-        translation_worker: None,
+        pool: analysis::Pool::new(crate::storage::job_pool::lease_owner(
+            crate::storage::now_ms()?,
+        )),
         listen_workers: HashMap::new(),
         playback: super::playback::PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
@@ -811,7 +805,10 @@ pub(super) fn spawn(
             let started = Instant::now();
             let mut stopped = false;
             let mut shutdown = false;
-            if actor.reconcile_schedules().is_err() || actor.reconcile_directory().is_err() {
+            if actor.reconcile_schedules().is_err()
+                || actor.reconcile_directory().is_err()
+                || actor.schedule().is_err()
+            {
                 stopped = true;
                 actor.stop();
                 let _ = stopping.send_replace(true);

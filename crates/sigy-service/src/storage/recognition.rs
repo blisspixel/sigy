@@ -45,10 +45,10 @@ fn find_job(connection: &Connection, id: &str) -> Result<Option<LocalAsrJob>> {
         return Err(Error::IdempotencyConflict);
     }
     Ok(connection.query_row(
-        "SELECT id, analysis_id, analysis_revision, profile, profile_sha256, expected_parent_revision, generation, recording_id, state, expected_bytes, manifest_sha256, reason, created_ms, finished_ms FROM analysis_jobs WHERE id = ?1",
+        "SELECT id, analysis_id, analysis_revision, profile, profile_sha256, expected_parent_revision, generation, recording_id, state, expected_bytes, manifest_sha256, reason, created_ms, finished_ms, attempt, started_ms FROM analysis_jobs WHERE id = ?1",
         [id], |row| Ok(LocalAsrJob {
             request: LocalAsrRequest { id: row.get(0)?, analysis_id: row.get(1)?, analysis_revision: row.get(2)?, profile: row.get(3)?, profile_sha256: row.get(4)?, parent_revision: row.get(5)? },
-            generation: row.get(6)?, recording_id: row.get(7)?, state: row.get(8)?, expected_bytes: row.get::<_, u32>(9)?.into(), manifest_sha256: row.get(10)?, reason: row.get(11)?, created_ms: row.get(12)?, finished_ms: row.get(13)?, amount_usd: "0.000000".into(),
+            generation: row.get(6)?, recording_id: row.get(7)?, state: row.get(8)?, expected_bytes: row.get::<_, u32>(9)?.into(), manifest_sha256: row.get(10)?, reason: row.get(11)?, created_ms: row.get(12)?, finished_ms: row.get(13)?, attempt: row.get(14)?, started_ms: row.get(15)?, amount_usd: "0.000000".into(),
         }),
     ).optional()?)
 }

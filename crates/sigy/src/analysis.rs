@@ -450,9 +450,10 @@ fn render_translation_profile(
 fn render_translation_job(writer: &mut impl Write, job: &TranslationJob) -> io::Result<()> {
     writeln!(
         writer,
-        "Translation {} generation {}: {}.",
-        job.request.id, job.generation, job.state
+        "Translation {} generation {} attempt {}: {}.",
+        job.request.id, job.generation, job.attempt, job.state
     )?;
+    render_queue(writer, &job.state, "translation")?;
     writeln!(
         writer,
         "Transcript {} revision {} | profile {} | {} USD.",
@@ -540,9 +541,10 @@ fn render_profile(writer: &mut impl Write, profile: &RecognitionProfile) -> io::
 fn render_recognition_job(writer: &mut impl Write, job: &LocalAsrJob) -> io::Result<()> {
     writeln!(
         writer,
-        "Recognition {} generation {}: {}.",
-        job.request.id, job.generation, job.state
+        "Recognition {} generation {} attempt {}: {}.",
+        job.request.id, job.generation, job.attempt, job.state
     )?;
+    render_queue(writer, &job.state, "recognition")?;
     writeln!(
         writer,
         "Input {} revision {} | profile {} | follows transcript revision {} | {} USD.",
@@ -560,6 +562,17 @@ fn render_recognition_job(writer: &mut impl Write, job: &LocalAsrJob) -> io::Res
             writer,
             "Read the text with: sigy analysis transcript {}",
             job.request.analysis_id
+        )?;
+    }
+    Ok(())
+}
+
+/// A queued job waits for a free slot of its kind and for its transcript lineage.
+fn render_queue(writer: &mut impl Write, state: &str, kind: &str) -> io::Result<()> {
+    if state == "queued" {
+        writeln!(
+            writer,
+            "Queued. It starts when a {kind} slot is free and no other job on the same transcript runs."
         )?;
     }
     Ok(())
@@ -634,9 +647,10 @@ pub fn render_job(
 ) -> io::Result<()> {
     writeln!(
         writer,
-        "Verification {} generation {}: {}.",
-        job.id, job.generation, job.state
+        "Verification {} generation {} attempt {}: {}.",
+        job.id, job.generation, job.attempt, job.state
     )?;
+    render_queue(writer, &job.state, "verification")?;
     writeln!(
         writer,
         "Input {} revision {} | {} bytes across {} files | {} USD.",

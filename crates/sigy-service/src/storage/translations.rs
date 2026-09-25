@@ -2,7 +2,11 @@
 
 use rusqlite::{OptionalExtension, Row, TransactionBehavior, params};
 
-use super::{Store, validate_key};
+use super::{
+    Store,
+    job_pool::{self, Family},
+    validate_key,
+};
 use crate::{
     Error, Result,
     translation::{
@@ -60,10 +64,12 @@ fn job_row(row: &Row<'_>) -> rusqlite::Result<TranslationJob> {
         amount_usd: "0.000000".into(),
         created_ms: row.get(8)?,
         finished_ms: row.get(9)?,
+        attempt: row.get(10)?,
+        started_ms: row.get(11)?,
     })
 }
 
-const JOB_COLUMNS: &str = "id, generation, transcript_id, transcript_revision, profile, profile_sha256, state, reason, created_ms, finished_ms";
+const JOB_COLUMNS: &str = "id, generation, transcript_id, transcript_revision, profile, profile_sha256, state, reason, created_ms, finished_ms, attempt, started_ms";
 
 impl Store {
     /// Store one immutable translation profile. An identical replay is unchanged.
@@ -159,21 +165,21 @@ impl Store {
             .optional()?)
     }
 
-    /// Admit one translation of an exact recognized transcript revision.
-    /// A replay returns history and no work token.
+    /// Queue one translation of an exact recognized transcript revision.
+    /// A replay returns history and never dispatches.
     /// # Errors
-    /// Refuses a changed replay, a transcript without recognized text, or a busy worker.
-    pub(crate) fn admit_translation(
+    /// Refuses a changed replay, a transcript without recognized text, or a full queue.
+    pub(crate) fn enqueue_translation(
         &mut self,
         request: &TranslationRequest,
         now: i64,
-    ) -> Result<(TranslationJob, Option<TranslationWork>)> {
+    ) -> Result<(TranslationJob, bool)> {
         request.validate()?;
         if let Some(job) = self.find_translation_job(&request.id)? {
             if job.request != *request {
                 return Err(Error::IdempotencyConflict);
             }
-            return Ok((job, None));
+            return Ok((job, false));
         }
         if now < 0 {
             return Err(Error::InvalidInput("clock range"));
@@ -181,41 +187,49 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let eligible: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM transcripts WHERE id = ?1 AND revision = ?2 AND kind = 'recognition' AND outcome = 'text')",
-            params![request.transcript_id, request.transcript_revision],
-            |row| row.get(0),
-        )?;
-        if !eligible {
+        if !has_text(&tx, request)? {
             return Err(Error::Analysis("transcript-has-no-recognized-text"));
         }
-        let (count, active): (i64, bool) = tx.query_row(
-            "SELECT count(*), EXISTS(SELECT 1 FROM translation_jobs WHERE state IN ('running', 'cancelling')) FROM translation_jobs",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+        job_pool::check_open_bound(&tx, Family::Translation)?;
+        tx.execute(
+            "INSERT INTO translation_jobs(id, generation, transcript_id, transcript_revision, profile, profile_sha256, state, created_ms, lineage) VALUES (?1, 1, ?2, ?3, ?4, ?5, 'queued', ?6, ?2)",
+            params![request.id, request.transcript_id, request.transcript_revision, request.profile, request.profile_sha256, now],
         )?;
-        if count >= 256 {
-            return Err(Error::Analysis("job-history-limit"));
+        tx.commit()?;
+        Ok((self.translation_job(&request.id)?, true))
+    }
+
+    /// Start one queued translation under this owner, reading its cues and the stored
+    /// block language label. Only a committed claim returns a work token.
+    /// # Errors
+    /// Returns catalog failures.
+    pub(crate) fn claim_translation(
+        &mut self,
+        id: &str,
+        owner: &str,
+        now: i64,
+    ) -> Result<Option<TranslationWork>> {
+        let job = self.translation_job(id)?;
+        if job.state != "queued" {
+            return Ok(None);
         }
-        if active {
-            return Err(Error::Analysis("worker-busy"));
-        }
-        let cues = {
-            let mut statement = tx.prepare(
-                "SELECT ordinal, script FROM transcript_cues WHERE transcript_id = ?1 AND revision = ?2 ORDER BY ordinal LIMIT 257",
+        let request = &job.request;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if !has_text(&tx, request)? {
+            job_pool::end_queued(
+                &tx,
+                Family::Translation,
+                id,
+                "failed",
+                "transcript-has-no-recognized-text",
+                now,
             )?;
-            statement
-                .query_map(
-                    params![request.transcript_id, request.transcript_revision],
-                    |row| {
-                        Ok(SourceCue {
-                            ordinal: row.get(0)?,
-                            script: row.get(1)?,
-                        })
-                    },
-                )?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
+            tx.commit()?;
+            return Ok(None);
+        }
+        let cues = source_cues(&tx, request)?;
         if cues.is_empty() || cues.len() > 256 {
             return Err(Error::StorageIntegrity);
         }
@@ -227,26 +241,45 @@ impl Store {
             )
             .optional()?
             .flatten();
-        tx.execute(
-            "INSERT INTO translation_jobs(id, generation, transcript_id, transcript_revision, profile, profile_sha256, state, created_ms) VALUES (?1, 1, ?2, ?3, ?4, ?5, 'running', ?6)",
-            params![request.id, request.transcript_id, request.transcript_revision, request.profile, request.profile_sha256, now],
+        let cue_deadline: i64 = tx.query_row(
+            "SELECT cue_deadline_ms FROM translation_profiles WHERE id = ?1",
+            [&request.profile],
+            |row| row.get(0),
         )?;
+        let count = i64::try_from(cues.len()).map_err(|_| Error::StorageIntegrity)?;
+        let lease = now + cue_deadline * count + job_pool::LEASE_MARGIN_MS;
+        if !job_pool::claim_row(&tx, Family::Translation, id, owner, lease, now)? {
+            return Ok(None);
+        }
         tx.commit()?;
-        let job = self.translation_job(&request.id)?;
         let language = language.map(|tag| {
             tag.split('-')
                 .next()
                 .unwrap_or_default()
                 .to_ascii_lowercase()
         });
-        Ok((
-            job.clone(),
-            Some(TranslationWork {
-                job,
-                cues,
-                language,
-            }),
-        ))
+        Ok(Some(TranslationWork {
+            job: self.translation_job(id)?,
+            cues,
+            language,
+        }))
+    }
+
+    /// Queue and immediately start one translation, as tests did before the pool.
+    #[cfg(test)]
+    pub(crate) fn admit_translation(
+        &mut self,
+        request: &TranslationRequest,
+        now: i64,
+    ) -> Result<(TranslationJob, Option<TranslationWork>)> {
+        let (job, created) = self.enqueue_translation(request, now)?;
+        if !created {
+            return Ok((job, None));
+        }
+        match self.claim_translation(&request.id, super::analysis_jobs::TEST_OWNER, now)? {
+            Some(work) => Ok((work.job.clone(), Some(work))),
+            None => Ok((self.translation_job(&request.id)?, None)),
+        }
     }
 
     /// Request cancellation of the exact generation.
@@ -261,7 +294,16 @@ impl Store {
         if job.generation != generation {
             return Err(Error::Analysis("stale-worker"));
         }
-        if job.state == "running" {
+        if job.state == "queued" {
+            job_pool::end_queued(
+                &self.connection,
+                Family::Translation,
+                id,
+                "cancelled",
+                "cancelled",
+                super::now_ms()?,
+            )?;
+        } else if job.state == "running" {
             self.connection.execute(
                 "UPDATE translation_jobs SET state = 'cancelling' WHERE id = ?1 AND generation = ?2 AND state = 'running'",
                 params![id, generation],
@@ -324,11 +366,11 @@ impl Store {
         self.translation_job(&job.request.id)
     }
 
-    /// Interrupt translation work left by a previous service process.
+    /// End every translation lease a previous service process held: requeue running
+    /// work under a new generation until its attempt limit, interrupt the rest.
     pub(crate) fn recover_translation_jobs(&mut self) -> Result<()> {
         let now = super::now_ms()?;
-        self.connection.execute("UPDATE translation_jobs SET state = 'interrupted', generation = generation + 1, reason = 'service-restarted', finished_ms = max(created_ms, ?1) WHERE state IN ('running', 'cancelling')", [now])?;
-        Ok(())
+        job_pool::recover(&mut self.connection, Family::Translation, now)
     }
 
     /// The newest translation revision of a transcript revision, or zero.
@@ -416,6 +458,34 @@ impl Store {
             next_after_ordinal,
         })
     }
+}
+
+fn has_text(connection: &rusqlite::Connection, request: &TranslationRequest) -> Result<bool> {
+    Ok(connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM transcripts WHERE id = ?1 AND revision = ?2 AND kind = 'recognition' AND outcome = 'text')",
+        params![request.transcript_id, request.transcript_revision],
+        |row| row.get(0),
+    )?)
+}
+
+fn source_cues(
+    connection: &rusqlite::Connection,
+    request: &TranslationRequest,
+) -> Result<Vec<SourceCue>> {
+    let mut statement = connection.prepare(
+        "SELECT ordinal, script FROM transcript_cues WHERE transcript_id = ?1 AND revision = ?2 ORDER BY ordinal LIMIT 257",
+    )?;
+    Ok(statement
+        .query_map(
+            params![request.transcript_id, request.transcript_revision],
+            |row| {
+                Ok(SourceCue {
+                    ordinal: row.get(0)?,
+                    script: row.get(1)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 /// Exactly one result per source cue, in order, with bounded untrusted text.

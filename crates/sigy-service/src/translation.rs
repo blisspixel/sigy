@@ -169,6 +169,10 @@ pub struct TranslationJob {
     pub amount_usd: String,
     pub created_ms: i64,
     pub finished_ms: Option<i64>,
+    /// Starts of this job, including the current one. A restart can requeue a job.
+    pub attempt: u32,
+    /// When the current attempt started; absent while queued.
+    pub started_ms: Option<i64>,
 }
 
 /// One source cue given to the worker. The worker receives text only, never media or a URL.
@@ -178,7 +182,7 @@ pub struct SourceCue {
     pub script: String,
 }
 
-/// Returned only by a fresh admission. Replays cannot obtain a work token.
+/// Returned only by a committed claim of a queued job. Replays cannot obtain a work token.
 #[derive(Debug)]
 pub struct TranslationWork {
     pub(crate) job: TranslationJob,

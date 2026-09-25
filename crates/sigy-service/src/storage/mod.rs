@@ -23,6 +23,7 @@ pub(crate) mod analysis;
 pub(crate) mod analysis_jobs;
 pub(crate) mod backup;
 pub(crate) mod directory_policy;
+pub(crate) mod job_pool;
 pub(crate) mod providers;
 pub(crate) mod schedules;
 pub mod sources;
@@ -32,7 +33,7 @@ mod widen;
 #[cfg(test)]
 mod widen_tests;
 
-pub const SCHEMA_VERSION: u32 = 30;
+pub const SCHEMA_VERSION: u32 = 31;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -243,6 +244,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     if (0..=29).contains(&version) {
         widen::migrate_030(transaction)?;
         transaction.execute_batch(include_str!("030-live-hls.sql"))?;
+    }
+    if (0..=30).contains(&version) {
+        job_pool::migrate_031(transaction)?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

@@ -76,6 +76,17 @@ fn run(mode: &str, arguments: &[String]) -> Result<u8, Box<dyn std::error::Error
             std::thread::sleep(Duration::from_secs(600));
             return Ok(0);
         }
+        // Hangs on its first run and recognizes speech afterward. The marker sits beside
+        // the model, outside the hashed runtime directory.
+        "once" => {
+            let marker = PathBuf::from(format!("{}.once", value(arguments, "-m").ok_or("-m")?));
+            if !marker.exists() {
+                std::fs::write(&marker, b"started")?;
+                std::thread::sleep(Duration::from_secs(600));
+                return Ok(0);
+            }
+            transcript(&[(0, duration.min(400), "encore")])
+        }
         "child" => {
             let own = std::env::current_exe()?;
             let started = std::process::Command::new(own).arg("--grandchild").spawn();

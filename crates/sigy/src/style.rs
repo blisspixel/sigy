@@ -66,7 +66,7 @@ pub fn tone_for_state(state: &str) -> Tone {
         | "available" => Tone::Ok,
         "failed" | "blocked" | "disconnected" | "error" | "interrupted" => Tone::Fail,
         "running" | "stopping" | "paused" | "attention" | "unknown" | "reserved" | "frozen"
-        | "stale" | "scheduled" => Tone::Warn,
+        | "stale" | "scheduled" | "queued" => Tone::Warn,
         "unavailable" => Tone::Muted,
         _ => Tone::Plain,
     }

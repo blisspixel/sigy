@@ -259,6 +259,7 @@ fn schema_28_applies_to_a_v27_catalog_and_rolls_back_on_failure() -> TestResult 
     drop(store);
     let downgrade = "DROP TABLE translation_cues; DROP TABLE translations; DROP TABLE translation_jobs; DROP TABLE translation_profiles; DROP TABLE provider_attempts; DROP TABLE provider_price_snapshots; DROP TABLE provider_route_pairs; DROP TABLE provider_routes; PRAGMA user_version = 27;";
     let mut connection = rusqlite::Connection::open(&path)?;
+    crate::storage::job_pool::revert_031_for_tests(&mut connection)?;
     crate::storage::widen::revert_030_for_tests(&mut connection)?;
     connection.execute_batch(downgrade)?;
     // A conflicting object makes the migration fail part way through.

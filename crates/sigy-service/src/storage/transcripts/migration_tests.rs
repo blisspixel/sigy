@@ -206,11 +206,17 @@ fn genuine_v23_v24_v25_migrations_preserve_legacy_language_and_verification() ->
                     .1
                     .is_none()
             );
+            // A migrated running row carries a lease of the earlier catalog; restart
+            // requeues the zero-cost verification under a new generation.
             reopened.recover_analysis_jobs()?;
-            let interrupted = reopened.analysis_job("verify")?;
+            let requeued = reopened.analysis_job("verify")?;
             assert_eq!(
-                (interrupted.generation, interrupted.state.as_str()),
-                (2, "interrupted")
+                (
+                    requeued.generation,
+                    requeued.state.as_str(),
+                    requeued.attempt
+                ),
+                (2, "queued", 2)
             );
         }
         assert_eq!(
@@ -260,8 +266,22 @@ fn current(path: &Path) -> Result<Store> {
     Ok(store)
 }
 
+/// Queue one fixture job and claim it, as the pool does, or leave no row at all.
 fn admit_fixture(connection: &Connection, job: &str, parent: i64) -> rusqlite::Result<usize> {
-    connection.execute("INSERT INTO analysis_jobs(id, generation, analysis_id, analysis_revision, recording_id, profile, kind, profile_sha256, expected_parent_revision, state, expected_bytes, expected_files, manifest_sha256, amount_micros, created_ms) VALUES (?1, 1, 'pin', 1, 'one', 'fixture-profile', 'local_asr', ?2, ?3, 'running', 100, 1, ?4, 0, 20)", params![job, "b".repeat(64), parent, "c".repeat(64)])
+    connection.execute_batch("SAVEPOINT admit_fixture")?;
+    let admitted = connection
+        .execute("INSERT INTO analysis_jobs(id, generation, analysis_id, analysis_revision, recording_id, profile, kind, profile_sha256, expected_parent_revision, state, expected_bytes, expected_files, manifest_sha256, amount_micros, created_ms, lineage) VALUES (?1, 1, 'pin', 1, 'one', 'fixture-profile', 'local_asr', ?2, ?3, 'queued', 100, 1, ?4, 0, 20, 'pin')", params![job, "b".repeat(64), parent, "c".repeat(64)])
+        .and_then(|_| connection.execute("UPDATE analysis_jobs SET state = 'running', lease_owner = 'local-test', lease_expires_ms = 20, started_ms = 20 WHERE id = ?1", [job]));
+    match admitted {
+        Ok(rows) => {
+            connection.execute_batch("RELEASE admit_fixture")?;
+            Ok(rows)
+        }
+        Err(error) => {
+            connection.execute_batch("ROLLBACK TO admit_fixture; RELEASE admit_fixture")?;
+            Err(error)
+        }
+    }
 }
 
 fn header(
@@ -546,6 +566,11 @@ fn completion_failure_rolls_back_every_result_row_and_keeps_native_lease() -> Te
     assert!(reopened.begin_delete("one", true).is_err());
     assert!(reopened.prune_candidates(true)?.is_empty());
     reopened.recover_analysis_jobs()?;
-    assert_eq!(reopened.local_asr_job("asr")?.state, "interrupted");
+    let expected = if crate::storage::job_pool::NATIVE_REQUEUE {
+        "queued"
+    } else {
+        "interrupted"
+    };
+    assert_eq!(reopened.local_asr_job("asr")?.state, expected);
     Ok(())
 }

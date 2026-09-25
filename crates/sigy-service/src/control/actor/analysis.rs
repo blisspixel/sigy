@@ -1,24 +1,110 @@
+//! The service scheduler for the durable local job pool.
+//!
+//! Admission only enqueues. [`Actor::schedule`] claims queued jobs, oldest first, up to
+//! each kind's concurrency cap and never two in one transcript lineage, and starts one
+//! supervised worker per claim. Capture workers are separate and never wait on the pool.
+
+use std::collections::HashMap;
+
 use super::{Actor, Message, Worker};
 use crate::{
-    Error, Result, processing,
+    Error, Result, execution, processing,
     recognition::{LocalAsrRequest, LocalAsrWork, ReapedLocalAsr},
     recognizer::{self, RecognitionTask},
-    storage::{analysis_jobs::AnalysisJob, now_ms},
+    storage::{
+        analysis_jobs::AnalysisJob,
+        job_pool::{JobKind, PoolCaps},
+        now_ms,
+    },
+    translation::{TranslationOutcome, TranslationWork},
 };
 
-pub(super) struct AnalysisWorker {
-    pub id: String,
+/// Claims attempted for one kind in one scheduling pass. Each failed claim ends a job,
+/// so this only bounds the work one pass can do.
+const MAX_CLAIMS_PER_PASS: usize = 64;
+
+pub(super) struct VerificationWorker {
     pub generation: u32,
     pub worker: Worker,
-    /// Present for a native recognition job; the admitted work token stays here.
-    pub recognition: Option<LocalAsrWork>,
+}
+
+pub(super) struct RecognitionWorker {
+    pub generation: u32,
+    pub worker: Worker,
+    /// The claimed work token stays here until the worker finishes.
+    pub work: LocalAsrWork,
 }
 
 pub(super) struct TranslationWorker {
-    pub id: String,
     pub generation: u32,
     pub worker: Worker,
-    pub work: crate::translation::TranslationWork,
+    pub work: TranslationWork,
+}
+
+/// Running pool workers, by job ID, and the caps and lease owner of this service.
+pub(super) struct Pool {
+    pub caps: PoolCaps,
+    pub owner: String,
+    /// False once the service is stopping; no new job starts after that.
+    pub accepting: bool,
+    pub verification: HashMap<String, VerificationWorker>,
+    pub recognition: HashMap<String, RecognitionWorker>,
+    pub translation: HashMap<String, TranslationWorker>,
+}
+
+impl Pool {
+    pub(super) fn new(owner: String) -> Self {
+        Self {
+            caps: PoolCaps::default(),
+            owner,
+            accepting: true,
+            verification: HashMap::new(),
+            recognition: HashMap::new(),
+            translation: HashMap::new(),
+        }
+    }
+
+    fn running(&self, kind: JobKind) -> usize {
+        match kind {
+            JobKind::Verification => self.verification.len(),
+            JobKind::Recognition => self.recognition.len(),
+            JobKind::Translation => self.translation.len(),
+        }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.verification.is_empty() && self.recognition.is_empty() && self.translation.is_empty()
+    }
+
+    pub(super) fn stop(&mut self) {
+        self.accepting = false;
+        let workers = self
+            .verification
+            .values()
+            .map(|active| &active.worker)
+            .chain(self.recognition.values().map(|active| &active.worker))
+            .chain(self.translation.values().map(|active| &active.worker));
+        for worker in workers {
+            worker.stop.send_replace(true);
+        }
+    }
+
+    /// Signal the worker of exactly this job generation, if one runs.
+    fn signal(&self, id: &str, generation: u32) {
+        let worker = match (
+            self.verification.get(id),
+            self.recognition.get(id),
+            self.translation.get(id),
+        ) {
+            (Some(active), _, _) if active.generation == generation => Some(&active.worker),
+            (_, Some(active), _) if active.generation == generation => Some(&active.worker),
+            (_, _, Some(active)) if active.generation == generation => Some(&active.worker),
+            _ => None,
+        };
+        if let Some(worker) = worker {
+            worker.stop.send_replace(true);
+        }
+    }
 }
 
 pub(crate) struct TranscribeRequest {
@@ -30,23 +116,55 @@ pub(crate) struct TranscribeRequest {
 }
 
 impl Actor {
+    /// Start queued jobs until each kind reaches its cap or runs out of eligible work.
+    /// # Errors
+    /// Returns catalog failures and a worker that could not be started.
+    pub(super) fn schedule(&mut self) -> Result<()> {
+        for kind in JobKind::ALL {
+            let mut claims = 0;
+            while self.pool.accepting
+                && self.pool.running(kind) < self.pool.caps.cap(kind)
+                && claims < MAX_CLAIMS_PER_PASS
+            {
+                if kind == JobKind::Recognition && self.decoder().is_err() {
+                    // Recognition stays queued until a decoder is configured again.
+                    break;
+                }
+                let Some(id) = self.library.store().next_queued(kind)? else {
+                    break;
+                };
+                claims += 1;
+                match kind {
+                    JobKind::Verification => self.launch_verification(&id)?,
+                    JobKind::Recognition => self.launch_recognition(&id)?,
+                    JobKind::Translation => self.launch_translation(&id)?,
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn start_verification(
         &mut self,
         id: &str,
         input: &str,
         revision: i64,
     ) -> Result<()> {
-        let (job, manifest) =
+        self.library
+            .store_mut()
+            .enqueue_verification(id, input, revision, now_ms()?)?;
+        self.schedule()
+    }
+
+    fn launch_verification(&mut self, id: &str) -> Result<()> {
+        let owner = self.pool.owner.clone();
+        let Some((job, manifest)) =
             self.library
                 .store_mut()
-                .admit_verification(id, input, revision, now_ms()?)?;
-        let Some(manifest) = manifest else {
+                .claim_verification(id, &owner, now_ms()?)?
+        else {
             return Ok(());
         };
-        if self.analysis_worker.is_some() {
-            self.fail_analysis_spawn(&job)?;
-            return Err(Error::Analysis("worker-busy"));
-        }
         let directory = self.library.directory().to_path_buf();
         let ownership = self.library.hold_ownership();
         let worker_id = job.id.clone();
@@ -61,19 +179,16 @@ impl Actor {
         );
         match worker {
             Ok(worker) => {
-                self.analysis_worker = Some(AnalysisWorker {
-                    id: job.id,
-                    generation,
-                    worker,
-                    recognition: None,
-                });
+                self.pool
+                    .verification
+                    .insert(job.id, VerificationWorker { generation, worker });
+                Ok(())
             }
             Err(error) => {
                 self.fail_analysis_spawn(&job)?;
-                return Err(error);
+                Err(error)
             }
         }
-        Ok(())
     }
 
     fn fail_analysis_spawn(&mut self, job: &AnalysisJob) -> Result<()> {
@@ -97,12 +212,8 @@ impl Actor {
                 .cancel_analysis_job(id, generation)?
                 .active()
         };
-        if active_job
-            && let Some(active) = &self.analysis_worker
-            && active.id == id
-            && active.generation == generation
-        {
-            active.worker.stop.send_replace(true);
+        if active_job {
+            self.pool.signal(id, generation);
         }
         Ok(())
     }
@@ -113,10 +224,12 @@ impl Actor {
         generation: u32,
         result: Result<processing::VerificationReceipt>,
     ) -> Result<()> {
-        let Some(active) = &self.analysis_worker else {
-            return Ok(());
-        };
-        if active.id != id || active.generation != generation || active.recognition.is_some() {
+        if self
+            .pool
+            .verification
+            .get(id)
+            .is_none_or(|active| active.generation != generation)
+        {
             return Ok(());
         }
         // Only actual worker completion arrives here. A failed commit retains the durable
@@ -126,9 +239,9 @@ impl Actor {
                 .store_mut()
                 .finish_verification(id, generation, result, now)
         });
-        self.analysis_worker.take();
+        self.pool.verification.remove(id);
         outcome?;
-        Ok(())
+        self.schedule()
     }
 }
 
@@ -218,20 +331,25 @@ impl Actor {
                 Err(Error::IdempotencyConflict)
             };
         }
+        self.decoder()?;
+        self.library
+            .store_mut()
+            .enqueue_local_asr(&request, now_ms()?)?;
+        self.schedule()
+    }
+
+    fn launch_recognition(&mut self, id: &str) -> Result<()> {
         let decoder = self.decoder()?;
-        if self.analysis_worker.is_some() {
-            return Err(Error::Analysis("worker-busy"));
-        }
-        let (_, work) = self
+        let owner = self.pool.owner.clone();
+        let Some(work) = self
             .library
             .store_mut()
-            .admit_local_asr(&request, now_ms()?)?;
-        let Some(work) = work else {
+            .claim_local_asr(id, &owner, now_ms()?)?
+        else {
             return Ok(());
         };
-        let format = self
-            .library
-            .store()
+        let store = self.library.store();
+        let format = store
             .recording(&work.input.recording_id)
             .ok()
             .and_then(|recording| {
@@ -241,15 +359,19 @@ impl Actor {
                     .find(|interval| interval.ordinal == work.input.interval_ordinal)
                     .map(|interval| interval.format)
             });
-        let task = format.map(|format| RecognitionTask {
-            directory: self.library.directory().to_path_buf(),
-            decoder,
-            format,
-            profile,
-            job: work.job.clone(),
-            input: work.input.clone(),
-        });
-        let spawned = task.ok_or(Error::StorageIntegrity).and_then(|task| {
+        let profile = store.recognition_profile(&work.job.request.profile);
+        let task = match (format, profile) {
+            (Some(format), Ok(profile)) => Ok(RecognitionTask {
+                directory: self.library.directory().to_path_buf(),
+                decoder,
+                format,
+                profile,
+                job: work.job.clone(),
+                input: work.input.clone(),
+            }),
+            _ => Err(Error::StorageIntegrity),
+        };
+        let spawned = task.and_then(|task| {
             let worker_id = work.job.request.id.clone();
             let generation = work.job.generation;
             self.spawn_worker(
@@ -263,12 +385,14 @@ impl Actor {
         });
         match spawned {
             Ok(worker) => {
-                self.analysis_worker = Some(AnalysisWorker {
-                    id: work.job.request.id.clone(),
-                    generation: work.job.generation,
-                    worker,
-                    recognition: Some(work),
-                });
+                self.pool.recognition.insert(
+                    work.job.request.id.clone(),
+                    RecognitionWorker {
+                        generation: work.job.generation,
+                        worker,
+                        work,
+                    },
+                );
                 Ok(())
             }
             Err(error) => {
@@ -282,25 +406,25 @@ impl Actor {
     }
 
     /// An error result means the process tree could not be proven drained. The read
-    /// lease stays active and the caller stops the service; restart interrupts the job.
+    /// lease stays active and the caller stops the service; restart recovers the job.
     pub(super) fn finish_recognition(
         &mut self,
         id: &str,
         generation: u32,
         result: Result<ReapedLocalAsr>,
     ) -> Result<()> {
-        let Some(active) = &self.analysis_worker else {
-            return Ok(());
-        };
-        if active.id != id || active.generation != generation || active.recognition.is_none() {
+        if self
+            .pool
+            .recognition
+            .get(id)
+            .is_none_or(|active| active.generation != generation)
+        {
             return Ok(());
         }
-        let Some(active) = self.analysis_worker.take() else {
+        let Some(active) = self.pool.recognition.remove(id) else {
             return Ok(());
         };
-        let Some(work) = active.recognition else {
-            return Err(Error::StorageIntegrity);
-        };
+        let work = active.work;
         let reaped = result?;
         let now = now_ms()?;
         let job = self
@@ -318,7 +442,7 @@ impl Actor {
                 .store_mut()
                 .publish_language_evidence(evidence, now);
         }
-        Ok(())
+        self.schedule()
     }
 }
 
@@ -356,40 +480,69 @@ impl Actor {
                 Err(Error::IdempotencyConflict)
             };
         }
-        if self.translation_worker.is_some() {
-            return Err(Error::Analysis("worker-busy"));
-        }
-        let (_, work) = self
+        self.library
+            .store_mut()
+            .enqueue_translation(&request, now_ms()?)?;
+        self.schedule()
+    }
+
+    fn launch_translation(&mut self, id: &str) -> Result<()> {
+        let owner = self.pool.owner.clone();
+        let Some(work) = self
             .library
             .store_mut()
-            .admit_translation(&request, now_ms()?)?;
-        let Some(work) = work else {
+            .claim_translation(id, &owner, now_ms()?)?
+        else {
             return Ok(());
         };
-        let task = recognizer::translate::TranslationTask {
-            directory: self.library.directory().to_path_buf(),
-            profile,
-            job: work.job.clone(),
-            cues: work.cues.clone(),
-            language: work.language.clone(),
-        };
-        let worker_id = work.job.request.id.clone();
-        let generation = work.job.generation;
-        let worker = self.spawn_worker(
-            move |signal| recognizer::translate::run(task, signal),
-            move |result| Message::TranslationFinished {
-                id: worker_id,
-                generation,
-                result,
-            },
-        )?;
-        self.translation_worker = Some(TranslationWorker {
-            id: work.job.request.id.clone(),
-            generation: work.job.generation,
-            worker,
-            work,
-        });
-        Ok(())
+        let spawned = self
+            .library
+            .store()
+            .translation_profile(&work.job.request.profile)
+            .and_then(|profile| {
+                let task = recognizer::translate::TranslationTask {
+                    directory: self.library.directory().to_path_buf(),
+                    profile,
+                    job: work.job.clone(),
+                    cues: work.cues.clone(),
+                    language: work.language.clone(),
+                };
+                let worker_id = work.job.request.id.clone();
+                let generation = work.job.generation;
+                self.spawn_worker(
+                    move |signal| recognizer::translate::run(task, signal),
+                    move |result| Message::TranslationFinished {
+                        id: worker_id,
+                        generation,
+                        result,
+                    },
+                )
+            });
+        match spawned {
+            Ok(worker) => {
+                self.pool.translation.insert(
+                    work.job.request.id.clone(),
+                    TranslationWorker {
+                        generation: work.job.generation,
+                        worker,
+                        work,
+                    },
+                );
+                Ok(())
+            }
+            Err(error) => {
+                let envelope = execution::refuse_translation(
+                    &work.job.request.id,
+                    work.job.generation,
+                    "worker-start-failed",
+                );
+                let outcome = TranslationOutcome::from_envelope(&work.job, envelope, None)?;
+                self.library
+                    .store_mut()
+                    .finish_translation(&work, &outcome, now_ms()?)?;
+                Err(error)
+            }
+        }
     }
 
     fn cancel_translation(&mut self, id: &str, generation: u32) -> Result<()> {
@@ -397,12 +550,8 @@ impl Actor {
             .library
             .store_mut()
             .cancel_translation(id, generation)?;
-        if matches!(job.state.as_str(), "running" | "cancelling")
-            && let Some(active) = &self.translation_worker
-            && active.id == id
-            && active.generation == generation
-        {
-            active.worker.stop.send_replace(true);
+        if matches!(job.state.as_str(), "running" | "cancelling") {
+            self.pool.signal(id, generation);
         }
         Ok(())
     }
@@ -412,22 +561,24 @@ impl Actor {
         &mut self,
         id: &str,
         generation: u32,
-        result: Result<crate::translation::TranslationOutcome>,
+        result: Result<TranslationOutcome>,
     ) -> Result<()> {
-        let Some(active) = &self.translation_worker else {
-            return Ok(());
-        };
-        if active.id != id || active.generation != generation {
+        if self
+            .pool
+            .translation
+            .get(id)
+            .is_none_or(|active| active.generation != generation)
+        {
             return Ok(());
         }
-        let Some(active) = self.translation_worker.take() else {
+        let Some(active) = self.pool.translation.remove(id) else {
             return Ok(());
         };
         let outcome = result?;
         self.library
             .store_mut()
             .finish_translation(&active.work, &outcome, now_ms()?)?;
-        Ok(())
+        self.schedule()
     }
 }
 

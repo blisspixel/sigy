@@ -116,6 +116,10 @@ fn add_profile(
 }
 
 fn transcribe(directory: &Path, job: &str, profile: &str) -> TestResult {
+    transcribe_on(directory, job, "pin", profile)
+}
+
+fn transcribe_on(directory: &Path, job: &str, input: &str, profile: &str) -> TestResult {
     let started = success(
         directory,
         &[
@@ -123,7 +127,7 @@ fn transcribe(directory: &Path, job: &str, profile: &str) -> TestResult {
             "transcribe",
             job,
             "--input",
-            "pin",
+            input,
             "--revision",
             "1",
             "--profile",
@@ -140,7 +144,7 @@ fn wait_job(directory: &Path, job: &str) -> Result<serde_json::Value, Box<dyn st
     loop {
         let response = success(directory, &["analysis", "job", job])?;
         let state = response["recognition"]["job"]["state"].clone();
-        if !matches!(state.as_str(), Some("running" | "cancelling")) {
+        if !matches!(state.as_str(), Some("queued" | "running" | "cancelling")) {
             return Ok(response["recognition"]["job"].clone());
         }
         assert!(
@@ -243,7 +247,10 @@ fn translate(
     loop {
         let response = success(directory, &["analysis", "job", job])?;
         let job_view = response["recognition"]["job"].clone();
-        if !matches!(job_view["state"].as_str(), Some("running" | "cancelling")) {
+        if !matches!(
+            job_view["state"].as_str(),
+            Some("queued" | "running" | "cancelling")
+        ) {
             return Ok(job_view);
         }
         assert!(
@@ -439,10 +446,19 @@ fn contained_recognition_publishes_bounded_text_and_fails_closed_on_faults() -> 
         "256",
         "600",
     )?;
+    add_profile(
+        directory.path(),
+        files.path(),
+        &assets,
+        ("once", "once"),
+        "256",
+        "600",
+    )?;
 
     speech_and_replay(directory.path())?;
     translation_phase(directory.path(), files.path())?;
     faults(directory.path(), &assets)?;
+    queue_in_order(directory.path())?;
     cancel_and_kill(directory.path(), &mut service)
 }
 
@@ -580,10 +596,108 @@ fn faults(directory: &Path, assets: &Assets) -> TestResult {
     Ok(())
 }
 
+/// Five recognitions admitted at once all publish, one at a time, in admission order.
+fn queue_in_order(directory: &Path) -> TestResult {
+    let jobs: Vec<(String, String)> = (1..=5)
+        .map(|index| (format!("asr-q{index}"), format!("pin-q{index}")))
+        .collect();
+    for (_, pin) in &jobs {
+        success(
+            directory,
+            &["analysis", "admit", pin, "--recording", "morning"],
+        )?;
+        success(directory, &["analysis", "publish", pin, "--revision", "1"])?;
+    }
+    for (job, pin) in &jobs {
+        transcribe_on(directory, job, pin, "speech")?;
+    }
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let mut states = Vec::new();
+        for (job, _) in &jobs {
+            let response = success(directory, &["analysis", "job", job])?;
+            states.push(response["recognition"]["job"]["state"].clone());
+        }
+        // Separate reads are not one snapshot; overlap is checked below from the stored
+        // start and finish times.
+        if states.iter().all(|state| state == "succeeded") {
+            break;
+        }
+        assert!(
+            states
+                .iter()
+                .all(|state| matches!(state.as_str(), Some("queued" | "running" | "succeeded"))),
+            "{states:?}"
+        );
+        assert!(Instant::now() < deadline, "queue deadline: {states:?}");
+        thread::sleep(Duration::from_millis(20));
+    }
+    // Each job started only after its predecessor finished.
+    let mut previous = 0;
+    for (job, pin) in &jobs {
+        let view = wait_job(directory, job)?;
+        let started = view["started_ms"].as_i64().ok_or("started")?;
+        assert!(started >= previous, "{job} overlapped its predecessor");
+        previous = view["finished_ms"].as_i64().ok_or("finished")?;
+        let page = success(directory, &["analysis", "transcript", pin])?;
+        assert_eq!(page["recognition"]["page"]["transcript"]["revision"], 1);
+    }
+    Ok(())
+}
+
+/// A second capture runs to completion while a recognizer holds its slot.
+fn capture_during_recognition(directory: &Path) -> TestResult {
+    let (url, server) = serve_once(tone())?;
+    success(
+        directory,
+        &[
+            "source",
+            "add",
+            "radio:v2",
+            "--name",
+            "Radio two",
+            "--url",
+            &url,
+            "--pin-address",
+            "127.0.0.1",
+        ],
+    )?;
+    success(
+        directory,
+        &[
+            "record",
+            "start",
+            "evening",
+            "--source",
+            "radio:v2",
+            "--seconds",
+            "3",
+            "--max-mib",
+            "1",
+        ],
+    )?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let response = success(directory, &["record", "show", "evening"])?;
+        let state = &response["recording_page"]["entries"][0]["state"];
+        if state == "completed" {
+            break;
+        }
+        assert_ne!(state, "failed", "{response}");
+        assert!(Instant::now() < deadline, "capture deadline");
+        thread::sleep(Duration::from_millis(30));
+    }
+    server.join().map_err(|_| "server panicked")??;
+    Ok(())
+}
+
 fn cancel_and_kill(directory: &Path, service: &mut RunningChild) -> TestResult {
     // Cancellation of a running native process reaches a terminal state.
     transcribe(directory, "asr-cancel", "slow")?;
     thread::sleep(Duration::from_millis(1500));
+    capture_during_recognition(directory)?;
+    let running = success(directory, &["analysis", "job", "asr-cancel"])?;
+    assert_eq!(running["recognition"]["job"]["state"], "running");
     success(
         directory,
         &["analysis", "cancel", "asr-cancel", "--generation", "1"],
@@ -591,12 +705,16 @@ fn cancel_and_kill(directory: &Path, service: &mut RunningChild) -> TestResult {
     let cancelled = wait_job(directory, "asr-cancel")?;
     assert_eq!(cancelled["state"], "cancelled", "{cancelled}");
 
-    // Killing the service ends its contained recognizer; restart interrupts the job.
-    transcribe(directory, "asr-killed", "slow")?;
+    // Killing the service ends its contained recognizer; restart requeues the job under
+    // a new generation, and the second attempt publishes exactly one transcript revision.
+    let before = newest(directory)?["transcript"]["revision"]
+        .as_i64()
+        .ok_or("revision")?;
+    transcribe(directory, "asr-killed", "once")?;
     thread::sleep(Duration::from_millis(1500));
     #[cfg(windows)]
     assert_eq!(
-        running_images(&format!("recognizer-hang{}", std::env::consts::EXE_SUFFIX))?,
+        running_images(&format!("recognizer-once{}", std::env::consts::EXE_SUFFIX))?,
         1
     );
     service.0.kill()?;
@@ -604,7 +722,7 @@ fn cancel_and_kill(directory: &Path, service: &mut RunningChild) -> TestResult {
     #[cfg(windows)]
     {
         let deadline = Instant::now() + Duration::from_secs(5);
-        while running_images(&format!("recognizer-hang{}", std::env::consts::EXE_SUFFIX))? != 0 {
+        while running_images(&format!("recognizer-once{}", std::env::consts::EXE_SUFFIX))? != 0 {
             assert!(
                 Instant::now() < deadline,
                 "contained recognizer outlived its service"
@@ -613,10 +731,21 @@ fn cancel_and_kill(directory: &Path, service: &mut RunningChild) -> TestResult {
         }
     }
     let mut restarted = RunningChild::start(directory)?;
-    let interrupted = wait_job(directory, "asr-killed")?;
-    assert_eq!(interrupted["state"], "interrupted");
-    assert_eq!(interrupted["generation"], 2);
-    assert!(!directory.join("analysis-scratch").exists());
+    let requeued = wait_job(directory, "asr-killed")?;
+    assert_eq!(requeued["state"], "succeeded", "{requeued}");
+    assert_eq!(requeued["generation"], 2);
+    assert_eq!(requeued["attempt"], 2);
+    let page = newest(directory)?;
+    assert_eq!(page["transcript"]["revision"], before + 1);
+    assert_eq!(page["transcript"]["job_id"], "asr-killed");
+    assert_eq!(page["transcript"]["job_generation"], 2);
+    assert_eq!(page["cues"][0]["script"], "encore");
+    assert!(
+        !directory
+            .join("analysis-scratch")
+            .join("asr-killed-g1")
+            .exists()
+    );
 
     let status = success(directory, &["library", "status"])?;
     assert_eq!(status["budgets"][0]["reserved_usd"], "0.000000");

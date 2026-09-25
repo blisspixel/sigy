@@ -76,8 +76,7 @@ fn actor(root: &Path, sender: &mpsc::Sender<Message>) -> Result<Actor> {
         click_worker: None,
         podcast_worker: None,
         text_worker: None,
-        analysis_worker: None,
-        translation_worker: None,
+        pool: super::Pool::new("local-test".into()),
         listen_workers: HashMap::new(),
         playback: PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
@@ -118,12 +117,15 @@ async fn stale_completion_cannot_clear_the_worker_and_replay_does_not_dispatch()
     assert!(!actor.idle());
     actor.finish_verification("verify", 2, Err(Error::Analysis("cancelled")))?;
     actor.finish_verification("other", 1, Err(Error::Analysis("cancelled")))?;
-    assert!(actor.analysis_worker.is_some());
+    assert_eq!(actor.pool.verification.len(), 1);
     actor.start_verification("verify", "pin", 1)?;
-    assert!(matches!(
-        actor.start_verification("second", "pin", 1),
-        Err(Error::Analysis("worker-busy"))
-    ));
+    // A second job on the same lineage queues behind the first instead of being refused.
+    actor.start_verification("second", "pin", 1)?;
+    assert_eq!(actor.pool.verification.len(), 1);
+    assert_eq!(
+        actor.library.store().analysis_job("second")?.state,
+        "queued"
+    );
     // A catalog read still works while the blocking checksum worker owns its slot.
     assert!(
         actor
@@ -135,9 +137,20 @@ async fn stale_completion_cannot_clear_the_worker_and_replay_does_not_dispatch()
     );
     let message = completion(&mut receiver).await?;
     assert_eq!(deliver(&mut actor, message), (false, false));
-    assert!(actor.idle());
     assert_eq!(
         actor.library.store().analysis_job("verify")?.state,
+        "verified"
+    );
+    // Finishing the first job started the queued one.
+    assert_eq!(
+        actor.library.store().analysis_job("second")?.state,
+        "running"
+    );
+    let message = completion(&mut receiver).await?;
+    assert_eq!(deliver(&mut actor, message), (false, false));
+    assert!(actor.idle());
+    assert_eq!(
+        actor.library.store().analysis_job("second")?.state,
         "verified"
     );
     actor.start_verification("verify", "pin", 1)?;
@@ -253,9 +266,14 @@ async fn terminal_commit_failure_stops_admission_and_drains_shutdown() -> TestRe
     drop(actor);
     let mut reopened = Library::open(root.path(), false)?;
     reopened.store_mut().recover_analysis_jobs()?;
+    // Zero-cost local work returns to the queue under a new generation and attempt.
     let job = reopened.store().analysis_job("verify")?;
-    assert_eq!(job.state, "interrupted");
-    assert_eq!(job.generation, 2);
+    assert_eq!(job.state, "queued");
+    assert_eq!((job.generation, job.attempt), (2, 2));
+    assert_eq!(
+        reopened.store().ended_attempts("analysis", "verify")?,
+        vec![(1, 1)]
+    );
     assert!(
         reopened
             .store_mut()
@@ -263,5 +281,77 @@ async fn terminal_commit_failure_stops_admission_and_drains_shutdown() -> TestRe
             .1
             .is_none()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn five_queued_jobs_run_one_at_a_time_in_admission_order() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, mut receiver) = mpsc::channel(8);
+    let mut actor = actor(root.path(), &sender)?;
+    let names = ["v1", "v2", "v3", "v4", "v5"];
+    for (index, name) in names.iter().enumerate() {
+        let pin = format!("pin-{index}");
+        actor
+            .library
+            .store_mut()
+            .admit_analysis(&pin, "one", false, 1)?;
+        actor.library.store_mut().publish_analysis(&pin, 1)?;
+        actor.start_verification(name, &pin, 1)?;
+    }
+    let mut finished = Vec::new();
+    for _ in names {
+        let running: Vec<String> = names
+            .iter()
+            .filter(|name| {
+                actor
+                    .library
+                    .store()
+                    .analysis_job(name)
+                    .is_ok_and(|job| job.state == "running")
+            })
+            .map(|name| (*name).to_owned())
+            .collect();
+        assert_eq!(running.len(), 1, "{running:?}");
+        assert_eq!(actor.pool.verification.len(), 1);
+        finished.push(running[0].clone());
+        let message = completion(&mut receiver).await?;
+        assert_eq!(deliver(&mut actor, message), (false, false));
+    }
+    assert_eq!(finished, names);
+    assert!(actor.idle());
+    let mut previous = 0;
+    for name in names {
+        let job = actor.library.store().analysis_job(name)?;
+        assert_eq!(job.state, "verified");
+        let started = job.started_ms.ok_or("started")?;
+        assert!(
+            started >= previous,
+            "{name} started before its predecessor ended"
+        );
+        previous = job.finished_ms.ok_or("finished")?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_queued_job_cancels_at_once_and_never_starts() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, mut receiver) = mpsc::channel(8);
+    let mut actor = actor(root.path(), &sender)?;
+    actor.start_verification("first", "pin", 1)?;
+    actor.start_verification("waiting", "pin", 1)?;
+    assert!(matches!(
+        actor.cancel_verification("waiting", 2),
+        Err(Error::Analysis("stale-worker"))
+    ));
+    actor.cancel_verification("waiting", 1)?;
+    let job = actor.library.store().analysis_job("waiting")?;
+    assert_eq!(job.state, "cancelled");
+    assert!(job.started_ms.is_none());
+    let message = completion(&mut receiver).await?;
+    assert_eq!(deliver(&mut actor, message), (false, false));
+    assert!(actor.idle());
+    assert!(receiver.try_recv().is_err());
     Ok(())
 }

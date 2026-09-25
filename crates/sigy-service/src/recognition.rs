@@ -6,7 +6,14 @@
 //! ```compile_fail
 //! use sigy_service::{recognition::LocalAsrRequest, storage::Store};
 //! fn admit(store: &mut Store, request: &LocalAsrRequest) {
-//!     let _ = store.admit_local_asr(request, 0);
+//!     let _ = store.enqueue_local_asr(request, 0);
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use sigy_service::storage::Store;
+//! fn claim(store: &mut Store) {
+//!     let _ = store.claim_local_asr("job", "owner", 0);
 //! }
 //! ```
 //!
@@ -80,6 +87,10 @@ pub struct LocalAsrJob {
     pub amount_usd: String,
     pub created_ms: i64,
     pub finished_ms: Option<i64>,
+    /// Starts of this job, including the current one. A restart can requeue a job.
+    pub attempt: u32,
+    /// When the current attempt started; absent while queued.
+    pub started_ms: Option<i64>,
 }
 
 /// An immutable catalog descriptor, never a source URL or filesystem path.
@@ -96,7 +107,7 @@ pub struct LocalAsrInput {
     pub source_sha256: String,
 }
 
-/// Returned only by a fresh committed admission. Replays cannot obtain a work token.
+/// Returned only by a committed claim of a queued job. Replays cannot obtain a work token.
 #[derive(Debug)]
 pub struct LocalAsrWork {
     pub(crate) job: LocalAsrJob,

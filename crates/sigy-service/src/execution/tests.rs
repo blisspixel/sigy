@@ -36,6 +36,8 @@ fn job(id: &str) -> LocalAsrJob {
         amount_usd: "0.000000".into(),
         created_ms: 1,
         finished_ms: None,
+        attempt: 1,
+        started_ms: Some(1),
     }
 }
 
@@ -90,6 +92,8 @@ fn translation_job() -> TranslationJob {
         amount_usd: "0.000000".into(),
         created_ms: 1,
         finished_ms: None,
+        attempt: 1,
+        started_ms: Some(1),
     }
 }
 
