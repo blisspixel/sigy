@@ -11,3 +11,5 @@ An unpublished recording is refused. A retained checksum that does not match the
 ## Consequences
 
 Catalog schema is v22. Local IPC is v23. Stop an older service before replacing its binary. The pin itself does not transcribe. One local transcript of a published pin is recorded in [0032](0032-local-transcripts.md). This decision does not store language spans, translate, or exit stage 4 or stage 5.
+
+Amended 2026-09-25: the limit of 256 pins now applies to pins admitted but not yet published, instead of all pins ever created, so automatic monitor processing does not exhaust it. Published pins are bounded by retained recordings. See [monitor processing](0048-monitor-processing.md).

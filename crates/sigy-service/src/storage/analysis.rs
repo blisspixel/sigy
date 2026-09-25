@@ -5,7 +5,8 @@ use crate::{Error, Result, storage::dvr::Recording};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
-const MAX_ANALYSIS_INPUTS: i64 = 256;
+/// Pins admitted but not yet published. Published pins are bounded by retained recordings.
+const MAX_OPEN_ANALYSIS_INPUTS: i64 = 256;
 const UNCOVERED_ORDINAL: u32 = 1_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,12 +106,12 @@ impl Store {
                 self.analysis_revision(id, revision)?,
             ));
         }
-        let count: i64 = self.connection.query_row(
-            "SELECT count(DISTINCT id) FROM analysis_inputs",
+        let open: i64 = self.connection.query_row(
+            "SELECT count(DISTINCT a.id) FROM analysis_inputs a WHERE a.state = 'admitted' AND a.revision = (SELECT max(revision) FROM analysis_inputs b WHERE b.id = a.id)",
             [],
             |row| row.get(0),
         )?;
-        if count >= MAX_ANALYSIS_INPUTS {
+        if open >= MAX_OPEN_ANALYSIS_INPUTS {
             return Err(Error::InvalidInput("analysis input capacity reached"));
         }
         self.insert_analysis(id, 1, &binding, &timeline_json, now, None)?;
@@ -616,6 +617,39 @@ mod tests {
             store.recording("one")?.processing_receipt.as_deref(),
             Some("cleanup-receipt")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn only_unpublished_pins_are_bounded() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        let mut store = setup(&directory.path().join("catalog"))?;
+        publish(&mut store, "one")?;
+        for n in 0..MAX_OPEN_ANALYSIS_INPUTS {
+            store.admit_analysis(&format!("open-{n}"), "one", false, 10)?;
+        }
+        assert!(matches!(
+            store.admit_analysis("one-too-many", "one", false, 10),
+            Err(Error::InvalidInput("analysis input capacity reached"))
+        ));
+        // Publishing frees room, and published pins are not a lifetime cap.
+        for n in 0..8 {
+            store.publish_analysis(&format!("open-{n}"), 1)?;
+        }
+        for n in 0..8 {
+            store.admit_analysis(&format!("more-{n}"), "one", false, 11)?;
+        }
+        assert!(
+            store
+                .admit_analysis("still-too-many", "one", false, 11)
+                .is_err()
+        );
+        let distinct: i64 = store.connection.query_row(
+            "SELECT count(DISTINCT id) FROM analysis_inputs",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(distinct, MAX_OPEN_ANALYSIS_INPUTS + 8);
         Ok(())
     }
 }
