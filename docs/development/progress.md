@@ -42,7 +42,9 @@ States: **done** means the operation's local exit evidence exists on this host; 
 | 28 | Live queue over committed segments | open | |
 | 29 | Corrections as appended revisions | open | |
 | 30 | Monitor bounds and decision record | done locally | [monitor versions and actions](../decisions/0046-monitor-versions-and-actions.md) |
-| 31 to 35 | Monitor scheduling, cited findings, briefings, projection history, classification off | open | [topic monitoring design](../design/topic-monitoring.md) |
+| 31 | Monitor coverage and scheduling | partial | [monitor coverage and matches](../decisions/0047-monitor-coverage-and-matches.md): per-stage counts with gaps, missed windows and untranslated reasons. Monitor-driven scheduling remains |
+| 32 | Passage matches and cited findings | partial | Literal term matches cite recording, transcript revision, cue and media clock. Stored findings remain |
+| 33 to 35 | Briefings, projection history, classification off | open | [topic monitoring design](../design/topic-monitoring.md) |
 | 36 | Globe and day/night map | partial | [globe geometry](../decisions/0038-globe-geometry.md) and [terminal globe](../decisions/0044-terminal-globe.md): globe and flat map with offline coastlines, geometric night and page stations. Clustering, map and list agreement on one filter, and a measurement with capture running remain |
 | 37 | Truthful visualizers | open | |
 | 38 | Backup and restore of the release schema | partial | [backup and restore](../decisions/0045-library-backup-and-restore.md): offline backup with hashed media, verification, staged restore; rehearsed on a live-data library at v30. Clean-host and release-schema reruns remain |

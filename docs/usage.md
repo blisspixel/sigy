@@ -285,9 +285,13 @@ sigy --data-dir PATH_TO_LIBRARY monitor show dam
 sigy --data-dir PATH_TO_LIBRARY monitor revise dam --expected-version 1 ...
 sigy --data-dir PATH_TO_LIBRARY monitor pause dam --action-id pause-001
 sigy --data-dir PATH_TO_LIBRARY monitor actions dam
+sigy --data-dir PATH_TO_LIBRARY monitor coverage dam --hours 24
+sigy --data-dir PATH_TO_LIBRARY monitor matches dam --hours 24
 ```
 
-A monitor records what you want to follow and the limits you set. Each change you make is a new version; `revise` needs the version you last saw. Rules and models can only propose actions. A proposal is applied only if your current version already allows it, such as adding a source you approved with `--candidate`; anything else, including raising a limit or enabling paid processing, is refused and kept in `monitor actions` with its reason. Paid processing is off. Monitors do not yet schedule, match terms or write briefings. See [monitor versions and actions](decisions/0046-monitor-versions-and-actions.md).
+A monitor records what you want to follow and the limits you set. Each change you make is a new version; `revise` needs the version you last saw. Rules and models can only propose actions. A proposal is applied only if your current version already allows it, such as adding a source you approved with `--candidate`; anything else, including raising a limit or enabling paid processing, is refused and kept in `monitor actions` with its reason. Paid processing is off.
+
+`monitor coverage` counts what actually happened for the sources the monitor follows: captures, published audio, gaps, pinned recordings, transcripts with and without text, and translated and untranslated cues with their reasons, plus missed schedule windows. Each stage is counted on its own. `monitor matches` shows where the terms appear in the latest transcripts and English translations, with the recording, transcript revision, cue and time to check. Matching is literal and ignores letter case only, and recognized text can be wrong, so a match is a place to look, not a conclusion. Monitors do not yet schedule captures, store findings or write briefings. See [monitor versions and actions](decisions/0046-monitor-versions-and-actions.md) and [monitor coverage and matches](decisions/0047-monitor-coverage-and-matches.md).
 
 ## Listening
 
