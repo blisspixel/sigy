@@ -94,22 +94,8 @@ impl Endpoint {
         Ok(Publication(target))
     }
 
-    #[cfg(windows)]
-    fn name(&self, _directory: &Path) -> Result<Name<'static>> {
-        use interprocess::local_socket::GenericNamespaced;
-        Ok(format!("sigy-{}", self.nonce).to_ns_name::<GenericNamespaced>()?)
-    }
-
-    #[cfg(unix)]
-    fn name(&self, directory: &Path) -> Result<Name<'static>> {
-        use interprocess::local_socket::GenericFilePath;
-        Ok(directory
-            .join("control.sock")
-            .to_fs_name::<GenericFilePath>()?)
-    }
-
     pub fn listen(&self, directory: &Path) -> Result<Listener> {
-        let options = ListenerOptions::new().name(self.name(directory)?);
+        let options = ListenerOptions::new().name(socket_name(&self.nonce, directory)?);
         #[cfg(windows)]
         let options = {
             use interprocess::os::windows::{
@@ -144,7 +130,7 @@ impl Endpoint {
     }
 
     pub async fn connect(&self, directory: &Path) -> Result<Stream> {
-        let stream = Stream::connect(self.name(directory)?).await?;
+        let stream = Stream::connect(socket_name(&self.nonce, directory)?).await?;
         #[cfg(windows)]
         if stream.peer_creds()?.pid() != Some(self.process_id) {
             return Err(Error::Protocol("service process identity mismatch"));
@@ -176,4 +162,19 @@ impl Drop for Publication {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);
     }
+}
+
+/// Windows uses a per-service named pipe; Unix uses one socket file in the library directory.
+#[cfg(windows)]
+fn socket_name(nonce: &str, _directory: &Path) -> Result<Name<'static>> {
+    use interprocess::local_socket::GenericNamespaced;
+    Ok(format!("sigy-{nonce}").to_ns_name::<GenericNamespaced>()?)
+}
+
+#[cfg(unix)]
+fn socket_name(_nonce: &str, directory: &Path) -> Result<Name<'static>> {
+    use interprocess::local_socket::GenericFilePath;
+    Ok(directory
+        .join("control.sock")
+        .to_fs_name::<GenericFilePath>()?)
 }
