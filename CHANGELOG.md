@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.1.0-dev.20260925 (development prerelease, source only)
+
+Not a supported release and no roadmap stage exit. Catalog schema and local IPC are v33. Windows x86_64 has the test evidence; Linux passes the suite in a container but cannot yet run local models; macOS is untested.
+
+- Ran local speech recognition in the service: a hash-pinned whisper.cpp profile in a contained process group with process, memory, CPU and deadline limits, a required speech-activity model, and original-script cues on the media clock. The recognizer's language label is stored as unevaluated evidence.
+- Translated recognized transcripts into English locally with a hash-pinned llama.cpp profile, one contained process per cue, keeping untranslated cues with reasons. CPU profiles now pin CPU execution even when a GPU backend is present.
+- Recorded calibrations: 32 FLEURS clips for recognition and translation with a sacrebleu-matched scorer, eight live public stations, and a Vulkan measurement on the Radeon 780M. None qualifies a language.
+- Recorded live HLS stations and listed master playlist variants for explicit acceptance; tolerated slow stream edges, repeated `CODECS` claims and the `audio/x-aac` alias.
+- Added exact provider pricing, provider routes that store secret names only, and an offline billing-fault dispatcher proving that a lifetime paid allowance never refills. No paid request can be sent.
+- Queued recognition, translation and verification in a durable job pool with leases, attempts and content-addressed task specs, and removed the lifetime job-history cap.
+- Added topic monitors: user-authored versions, an append-only action log where rules and models can only propose, coverage counted stage by stage, literal term matches with exact citations, and automatic recognition and translation of new recordings within daily and total audio caps, shared across monitors. Analysis pins are no longer capped over the library's lifetime.
+- Drew a terminal globe and flat day/night map with offline coastlines, and added offline library backup and verified restore.
+- Let MCP agents transcribe, translate, read results, read monitors and record monitor proposals; no tool creates a monitor, adds a profile or enables paid processing.
+- Fixed Unix issues found by a Linux container run: `library init` now makes the library directory private, and the control socket naming passes Clippy.
+- Designed the scaling architecture: a stage graph of level-triggered reconcilers, warm workers, measured capacity, and a `sigy worker` for a spare GPU machine.
+
+## Through 0.1.0-dev.20260923
+
 - Transcribed one published recording locally. The revision is original script. No measured recognizer is selected, so each cue script is empty and the wording label is uncertain. A gap has no cue. Replay and a rollback before commit do not publish a second transcript. The decision is 0 USD. The global limit stays unchanged, and no paid request is reserved. Catalog schema is v23. Local IPC is v24.
 - Bound analysis to one published recording. The pin stores the retained checksum and the media clock, including gaps for the uncovered plan. A cleanup receipt does not admit analysis. An unpublished or mismatched recording is refused. A replaced worker cannot publish over the newer revision. The pin has no source URL. Catalog schema is v22. Local IPC is v23.
 - Saved a directory refresh policy. One rule stores one bounded page and an interval of 1 to 168 hours. The service admits the current due slot. A missed slot is not backfilled. Opening a client does not fetch, probe a station stream, or send a click. A failed or interrupted slot leaves the last cache and is not repeated. Favorites stay. Catalog schema is v21. Local IPC is v22.

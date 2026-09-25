@@ -9,10 +9,10 @@ This record holds current state only. The detailed narrative from 2026-09-20 to 
 | Item | Current value |
 | --- | --- |
 | Catalog schema / local IPC | v33 / v33 |
-| Verification | `cargo verify`: 432 tests passed, 15 native-media tests ignored, warnings-denied Clippy, build, and `cargo audit` of 312 crates against 1,269 advisories. `cargo verify-media`: 15 of 15 on FFmpeg 9.0.1 |
+| Verification | `cargo verify`: 443 tests passed, 15 native-media tests ignored, warnings-denied Clippy, build, and `cargo audit` of 312 crates against 1,269 advisories. `cargo verify-media`: 15 of 15 on FFmpeg 9.0.1 (one earlier run hit the spawn hang below) |
 | Host | Windows 11 x86_64, Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Two build jobs, two test threads, one media-test thread |
 | Other platforms | Linux x86_64 (Debian 12 container, Rust 1.98.1, WSL2 kernel 6.18): `cargo verify` passes; `cargo verify-media` passes 14 of 15 on FFmpeg 5.1.9, and the native recognizer fixture fails closed with `limits-unavailable` (see open gates). macOS and small always-on hosts are untested. Nothing is qualified |
-| Public source | `main` on [blisspixel/sigy](https://github.com/blisspixel/sigy); one [source-only development prerelease](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20260923) |
+| Public source | `main` on [blisspixel/sigy](https://github.com/blisspixel/sigy); source-only development prereleases [2026-09-23](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20260923) and [2026-09-25](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20260925); neither is a supported release |
 
 ## Operations
 
@@ -73,6 +73,8 @@ New downloads so far total about 25.3 GB of the 100 GB ceiling (see the history 
 - **Public stations:** the [live station pilot](../../research/experiments/local-asr/live-station-pilot.md) has recorded and transcribed all eight public stations (Spanish, two Arabic, Portuguese, Swahili, Canadian French, Chinese, Hindi). A stream-edge header delay that blocked the Canadian French station is fixed, and that station has since been recorded and transcribed.
 - **Live HLS:** [live HLS](../decisions/0042-live-hls.md) recording and master-variant resolution pass loopback fixtures and recorded the three HLS-only pilot stations (Chinese, Hindi, Arabic) after two compatibility fixes; a capture still ends at its first gap.
 - **Chunking:** a station recording of more than 60 seconds cannot yet be transcribed; a 60-second request publishes 63 to 74 seconds.
+- **Coverage:** the user requires at least 80% line coverage per crate, measured and enforced. `cargo-llvm-cov` 0.9.0 and the `llvm-tools` component are installed on this host, but no measurement has completed yet (a first instrumented run on 2026-09-25 was stopped at wrap-up). Next: measure per crate, add a `cargo verify-coverage` gate at 80%, and add tests where a crate falls short.
+- **Next implementation:** chunked recognition of recordings longer than 60 seconds and Linux delegated-cgroup containment have written plans; neither has started.
 - **Paid processing:** dispatch is unavailable; the product's default paid budget is zero. When enabled, paid use draws down a one-time lifetime allowance that never refills.
 
 ## Spending ledger
@@ -97,3 +99,5 @@ The plan proposes an initial paid batch of at most USD 2 after billing qualifica
 ## Tracked intermittent test issues
 
 Two historical fixture flakes remain unexplained, with diagnostics added and acceptance conditions unchanged: a directory crash fixture that once timed out waiting for its local request, and a malformed-audio media fixture that once lacked the expected failure detail. Details are in the [history](progress-history-2026-09.md). Investigate with the added diagnostics if either recurs.
+
+**Native spawn hang (2026-09-25, open).** In one full `cargo verify-media` run, the recognition fixture's stand-in recognizer stayed in its initial suspended state for more than 14 minutes (one thread, wait reason `Suspended`, 0 CPU, 2 MB working set), so the job stayed `running` and the test hit its deadline. The stand-in then survived its service's exit, which means it was never assigned to the Job Object that would have killed it. The fixture passed alone three times and the full suite passed on the next run. The suspected window is inside the containment library's create-suspended, assign and resume sequence. Next: bound that sequence with a watchdog that kills and fails a child not confirmed as a group member within seconds, and record the failure reason, before any claim that native workers cannot outlive the service.
