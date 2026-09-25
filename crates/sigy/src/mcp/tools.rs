@@ -748,6 +748,117 @@ const TOOLS: &[Tool] = &[
         ],
         timeout: SHORT,
     },
+    Tool {
+        name: "monitor_list",
+        description: "List monitor ids. Monitors are created and revised only by the user through the CLI.",
+        hints: HINT_QUERY,
+        words: &["monitor", "list"],
+        slots: &[],
+        timeout: SHORT,
+    },
+    Tool {
+        name: "monitor_show",
+        description: "Show a monitor's current user version (goal, literal terms, sources, approved candidates, audio caps), whether it is paused, and the sources it follows now.",
+        hints: HINT_QUERY,
+        words: &["monitor", "show"],
+        slots: &[
+            pos("id", "Monitor id."),
+            count("version", "--version", 1, 1000, "A historical version."),
+        ],
+        timeout: SHORT,
+    },
+    Tool {
+        name: "monitor_actions",
+        description: "List a monitor's recorded proposals with origin, the version each was checked against, and the applied or refused decision with its reason.",
+        hints: HINT_QUERY,
+        words: &["monitor", "actions"],
+        slots: &[
+            pos("id", "Monitor id."),
+            count(
+                "after",
+                "--after",
+                0,
+                100_000,
+                "Continue after this action ordinal.",
+            ),
+        ],
+        timeout: SHORT,
+    },
+    Tool {
+        name: "monitor_coverage",
+        description: "Count each stage for the sources a monitor follows: captures, published audio, gaps, pins, transcripts with and without text, translated and untranslated cues, and missed schedule windows. Report coverage before any conclusion; a stage count is not a percentage of the world.",
+        hints: HINT_QUERY,
+        words: &["monitor", "coverage"],
+        slots: WINDOW,
+        timeout: SHORT,
+    },
+    Tool {
+        name: "monitor_matches",
+        description: "Find a monitor's literal terms in the latest transcripts and English translations, citing recording, transcript revision, cue and media time. Matching ignores letter case only. A match is a place to check, not a finding; recognized text and translations are unreviewed machine output.",
+        hints: HINT_QUERY,
+        words: &["monitor", "matches"],
+        slots: WINDOW,
+        timeout: SHORT,
+    },
+    Tool {
+        name: "monitor_propose",
+        description: "Record a model proposal for a monitor. The service applies it only if the user's current version already allows it, such as adding an approved candidate source; anything else, including raising a cap or enabling paid processing, is refused and kept with its reason. The origin is always model. An action id is an idempotency key.",
+        hints: HINT_CHANGE,
+        words: &["monitor", "propose", "--origin", "model"],
+        slots: &[
+            pos("id", "Monitor id."),
+            text(
+                "action_id",
+                "--action-id",
+                true,
+                "Idempotency key for this proposal.",
+            ),
+            text(
+                "add_source",
+                "--add-source",
+                false,
+                "Source revision to add. Applied only if the version lists it or approved it as a candidate.",
+            ),
+            text(
+                "remove_source",
+                "--remove-source",
+                false,
+                "Source revision to stop following. The last source cannot be removed.",
+            ),
+            text(
+                "request",
+                "--request",
+                false,
+                "Any other request, kept verbatim and refused.",
+            ),
+        ],
+        timeout: SHORT,
+    },
+];
+
+const WINDOW: &[Slot] = &[
+    pos("id", "Monitor id."),
+    count(
+        "hours",
+        "--hours",
+        1,
+        744,
+        "Hours of capture start times before now. Defaults to 24.",
+    ),
+    count(
+        "from_ms",
+        "--from-ms",
+        0,
+        4_102_444_800_000,
+        "Exact window start in Unix milliseconds; requires to_ms.",
+    ),
+    count(
+        "to_ms",
+        "--to-ms",
+        0,
+        4_102_444_800_000,
+        "Exact window end (exclusive) in Unix milliseconds; requires from_ms.",
+    ),
 ];
 
 const fn pos(key: &'static str, description: &'static str) -> Slot {

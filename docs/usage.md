@@ -323,7 +323,7 @@ Press `7` for the Globe workspace: an orthographic globe, or with `m` a flat wor
 
 ## Agents
 
-`sigy mcp` speaks MCP 2026-07-28 on stdio. The portable package is `agent-plugin/`, in the Agent Plugins 1.0.0 layout. The server library is the `--data-dir` from startup. A tool cannot point at another directory, change a budget, or run a shell command. Analysis tools let an agent queue local recognition and translation with profiles you configured, then read the results; no tool adds a profile or a paid provider. See [agent plugin](decisions/0021-agent-plugin.md).
+`sigy mcp` speaks MCP 2026-07-28 on stdio. The portable package is `agent-plugin/`, in the Agent Plugins 1.0.0 layout. The server library is the `--data-dir` from startup. A tool cannot point at another directory, change a budget, or run a shell command. Analysis tools let an agent queue local recognition and translation with profiles you configured, then read the results; no tool adds a profile or a paid provider. Monitor tools read monitors, coverage and matches and record proposals as `model`; no tool creates or revises a monitor. See [agent plugin](decisions/0021-agent-plugin.md).
 
 ## Verification
 

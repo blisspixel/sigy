@@ -289,6 +289,48 @@ mod tests {
     }
 
     #[test]
+    fn monitor_tools_read_and_propose_but_never_author_a_version() -> Result<(), String> {
+        let list = tools::tool_list();
+        let tools = list["tools"].as_array().ok_or("tools")?;
+        let names: Vec<&str> = tools
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        for expected in [
+            "monitor_list",
+            "monitor_show",
+            "monitor_actions",
+            "monitor_coverage",
+            "monitor_matches",
+            "monitor_propose",
+        ] {
+            if !names.contains(&expected) {
+                return Err(format!("missing {expected}"));
+            }
+        }
+        if names.iter().any(|name| {
+            name.starts_with("monitor_")
+                && (name.contains("create")
+                    || name.contains("revise")
+                    || name.contains("pause")
+                    || name.contains("resume"))
+        }) {
+            return Err(format!("{names:?}"));
+        }
+        let propose = tools
+            .iter()
+            .find(|tool| tool["name"] == "monitor_propose")
+            .ok_or("propose")?;
+        let properties = propose["inputSchema"]["properties"]
+            .as_object()
+            .ok_or("properties")?;
+        if properties.contains_key("origin") {
+            return Err(propose.to_string());
+        }
+        Ok(())
+    }
+
+    #[test]
     fn an_unsupported_version_lists_the_modern_revision() -> Result<(), String> {
         let response = dispatch(
             Path::new("unused"),

@@ -11,3 +11,5 @@ Tools are the existing commands. A call runs `sigy --data-dir LIBRARY --json` wi
 This surface does not add a catalog, an HTTP stack, or a paid provider. It does not exit a roadmap stage. `podcast_text` fetches one publisher document when asked. See [publisher text](0022-publisher-text.md).
 
 Amended 2026-09-24: analysis tools let an agent pin and publish a recording, queue local recognition and translation with profiles the user already configured, inspect and cancel jobs, and read transcripts and translations. No tool configures a recognition or translation profile, names an executable or model path, or enables a paid provider. A job id is an idempotency key, so a repeated call never reruns work.
+
+Amended 2026-09-24: monitor tools let an agent list and show monitors, read the action log, coverage and literal term matches, and record a proposal. The proposal's origin is fixed to `model` and is not a tool argument, so an agent cannot record a user action. No tool creates, revises, pauses or resumes a monitor; versions stay with the user. See [monitor versions and actions](0046-monitor-versions-and-actions.md).
