@@ -1,6 +1,6 @@
 # Topic monitoring
 
-Status: proposed design, 2026-09-24. This turns roadmap operations 30 to 35 into a concrete first slice on the implemented recognition, language evidence and translation records. Nothing here is implemented yet. It follows [analysis and knowledge](../planning/10-analysis-and-knowledge.md) and the [scaling architecture](scaling-architecture.md).
+Status: proposed design, 2026-09-24. This turns roadmap operations 30 to 35 into a concrete first slice on the implemented recognition, language evidence and translation records. Implemented so far: monitor versions and the action log ([0046](../decisions/0046-monitor-versions-and-actions.md)), coverage counts and literal passage matches ([0047](../decisions/0047-monitor-coverage-and-matches.md)), and automatic processing within caps ([0048](../decisions/0048-monitor-processing.md)). Findings, briefings and capture scheduling are not. It follows [analysis and knowledge](../planning/10-analysis-and-knowledge.md) and the [scaling architecture](scaling-architecture.md).
 
 ## What a user does
 

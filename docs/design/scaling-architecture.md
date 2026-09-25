@@ -1,6 +1,6 @@
 # Scaling architecture
 
-Status: proposed design, 2026-09-24. Nothing here is implemented beyond what the linked decisions record. The evidence and alternatives are in the [scaling and execution research](../../research/31-scaling-and-execution.md).
+Status: proposed design, 2026-09-24, updated 2026-09-25. Implemented: the task contract and job pool ([0043](../decisions/0043-task-contract-and-job-pool.md)) and the first stage controller ([0048](../decisions/0048-monitor-processing.md)). Nothing else here is implemented. The evidence and alternatives are in the [scaling and execution research](../../research/31-scaling-and-execution.md).
 
 ## Goal
 

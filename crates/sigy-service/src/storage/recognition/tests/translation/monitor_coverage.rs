@@ -219,3 +219,117 @@ fn reading_coverage_and_matches_writes_nothing() -> TestResult {
     assert_eq!(count(&store)?, before);
     Ok(())
 }
+
+fn step<'a>(
+    recording_id: &'a str,
+    stage: &'static str,
+    outcome: std::result::Result<(&'a str, &'a str), &'a str>,
+    audio_us: u64,
+) -> crate::storage::monitors::StepRecord<'a> {
+    crate::storage::monitors::StepRecord {
+        monitor_id: "fair",
+        recording_id,
+        stage,
+        policy_version: 1,
+        outcome,
+        audio_us,
+    }
+}
+
+#[test]
+fn monitor_facts_and_steps_drive_recognition_then_translation() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let (mut store, _, _) = monitored(&directory.path().join("catalog"))?;
+    let now = crate::storage::now_ms()?;
+    let facts = store.monitor_facts("fair", now)?;
+    assert_eq!(facts.candidates.len(), 1);
+    assert_eq!(facts.candidates[0].recording_id, "one");
+    assert_eq!(facts.candidates[0].audio_us, 1_000_000);
+    assert_eq!((facts.used_today_us, facts.recognized.len()), (0, 0));
+    assert_eq!(facts.daily_cap_us, 3_600_000_000);
+
+    let queued = step("one", "recognition", Ok(("pin", "asr")), 1_000_000);
+    store.record_monitor_step(&queued, now)?;
+    store.record_monitor_step(&queued, now + 1)?;
+    assert!(matches!(
+        store.record_monitor_step(&step("one", "recognition", Err("invalid-input"), 0), now),
+        Err(Error::IdempotencyConflict)
+    ));
+    let facts = store.monitor_facts("fair", now)?;
+    assert!(facts.candidates.is_empty());
+    assert_eq!(
+        (facts.used_today_us, facts.used_total_us),
+        (1_000_000, 1_000_000)
+    );
+    assert_eq!(facts.recognized.len(), 1);
+    assert_eq!(facts.recognized[0].job_state, "succeeded");
+    assert_eq!(facts.recognized[0].transcript, Some((1, "text".to_owned())));
+    // The next UTC day starts a new daily total; the lifetime total keeps counting.
+    let tomorrow = store.monitor_facts("fair", now + crate::monitor::pipeline::DAY_MS)?;
+    assert_eq!(
+        (tomorrow.used_today_us, tomorrow.used_total_us),
+        (0, 1_000_000)
+    );
+
+    store.record_monitor_step(
+        &step("one", "translation", Err("no-translation-profile"), 0),
+        now,
+    )?;
+    assert!(store.monitor_facts("fair", now)?.recognized.is_empty());
+    let view = store.monitor("fair")?;
+    assert_eq!(view.processing.recognition_queued, 1);
+    assert_eq!(
+        view.processing.skipped,
+        vec![(
+            "translation".to_owned(),
+            "no-translation-profile".to_owned(),
+            1
+        )]
+    );
+    for sql in [
+        "UPDATE monitor_steps SET audio_us = 0",
+        "DELETE FROM monitor_steps",
+    ] {
+        assert!(store.connection.execute(sql, []).is_err(), "{sql}");
+    }
+    Ok(())
+}
+
+#[test]
+fn the_catalog_refuses_a_step_over_the_daily_cap_or_from_a_stale_version() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let (mut store, _, _) = monitored(&directory.path().join("catalog"))?;
+    let now = crate::storage::now_ms()?;
+    let mut tight = spec();
+    tight.daily_audio_seconds = 1;
+    tight.total_audio_seconds = 1;
+    store.create_monitor("tight", &tight, 25)?;
+    let over = crate::storage::monitors::StepRecord {
+        monitor_id: "tight",
+        ..step("one", "recognition", Ok(("pin", "asr")), 1_000_001)
+    };
+    assert!(store.record_monitor_step(&over, now).is_err());
+    // A new version exists, so a step checked against version 1 is refused.
+    let mut revised = spec();
+    revised.daily_audio_seconds = 7200;
+    store.revise_monitor("fair", 1, &revised, 26)?;
+    assert!(
+        store
+            .record_monitor_step(
+                &step("one", "recognition", Ok(("pin", "asr")), 1_000_000),
+                now
+            )
+            .is_err()
+    );
+    let exact = crate::storage::monitors::StepRecord {
+        monitor_id: "tight",
+        ..step("one", "recognition", Ok(("pin", "asr")), 1_000_000)
+    };
+    store.record_monitor_step(&exact, now)?;
+    let rows: u32 =
+        store
+            .connection
+            .query_row("SELECT count(*) FROM monitor_steps", [], |row| row.get(0))?;
+    assert_eq!(rows, 1);
+    Ok(())
+}

@@ -8,7 +8,7 @@ This record holds current state only. The detailed narrative from 2026-09-20 to 
 
 | Item | Current value |
 | --- | --- |
-| Catalog schema / local IPC | v32 / v32 |
+| Catalog schema / local IPC | v33 / v33 |
 | Verification | `cargo verify`: 432 tests passed, 15 native-media tests ignored, warnings-denied Clippy, build, and `cargo audit` of 312 crates against 1,269 advisories. `cargo verify-media`: 15 of 15 on FFmpeg 9.0.1 |
 | Host | Windows 11 x86_64, Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Two build jobs, two test threads, one media-test thread |
 | Other platforms | Linux x86_64 (Debian 12 container, Rust 1.98.1, WSL2 kernel 6.18): `cargo verify` passes; `cargo verify-media` passes 14 of 15 on FFmpeg 5.1.9, and the native recognizer fixture fails closed with `limits-unavailable` (see open gates). macOS and small always-on hosts are untested. Nothing is qualified |
@@ -42,7 +42,7 @@ States: **done** means the operation's local exit evidence exists on this host; 
 | 28 | Live queue over committed segments | partial | [task contract and job pool](../decisions/0043-task-contract-and-job-pool.md): durable queue with leases, attempts, per-kind caps of one and no job history cap. Fair scheduling, host budgets and live segment intake remain |
 | 29 | Corrections as appended revisions | open | |
 | 30 | Monitor bounds and decision record | done locally | [monitor versions and actions](../decisions/0046-monitor-versions-and-actions.md) |
-| 31 | Monitor coverage and scheduling | partial | [monitor coverage and matches](../decisions/0047-monitor-coverage-and-matches.md): per-stage counts with gaps, missed windows and untranslated reasons. Monitor-driven scheduling remains |
+| 31 | Monitor coverage and processing | partial | [monitor coverage and matches](../decisions/0047-monitor-coverage-and-matches.md): per-stage counts with gaps, missed windows and untranslated reasons. [Monitor processing](../decisions/0048-monitor-processing.md): automatic pin, recognition and translation within daily and total caps, shared across monitors, with one real station run. Monitor-driven capture scheduling remains |
 | 32 | Passage matches and cited findings | partial | Literal term matches cite recording, transcript revision, cue and media clock. Stored findings remain |
 | 33 to 35 | Briefings, projection history, classification off | open | [topic monitoring design](../design/topic-monitoring.md) |
 | 36 | Globe and day/night map | partial | [globe geometry](../decisions/0038-globe-geometry.md) and [terminal globe](../decisions/0044-terminal-globe.md): globe and flat map with offline coastlines, geometric night and page stations. Clustering, map and list agreement on one filter, and a measurement with capture running remain |

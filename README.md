@@ -6,7 +6,7 @@ The world is broadcasting all the time: internet radio and podcasts in every lan
 
 It starts with internet radio and podcasts, which need nothing but a computer. The same design extends to receive-only software-defined radio (such as a HackRF), LoRa and Meshtastic devices, and other signals: every source, whether a stream, a recording, IQ samples or packets, flows through the same capture, evidence and analysis pipeline. Your own machine, your own library, results you can check.
 
-> **Development preview.** Radio and podcast discovery, listening, recording, schedules, a terminal explorer, and early local speech recognition and translation work today on Windows. Topic monitoring is being built now. See [what works today](#what-works-today) and the [progress record](docs/development/progress.md).
+> **Development preview.** Radio and podcast discovery, listening, recording, schedules, a terminal explorer, and early local speech recognition and translation work today on Windows. Early topic monitoring now transcribes and translates what it records, within caps you set. See [what works today](#what-works-today) and the [progress record](docs/development/progress.md).
 
 ## What Sigy is for
 
@@ -31,7 +31,7 @@ It starts with internet radio and podcasts, which need nothing but a computer. T
 | --- | --- |
 | Station directory | Refresh pages from Radio Browser, search offline, favorites, scheduled refresh |
 | Listening | Direct streams, playlists, finite HLS, retained recordings with seek |
-| Recording | Segmented captures with gaps, pause/rewind playheads, holds, 14-day/50 GB retention |
+| Recording | Segmented captures with gaps, finite and live HLS stations, pause/rewind playheads, holds, 14-day/50 GB retention |
 | Schedules | Once, daily, or weekly recordings in any IANA time zone, including daylight-saving edges |
 | Podcasts | Subscribe, refresh RSS, download and play episodes, fetch publisher transcripts and chapters |
 | Terminal explorer | List explorer with search, favorites, health, recordings, and playback |
@@ -39,11 +39,12 @@ It starts with internet radio and podcasts, which need nothing but a computer. T
 | Speech recognition | Early: transcribe a retained recording in its original script with your own local whisper.cpp model, on the CPU, fully offline. Measured on 32 reference clips across eight languages and tried on five live stations |
 | Translation | Early: translate recognized text into English with your own local llama.cpp model, cue by cue beside the original. Not yet quality-checked |
 | Globe and day/night map | Early: an orthographic globe or flat map in the terminal with offline coastlines, geometric night at an explicit time, and stations placed by directory coordinates |
-| Topic monitoring, visualizers | Planned for the first complete release |
+| Topic monitoring | Early: a monitor keeps your terms in any script, the stations to follow and daily and total audio caps. New recordings from those stations are transcribed and translated automatically within the caps, and every step is logged. Coverage is counted stage by stage, and term matches cite the exact cue, time and translation. Agents can read monitors and propose changes, which only apply when your version already allows them. Scheduling, findings and briefings are next |
+| Visualizers | Planned for the first complete release |
 | Software-defined radio, LoRa and Meshtastic (receive-only) | Planned; source contracts for IQ samples and packets are designed, and devices will be tested with real hardware |
 | Morse, historical ciphers | Planned after the first complete release |
 
-Tested formats: WAV, MP3, AAC, FLAC, and Ogg Vorbis, decoded by a local FFmpeg 9.0.1. macOS and Linux build from source but are not yet qualified.
+Tested formats: WAV, MP3, AAC, FLAC, and Ogg Vorbis, decoded by a local FFmpeg 9.0.1. Linux passes the full test suite in a container; local recognition and translation there still need delegated process containment. macOS is untested. Neither is qualified yet.
 
 ## Preview
 
@@ -93,7 +94,7 @@ Update with `sigy update --check` and `sigy update`. Let recordings finish and s
 
 ## Now building
 
-Sigy can now transcribe a retained recording on your own machine: a hash-pinned multilingual recognizer runs under strict process limits, and the text keeps its original script and exact media time. Early English translation runs the same way, cue by cue beside the original. The next steps are reference-scored translation checks, longer recordings, live HLS stations, and then topic monitoring. The [roadmap](ROADMAP.md#whats-next) explains the order and the reasons, and the [language pipeline plan](docs/development/language-pipeline.md) defines how quality is measured.
+Sigy can now transcribe a retained recording on your own machine: a hash-pinned multilingual recognizer runs under strict process limits, and the text keeps its original script and exact media time. Early English translation runs the same way, cue by cue beside the original, and monitors now drive both automatically within your caps. The next steps are recordings longer than a minute, delegated containment so local models run on Linux, fair scheduling with measured capacity, and reference-scored translation checks. The [roadmap](ROADMAP.md#whats-next) explains the order and the reasons, and the [language pipeline plan](docs/development/language-pipeline.md) defines how quality is measured.
 
 ## Learn more
 

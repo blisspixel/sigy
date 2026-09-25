@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result, storage::validate_key};
 
+pub mod pipeline;
+
 pub const MAX_TERMS: usize = 64;
 pub const MAX_SOURCES: usize = 32;
 pub const MAX_GOAL_CHARS: usize = 2_000;
@@ -241,6 +243,18 @@ pub struct MonitorAction {
     pub created_ms: i64,
 }
 
+/// Automatic processing of one monitor so far, for `monitor show`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonitorProcessing {
+    pub used_today_us: u64,
+    pub used_total_us: u64,
+    pub recognition_queued: u32,
+    pub translation_queued: u32,
+    /// Skipped steps by stage and reason, sorted.
+    pub skipped: Vec<(String, String, u32)>,
+}
+
 /// Current state derived from the latest version and applied actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -250,6 +264,7 @@ pub struct MonitorView {
     pub paused: bool,
     pub active_sources: Vec<String>,
     pub actions: u32,
+    pub processing: MonitorProcessing,
 }
 
 /// Longest window a coverage or match request may cover.

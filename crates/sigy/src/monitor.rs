@@ -308,7 +308,7 @@ fn render_coverage(writer: &mut impl Write, coverage: &MonitorCoverage) -> io::R
     )?;
     writeln!(
         writer,
-        "Daily audio cap {}; monitors do not schedule or enforce it yet. Each stage is counted on its own.",
+        "Daily audio cap {} for automatic processing (UTC days). Monitors do not schedule captures yet. Each stage is counted on its own.",
         duration(u64::from(coverage.daily_audio_seconds))
     )?;
     for source in &coverage.sources {
@@ -485,7 +485,35 @@ fn render_monitor(
         view.actions
     )?;
     render_version(writer, &view.version)?;
-    writeln!(writer, "Following now: {}", view.active_sources.join(", "))
+    writeln!(writer, "Following now: {}", view.active_sources.join(", "))?;
+    render_processing(writer, view)
+}
+
+fn render_processing(writer: &mut impl Write, view: &MonitorView) -> io::Result<()> {
+    let processing = &view.processing;
+    if view.version.spec.recognition_profile.is_none() {
+        writeln!(
+            writer,
+            "Automatic processing is off: save a version with --recognition-profile to transcribe new recordings."
+        )?;
+    }
+    writeln!(
+        writer,
+        "Processed audio: {} today (UTC), {} in total | {} recognitions and {} translations queued",
+        audio(processing.used_today_us),
+        audio(processing.used_total_us),
+        processing.recognition_queued,
+        processing.translation_queued
+    )?;
+    if !processing.skipped.is_empty() {
+        let skipped: Vec<String> = processing
+            .skipped
+            .iter()
+            .map(|(stage, reason, count)| format!("{stage} {} {count}", sanitize(reason, 64)))
+            .collect();
+        writeln!(writer, "Skipped: {}", skipped.join(", "))?;
+    }
+    Ok(())
 }
 
 fn render_action(writer: &mut impl Write, action: &MonitorAction) -> io::Result<()> {

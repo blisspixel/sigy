@@ -24,6 +24,7 @@ mod analysis;
 mod click;
 mod discovery;
 mod listen;
+mod monitor;
 mod playlist;
 mod podcast;
 
@@ -127,6 +128,8 @@ struct Actor {
     listen_workers: HashMap<String, LiveListen>,
     playback: super::playback::PlaySessions,
     acquirer: HttpAcquirer,
+    /// Earliest time of the next monitor pass.
+    next_monitor_pass_ms: i64,
 }
 
 impl Actor {
@@ -798,6 +801,7 @@ pub(super) fn spawn(
         listen_workers: HashMap::new(),
         playback: super::playback::PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
+        next_monitor_pass_ms: 0,
     };
     let thread = thread::Builder::new()
         .name("sigy-catalog".into())
@@ -894,7 +898,9 @@ fn dispatch(
         }
         Message::Schedules => {
             let failed = !*stopped
-                && (actor.reconcile_schedules().is_err() || actor.reconcile_directory().is_err());
+                && (actor.reconcile_schedules().is_err()
+                    || actor.reconcile_directory().is_err()
+                    || actor.reconcile_monitors().is_err());
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::Shutdown => {

@@ -50,7 +50,7 @@ pub use provider::{
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 32;
+pub const PROTOCOL_VERSION: u32 = 33;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;

@@ -26,7 +26,7 @@ The service admits the job through the existing single analysis worker slot and 
 6. Waits until the group reports no active process. Only then can the service construct the completion capability. If that cannot be shown within five seconds, the completion is not constructed, the lease is kept and the service stops; restart then interrupts the job.
 7. Parses the JSON as untrusted data and publishes through the existing atomic transaction with a zero-USD decision.
 
-Containment uses ProcessKit 3.3.4: a Windows Job Object with kill-on-close, or Linux cgroup v2. Where the host cannot enforce the limits, as on the macOS process-group mechanism, the job fails as `limits-unavailable` without starting a process.
+Containment uses ProcessKit 3.3.4: a Windows Job Object with kill-on-close, or Linux cgroup v2. Amended 2026-09-25: ProcessKit enforces cgroup limits only at the real cgroup root, so under a systemd session, a systemd service or a container the job fails as `limits-unavailable`; a delegated-cgroup path is required before Linux runs native work (see [progress](../development/progress.md#open-gates-and-known-limitations)). Where the host cannot enforce the limits, as on the macOS process-group mechanism, the job fails as `limits-unavailable` without starting a process.
 
 ## Output mapping
 

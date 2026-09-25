@@ -80,6 +80,7 @@ fn actor(root: &Path, sender: &mpsc::Sender<Message>) -> Result<Actor> {
         listen_workers: HashMap::new(),
         playback: PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
+        next_monitor_pass_ms: 0,
     })
 }
 
@@ -353,5 +354,142 @@ async fn a_queued_job_cancels_at_once_and_never_starts() -> TestResult {
     assert_eq!(deliver(&mut actor, message), (false, false));
     assert!(actor.idle());
     assert!(receiver.try_recv().is_err());
+    Ok(())
+}
+
+fn recognition_profile() -> Result<crate::recognition::RecognitionProfile> {
+    let root = std::env::temp_dir();
+    let mut profile = crate::recognition::RecognitionProfile {
+        id: "asr".into(),
+        engine: crate::recognition::WHISPER_CPP_CLI.into(),
+        runtime_dir: root.join("sigy-absent-runtime").display().to_string(),
+        executable: "whisper-cli.exe".into(),
+        runtime_sha256: "1".repeat(64),
+        runtime_files: 3,
+        runtime_bytes: 300,
+        model_path: root.join("sigy-absent-model.bin").display().to_string(),
+        model_sha256: "2".repeat(64),
+        model_bytes: 1000,
+        vad_path: root.join("sigy-absent-vad.bin").display().to_string(),
+        vad_sha256: "3".repeat(64),
+        vad_bytes: 10,
+        threads: 1,
+        memory_bytes: 1 << 30,
+        deadline_ms: 60_000,
+        profile_sha256: String::new(),
+    };
+    profile.profile_sha256 = profile.identity()?;
+    Ok(profile)
+}
+
+fn monitor_spec(recognition: Option<&str>) -> crate::monitor::MonitorSpec {
+    crate::monitor::MonitorSpec {
+        name: "Fixture".into(),
+        goal: "Follow the fixture station.".into(),
+        terms: vec![crate::monitor::MonitorTerm {
+            language: "und".into(),
+            text: "fixture".into(),
+        }],
+        sources: vec!["radio:v1".into()],
+        candidate_sources: Vec::new(),
+        schedules: Vec::new(),
+        daily_audio_seconds: 3600,
+        total_audio_seconds: 7200,
+        recognition_profile: recognition.map(str::to_owned),
+        translation_profile: None,
+    }
+}
+
+fn count(actor: &Actor, sql: &str) -> Result<u32> {
+    crate::storage::monitors::count_for_tests(actor.library.store(), sql)
+}
+
+#[tokio::test]
+async fn a_monitor_pass_queues_one_shared_recognition_and_repeats_nothing() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(8);
+    let mut actor = actor(root.path(), &sender)?;
+    let profile = recognition_profile()?;
+    actor
+        .library
+        .store_mut()
+        .add_recognition_profile(&profile, 1)?;
+    // Without a recognition profile a monitor takes no steps.
+    actor
+        .library
+        .store_mut()
+        .create_monitor("idle", &monitor_spec(None), 1)?;
+    actor.reconcile_monitors()?;
+    assert_eq!(count(&actor, "SELECT count(*) FROM monitor_steps")?, 0);
+
+    actor
+        .library
+        .store_mut()
+        .create_monitor("a", &monitor_spec(Some("asr")), 1)?;
+    actor
+        .library
+        .store_mut()
+        .create_monitor("b", &monitor_spec(Some("asr")), 1)?;
+    // Passes are throttled; this one follows immediately.
+    actor.reconcile_monitors()?;
+    assert_eq!(count(&actor, "SELECT count(*) FROM monitor_steps")?, 0);
+    actor.next_monitor_pass_ms = 0;
+    actor.reconcile_monitors()?;
+    let job = crate::monitor::pipeline::recognition_job_id("one", &profile.profile_sha256);
+    let pin = crate::monitor::pipeline::pin_id("one");
+    assert_eq!(
+        count(
+            &actor,
+            "SELECT count(*) FROM monitor_steps WHERE stage = 'recognition' AND decision = 'queued'"
+        )?,
+        2
+    );
+    assert_eq!(
+        count(
+            &actor,
+            "SELECT count(*) FROM analysis_jobs WHERE kind = 'local_asr'"
+        )?,
+        1
+    );
+    assert_eq!(
+        actor
+            .library
+            .store()
+            .local_asr_job(&job)?
+            .request
+            .analysis_id,
+        pin
+    );
+    for monitor in ["a", "b"] {
+        let view = actor.library.store().monitor(monitor)?;
+        assert_eq!(view.processing.used_total_us, 1_000_000, "{monitor}");
+    }
+    // A later pass is level-triggered and finds nothing missing.
+    actor.next_monitor_pass_ms = 0;
+    actor.reconcile_monitors()?;
+    assert_eq!(count(&actor, "SELECT count(*) FROM monitor_steps")?, 2);
+    assert_eq!(
+        count(
+            &actor,
+            "SELECT count(*) FROM analysis_jobs WHERE kind = 'local_asr'"
+        )?,
+        1
+    );
+    // A pause stops new steps; nothing already queued is undone.
+    actor.library.store_mut().propose_monitor_action(
+        "a",
+        "pause",
+        crate::monitor::ActionOrigin::User,
+        &crate::monitor::Proposal::Pause,
+        2,
+    )?;
+    let facts = actor
+        .library
+        .store()
+        .monitor_facts("a", crate::storage::now_ms()?)?;
+    assert_eq!(
+        crate::monitor::pipeline::plan(&facts).1,
+        crate::monitor::pipeline::Hold::Paused
+    );
     Ok(())
 }

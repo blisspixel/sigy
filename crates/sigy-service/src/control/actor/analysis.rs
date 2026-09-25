@@ -447,7 +447,7 @@ impl Actor {
 }
 
 impl Actor {
-    fn start_translation(
+    pub(super) fn start_translation(
         &mut self,
         id: &str,
         input: &str,

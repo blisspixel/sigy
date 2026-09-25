@@ -12,11 +12,17 @@ use crate::{
 
 pub const ACTION_PAGE: u32 = 16;
 
-/// Undo migration 032 so a test can build an older catalog from the current one.
+/// Count rows with one read-only query, for tests outside the storage module.
+#[cfg(test)]
+pub(crate) fn count_for_tests(store: &Store, sql: &str) -> Result<u32> {
+    Ok(store.connection.query_row(sql, [], |row| row.get(0))?)
+}
+
+/// Undo migrations 032 and 033 so a test can build an older catalog from the current one.
 #[cfg(test)]
 pub(crate) fn revert_032_for_tests(connection: &Connection) -> Result<()> {
     connection.execute_batch(
-        "DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; PRAGMA user_version = 31;",
+        "DROP TABLE monitor_steps; DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; PRAGMA user_version = 31;",
     )?;
     Ok(())
 }
@@ -365,6 +371,7 @@ impl Store {
             id: id.to_owned(),
             active_sources: active_sources(&self.connection, &version)?,
             paused: paused(&self.connection, id)?,
+            processing: self.monitor_processing(id, super::now_ms()?)?,
             version,
             actions,
         })
@@ -421,6 +428,9 @@ impl Store {
 }
 
 mod coverage;
+mod steps;
+
+pub(crate) use steps::StepRecord;
 
 #[cfg(test)]
 mod tests;
