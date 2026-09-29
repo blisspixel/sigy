@@ -19,7 +19,7 @@ use super::{
 use crate::{Error, Result};
 
 mod integrity;
-pub(super) use integrity::audit;
+pub(super) use integrity::{audit, audit_single_interval};
 
 #[cfg(test)]
 const MAX_CUES: usize = 1024;

@@ -25,6 +25,8 @@ impl Store {
             return Err(Error::InvalidInput("clock range"));
         }
         let input = self.local_asr_input(request)?;
+        let bytes = input.byte_length()?;
+        let files = i64::try_from(input.segments.len()).map_err(|_| Error::StorageIntegrity)?;
         let manifest_sha256 = manifest(&input)?;
         let tx = self
             .connection
@@ -36,7 +38,7 @@ impl Store {
                 generation: 1,
                 recording_id: input.recording_id.clone(),
                 state: "queued".into(),
-                expected_bytes: input.byte_length,
+                expected_bytes: bytes,
                 manifest_sha256,
                 reason: None,
                 amount_usd: "0.000000".into(),
@@ -54,8 +56,8 @@ impl Store {
             return Err(Error::Analysis("transcript-parent-conflict"));
         }
         tx.execute(
-            "INSERT INTO analysis_jobs(id, generation, analysis_id, analysis_revision, recording_id, profile, kind, profile_sha256, expected_parent_revision, state, expected_bytes, expected_files, manifest_sha256, amount_micros, created_ms, lineage) VALUES (?1, 1, ?2, ?3, ?4, ?5, 'local_asr', ?6, ?7, 'queued', ?8, 1, ?9, 0, ?10, ?2)",
-            params![request.id, request.analysis_id, request.analysis_revision, work.input.recording_id, request.profile, request.profile_sha256, request.parent_revision, sql_integer(work.input.byte_length)?, work.job.manifest_sha256, now],
+            "INSERT INTO analysis_jobs(id, generation, analysis_id, analysis_revision, recording_id, profile, kind, profile_sha256, expected_parent_revision, state, expected_bytes, expected_files, manifest_sha256, amount_micros, created_ms, lineage) VALUES (?1, 1, ?2, ?3, ?4, ?5, 'local_asr', ?6, ?7, 'queued', ?8, ?11, ?9, 0, ?10, ?2)",
+            params![request.id, request.analysis_id, request.analysis_revision, work.input.recording_id, request.profile, request.profile_sha256, request.parent_revision, sql_integer(bytes)?, work.job.manifest_sha256, now, files],
         )?;
         tx.commit()?;
         Ok((self.local_asr_job(&request.id)?, true))

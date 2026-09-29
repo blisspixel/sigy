@@ -469,8 +469,8 @@ fn speech_and_replay(directory: &Path) -> TestResult {
     assert_eq!(page["transcript"]["outcome"], "text");
     assert_eq!(page["transcript"]["revision"], 1);
     assert_eq!(page["transcript"]["amount_usd"], "0.000000");
-    assert_eq!(page["coverage"]["sample_rate"], 16_000);
-    assert_eq!(page["coverage"]["sample_count"], 16_000);
+    assert_eq!(page["coverages"][0]["sample_rate"], 16_000);
+    assert_eq!(page["coverages"][0]["sample_count"], 16_000);
     assert_eq!(page["cues"][0]["script"], "bonjour");
     assert_eq!(page["cues"][0]["start_us"], 0);
     assert_eq!(page["cues"][0]["end_us"], 400_000);

@@ -3,17 +3,24 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
+use super::analysis::{AnalysisHole, AnalysisSpan};
+use super::dvr::Recording;
 use super::{Store, validate_key};
-use crate::recognition::{LocalAsrInput, LocalAsrWork};
-use crate::{
-    Error, Result,
-    recognition::{LocalAsrJob, LocalAsrRequest},
+use crate::processing::InputFile;
+use crate::recognition::{
+    AsrSegment, ChunkHole, ChunkSpan, LocalAsrInput, LocalAsrJob, LocalAsrRequest, LocalAsrWork,
+    PlannedChunk, coverages_fit_one_page, plan_chunks,
 };
+use crate::{Error, Result};
 
 mod jobs;
+mod migrate;
 mod profiles;
 mod publish;
 mod reads;
+pub(in crate::storage) use migrate::migrate_034;
+#[cfg(test)]
+pub(in crate::storage) use migrate::revert_034_for_tests;
 #[cfg(test)]
 mod tests;
 mod validation;
@@ -28,7 +35,7 @@ fn sql_integer(value: u64) -> Result<i64> {
 
 fn manifest(input: &LocalAsrInput) -> Result<String> {
     Ok(sha256(&serde_json::to_vec(&(
-        "sigy-local-asr-input-v1",
+        "sigy-local-asr-input-v2",
         input,
     ))?))
 }
@@ -53,29 +60,90 @@ fn find_job(connection: &Connection, id: &str) -> Result<Option<LocalAsrJob>> {
     ).optional()?)
 }
 
+struct RetainedPin {
+    timeline: String,
+    recording_sha256: Option<String>,
+    media_sha256: String,
+    media_bytes: Option<i64>,
+    capture_state: String,
+    storage_state: String,
+}
+
 /// Recheck retained catalog identity inside the publication/admission transaction.
 fn current_input(connection: &Connection, work: &LocalAsrWork) -> Result<bool> {
-    let input = &work.input;
+    let Some(row) = retained_pin(connection, work)? else {
+        return Ok(false);
+    };
+    let bytes = sql_integer(work.input.byte_length()?)?;
+    if sha256(row.timeline.as_bytes()) != work.input.timeline_sha256
+        || row.recording_sha256.as_deref() != Some(work.input.media_sha256.as_str())
+        || row.media_sha256 != work.input.media_sha256
+        || row.media_bytes != Some(bytes)
+        || row.capture_state != "completed"
+        || row.storage_state != "retained"
+    {
+        return Ok(false);
+    }
+    segments_current(connection, work)
+}
+
+fn retained_pin(connection: &Connection, work: &LocalAsrWork) -> Result<Option<RetainedPin>> {
     let request = &work.job.request;
-    let timeline: Option<String> = connection.query_row(
-        "SELECT a.timeline_json FROM analysis_inputs a JOIN recordings r ON r.id = a.recording_id JOIN capture_jobs c ON c.id = r.id JOIN recording_intervals s ON s.recording_id = r.id WHERE a.id = ?1 AND a.revision = ?2 AND a.state = 'published' AND a.revision = (SELECT max(revision) FROM analysis_inputs WHERE id = a.id) AND r.id = ?3 AND c.state = 'completed' AND r.storage_state = 'retained' AND r.sha256 = ?4 AND a.media_sha256 = ?4 AND r.media_bytes = ?5 AND s.ordinal = ?6 AND s.decoded_start_us = ?7 AND s.decoded_end_us = ?8 AND s.sha256 = ?9 AND s.object_key = ?10 AND s.byte_end - s.byte_start = ?5 AND NOT EXISTS (SELECT 1 FROM recording_releases x WHERE x.recording_id = s.recording_id AND x.segment_ordinal = s.ordinal)",
-        params![request.analysis_id, request.analysis_revision, input.recording_id, input.media_sha256, sql_integer(input.byte_length)?, input.interval_ordinal, sql_integer(input.start_us)?, sql_integer(input.end_us)?, input.source_sha256, input.object_key], |row| row.get(0),
+    Ok(connection.query_row(
+        "SELECT a.timeline_json, r.sha256, a.media_sha256, r.media_bytes, c.state, r.storage_state FROM analysis_inputs a JOIN recordings r ON r.id = a.recording_id JOIN capture_jobs c ON c.id = r.id WHERE a.id = ?1 AND a.revision = ?2 AND a.state = 'published' AND a.revision = (SELECT max(revision) FROM analysis_inputs WHERE id = a.id) AND r.id = ?3",
+        params![request.analysis_id, request.analysis_revision, work.input.recording_id],
+        |row| Ok(RetainedPin {
+            timeline: row.get(0)?,
+            recording_sha256: row.get(1)?,
+            media_sha256: row.get(2)?,
+            media_bytes: row.get(3)?,
+            capture_state: row.get(4)?,
+            storage_state: row.get(5)?,
+        }),
+    ).optional()?)
+}
+
+fn segments_current(connection: &Connection, work: &LocalAsrWork) -> Result<bool> {
+    let retained: i64 = connection.query_row(
+        "SELECT count(*) FROM recording_intervals s WHERE s.recording_id = ?1 AND NOT EXISTS (SELECT 1 FROM recording_releases x WHERE x.recording_id = s.recording_id AND x.segment_ordinal = s.ordinal)",
+        [work.input.recording_id.as_str()],
+        |row| row.get(0),
+    )?;
+    let expected = i64::try_from(work.input.segments.len()).map_err(|_| Error::StorageIntegrity)?;
+    if retained != expected {
+        return Ok(false);
+    }
+    for segment in &work.input.segments {
+        if !segment_current(connection, &work.input.recording_id, segment)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn segment_current(
+    connection: &Connection,
+    recording_id: &str,
+    segment: &AsrSegment,
+) -> Result<bool> {
+    let matched: Option<i64> = connection.query_row(
+        "SELECT 1 FROM recording_intervals s WHERE s.recording_id = ?1 AND s.ordinal = ?2 AND s.decoded_start_us = ?3 AND s.decoded_end_us = ?4 AND s.sha256 = ?5 AND s.object_key = ?6 AND s.byte_end - s.byte_start = ?7 AND s.format = ?8 AND NOT EXISTS (SELECT 1 FROM recording_releases x WHERE x.recording_id = s.recording_id AND x.segment_ordinal = s.ordinal)",
+        params![recording_id, segment.ordinal, sql_integer(segment.start_us)?, sql_integer(segment.end_us)?, segment.source_sha256, segment.object_key, sql_integer(segment.byte_length)?, segment.format],
+        |row| row.get(0),
     ).optional()?;
-    Ok(timeline.is_some_and(|timeline| sha256(timeline.as_bytes()) == input.timeline_sha256))
+    Ok(matched.is_some())
 }
 
 impl Store {
     fn local_asr_input(&self, request: &LocalAsrRequest) -> Result<LocalAsrInput> {
         let pin = self.published_analysis(&request.analysis_id, request.analysis_revision)?;
         let files = self.verification_input(&request.analysis_id, request.analysis_revision)?;
-        if pin.intervals.len() != 1 || files.files.len() != 1 || files.bytes > 67_108_864 {
+        if files.bytes > 67_108_864 {
             return Err(Error::Analysis("recognition-input-limit"));
         }
-        let span = pin.intervals.first().ok_or(Error::StorageIntegrity)?;
-        if !matches!(span.end_us.checked_sub(span.start_us), Some(1..=60_000_000)) {
-            return Err(Error::Analysis("recognition-input-limit"));
-        }
-        let file = files.files.first().ok_or(Error::StorageIntegrity)?;
+        let recording = self.recording(&pin.recording_id)?;
+        let segments = asr_segments(&recording, &pin.intervals, &files.files)?;
+        let chunks = planned_chunks(&pin.gaps, &segments)?;
         let timeline: String = self.connection.query_row(
             "SELECT timeline_json FROM analysis_inputs WHERE id = ?1 AND revision = ?2",
             params![request.analysis_id, request.analysis_revision],
@@ -85,12 +153,64 @@ impl Store {
             recording_id: pin.recording_id,
             media_sha256: pin.media_sha256,
             timeline_sha256: sha256(timeline.as_bytes()),
+            segments,
+            chunks,
+        })
+    }
+}
+
+fn asr_segments(
+    recording: &Recording,
+    intervals: &[AnalysisSpan],
+    files: &[InputFile],
+) -> Result<Vec<AsrSegment>> {
+    if intervals.len() != files.len() {
+        return Err(Error::StorageIntegrity);
+    }
+    let mut segments = Vec::with_capacity(intervals.len());
+    for (span, file) in intervals.iter().zip(files) {
+        if file.sha256 != span.sha256 {
+            return Err(Error::StorageIntegrity);
+        }
+        let interval = recording
+            .intervals
+            .iter()
+            .find(|interval| interval.ordinal == span.ordinal && interval.sha256 == span.sha256)
+            .ok_or(Error::StorageIntegrity)?;
+        segments.push(AsrSegment {
+            ordinal: span.ordinal,
             object_key: file.key.clone(),
             byte_length: file.bytes,
-            interval_ordinal: span.ordinal,
             start_us: span.start_us,
             end_us: span.end_us,
             source_sha256: span.sha256.clone(),
-        })
+            format: interval.format.clone(),
+        });
     }
+    Ok(segments)
+}
+
+fn planned_chunks(gaps: &[AnalysisHole], segments: &[AsrSegment]) -> Result<Vec<PlannedChunk>> {
+    let spans = segments
+        .iter()
+        .map(|segment| ChunkSpan {
+            ordinal: segment.ordinal,
+            start_us: segment.start_us,
+            end_us: segment.end_us,
+            source_sha256: segment.source_sha256.clone(),
+        })
+        .collect::<Vec<_>>();
+    let holes = gaps
+        .iter()
+        .map(|gap| ChunkHole {
+            start_us: gap.start_us,
+            end_us: gap.end_us,
+        })
+        .collect::<Vec<_>>();
+    let chunks =
+        plan_chunks(&spans, &holes).map_err(|_| Error::Analysis("recognition-input-limit"))?;
+    if !coverages_fit_one_page(chunks.len()) {
+        return Err(Error::Analysis("recognition-input-limit"));
+    }
+    Ok(chunks)
 }

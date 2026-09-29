@@ -1,6 +1,6 @@
 # Retained-recording language pipeline
 
-Updated: 2026-09-24. Status: authorized build goal and implementation plan. Language spans, translation, and provider dispatch are not implemented. The first local recognition calibration has run in a research harness; the application does not yet recognize speech.
+Updated: 2026-09-29. Status: authorized build goal and implementation plan. The service recognizes speech, stores recognizer block labels as unevaluated evidence, and translates recognized cues into English locally. Measured language detection, reference-scored translation, and paid provider dispatch remain open. [Chunked recognition](../decisions/0049-chunked-recognition.md) covers recordings longer than 60 seconds. The 2026-09-24 decisions below are unchanged.
 
 ## 2026-09-24 decisions
 
@@ -16,11 +16,13 @@ Updated: 2026-09-24. Status: authorized build goal and implementation plan. Lang
 
 Turn one retained recording into inspectable original-script text, language evidence, and aligned English translation. Preserve its checksum, media clock, gaps, revisions, and uncertainty. Prove the local path with paid processing disabled, then compare explicitly authorized remote profiles under exact finite reservations. Continue through the [first-release build order](../../ROADMAP.md#build-order) only as each operation earns its evidence.
 
-Operation 22 pins published inputs. Operation 23 originally hashed retained files and stored empty cues marked `uncertain` under `local-unmeasured`. Those rows remain legacy history. New `analysis transcribe` requests fail until a measured recognizer is configured; `analysis verify` performs supervised retained-file checks under [decision 0034](../decisions/0034-retained-input-verification.md). Schema v23 enforces those empty cues and one transcript revision; an adapter cannot simply fill them in. [Local transcript decision](../decisions/0032-local-transcripts.md).
+The service now runs that local path: recognition, unevaluated recognizer language spans, local English translation, and chunked recognition of recordings longer than 60 seconds. Per-language benchmarks, reference-scored translation, and paid dispatch remain open. [Progress](progress.md) is the current record. The notes below keep the order in which each slice landed.
 
-Operation 24's [evidence storage and bounded read-only inspection](../decisions/0033-language-evidence.md) are implemented. No detector runs yet. Completing operation 23's recognition gate remains mandatory before operation 25 can claim useful translation. Historical operation numbers remain stable.
+Operation 22 pins published inputs. Operation 23 originally hashed retained files and stored empty cues marked `uncertain` under `local-unmeasured`. Those rows remain legacy history. New `analysis transcribe` requests originally failed until a measured recognizer was configured; `analysis verify` performs supervised retained-file checks under [decision 0034](../decisions/0034-retained-input-verification.md). Schema v23 enforces those empty cues and one transcript revision; an adapter cannot simply fill them in. [Local transcript decision](../decisions/0032-local-transcripts.md).
 
-Catalog v26 adds [transcript revision storage](../decisions/0035-transcript-revision-storage.md): separate verification/recognition job kinds, exact worker/profile/parent bindings, immutable text revisions and explicit zero-cue completed coverage. Legacy rows and language-evidence foreign keys remain intact. The [recognition storage API](../decisions/0036-recognition-storage-api.md) adds bounded public Rust reads. Admission, cancellation and atomic publication are crate-private internal test staging until a supervisor can prove cleanup; production mutation and native execution remain closed. Local IPC remains v26.
+Operation 24's [evidence storage and bounded read-only inspection](../decisions/0033-language-evidence.md) are implemented. No separate detector runs. Recognizer block labels are stored as unevaluated evidence. Operation 25 still cannot claim measured translation quality. Historical operation numbers remain stable.
+
+Catalog v26 adds [transcript revision storage](../decisions/0035-transcript-revision-storage.md): separate verification/recognition job kinds, exact worker/profile/parent bindings, immutable text revisions and explicit zero-cue completed coverage. Legacy rows and language-evidence foreign keys remain intact. The [recognition storage API](../decisions/0036-recognition-storage-api.md) adds bounded public Rust reads. At that increment, admission stayed internal until a supervisor could prove cleanup. Later decisions brought native execution into the service. Local IPC at that increment was v26.
 
 ## Confirmed scope and working limits
 

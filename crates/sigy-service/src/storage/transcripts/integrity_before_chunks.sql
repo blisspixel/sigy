@@ -48,62 +48,15 @@ OR EXISTS (
             WHERE a.id = t.analysis_id AND a.revision = t.analysis_revision
               AND c.start_us < json_extract(g.value, '$.end_us') AND c.end_us > json_extract(g.value, '$.start_us')
         )
-        OR NOT EXISTS (
-            SELECT 1 FROM transcript_coverage v
-            WHERE v.transcript_id = c.transcript_id AND v.revision = c.revision
-              AND c.start_us >= v.start_us AND c.end_us <= v.end_us
-        )
     ))
 )
 OR EXISTS (
     SELECT 1 FROM transcript_coverage c JOIN transcripts t ON t.id = c.transcript_id AND t.revision = c.revision
-    WHERE t.kind != 'recognition'
-       OR NOT EXISTS (
-            SELECT 1 FROM analysis_inputs a, json_each(a.timeline_json, '$.intervals') s
-            WHERE a.id = t.analysis_id AND a.revision = t.analysis_revision
-              AND c.interval_ordinal = json_extract(s.value, '$.ordinal')
-              AND c.source_sha256 = json_extract(s.value, '$.sha256')
-              AND c.start_us >= json_extract(s.value, '$.start_us')
-              AND c.end_us <= json_extract(s.value, '$.end_us')
-       )
-       OR EXISTS (
-            SELECT 1 FROM analysis_inputs a, json_each(a.timeline_json, '$.gaps') g
-            WHERE a.id = t.analysis_id AND a.revision = t.analysis_revision
-              AND c.start_us < json_extract(g.value, '$.end_us') AND c.end_us > json_extract(g.value, '$.start_us')
-       )
-)
-OR EXISTS (
-    SELECT 1 FROM transcripts t WHERE t.kind = 'recognition' AND (
-        (SELECT count(*) FROM transcript_coverage c WHERE c.transcript_id = t.id AND c.revision = t.revision) NOT BETWEEN 1 AND 1024
-        OR (SELECT min(ordinal) FROM transcript_coverage c WHERE c.transcript_id = t.id AND c.revision = t.revision) != 0
-        OR (SELECT max(ordinal) FROM transcript_coverage c WHERE c.transcript_id = t.id AND c.revision = t.revision)
-           != (SELECT count(*) - 1 FROM transcript_coverage c WHERE c.transcript_id = t.id AND c.revision = t.revision)
-        OR EXISTS (
-            SELECT 1 FROM analysis_inputs a, json_each(a.timeline_json, '$.intervals') s
-            WHERE a.id = t.analysis_id AND a.revision = t.analysis_revision AND (
-                (SELECT coalesce(sum(c.end_us - c.start_us), 0) FROM transcript_coverage c
-                  WHERE c.transcript_id = t.id AND c.revision = t.revision
-                    AND c.interval_ordinal = json_extract(s.value, '$.ordinal'))
-                != json_extract(s.value, '$.end_us') - json_extract(s.value, '$.start_us')
-                OR (SELECT min(c.start_us) FROM transcript_coverage c
-                  WHERE c.transcript_id = t.id AND c.revision = t.revision
-                    AND c.interval_ordinal = json_extract(s.value, '$.ordinal'))
-                != json_extract(s.value, '$.start_us')
-                OR (SELECT max(c.end_us) FROM transcript_coverage c
-                  WHERE c.transcript_id = t.id AND c.revision = t.revision
-                    AND c.interval_ordinal = json_extract(s.value, '$.ordinal'))
-                != json_extract(s.value, '$.end_us')
-            )
-        )
-        OR EXISTS (
-            SELECT 1 FROM transcript_coverage c
-            WHERE c.transcript_id = t.id AND c.revision = t.revision AND c.ordinal > 0
-              AND EXISTS (
-                SELECT 1 FROM transcript_coverage p
-                WHERE p.transcript_id = c.transcript_id AND p.revision = c.revision
-                  AND p.ordinal = c.ordinal - 1 AND p.interval_ordinal = c.interval_ordinal
-                  AND p.end_us != c.start_us
-              )
-        )
+    WHERE t.kind != 'recognition' OR NOT EXISTS (
+        SELECT 1 FROM analysis_inputs a, json_each(a.timeline_json, '$.intervals') s
+        WHERE a.id = t.analysis_id AND a.revision = t.analysis_revision
+          AND json_array_length(a.timeline_json, '$.intervals') = 1
+          AND c.interval_ordinal = json_extract(s.value, '$.ordinal') AND c.source_sha256 = json_extract(s.value, '$.sha256')
+          AND c.start_us = json_extract(s.value, '$.start_us') AND c.end_us = json_extract(s.value, '$.end_us')
     )
 )

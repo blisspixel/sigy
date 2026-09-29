@@ -91,6 +91,25 @@ pub(crate) struct RecognitionParams {
     pub sample_rate: u32,
     pub decoder: String,
     pub threads: u32,
+    /// Offset into the segment, in microseconds. Absent when the slice starts at the segment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_offset_us: Option<u64>,
+    /// Decoded length. Absent when the chunk is the whole segment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slice_us: Option<u64>,
+    /// Chunk ordinal. Absent for the first chunk so an untrimmed spec stays canonical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_ordinal: Option<u32>,
+}
+
+impl RecognitionParams {
+    pub(crate) fn offset_us(&self) -> u64 {
+        self.file_offset_us.unwrap_or(0)
+    }
+
+    pub(crate) fn ordinal(&self) -> u32 {
+        self.chunk_ordinal.unwrap_or(0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,6 +283,20 @@ fn input_valid(input: &TaskInput) -> bool {
     }
 }
 
+fn recognition_params_valid(params: &RecognitionParams) -> bool {
+    let duration = params.end_us.saturating_sub(params.start_us);
+    let slice_matches = match params.slice_us {
+        None => params.file_offset_us.is_none(),
+        Some(slice) => slice > 0 && slice == duration,
+    };
+    params.start_us < params.end_us
+        && params.sample_rate > 0
+        && token(&params.decoder)
+        && slice_matches
+        && params.file_offset_us.is_none_or(|offset| offset > 0)
+        && params.chunk_ordinal.is_none_or(|ordinal| ordinal > 0)
+}
+
 fn asset_valid(asset: &AssetRef) -> bool {
     is_sha256(&asset.sha256)
         && asset.bytes > 0
@@ -274,9 +307,7 @@ fn asset_valid(asset: &AssetRef) -> bool {
 
 fn params_valid(params: &TaskParams) -> bool {
     match params {
-        TaskParams::Recognition(params) => {
-            params.start_us < params.end_us && params.sample_rate > 0 && token(&params.decoder)
-        }
+        TaskParams::Recognition(params) => recognition_params_valid(params),
         TaskParams::Translation(params) => {
             params.source_language.as_deref().is_none_or(token)
                 && token(&params.declared_languages)

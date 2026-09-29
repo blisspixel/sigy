@@ -77,7 +77,7 @@ impl Store {
             .ok_or(Error::NotFound)?;
         let mut page = TranscriptCuePage {
             transcript,
-            coverage: coverage(&self.connection, id, revision)?,
+            coverages: coverages(&self.connection, id, revision)?,
             cues: Vec::new(),
             next_after_ordinal: None,
         };
@@ -165,21 +165,32 @@ fn unsigned(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
     })
 }
 
-fn coverage(
-    connection: &Connection,
-    id: &str,
-    revision: i64,
-) -> Result<Option<RecognitionCoverage>> {
-    Ok(connection.query_row(
-        "SELECT interval_ordinal, start_us, end_us, source_sha256, decoded_sha256, sample_rate, sample_count FROM transcript_coverage WHERE transcript_id = ?1 AND revision = ?2",
-        params![id, revision], |row| Ok(RecognitionCoverage { interval_ordinal: row.get(0)?, start_us: unsigned(row, 1)?, end_us: unsigned(row, 2)?, source_sha256: row.get(3)?, decoded_sha256: row.get(4)?, sample_rate: row.get(5)?, sample_count: unsigned(row, 6)? }),
-    ).optional()?)
+fn coverages(connection: &Connection, id: &str, revision: i64) -> Result<Vec<RecognitionCoverage>> {
+    let mut statement = connection.prepare("SELECT ordinal, interval_ordinal, start_us, end_us, source_sha256, decoded_sha256, sample_rate, sample_count FROM transcript_coverage WHERE transcript_id = ?1 AND revision = ?2 ORDER BY ordinal")?;
+    let rows = statement.query_map(params![id, revision], coverage_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+fn coverage_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecognitionCoverage> {
+    Ok(RecognitionCoverage {
+        ordinal: row.get(0)?,
+        interval_ordinal: row.get(1)?,
+        start_us: unsigned(row, 2)?,
+        end_us: unsigned(row, 3)?,
+        source_sha256: row.get(4)?,
+        decoded_sha256: row.get(5)?,
+        sample_rate: row.get(6)?,
+        sample_count: unsigned(row, 7)?,
+    })
 }
 
 pub(super) fn output(connection: &Connection, job: &LocalAsrJob) -> Result<RecognitionOutput> {
     let id = &job.request.analysis_id;
     let revision = job.request.parent_revision + 1;
-    let coverage = coverage(connection, id, revision)?.ok_or(Error::StorageIntegrity)?;
+    let coverages = coverages(connection, id, revision)?;
+    if coverages.is_empty() {
+        return Err(Error::StorageIntegrity);
+    }
     let mut statement = connection.prepare("SELECT ordinal, start_us, end_us, script FROM transcript_cues WHERE transcript_id = ?1 AND revision = ?2 ORDER BY ordinal LIMIT 257")?;
     let cues = statement
         .query_map(params![id, revision], cue)?
@@ -190,7 +201,7 @@ pub(super) fn output(connection: &Connection, job: &LocalAsrJob) -> Result<Recog
     Ok(RecognitionOutput {
         profile_sha256: job.request.profile_sha256.clone(),
         manifest_sha256: job.manifest_sha256.clone(),
-        coverage,
+        coverages,
         cues,
     })
 }

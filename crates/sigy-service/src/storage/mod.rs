@@ -34,7 +34,7 @@ mod widen;
 #[cfg(test)]
 mod widen_tests;
 
-pub const SCHEMA_VERSION: u32 = 33;
+pub const SCHEMA_VERSION: u32 = 34;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -218,7 +218,7 @@ fn migrate_from_25(transaction: &rusqlite::Transaction<'_>, version: i64) -> Res
     if (0..=25).contains(&version) {
         transaction.execute_batch(include_str!("026-transcript-revisions.sql"))?;
         transaction.execute_batch(include_str!("026-transcript-invariants.sql"))?;
-        transcripts::audit(transaction)?;
+        transcripts::audit_single_interval(transaction)?;
         analysis_jobs::audit(transaction)?;
         let violations: i64 =
             transaction.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
@@ -254,6 +254,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=32).contains(&version) {
         transaction.execute_batch(include_str!("033-monitor-steps.sql"))?;
+    }
+    if (0..=33).contains(&version) {
+        recognition::migrate_034(transaction)?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

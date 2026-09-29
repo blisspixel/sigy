@@ -1,21 +1,32 @@
 //! Adapter parsing, profile identity and file-boundary checks. No native process runs here.
 
 use super::*;
-use crate::recognition::LocalAsrInput;
+use crate::recognition::{AsrSegment, LocalAsrInput, PlannedChunk};
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
 fn input(start_us: u64, end_us: u64) -> LocalAsrInput {
+    let source_sha256 = "c".repeat(64);
     LocalAsrInput {
         recording_id: "one".into(),
         media_sha256: "a".repeat(64),
         timeline_sha256: "b".repeat(64),
-        object_key: "recordings/one".into(),
-        byte_length: 10,
-        interval_ordinal: 0,
-        start_us,
-        end_us,
-        source_sha256: "c".repeat(64),
+        segments: vec![AsrSegment {
+            ordinal: 0,
+            object_key: "recordings/one".into(),
+            byte_length: 10,
+            start_us,
+            end_us,
+            source_sha256: source_sha256.clone(),
+            format: "wav".into(),
+        }],
+        chunks: vec![PlannedChunk {
+            ordinal: 0,
+            interval_ordinal: 0,
+            start_us,
+            end_us,
+            source_sha256,
+        }],
     }
 }
 
@@ -24,7 +35,8 @@ fn parse(
     input: &LocalAsrInput,
     sample_count: u64,
 ) -> std::result::Result<whisper::WhisperOutput, &'static str> {
-    parse_whisper_json(json, input.start_us, input.end_us, sample_count)
+    let chunk = input.chunks.first().ok_or("missing chunk")?;
+    parse_whisper_json(json, chunk.start_us, chunk.end_us, sample_count)
 }
 
 /// Whether the profile's files still hash to its recorded identity.

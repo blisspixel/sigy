@@ -28,7 +28,7 @@ impl Store {
         if job.request != work.job.request
             || job.generation != work.job.generation
             || job.manifest_sha256 != work.job.manifest_sha256
-            || job.expected_bytes != work.input.byte_length
+            || job.expected_bytes != work.input.byte_length()?
             || job.recording_id != work.input.recording_id
             || manifest(&work.input)? != job.manifest_sha256
         {
@@ -120,17 +120,18 @@ fn insert_result(
         "INSERT INTO transcripts(id, revision, analysis_id, analysis_revision, recording_id, media_sha256, role, profile, kind, outcome, parent_revision, job_id, job_generation, profile_sha256, cue_count, text_bytes, state, created_ms) VALUES (?1, ?2, ?1, ?3, ?4, ?5, 'original', ?6, 'recognition', ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'published', ?14)",
         params![request.analysis_id, revision, request.analysis_revision, work.input.recording_id, work.input.media_sha256, request.profile, outcome, parent, request.id, work.job.generation, request.profile_sha256, count, bytes, now],
     )?;
+    for coverage in &output.coverages {
+        connection.execute(
+            "INSERT INTO transcript_coverage(transcript_id, revision, ordinal, interval_ordinal, start_us, end_us, source_sha256, decoded_sha256, sample_rate, sample_count) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![request.analysis_id, revision, coverage.ordinal, coverage.interval_ordinal, sql_integer(coverage.start_us)?, sql_integer(coverage.end_us)?, coverage.source_sha256, coverage.decoded_sha256, coverage.sample_rate, sql_integer(coverage.sample_count)?],
+        )?;
+    }
     for cue in &output.cues {
         connection.execute(
             "INSERT INTO transcript_cues(transcript_id, revision, ordinal, start_us, end_us, script, wording) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'uncertain')",
             params![request.analysis_id, revision, cue.ordinal, sql_integer(cue.start_us)?, sql_integer(cue.end_us)?, cue.script],
         )?;
     }
-    let coverage = &output.coverage;
-    connection.execute(
-        "INSERT INTO transcript_coverage(transcript_id, revision, interval_ordinal, start_us, end_us, source_sha256, decoded_sha256, sample_rate, sample_count) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![request.analysis_id, revision, coverage.interval_ordinal, sql_integer(coverage.start_us)?, sql_integer(coverage.end_us)?, coverage.source_sha256, coverage.decoded_sha256, coverage.sample_rate, sql_integer(coverage.sample_count)?],
-    )?;
     connection.execute(
         "INSERT INTO analysis_decisions(transcript_id, transcript_revision, amount_micros, request_id, created_ms) VALUES (?1, ?2, 0, NULL, ?3)",
         params![request.analysis_id, revision, now],

@@ -332,7 +332,7 @@ pub(super) fn migrate_031(tx: &Transaction<'_>) -> Result<()> {
     widen::rebuild(tx, "translation_jobs", &TRANSLATION_031, &ADDED_TRANSLATION)?;
     tx.execute_batch(include_str!("031-job-pool.sql"))?;
     super::analysis_jobs::audit(tx)?;
-    super::transcripts::audit(tx)?;
+    super::transcripts::audit_single_interval(tx)?;
     let violations: i64 =
         tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
             row.get(0)
@@ -382,6 +382,8 @@ PRAGMA user_version = 30;
 
 /// Returns a v31 test catalog to the v30 definitions so older migration tests can replay
 /// their own downgrades. Queued rows cannot be represented in v30 and must not exist.
+/// The v34 recognition check and admission trigger are restored as well: they are part
+/// of the `analysis_jobs` definition a file-built v30 catalog still has.
 /// # Errors
 /// Fails when a replacement no longer matches or a row cannot be represented.
 #[cfg(test)]
@@ -402,6 +404,7 @@ pub(crate) fn revert_031_for_tests(connection: &mut Connection) -> Result<()> {
     )?;
     widen::rebuild(&tx, "analysis_jobs", &reverse(&ANALYSIS_031), &[])?;
     widen::rebuild(&tx, "translation_jobs", &reverse(&TRANSLATION_031), &[])?;
+    super::recognition::revert_034_for_tests(&tx)?;
     tx.execute_batch(V30_OBJECTS)?;
     tx.commit()?;
     Ok(())

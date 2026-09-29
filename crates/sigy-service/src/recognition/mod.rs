@@ -34,6 +34,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{Error, Result, storage::validate_key};
 
+mod chunks;
+pub use chunks::{AsrSegment, PlannedChunk};
+pub(crate) use chunks::{ChunkHole, ChunkSpan, MAX_CHUNKS, plan_chunks};
+
 pub const MAX_ASR_CUES: usize = 256;
 pub const MAX_ASR_TEXT_BYTES: usize = 65_536;
 pub const TRANSCRIPT_PAGE_BYTES: usize = 65_536;
@@ -94,17 +98,35 @@ pub struct LocalAsrJob {
 }
 
 /// An immutable catalog descriptor, never a source URL or filesystem path.
+/// `chunks` is the frozen plan. A later read does not replan it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LocalAsrInput {
     pub recording_id: String,
     pub media_sha256: String,
     pub timeline_sha256: String,
-    pub object_key: String,
-    pub byte_length: u64,
-    pub interval_ordinal: u32,
-    pub start_us: u64,
-    pub end_us: u64,
-    pub source_sha256: String,
+    pub segments: Vec<AsrSegment>,
+    pub chunks: Vec<PlannedChunk>,
+}
+
+impl LocalAsrInput {
+    /// The sum of retained segment lengths.
+    /// # Errors
+    /// Fails if the sum overflows.
+    pub fn byte_length(&self) -> Result<u64> {
+        let mut total = 0_u64;
+        for segment in &self.segments {
+            total = total
+                .checked_add(segment.byte_length)
+                .ok_or(Error::Analysis("recognition-input-limit"))?;
+        }
+        Ok(total)
+    }
+
+    pub(crate) fn segment_for(&self, ordinal: u32) -> Option<&AsrSegment> {
+        self.segments
+            .iter()
+            .find(|segment| segment.ordinal == ordinal)
+    }
 }
 
 /// Returned only by a committed claim of a queued job. Replays cannot obtain a work token.
@@ -139,6 +161,8 @@ pub struct RecognitionCue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecognitionCoverage {
+    /// Chunk ordinal inside this transcript revision, starting at zero.
+    pub ordinal: u32,
     pub interval_ordinal: u32,
     pub start_us: u64,
     pub end_us: u64,
@@ -152,9 +176,17 @@ pub struct RecognitionCoverage {
 pub struct RecognitionOutput {
     pub profile_sha256: String,
     pub manifest_sha256: String,
-    pub coverage: RecognitionCoverage,
+    /// One row per planned chunk. Silence is a row with no cue, not a missing row.
+    pub coverages: Vec<RecognitionCoverage>,
     /// An empty list means evaluated coverage with no recognized text, not a gap.
     pub cues: Vec<RecognitionCue>,
+}
+
+/// The recognizer's block language code for one chunk that produced cues.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ChunkLanguage {
+    pub ordinal: u32,
+    pub code: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,8 +236,8 @@ pub(crate) struct ReapedLocalAsr {
     request: LocalAsrRequest,
     generation: u32,
     outcome: LocalAsrOutcome,
-    /// The recognizer's own block language code, kept outside the replayed output.
-    language: Option<String>,
+    /// Block language codes for chunks that produced cues, outside the replayed output.
+    languages: Vec<ChunkLanguage>,
 }
 
 impl ReapedLocalAsr {
@@ -223,33 +255,33 @@ impl ReapedLocalAsr {
         let TaskResult::Recognition(result) = result else {
             return Err(Error::StorageIntegrity);
         };
-        let (outcome, language) = match result {
+        let (outcome, languages) = match result {
             RecognitionResult::Succeeded {
-                coverage,
+                coverages,
                 cues,
-                language,
+                languages,
             } => (
                 LocalAsrOutcome::Succeeded(RecognitionOutput {
                     profile_sha256: job.request.profile_sha256.clone(),
                     manifest_sha256: job.manifest_sha256.clone(),
-                    coverage,
+                    coverages,
                     cues,
                 }),
-                language,
+                languages,
             ),
-            RecognitionResult::Failed(failure) => (LocalAsrOutcome::Failed(failure), None),
-            RecognitionResult::Cancelled => (LocalAsrOutcome::Cancelled, None),
+            RecognitionResult::Failed(failure) => (LocalAsrOutcome::Failed(failure), Vec::new()),
+            RecognitionResult::Cancelled => (LocalAsrOutcome::Cancelled, Vec::new()),
         };
         Ok(Self {
             request: job.request.clone(),
             generation: job.generation,
             outcome,
-            language,
+            languages,
         })
     }
 
-    pub(crate) fn language(&self) -> Option<&str> {
-        self.language.as_deref()
+    pub(crate) fn languages(&self) -> &[ChunkLanguage] {
+        &self.languages
     }
 
     pub(crate) fn matches(&self, work: &LocalAsrWork) -> bool {
@@ -266,7 +298,7 @@ impl ReapedLocalAsr {
             request: work.job.request.clone(),
             generation: work.job.generation,
             outcome,
-            language: None,
+            languages: Vec::new(),
         }
     }
 }
@@ -408,10 +440,65 @@ pub struct TranscriptRevisionPage {
 #[serde(deny_unknown_fields)]
 pub struct TranscriptCuePage {
     pub transcript: TranscriptSummary,
-    pub coverage: Option<RecognitionCoverage>,
+    /// Every coverage row. The same list is attached to each cue page.
+    pub coverages: Vec<RecognitionCoverage>,
     pub cues: Vec<RecognitionCue>,
     /// Pass this ordinal with the same exact transcript ID and revision.
     pub next_after_ordinal: Option<u32>,
+}
+
+/// Whether `count` worst-case coverage rows, plus a full transcript summary, fit one page.
+/// A recording the catalog can admit today is under the 15-minute capture ceiling, so this
+/// refuses a longer plan rather than a normal radio capture.
+#[must_use]
+pub(crate) fn coverages_fit_one_page(count: usize) -> bool {
+    if count == 0 || count > MAX_CHUNKS {
+        return false;
+    }
+    let page = TranscriptCuePage {
+        transcript: worst_summary(),
+        coverages: vec![worst_coverage(); count],
+        cues: Vec::new(),
+        next_after_ordinal: None,
+    };
+    serde_json::to_vec(&page).is_ok_and(|bytes| bytes.len() <= TRANSCRIPT_PAGE_BYTES)
+}
+
+fn worst_summary() -> TranscriptSummary {
+    let name = "n".repeat(128);
+    TranscriptSummary {
+        id: name.clone(),
+        revision: 64,
+        analysis_revision: 64,
+        recording_id: name.clone(),
+        media_sha256: "f".repeat(64),
+        kind: "legacy_placeholder".into(),
+        outcome: "no_text".into(),
+        parent_revision: Some(63),
+        profile: name.clone(),
+        profile_sha256: Some("f".repeat(64)),
+        job_id: Some(name),
+        job_generation: Some(64),
+        cue_count: 256,
+        text_bytes: 65_536,
+        created_ms: i64::MAX,
+        amount_usd: "0.000000".into(),
+        wording: "uncertain".into(),
+    }
+}
+
+fn worst_coverage() -> RecognitionCoverage {
+    const START: u64 = 9_000_000_000_000_000;
+    RecognitionCoverage {
+        ordinal: 1023,
+        interval_ordinal: 1_000_000,
+        start_us: START,
+        end_us: START + 30_000_000,
+        source_sha256: "f".repeat(64),
+        decoded_sha256: "f".repeat(64),
+        sample_rate: 384_000,
+        sample_count: 11_520_000,
+    }
 }
 
 pub(crate) fn is_sha256(value: &str) -> bool {
@@ -423,4 +510,27 @@ pub(crate) fn is_sha256(value: &str) -> bool {
 
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     crate::storage::dvr::hex(&Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+mod page_tests {
+    use super::{MAX_CHUNKS, coverages_fit_one_page};
+
+    #[test]
+    fn coverage_lists_fit_one_page_through_a_measured_ceiling() {
+        assert!(coverages_fit_one_page(30));
+        assert!(!coverages_fit_one_page(0));
+        assert!(!coverages_fit_one_page(MAX_CHUNKS));
+        let mut low = 1_usize;
+        let mut high = MAX_CHUNKS;
+        while low < high {
+            let mid = (low + high).div_ceil(2);
+            if coverages_fit_one_page(mid) {
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+        assert_eq!(low, 208);
+    }
 }

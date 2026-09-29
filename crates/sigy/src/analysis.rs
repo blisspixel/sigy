@@ -605,10 +605,11 @@ fn render_transcript(writer: &mut impl Write, page: &TranscriptCuePage) -> io::R
             summary.wording
         )?;
     }
-    if let Some(coverage) = &page.coverage {
+    for coverage in &page.coverages {
         writeln!(
             writer,
-            "Covers interval {}: {} to {} | {} samples at {} Hz.",
+            "Covers chunk {} of interval {}: {} to {} | {} samples at {} Hz.",
+            coverage.ordinal,
             coverage.interval_ordinal,
             clock(coverage.start_us),
             clock(coverage.end_us),

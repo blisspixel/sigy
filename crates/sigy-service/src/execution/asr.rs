@@ -28,6 +28,7 @@ use super::{
 use crate::{
     Result,
     recognition::{
+        ChunkLanguage,
         LocalAsrFailure::{
             self, Deadline, DecoderFailed, InputUnavailable, InvalidOutput, LimitsUnavailable,
             ProfileUnavailable, RecognizerFailed,
@@ -178,6 +179,7 @@ async fn decode_and_recognize(
         return Ok(failed(InputUnavailable));
     };
     let coverage = RecognitionCoverage {
+        ordinal: params.ordinal(),
         interval_ordinal: params.interval_ordinal,
         start_us: params.start_us,
         end_us: params.end_us,
@@ -192,12 +194,20 @@ async fn decode_and_recognize(
         return Ok(failed(InvalidOutput));
     };
     let cues = parsed.cues;
-    let language = parsed.language.filter(|_| !cues.is_empty());
+    let languages = parsed
+        .language
+        .filter(|_| !cues.is_empty())
+        .map(|code| ChunkLanguage {
+            ordinal: params.ordinal(),
+            code,
+        })
+        .into_iter()
+        .collect();
     Ok((
         RecognitionResult::Succeeded {
-            coverage,
+            coverages: vec![coverage],
             cues,
-            language,
+            languages,
         },
         Drained(()),
     ))
@@ -253,6 +263,93 @@ fn stop_with<T>(failure: LocalAsrFailure) -> Stage<T> {
     Stage::Stopped(RecognitionResult::Failed(failure))
 }
 
+/// How much of the piped segment the decoder keeps.
+pub(super) enum DecoderTrim {
+    /// The chunk is the whole segment. The argument list has no seek.
+    Whole,
+    /// Keep `duration_us` starting `offset_us` into the pipe. Offset zero still seeks.
+    Slice { offset_us: u64, duration_us: u64 },
+}
+
+/// `None` means the offset and slice disagree, so the decoder must not start.
+pub(super) fn decoder_trim(offset_us: u64, slice_us: Option<u64>) -> Option<DecoderTrim> {
+    match (offset_us, slice_us) {
+        (0, None) => Some(DecoderTrim::Whole),
+        (offset_us, Some(duration_us)) if duration_us > 0 => Some(DecoderTrim::Slice {
+            offset_us,
+            duration_us,
+        }),
+        _ => None,
+    }
+}
+
+/// Arguments for one pipe decode. A whole segment keeps the historical list.
+pub(super) fn decoder_arguments(
+    format: &str,
+    sample_rate: &str,
+    trim: &DecoderTrim,
+) -> Vec<String> {
+    let mut args = vec![
+        "-nostdin".into(),
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-nostats".into(),
+        "-xerror".into(),
+        "-max_alloc".into(),
+        "16777216".into(),
+        "-threads".into(),
+        "1".into(),
+        "-filter_threads".into(),
+        "1".into(),
+        "-protocol_whitelist".into(),
+        "pipe".into(),
+        "-f".into(),
+        format.to_owned(),
+        "-i".into(),
+        "pipe:0".into(),
+    ];
+    if let DecoderTrim::Slice {
+        offset_us,
+        duration_us,
+    } = trim
+    {
+        args.extend([
+            "-ss".into(),
+            ffmpeg_clock(*offset_us),
+            "-t".into(),
+            ffmpeg_clock(*duration_us),
+        ]);
+    }
+    args.extend(
+        [
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-sn",
+            "-dn",
+            "-ac",
+            "1",
+            "-ar",
+            sample_rate,
+            "-f",
+            "s16le",
+            "pipe:1",
+        ]
+        .into_iter()
+        .map(str::to_owned),
+    );
+    args
+}
+
+fn ffmpeg_clock(microseconds: u64) -> String {
+    format!(
+        "{}.{:06}",
+        microseconds / 1_000_000,
+        microseconds % 1_000_000
+    )
+}
+
 async fn decode(
     plan: &Plan<'_>,
     input: &Path,
@@ -269,41 +366,14 @@ async fn decode(
     let Ok(file) = File::open(input) else {
         return Ok(stop_with(InputUnavailable));
     };
+    let Some(trim) = decoder_trim(plan.params.offset_us(), plan.params.slice_us) else {
+        return Ok(stop_with(DecoderFailed));
+    };
     let sample_rate = plan.params.sample_rate.to_string();
+    let arguments = decoder_arguments(plan.format, &sample_rate, &trim);
     let mut command = tokio::process::Command::new(plan.decoder);
     command
-        .args([
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostats",
-            "-xerror",
-            "-max_alloc",
-            "16777216",
-            "-threads",
-            "1",
-            "-filter_threads",
-            "1",
-            "-protocol_whitelist",
-            "pipe",
-            "-f",
-            plan.format,
-            "-i",
-            "pipe:0",
-            "-map",
-            "0:a:0",
-            "-vn",
-            "-sn",
-            "-dn",
-            "-ac",
-            "1",
-            "-ar",
-            &sample_rate,
-            "-f",
-            "s16le",
-            "pipe:1",
-        ])
+        .args(&arguments)
         .stdin(Stdio::from(file))
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

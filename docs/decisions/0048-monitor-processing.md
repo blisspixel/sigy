@@ -1,6 +1,6 @@
 # Monitor processing
 
-Date: 2026-09-25. Status: implemented and tested on Windows x86_64 with storage and actor fixtures. This is the processing part of roadmap operation 31 and increment 3 ("first stage controller") of the [scaling architecture](../design/scaling-architecture.md#stage-graph). Catalog and IPC v33.
+Date: 2026-09-25. Status: implemented and tested on Windows x86_64 with storage and actor fixtures. This is the processing part of roadmap operation 31 and increment 3 ("first stage controller") of the [scaling architecture](../design/scaling-architecture.md#stage-graph). Catalog and IPC were v33. Amended 2026-09-29: recordings longer than 60 seconds are chunked under catalog v34. See [chunked recognition](0049-chunked-recognition.md).
 
 ## Decision
 
@@ -25,7 +25,7 @@ Real run, 2026-09-25, Windows debug build, fresh temporary library: two monitors
 
 ## Limitations
 
-- Recordings longer than 60 seconds are refused by recognition until chunked recognition exists; each is recorded once as skipped with `recognition-input-limit`, so it is not retried later.
+- Amended 2026-09-29 by [chunked recognition](0049-chunked-recognition.md): recordings longer than 60 seconds are transcribed in 30-second chunks. Migration deleted existing `recognition-input-limit` skips so those monitors retry. Other skip reasons stay. Caps are still charged once per recording, not once per chunk.
 - There is no fairness between monitors beyond the per-pass bound; operation 28 adds classes, deadlines and capacity.
 - The daily cap counts queued audio, not audio actually recognized; a failed job still counts.
 - Days are UTC, not the monitor's or the user's time zone.

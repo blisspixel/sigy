@@ -17,7 +17,7 @@ use tokio::sync::watch;
 
 use crate::{
     Error, Result,
-    recognition::{LocalAsrFailure, RecognitionCoverage, RecognitionCue},
+    recognition::{ChunkLanguage, LocalAsrFailure, RecognitionCoverage, RecognitionCue},
     translation::TranslationResult,
 };
 
@@ -69,10 +69,10 @@ pub(crate) const LOCAL_EVIDENCE: ExecutorEvidence = ExecutorEvidence {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RecognitionResult {
     Succeeded {
-        coverage: RecognitionCoverage,
+        coverages: Vec<RecognitionCoverage>,
         cues: Vec<RecognitionCue>,
-        /// The recognizer's own block language code, bounded and unmapped.
-        language: Option<String>,
+        /// Block language codes for chunks that produced cues.
+        languages: Vec<ChunkLanguage>,
     },
     Failed(LocalAsrFailure),
     Cancelled,
@@ -151,15 +151,49 @@ impl ResultEnvelope {
 
 fn output_digest(result: &TaskResult) -> Option<String> {
     let bytes = match result {
-        TaskResult::Recognition(RecognitionResult::Succeeded { coverage, cues, .. }) => {
-            serde_json::to_vec(&("sigy-recognition-output-v1", coverage, cues)).ok()?
-        }
+        TaskResult::Recognition(RecognitionResult::Succeeded {
+            coverages, cues, ..
+        }) => serde_json::to_vec(&("sigy-recognition-output-v1", coverages, cues)).ok()?,
         TaskResult::Translation(TranslationResult::Succeeded(cues)) => {
             serde_json::to_vec(&("sigy-translation-output-v1", cues)).ok()?
         }
         _ => return None,
     };
     Some(crate::recognition::sha256_hex(&bytes))
+}
+
+/// One recognition job finished every chunk. The spec hash is the chunk-plan digest.
+pub(crate) fn succeed_recognition(
+    task_id: &str,
+    generation: u32,
+    spec_sha256: &str,
+    coverages: Vec<RecognitionCoverage>,
+    cues: Vec<RecognitionCue>,
+    languages: Vec<ChunkLanguage>,
+) -> ResultEnvelope {
+    let result = TaskResult::Recognition(RecognitionResult::Succeeded {
+        coverages,
+        cues,
+        languages,
+    });
+    ResultEnvelope {
+        task_id: task_id.to_owned(),
+        generation,
+        spec_sha256: Some(spec_sha256.to_owned()),
+        output_sha256: output_digest(&result),
+        result,
+        evidence: LOCAL_EVIDENCE,
+        containment: Containment::Drained(Drained(())),
+    }
+}
+
+/// Recognition stopped between chunks, before another process was started.
+pub(crate) fn cancel_recognition(task_id: &str, generation: u32) -> ResultEnvelope {
+    ResultEnvelope::refused(
+        task_id,
+        generation,
+        TaskResult::Recognition(RecognitionResult::Cancelled),
+    )
 }
 
 /// A recognition task that no process was started for. It can only fail.

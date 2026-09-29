@@ -10,7 +10,9 @@ use super::{
 };
 use crate::{
     Error,
-    recognition::{LocalAsrFailure, LocalAsrInput, LocalAsrJob, LocalAsrRequest},
+    recognition::{
+        AsrSegment, LocalAsrFailure, LocalAsrInput, LocalAsrJob, LocalAsrRequest, PlannedChunk,
+    },
     recognizer::{self, translate::translation_spec},
     translation::{SourceCue, TranslationJob, TranslationRequest, TranslationResult},
 };
@@ -42,17 +44,38 @@ fn job(id: &str) -> LocalAsrJob {
 }
 
 fn input() -> LocalAsrInput {
+    let source_sha256 = "5".repeat(64);
     LocalAsrInput {
         recording_id: "one".into(),
         media_sha256: "3".repeat(64),
         timeline_sha256: "4".repeat(64),
-        object_key: "recordings/one/segment-0.wav".into(),
-        byte_length: 32_044,
-        interval_ordinal: 0,
-        start_us: 0,
-        end_us: 1_000_000,
-        source_sha256: "5".repeat(64),
+        segments: vec![AsrSegment {
+            ordinal: 0,
+            object_key: "recordings/one/segment-0.wav".into(),
+            byte_length: 32_044,
+            start_us: 0,
+            end_us: 1_000_000,
+            source_sha256: source_sha256.clone(),
+            format: "wav".into(),
+        }],
+        chunks: vec![PlannedChunk {
+            ordinal: 0,
+            interval_ordinal: 0,
+            start_us: 0,
+            end_us: 1_000_000,
+            source_sha256,
+        }],
     }
+}
+
+fn chunk_spec(
+    job: &LocalAsrJob,
+    input: &LocalAsrInput,
+    profile: &crate::recognition::RecognitionProfile,
+) -> crate::Result<TaskSpec> {
+    let segment = input.segments.first().ok_or(Error::StorageIntegrity)?;
+    let chunk = input.chunks.first().ok_or(Error::StorageIntegrity)?;
+    recognizer::recognition_spec(job, segment, chunk, profile)
 }
 
 fn profile(root: &Path) -> crate::recognition::RecognitionProfile {
@@ -142,8 +165,7 @@ const GOLDEN_RECOGNITION_SHA256: &str =
 #[test]
 fn a_recognition_spec_serializes_to_a_pinned_canonical_form_and_hash() -> TestResult {
     let root = tempfile::tempdir()?;
-    let spec =
-        recognizer::recognition_spec(&job("asr-golden"), &input(), &profile(root.path()), "wav")?;
+    let spec = chunk_spec(&job("asr-golden"), &input(), &profile(root.path()))?;
     let text = serde_json::to_string(&spec)?;
     assert_eq!(spec.spec_sha256, GOLDEN_RECOGNITION_SHA256, "{text}");
     assert_eq!(
@@ -158,12 +180,7 @@ fn a_recognition_spec_serializes_to_a_pinned_canonical_form_and_hash() -> TestRe
     );
     // The hash does not depend on where the profile files live.
     let elsewhere = tempfile::tempdir()?;
-    let moved = recognizer::recognition_spec(
-        &job("asr-golden"),
-        &input(),
-        &profile(elsewhere.path()),
-        "wav",
-    )?;
+    let moved = chunk_spec(&job("asr-golden"), &input(), &profile(elsewhere.path()))?;
     assert_eq!(moved, spec);
     // A round trip keeps the spec and its hash.
     let parsed: TaskSpec = serde_json::from_str(&text)?;
@@ -175,11 +192,10 @@ fn a_recognition_spec_serializes_to_a_pinned_canonical_form_and_hash() -> TestRe
 #[test]
 fn a_changed_field_changes_the_hash_and_a_stale_hash_is_refused() -> TestResult {
     let root = tempfile::tempdir()?;
-    let spec =
-        recognizer::recognition_spec(&job("asr-golden"), &input(), &profile(root.path()), "wav")?;
+    let spec = chunk_spec(&job("asr-golden"), &input(), &profile(root.path()))?;
     let mut next = job("asr-golden");
     next.generation = 2;
-    let second = recognizer::recognition_spec(&next, &input(), &profile(root.path()), "wav")?;
+    let second = chunk_spec(&next, &input(), &profile(root.path()))?;
     assert_ne!(second.spec_sha256, spec.spec_sha256);
     let mut tampered = spec.clone();
     tampered.limits.memory_bytes += 1;
@@ -218,9 +234,9 @@ fn environment_names() -> Vec<String> {
 fn no_spec_names_a_url_a_path_the_library_or_an_environment_variable() -> TestResult {
     let library = tempfile::tempdir()?;
     let job = job("asr-paths");
-    let input = input();
-    let recognition =
-        recognizer::recognition_spec(&job, &input, &profile(library.path()), "mpegts")?;
+    let mut input = input();
+    input.segments[0].format = "mpegts".into();
+    let recognition = chunk_spec(&job, &input, &profile(library.path()))?;
     let translation = translation_spec(
         &translation_job(),
         &translation_profile(library.path()),
@@ -234,7 +250,7 @@ fn no_spec_names_a_url_a_path_the_library_or_an_environment_variable() -> TestRe
         "\\".to_owned(),
         library_text.clone(),
         library_text.replace('\\', "/"),
-        input.object_key.clone(),
+        input.segments[0].object_key.clone(),
     ]
     .into_iter()
     .chain(environment_names())
@@ -278,8 +294,7 @@ fn translation_specs_carry_hashed_inline_text_and_refuse_a_changed_cue() -> Test
 #[test]
 fn an_envelope_binds_one_task_generation_spec_and_output() -> TestResult {
     let root = tempfile::tempdir()?;
-    let spec =
-        recognizer::recognition_spec(&job("asr-bind"), &input(), &profile(root.path()), "wav")?;
+    let spec = chunk_spec(&job("asr-bind"), &input(), &profile(root.path()))?;
     let make = || {
         ResultEnvelope::new(
             &spec,
@@ -303,7 +318,8 @@ fn an_envelope_binds_one_task_generation_spec_and_output() -> TestResult {
     ));
     let mut forged = make();
     forged.result = TaskResult::Recognition(RecognitionResult::Succeeded {
-        coverage: crate::recognition::RecognitionCoverage {
+        coverages: vec![crate::recognition::RecognitionCoverage {
+            ordinal: 0,
             interval_ordinal: 0,
             start_us: 0,
             end_us: 1_000_000,
@@ -311,9 +327,9 @@ fn an_envelope_binds_one_task_generation_spec_and_output() -> TestResult {
             decoded_sha256: "c".repeat(64),
             sample_rate: 16_000,
             sample_count: 16_000,
-        },
+        }],
         cues: Vec::new(),
-        language: None,
+        languages: Vec::new(),
     });
     assert!(
         matches!(
@@ -330,8 +346,7 @@ fn an_envelope_binds_one_task_generation_spec_and_output() -> TestResult {
 #[tokio::test]
 async fn the_local_executor_refuses_a_tampered_spec_without_starting_a_process() -> TestResult {
     let root = tempfile::tempdir()?;
-    let mut spec =
-        recognizer::recognition_spec(&job("asr-tamper"), &input(), &profile(root.path()), "wav")?;
+    let mut spec = chunk_spec(&job("asr-tamper"), &input(), &profile(root.path()))?;
     spec.limits.wall_ms = 1;
     let (_stop, signal) = tokio::sync::watch::channel(false);
     let stage = LocalStage::new(root.path());
@@ -365,6 +380,38 @@ async fn an_unmapped_hash_is_unavailable_without_starting_a_process() -> TestRes
         TaskResult::Translation(TranslationResult::Failed("translator-failed"))
     );
     Ok(())
+}
+
+#[test]
+fn whole_segment_decoder_arguments_stay_untrimmed_and_a_slice_seeks_after_the_pipe() {
+    let whole = super::asr::decoder_arguments("wav", "16000", &super::asr::DecoderTrim::Whole);
+    assert!(
+        whole
+            .windows(2)
+            .any(|pair| pair[0] == "-i" && pair[1] == "pipe:0")
+    );
+    assert!(!whole.iter().any(|arg| arg == "-ss" || arg == "-t"));
+    let slice = super::asr::decoder_arguments(
+        "wav",
+        "16000",
+        &super::asr::DecoderTrim::Slice {
+            offset_us: 30_000_000,
+            duration_us: 1,
+        },
+    );
+    let Some(index) = slice.iter().position(|arg| arg == "pipe:0") else {
+        panic!("pipe input missing");
+    };
+    assert_eq!(slice.get(index + 1).map(String::as_str), Some("-ss"));
+    assert_eq!(slice.get(index + 2).map(String::as_str), Some("30.000000"));
+    assert_eq!(slice.get(index + 3).map(String::as_str), Some("-t"));
+    assert_eq!(slice.get(index + 4).map(String::as_str), Some("0.000001"));
+    assert_eq!(slice.get(index + 5).map(String::as_str), Some("-map"));
+    assert!(matches!(
+        super::asr::decoder_trim(0, None),
+        Some(super::asr::DecoderTrim::Whole)
+    ));
+    assert!(super::asr::decoder_trim(1, None).is_none());
 }
 
 #[test]

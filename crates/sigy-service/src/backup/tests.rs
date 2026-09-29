@@ -225,6 +225,64 @@ fn a_manifest_that_omits_an_object_the_catalog_needs_is_refused() -> TestResult 
     Ok(())
 }
 
+#[test]
+fn backup_restores_one_recognized_chunk() -> TestResult {
+    use crate::recognition::{
+        LocalAsrOutcome, LocalAsrRequest, ReapedLocalAsr, RecognitionCoverage, RecognitionOutput,
+    };
+    let root = tempfile::tempdir()?;
+    let mut library = library(&root.path().join("library"))?;
+    publish(&mut library, "spoken", b"retained-audio")?;
+    library
+        .store_mut()
+        .admit_analysis("spoken", "spoken", false, 10)?;
+    library.store_mut().publish_analysis("spoken", 1)?;
+    let request = LocalAsrRequest {
+        id: "asr".into(),
+        analysis_id: "spoken".into(),
+        analysis_revision: 1,
+        profile: "synthetic-storage-fixture-v1".into(),
+        profile_sha256: "b".repeat(64),
+        parent_revision: 0,
+    };
+    let work = library
+        .store_mut()
+        .admit_local_asr(&request, 20)?
+        .1
+        .ok_or(Error::StorageIntegrity)?;
+    let chunk = work.input.chunks.first().ok_or(Error::StorageIntegrity)?;
+    let output = RecognitionOutput {
+        profile_sha256: work.job.request.profile_sha256.clone(),
+        manifest_sha256: work.job.manifest_sha256.clone(),
+        coverages: vec![RecognitionCoverage {
+            ordinal: chunk.ordinal,
+            interval_ordinal: chunk.interval_ordinal,
+            start_us: chunk.start_us,
+            end_us: chunk.end_us,
+            source_sha256: chunk.source_sha256.clone(),
+            decoded_sha256: "c".repeat(64),
+            sample_rate: 16_000,
+            sample_count: 16_000,
+        }],
+        cues: Vec::new(),
+    };
+    library.store_mut().finish_local_asr(
+        &work,
+        &ReapedLocalAsr::synthetic_fixture(&work, LocalAsrOutcome::Succeeded(output)),
+        21,
+    )?;
+    backup(&library, &root.path().join("backup"))?;
+    drop(library);
+    let restored_path = root.path().join("restored");
+    restore(&root.path().join("backup"), &restored_path)?;
+    let restored = Library::open(&restored_path, false)?;
+    let page = restored.store().transcript_cues_page("spoken", 1, None)?;
+    assert_eq!(page.transcript.outcome, "no_text");
+    assert_eq!(page.coverages.len(), 1);
+    assert_eq!(page.coverages[0].sample_count, 16_000);
+    Ok(())
+}
+
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     fs::create_dir(to)?;
     for entry in fs::read_dir(from)? {

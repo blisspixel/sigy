@@ -1,29 +1,29 @@
 # Roadmap
 
-Last updated: 2026-09-24
+Last updated: 2026-09-29
 
 This roadmap is organized by evidence and exit criteria. It does not assign speculative completion dates. Implementation has begun on the Rust foundation; the complete release remains ahead. [Current evidence and active work](docs/development/progress.md) distinguish completed slices from these planned stages.
 
-The current foundation is recorded in [implementation progress](docs/development/progress.md): the Rust service, exact ledger, Windows controller, capture journal, source authority, radio and podcast acquisition, segmented recording and retention, playback, the list explorer, civil schedules, and saved directory refresh. Local Windows fixtures cover those increments. Analysis pins and empty transcript revisions exist. A first [three-clip recognition calibration](research/experiments/local-asr/three-clip-calibration.md) has run in a research harness; the application does not yet recognize speech or translate. The next work follows the [language pipeline plan](docs/development/language-pipeline.md). No stage below is exited.
+The current foundation is recorded in [implementation progress](docs/development/progress.md): the Rust service, exact ledger, Windows controller, capture journal, source authority, radio and podcast acquisition, segmented recording and retention, playback, the list explorer, civil schedules, and saved directory refresh. Local Windows fixtures cover those increments. The service recognizes speech and translates into English on this Windows host, including recordings longer than 60 seconds. Quality is not qualified. The next work follows the [language pipeline plan](docs/development/language-pipeline.md). No stage below is exited.
 
 The product journey is to explore signals and discover their meaning in context. Each milestone must make the path from observation to interpretation inspectable, preserve uncertainty, and support learning and correction. These are planned acceptance requirements, not claims about the current implementation.
 
 ## What's next
 
-The first complete release depends on one chain: recognition, then translation, then the live queue, then monitoring, then release qualification. Work that does not depend on that chain runs alongside it. Status as of 2026-09-24:
+The first complete release depends on one chain: recognition, then translation, then the live queue, then monitoring, then release qualification. Work that does not depend on that chain runs alongside it. Status as of 2026-09-29:
 
 | Order | Work | State and why |
 | --- | --- | --- |
 | Done | **Recognition, language labels and translation workers (operations 23 to 25).** Contained local recognizer and translator, recognizer language evidence, 32-clip calibration, five live stations | The pipeline runs end to end locally. Quality claims still need reference-scored checks |
 | Done locally | **Billing faults and provider configuration (operations 26 and 27).** Exact pricing, lifetime allowance that never refills, offline fault dispatcher | Unlocks a bounded paid comparison without surprise bills |
 | Done locally | **Task contract and durable job pool.** Content-addressed task specs and an executor contract; a durable queue with leases, attempts and per-kind caps; no job history cap. See the [task contract and job pool](docs/decisions/0043-task-contract-and-job-pool.md) | Continuous stations no longer exhaust job history, and the same contracts can scale from a laptop to many workers |
+| Done locally | **Live HLS and chunked recognition.** Live HLS recording and master-variant listing; one recognition job covers recordings longer than 60 seconds and multi-segment captures in 30-second chunks. See [live HLS](docs/decisions/0042-live-hls.md) and [chunked recognition](docs/decisions/0049-chunked-recognition.md) | The byte cap and the single recognition slot are unchanged. Fair scheduling is still ahead |
 | 0 | **Linux containment.** Run native workers in delegated cgroup leaves so recognition and translation work under systemd and in containers; decide macOS containment | A Linux run showed native work fails closed on ordinary Linux hosts |
 | 1 | **Translation quality checks.** chrF++ and critical-error checks against FLEURS parallel English references for reference text and recognizer output; compare local models | Fluent output can be wrong; one manual check already found a critical meaning error |
-| 2 | **Live HLS and longer recordings.** Record live HLS stations; transcribe recordings longer than 60 seconds and multi-segment captures | Many world stations are HLS only, and real broadcasts are longer than a minute |
-| 3 | **Accelerated profiles.** Vulkan, CUDA, ROCm and Metal builds as separate measured profiles with device evidence; CPU stays the fallback | Must work well on any machine and use its GPU when present |
-| 4 | **Globe and day/night map (operation 36).** Rendering on the existing geometry with offline coastlines and station coordinates | Needed for the terminal experience in stage 4 |
-| 5 | **Topic monitoring (operations 30 to 35)** following the [topic monitoring design](docs/design/topic-monitoring.md), with corrections (operation 29). Monitor versions, the action log, coverage counts, literal passage matches and automatic processing within caps exist; capture scheduling, stored findings and briefings remain. Backup and restore (operation 38) has its first slice | Monitoring is the stage 6 promise and can now build on real transcripts and translations |
-| 6 | **Live queue, visualizers, release qualification (operations 28, 37, 39 to 41)** | Needs measured capacity first |
+| 2 | **Accelerated profiles.** Vulkan, CUDA, ROCm and Metal builds as separate measured profiles with device evidence; CPU stays the fallback | Must work well on any machine and use its GPU when present |
+| 3 | **Globe and day/night map (operation 36).** Rendering on the existing geometry with offline coastlines and station coordinates | Needed for the terminal experience in stage 4 |
+| 4 | **Topic monitoring (operations 30 to 35)** following the [topic monitoring design](docs/design/topic-monitoring.md), with corrections (operation 29). Monitor versions, the action log, coverage counts, literal passage matches and automatic processing within caps exist; capture scheduling, stored findings and briefings remain. Backup and restore (operation 38) has its first slice | Monitoring is the stage 6 promise and can now build on real transcripts and translations |
+| 5 | **Live queue, visualizers, release qualification (operations 28, 37, 39 to 41)** | Needs measured capacity first |
 
 Portability is a requirement, not a later polish step. The CPU profile is the baseline on any supported machine. GPU backends and a user-run Ollama are optional accelerations that are detected, measured, and never assumed.
 

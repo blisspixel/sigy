@@ -39,28 +39,39 @@ fn admit(store: &mut Store, id: &str, parent: i64) -> Result<LocalAsrWork> {
 }
 
 fn output(work: &LocalAsrWork, script: &str) -> RecognitionOutput {
+    let coverages = work
+        .input
+        .chunks
+        .iter()
+        .map(|chunk| {
+            let duration = chunk.end_us.saturating_sub(chunk.start_us);
+            let samples = duration.saturating_mul(16_000) / 1_000_000;
+            RecognitionCoverage {
+                ordinal: chunk.ordinal,
+                interval_ordinal: chunk.interval_ordinal,
+                start_us: chunk.start_us,
+                end_us: chunk.end_us,
+                source_sha256: chunk.source_sha256.clone(),
+                decoded_sha256: "c".repeat(64),
+                sample_rate: 16_000,
+                sample_count: samples.max(1),
+            }
+        })
+        .collect();
+    let cues = match (script.is_empty(), work.input.chunks.first()) {
+        (false, Some(chunk)) => vec![RecognitionCue {
+            ordinal: 0,
+            start_us: chunk.start_us,
+            end_us: chunk.end_us,
+            script: script.into(),
+        }],
+        _ => Vec::new(),
+    };
     RecognitionOutput {
         profile_sha256: work.job.request.profile_sha256.clone(),
         manifest_sha256: work.job.manifest_sha256.clone(),
-        coverage: RecognitionCoverage {
-            interval_ordinal: work.input.interval_ordinal,
-            start_us: work.input.start_us,
-            end_us: work.input.end_us,
-            source_sha256: work.input.source_sha256.clone(),
-            decoded_sha256: "c".repeat(64),
-            sample_rate: 16_000,
-            sample_count: 16_000,
-        },
-        cues: if script.is_empty() {
-            Vec::new()
-        } else {
-            vec![RecognitionCue {
-                ordinal: 0,
-                start_us: work.input.start_us,
-                end_us: work.input.end_us,
-                script: script.into(),
-            }]
-        },
+        coverages,
+        cues,
     }
 }
 
@@ -108,7 +119,7 @@ fn admission_is_exact_replay_without_redispatch_and_shares_worker_slot() -> Test
         Err(Error::IdempotencyConflict)
     ));
     assert_eq!(counts(&store)?, (0, 0, 0, 0));
-    assert_eq!(work.input.byte_length, 100);
+    assert_eq!(work.input.byte_length()?, 100);
     assert_eq!(work.job.manifest_sha256, manifest(&work.input)?);
     Ok(())
 }
@@ -219,7 +230,7 @@ fn legacy_and_zero_cue_revisions_stay_distinct_and_parent_is_exact() -> TestResu
     let silence = store.transcript_cues_page("pin", 2, None)?;
     assert_eq!(silence.transcript.outcome, "no_text");
     assert!(silence.cues.is_empty());
-    assert!(silence.coverage.is_some());
+    assert!(!silence.coverages.is_empty());
     assert_eq!(silence.next_after_ordinal, None);
     let second = admit(&mut store, "text", 2)?;
     store.finish_local_asr(&second, &proof(&second, "speech"), 22)?;
@@ -261,10 +272,10 @@ fn malformed_worker_outputs_fail_without_partial_or_empty_placeholder_rows() -> 
         match fault {
             "digest" => value.profile_sha256 = "d".repeat(64),
             "manifest" => value.manifest_sha256 = "d".repeat(64),
-            "source" => value.coverage.source_sha256 = "d".repeat(64),
-            "decoded" => value.coverage.decoded_sha256 = "invalid".into(),
-            "coverage" => value.coverage.end_us += 1,
-            "clock" => value.coverage.sample_count -= 2,
+            "source" => value.coverages[0].source_sha256 = "d".repeat(64),
+            "decoded" => value.coverages[0].decoded_sha256 = "invalid".into(),
+            "coverage" => value.coverages[0].end_us += 1,
+            "clock" => value.coverages[0].sample_count -= 2,
             "ordinal" => value.cues[0].ordinal = 1,
             "range" => value.cues[0].end_us += 1,
             "empty" => value.cues[0].script.clear(),
@@ -541,13 +552,27 @@ fn sparse_legacy_cue_ordinals_page_without_truncation() -> TestResult {
     Ok(())
 }
 
+fn publish_wav(store: &mut Store, id: &str, bytes: u64, sha: String, decoded: u64) -> Result<()> {
+    let recording = store
+        .admit_recording(
+            id,
+            "radio:v1",
+            120,
+            80_000_000,
+            super::super::dvr::Retention::Temporary,
+            false,
+        )?
+        .ok_or(Error::StorageIntegrity)?;
+    let mut publication = minute_publication(bytes, decoded, "wav");
+    publication.sha256 = sha;
+    store.publish_recording(&recording.version, &publication)?;
+    store.admit_analysis(id, id, false, 20)?;
+    store.publish_analysis(id, 1)?;
+    Ok(())
+}
+
 #[test]
 fn request_and_input_limits_refuse_before_admission() -> TestResult {
-    use crate::{
-        sources::HttpHop,
-        storage::dvr::{Publication, Retention},
-    };
-
     let directory = tempfile::tempdir()?;
     let mut store = setup(&directory.path().join("catalog"), false)?;
     for invalid in ["reserved", "digest", "revision", "parent"] {
@@ -570,49 +595,28 @@ fn request_and_input_limits_refuse_before_admission() -> TestResult {
         14,
         executable.to_str().ok_or(Error::StorageIntegrity)?,
     )?;
-    for (name, bytes, duration) in [("large", 67_108_865, 1_000_000), ("long", 100, 60_000_001)] {
-        let recording = store
-            .admit_recording(
-                name,
-                "radio:v1",
-                120,
-                80_000_000,
-                Retention::Temporary,
-                false,
-            )?
-            .ok_or(Error::StorageIntegrity)?;
-        store.publish_recording(
-            &recording.version,
-            &Publication {
-                bytes,
-                sha256: "d".repeat(64),
-                format: "wav",
-                decoded_microseconds: duration,
-                end_reason: "end_of_body",
-                http_route: vec![HttpHop {
-                    origin: "https://example.com".into(),
-                    peer: ([8, 8, 8, 8], 443).into(),
-                    status: 200,
-                }],
-                observations: Vec::new(),
-                segments_sealed: false,
-                gap: None,
-            },
-        )?;
-        store.admit_analysis(name, name, false, 20)?;
-        store.publish_analysis(name, 1)?;
-        let mut value = request(name, 0);
-        value.analysis_id = name.into();
-        assert!(matches!(
-            store.admit_local_asr(&value, 21),
-            Err(Error::Analysis("recognition-input-limit"))
-        ));
-    }
-    let jobs: u32 =
-        store
-            .connection
-            .query_row("SELECT count(*) FROM analysis_jobs", [], |row| row.get(0))?;
-    assert_eq!(jobs, 0);
+    publish_wav(&mut store, "large", 67_108_865, "d".repeat(64), 1_000_000)?;
+    let mut large = request("large", 0);
+    large.analysis_id = "large".into();
+    assert!(matches!(
+        store.admit_local_asr(&large, 21),
+        Err(Error::Analysis("recognition-input-limit"))
+    ));
+    publish_wav(&mut store, "long", 100, "e".repeat(64), 60_000_001)?;
+    let mut value = request("long", 0);
+    value.analysis_id = "long".into();
+    let work = store
+        .admit_local_asr(&value, 21)?
+        .1
+        .ok_or(Error::StorageIntegrity)?;
+    assert_eq!(work.input.chunks.len(), 3);
+    assert_eq!(work.input.segments.len(), 1);
+    let files: i64 = store.connection.query_row(
+        "SELECT expected_files FROM analysis_jobs WHERE id = 'long'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(files, 1);
     Ok(())
 }
 
@@ -680,6 +684,402 @@ fn profiles_are_immutable_exact_replays_and_bounded() -> TestResult {
         Err(Error::NotFound)
     ));
     assert_eq!(store.recognition_profiles()?.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn a_ninety_second_file_publishes_three_chunks_and_skips_a_silent_span() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let recording = store
+        .admit_recording(
+            "show",
+            "radio:v1",
+            90,
+            1_000,
+            super::super::dvr::Retention::Temporary,
+            false,
+        )?
+        .ok_or(Error::StorageIntegrity)?;
+    store.publish_recording(
+        &recording.version,
+        &minute_publication(1_000, 90_000_000, "wav"),
+    )?;
+    store.admit_analysis("show", "show", false, 20)?;
+    store.publish_analysis("show", 1)?;
+    let mut request = request("show", 0);
+    request.analysis_id = "show".into();
+    let work = store
+        .admit_local_asr(&request, 21)?
+        .1
+        .ok_or(Error::StorageIntegrity)?;
+    assert_eq!(work.input.chunks.len(), 3);
+    let mut value = output(&work, "bonjour");
+    let third = work.input.chunks.get(2).ok_or(Error::StorageIntegrity)?;
+    value.cues.push(RecognitionCue {
+        ordinal: 1,
+        start_us: third.start_us,
+        end_us: third.end_us,
+        script: "monde".into(),
+    });
+    let job = store.finish_local_asr(
+        &work,
+        &ReapedLocalAsr::synthetic_fixture(&work, LocalAsrOutcome::Succeeded(value)),
+        22,
+    )?;
+    assert_eq!(job.amount_usd, "0.000000");
+    assert_eq!(counts(&store)?, (1, 2, 3, 1));
+    let page = store.transcript_cues_page("show", 1, None)?;
+    assert_eq!(page.transcript.outcome, "text");
+    assert_eq!(page.coverages.len(), 3);
+    let evidence = crate::recognizer::language_evidence(
+        &job,
+        &work.input,
+        &[
+            crate::recognition::ChunkLanguage {
+                ordinal: 0,
+                code: "es".into(),
+            },
+            crate::recognition::ChunkLanguage {
+                ordinal: 2,
+                code: "fr".into(),
+            },
+        ],
+    );
+    store.publish_language_evidence(evidence, 23)?;
+    let stored = store.language_evidence("show", 1)?;
+    assert_eq!(stored.spans.len(), 2);
+    assert_eq!(stored.spans[0].end_us, work.input.chunks[0].end_us);
+    assert_eq!(stored.spans[1].start_us, third.start_us);
+    assert_eq!(stored.spans[1].ordinal, 1);
+    let paid: i64 = store
+        .connection
+        .query_row("SELECT count(*) FROM requests", [], |row| row.get(0))?;
+    assert_eq!(paid, 0);
+    Ok(())
+}
+
+#[test]
+fn a_cue_across_two_chunks_publishes_nothing() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let recording = store
+        .admit_recording(
+            "show",
+            "radio:v1",
+            90,
+            1_000,
+            super::super::dvr::Retention::Temporary,
+            false,
+        )?
+        .ok_or(Error::StorageIntegrity)?;
+    store.publish_recording(
+        &recording.version,
+        &minute_publication(1_000, 90_000_000, "wav"),
+    )?;
+    store.admit_analysis("show", "show", false, 20)?;
+    store.publish_analysis("show", 1)?;
+    let mut request = request("show", 0);
+    request.analysis_id = "show".into();
+    let work = admit_named(&mut store, &request)?;
+    let mut value = output(&work, "");
+    value.cues.push(RecognitionCue {
+        ordinal: 0,
+        start_us: 29_000_000,
+        end_us: 31_000_000,
+        script: "cross".into(),
+    });
+    let job = store.finish_local_asr(
+        &work,
+        &ReapedLocalAsr::synthetic_fixture(&work, LocalAsrOutcome::Succeeded(value)),
+        22,
+    )?;
+    assert_eq!(job.reason.as_deref(), Some("invalid-worker-result"));
+    assert_eq!(counts(&store)?, (0, 0, 0, 0));
+    Ok(())
+}
+
+fn admit_named(store: &mut Store, request: &LocalAsrRequest) -> Result<LocalAsrWork> {
+    store
+        .admit_local_asr(request, 21)?
+        .1
+        .ok_or(Error::StorageIntegrity)
+}
+
+#[test]
+fn abutting_segments_stay_two_chunks() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    publish_two_segments(&mut store)?;
+    let mut request = request("roll", 0);
+    request.analysis_id = "roll".into();
+    let work = admit_named(&mut store, &request)?;
+    assert_eq!(work.input.segments.len(), 2);
+    assert_eq!(work.input.chunks.len(), 2);
+    assert_eq!(work.input.chunks[0].interval_ordinal, 0);
+    assert_eq!(work.input.chunks[1].interval_ordinal, 1);
+    assert_eq!(work.input.chunks[0].end_us, work.input.chunks[1].start_us);
+    let files: i64 = store.connection.query_row(
+        "SELECT expected_files FROM analysis_jobs WHERE id = 'roll'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(files, 2);
+    let job = store.finish_local_asr(&work, &proof(&work, ""), 22)?;
+    assert_eq!(job.state, "succeeded");
+    assert_eq!(
+        store.transcript_cues_page("roll", 1, None)?.coverages.len(),
+        2
+    );
+    Ok(())
+}
+
+fn publish_two_segments(store: &mut Store) -> Result<()> {
+    use crate::storage::dvr::{SegmentOpen, SegmentSeal, hex};
+    use sha2::{Digest, Sha256};
+    let executable = std::env::current_exe()?;
+    store.configure_dvr(
+        200_000_000,
+        64 * 1024 * 1024,
+        14,
+        executable.to_str().ok_or(Error::StorageIntegrity)?,
+    )?;
+    let job = store
+        .admit_recording(
+            "roll",
+            "radio:v1",
+            60,
+            80_000_000,
+            super::super::dvr::Retention::Temporary,
+            false,
+        )?
+        .ok_or(Error::StorageIntegrity)?;
+    let mut current = store.connect_recording(&job.version)?;
+    let mut joined = Vec::new();
+    for bytes in [b"aaaa".as_slice(), b"bbbb".as_slice()] {
+        let SegmentOpen::Opened { version, .. } = store.open_segment(&current)? else {
+            return Err(Error::StorageIntegrity);
+        };
+        joined.extend_from_slice(bytes);
+        current = store.seal_segment(
+            &version,
+            &SegmentSeal {
+                bytes: u64::try_from(bytes.len()).map_err(|_| Error::StorageIntegrity)?,
+                sha256: hex(&Sha256::digest(bytes)),
+                format: "wav",
+                decoded_microseconds: 5_000_000,
+            },
+        )?;
+    }
+    let bytes = u64::try_from(joined.len()).map_err(|_| Error::StorageIntegrity)?;
+    store.publish_recording(
+        &current,
+        &super::super::dvr::Publication {
+            bytes,
+            sha256: hex(&Sha256::digest(&joined)),
+            format: "wav",
+            decoded_microseconds: 10_000_000,
+            end_reason: "end_of_body",
+            http_route: minute_publication(bytes, 10_000_000, "wav").http_route,
+            observations: Vec::new(),
+            segments_sealed: true,
+            gap: None,
+        },
+    )?;
+    store.admit_analysis("roll", "roll", false, 20)?;
+    store.publish_analysis("roll", 1)?;
+    Ok(())
+}
+
+fn minute_publication(
+    bytes: u64,
+    decoded: u64,
+    format: &'static str,
+) -> super::super::dvr::Publication {
+    use crate::sources::HttpHop;
+    super::super::dvr::Publication {
+        bytes,
+        sha256: "d".repeat(64),
+        format,
+        decoded_microseconds: decoded,
+        end_reason: "end_of_body",
+        http_route: vec![HttpHop {
+            origin: "https://example.com".into(),
+            peer: ([8, 8, 8, 8], 443).into(),
+            status: 200,
+        }],
+        observations: Vec::new(),
+        segments_sealed: false,
+        gap: None,
+    }
+}
+
+#[test]
+fn migration_keeps_a_full_minute_and_reopens_only_the_limit_skip() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    write_v33(&path)?;
+    let mut store = Store::open(&path)?;
+    let version: i64 = store
+        .connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, i64::from(super::super::SCHEMA_VERSION));
+    let ordinal: i64 = store.connection.query_row(
+        "SELECT ordinal FROM transcript_coverage WHERE transcript_id = 'long'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(ordinal, 0);
+    let table: String = store.connection.query_row(
+        "SELECT sql FROM sqlite_schema WHERE name = 'transcript_coverage'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert!(table.contains("60000000"), "{table}");
+    let trigger: String = store.connection.query_row(
+        "SELECT sql FROM sqlite_schema WHERE name = 'transcript_coverage_insert'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert!(trigger.contains("30000000"), "{trigger}");
+    assert!(store.claim_local_asr("stale-plan", "owner", 40)?.is_none());
+    let stale = store.local_asr_job("stale-plan")?;
+    assert_eq!(stale.reason.as_deref(), Some("input-no-longer-current"));
+    assert_eq!(stale.manifest_sha256, "f".repeat(64));
+    let mut statement = store
+        .connection
+        .prepare("SELECT reason FROM monitor_steps ORDER BY recording_id")?;
+    let skips = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    assert_eq!(skips, vec!["longer-than-daily-cap".to_owned()]);
+    Ok(())
+}
+
+#[test]
+fn an_interrupted_chunk_migration_stays_at_version_33() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    write_v33(&path)?;
+    break_job_check(&path)?;
+    assert!(Store::open(&path).is_err());
+    let connection = rusqlite::Connection::open(&path)?;
+    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 33);
+    let rows: i64 =
+        connection.query_row("SELECT count(*) FROM transcript_coverage", [], |row| {
+            row.get(0)
+        })?;
+    assert!(rows >= 1);
+    Ok(())
+}
+
+fn write_v33(path: &Path) -> Result<()> {
+    let mut store = super::super::transcripts::migration_tests::setup_at_version(path, 25)?;
+    store.connection.execute(
+        "INSERT INTO transcripts VALUES ('pin', 1, 'pin', 1, 'one', ?1, 'original', 'local-unmeasured', 'published', 11)",
+        ["a".repeat(64)],
+    )?;
+    store.connection.execute_batch("INSERT INTO transcript_cues VALUES ('pin', 1, 0, 0, 1000000, '', 'uncertain'); INSERT INTO analysis_decisions VALUES ('pin', 1, 0, NULL, 11);")?;
+    let sha = publish_full_minute(&mut store)?;
+    advance_to_v33(&mut store)?;
+    insert_full_minute(&mut store, &sha)?;
+    insert_stale_and_skips(&mut store)?;
+    Ok(())
+}
+
+fn publish_full_minute(store: &mut Store) -> Result<String> {
+    let recording = store
+        .admit_recording(
+            "long",
+            "radio:v1",
+            60,
+            80,
+            super::super::dvr::Retention::Temporary,
+            false,
+        )?
+        .ok_or(Error::StorageIntegrity)?;
+    store.publish_recording(
+        &recording.version,
+        &minute_publication(80, 60_000_000, "wav"),
+    )?;
+    store.admit_analysis("long", "long", false, 12)?;
+    store.publish_analysis("long", 1)?;
+    let (end, sha): (i64, String) = store.connection.query_row(
+        "SELECT decoded_end_us, sha256 FROM recording_intervals WHERE recording_id = 'long'",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let gaps: i64 = store.connection.query_row(
+        "SELECT count(*) FROM recording_gaps WHERE recording_id = 'long'",
+        [],
+        |row| row.get(0),
+    )?;
+    if gaps != 0 || end != 60_000_000 {
+        return Err(Error::StorageIntegrity);
+    }
+    Ok(sha)
+}
+
+fn advance_to_v33(store: &mut Store) -> Result<()> {
+    let tx = store.connection.transaction()?;
+    tx.execute_batch(include_str!("../026-transcript-revisions.sql"))?;
+    tx.execute_batch(include_str!("../026-transcript-invariants.sql"))?;
+    super::super::transcripts::audit_single_interval(&tx)?;
+    super::super::analysis_jobs::audit(&tx)?;
+    tx.execute_batch(include_str!("../027-recognition-profiles.sql"))?;
+    tx.execute_batch(include_str!("../028-provider-routes.sql"))?;
+    tx.execute_batch(include_str!("../029-translations.sql"))?;
+    super::super::widen::migrate_030(&tx)?;
+    tx.execute_batch(include_str!("../030-live-hls.sql"))?;
+    super::super::job_pool::migrate_031(&tx)?;
+    tx.execute_batch(include_str!("../032-monitors.sql"))?;
+    tx.execute_batch(include_str!("../033-monitor-steps.sql"))?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn insert_full_minute(store: &mut Store, sha: &str) -> Result<()> {
+    let tx = store.connection.transaction()?;
+    tx.execute("INSERT INTO analysis_jobs(id, generation, analysis_id, analysis_revision, recording_id, profile, kind, profile_sha256, expected_parent_revision, state, expected_bytes, expected_files, manifest_sha256, amount_micros, created_ms, lineage, attempt) VALUES ('minute', 1, 'long', 1, 'long', 'fixture-profile', 'local_asr', ?1, 0, 'queued', 80, 1, ?2, 0, 20, 'long', 1)", params!["b".repeat(64), "c".repeat(64)])?;
+    tx.execute("UPDATE analysis_jobs SET state = 'running', lease_owner = 'local-test', lease_expires_ms = 20, started_ms = 20 WHERE id = 'minute'", [])?;
+    tx.execute("INSERT INTO transcripts(id, revision, analysis_id, analysis_revision, recording_id, media_sha256, role, profile, kind, outcome, parent_revision, job_id, job_generation, profile_sha256, cue_count, text_bytes, state, created_ms) VALUES ('long', 1, 'long', 1, 'long', ?1, 'original', 'fixture-profile', 'recognition', 'no_text', NULL, 'minute', 1, ?2, 0, 0, 'published', 21)", params!["d".repeat(64), "b".repeat(64)])?;
+    tx.execute("INSERT INTO transcript_coverage(transcript_id, revision, interval_ordinal, start_us, end_us, source_sha256, decoded_sha256, sample_rate, sample_count) VALUES ('long', 1, 0, 0, 60000000, ?1, ?2, 16000, 960000)", params![sha, "c".repeat(64)])?;
+    tx.execute(
+        "INSERT INTO analysis_decisions VALUES ('long', 1, 0, NULL, 21)",
+        [],
+    )?;
+    tx.execute(
+        "UPDATE analysis_jobs SET state = 'succeeded', finished_ms = 22 WHERE id = 'minute'",
+        [],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn insert_stale_and_skips(store: &mut Store) -> Result<()> {
+    store.connection.execute("INSERT INTO analysis_jobs(id, generation, analysis_id, analysis_revision, recording_id, profile, kind, profile_sha256, expected_parent_revision, state, expected_bytes, expected_files, manifest_sha256, amount_micros, created_ms, lineage, attempt) VALUES ('stale-plan', 1, 'pin', 1, 'one', 'fixture-profile', 'local_asr', ?1, 1, 'queued', 100, 1, ?2, 0, 30, 'pin', 1)", params!["b".repeat(64), "f".repeat(64)])?;
+    store.connection.execute(
+        "INSERT INTO monitors(id, created_ms) VALUES ('desk', 1)",
+        [],
+    )?;
+    store.connection.execute("INSERT INTO monitor_versions(monitor_id, version, spec_json, spec_sha256, created_ms) VALUES ('desk', 1, '{}', ?1, 1)", params!["a".repeat(64)])?;
+    store.connection.execute("INSERT INTO monitor_steps(monitor_id, recording_id, stage, policy_version, decision, reason, analysis_id, job_id, audio_us, charged_day, created_ms) VALUES ('desk', 'one', 'recognition', 1, 'skipped', 'recognition-input-limit', NULL, NULL, 0, 0, 1)", [])?;
+    store.connection.execute("INSERT INTO monitor_steps(monitor_id, recording_id, stage, policy_version, decision, reason, analysis_id, job_id, audio_us, charged_day, created_ms) VALUES ('desk', 'long', 'recognition', 1, 'skipped', 'longer-than-daily-cap', NULL, NULL, 0, 0, 2)", [])?;
+    Ok(())
+}
+
+fn break_job_check(path: &Path) -> Result<()> {
+    let connection = rusqlite::Connection::open(path)?;
+    connection.pragma_update(None, "writable_schema", true)?;
+    let changed = connection.execute(
+        "UPDATE sqlite_schema SET sql = replace(sql, 'expected_files = 1 AND expected_bytes <= 67108864', 'expected_files = 9 AND expected_bytes <= 67108864') WHERE name = 'analysis_jobs'",
+        [],
+    )?;
+    if changed != 1 {
+        return Err(Error::StorageIntegrity);
+    }
+    connection.pragma_update(None, "writable_schema", false)?;
     Ok(())
 }
 

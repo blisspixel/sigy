@@ -1,12 +1,13 @@
 //! Native local recognition supervisor.
 //!
-//! One job decodes one retained interval to 16 kHz mono PCM with the configured
-//! `FFmpeg`, then runs one pinned recognizer process. The service describes the job as a
-//! content-addressed task spec and runs it through the local process executor; see
-//! [`crate::execution`] for containment and the drain proof. The spec carries no
-//! source URL, catalog handle, library path, provider secret or network configuration.
-//! This is not an operating-system network sandbox; see the recognition decision record
-//! for that limitation.
+//! One job walks its frozen chunk plan. Each chunk decodes one slice of a retained
+//! segment to 16 kHz mono PCM with the configured `FFmpeg`, then runs one pinned
+//! recognizer process. The service describes each chunk as a content-addressed task
+//! spec and runs it through the local process executor; see [`crate::execution`] for
+//! containment and the drain proof. The spec carries no source URL, catalog handle,
+//! library path, provider secret or network configuration. This is not an
+//! operating-system network sandbox; see the recognition decision record for that
+//! limitation. A failure or cancellation publishes nothing. Restart redoes every chunk.
 
 use std::{
     path::{Path, PathBuf},
@@ -23,8 +24,9 @@ use crate::{
         hash_file, runtime_manifest,
     },
     recognition::{
-        LocalAsrFailure, LocalAsrInput, LocalAsrJob, MAX_MODEL_BYTES, MAX_VAD_BYTES,
-        ReapedLocalAsr, RecognitionProfile, WHISPER_CPP_CLI, WHISPER_TEMPLATE,
+        AsrSegment, ChunkLanguage, LocalAsrFailure, LocalAsrInput, LocalAsrJob, MAX_MODEL_BYTES,
+        MAX_VAD_BYTES, PlannedChunk, ReapedLocalAsr, RecognitionCue, RecognitionProfile,
+        WHISPER_CPP_CLI, WHISPER_TEMPLATE,
     },
 };
 
@@ -38,7 +40,6 @@ const DECODER_DEADLINE_MS: u64 = 60_000;
 pub(crate) struct RecognitionTask {
     pub directory: PathBuf,
     pub decoder: String,
-    pub format: String,
     pub profile: RecognitionProfile,
     pub job: LocalAsrJob,
     pub input: LocalAsrInput,
@@ -117,16 +118,17 @@ fn asset(role: AssetRole, sha256: &str, bytes: u64, files: u32, entry: Option<&s
     }
 }
 
-/// The content-addressed description of one recognition job. It names the retained
-/// interval and the pinned profile files by hash only.
+/// The content-addressed description of one chunk. It names the retained segment and
+/// the pinned profile files by hash only.
 /// # Errors
-/// Refuses a profile or input whose values cannot form a valid spec.
+/// Refuses a chunk that is outside its segment or a value that cannot form a valid spec.
 pub(crate) fn recognition_spec(
     job: &LocalAsrJob,
-    input: &LocalAsrInput,
+    segment: &AsrSegment,
+    chunk: &PlannedChunk,
     profile: &RecognitionProfile,
-    format: &str,
 ) -> Result<TaskSpec> {
+    let (file_offset_us, slice_us) = chunk_trim(segment, chunk)?;
     TaskSpec {
         version: execution::SPEC_VERSION.to_owned(),
         task_id: job.request.id.clone(),
@@ -136,9 +138,9 @@ pub(crate) fn recognition_spec(
         template: WHISPER_TEMPLATE.to_owned(),
         profile_sha256: profile.profile_sha256.clone(),
         inputs: vec![TaskInput::Blob(BlobRef {
-            sha256: input.source_sha256.clone(),
-            bytes: input.byte_length,
-            media_type: format!("audio-{format}"),
+            sha256: segment.source_sha256.clone(),
+            bytes: segment.byte_length,
+            media_type: format!("audio-{}", segment.format),
         })],
         assets: vec![
             asset(
@@ -164,12 +166,15 @@ pub(crate) fn recognition_spec(
             ),
         ],
         params: TaskParams::Recognition(RecognitionParams {
-            interval_ordinal: input.interval_ordinal,
-            start_us: input.start_us,
-            end_us: input.end_us,
+            interval_ordinal: chunk.interval_ordinal,
+            start_us: chunk.start_us,
+            end_us: chunk.end_us,
             sample_rate: SAMPLE_RATE,
             decoder: execution::DECODER_TEMPLATE.to_owned(),
             threads: profile.threads,
+            file_offset_us: (file_offset_us > 0).then_some(file_offset_us),
+            slice_us,
+            chunk_ordinal: (chunk.ordinal > 0).then_some(chunk.ordinal),
         }),
         limits: TaskLimits {
             processes: 1,
@@ -187,15 +192,31 @@ pub(crate) fn recognition_spec(
     .seal()
 }
 
-/// Map the spec's hashes to the retained interval, the decoder and the profile files.
+fn chunk_trim(segment: &AsrSegment, chunk: &PlannedChunk) -> Result<(u64, Option<u64>)> {
+    let inside = chunk.interval_ordinal == segment.ordinal
+        && chunk.source_sha256 == segment.source_sha256
+        && chunk.start_us >= segment.start_us
+        && chunk.end_us <= segment.end_us
+        && chunk.end_us > chunk.start_us;
+    if !inside {
+        return Err(Error::InvalidInput("task spec"));
+    }
+    let offset = chunk.start_us - segment.start_us;
+    let whole = chunk.start_us == segment.start_us && chunk.end_us == segment.end_us;
+    Ok((offset, (!whole).then_some(chunk.end_us - chunk.start_us)))
+}
+
+/// Map the spec's hashes to the retained segments, the decoder and the profile files.
 /// # Errors
 /// Refuses an object key that does not name a file inside the library.
 pub(crate) fn recognition_stage(task: &RecognitionTask) -> Result<LocalStage> {
-    let input = crate::recordings::media_path(&task.directory, &task.input.object_key)?;
+    let mut stage = LocalStage::new(&task.directory).decoder(&task.decoder);
+    for segment in &task.input.segments {
+        let path = crate::recordings::media_path(&task.directory, &segment.object_key)?;
+        stage = stage.blob(&segment.source_sha256, path);
+    }
     let profile = &task.profile;
-    Ok(LocalStage::new(&task.directory)
-        .decoder(&task.decoder)
-        .blob(&task.input.source_sha256, input)
+    Ok(stage
         .asset(
             AssetRole::Runtime,
             &profile.runtime_sha256,
@@ -224,26 +245,165 @@ pub(crate) async fn run(
     if task.profile.identity().ok().as_deref() != Some(task.profile.profile_sha256.as_str()) {
         return refused(job, LocalAsrFailure::ProfileUnavailable);
     }
-    let Ok(spec) = recognition_spec(job, &task.input, &task.profile, &task.format) else {
-        return not_started(job);
-    };
-    let spec_sha256 = spec.spec_sha256.clone();
-    let envelope = LocalProcessExecutor.execute(spec, stage, signal).await?;
-    ReapedLocalAsr::from_envelope(job, envelope, Some(&spec_sha256))
+    if task.input.chunks.is_empty() {
+        return refused(job, LocalAsrFailure::InputUnavailable);
+    }
+    let mut gathered = Gathered::default();
+    for chunk in &task.input.chunks {
+        if *signal.borrow() {
+            return cancelled(job);
+        }
+        match run_chunk(&task, &stage, chunk, &signal).await? {
+            ChunkStep::Stop(reaped) => return Ok(reaped),
+            ChunkStep::Piece(piece) => gathered.push(piece)?,
+        }
+    }
+    finish_chunks(job, gathered)
 }
 
-/// The recognizer's block language label for one published text transcript.
-/// It covers the whole interval at block resolution. It is recognizer evidence, not a
-/// measured language capability, so the route stays unevaluated.
+enum ChunkStep {
+    Stop(ReapedLocalAsr),
+    Piece(ChunkPiece),
+}
+
+struct ChunkPiece {
+    coverage: crate::recognition::RecognitionCoverage,
+    cues: Vec<RecognitionCue>,
+    language: Option<ChunkLanguage>,
+    spec_sha256: String,
+}
+
+#[derive(Default)]
+struct Gathered {
+    coverages: Vec<crate::recognition::RecognitionCoverage>,
+    cues: Vec<RecognitionCue>,
+    languages: Vec<ChunkLanguage>,
+    hashes: Vec<String>,
+}
+
+impl Gathered {
+    fn push(&mut self, piece: ChunkPiece) -> Result<()> {
+        self.coverages.push(piece.coverage);
+        let base = u32::try_from(self.cues.len()).map_err(|_| Error::StorageIntegrity)?;
+        for (offset, mut cue) in piece.cues.into_iter().enumerate() {
+            let index = u32::try_from(offset).map_err(|_| Error::StorageIntegrity)?;
+            cue.ordinal = base.checked_add(index).ok_or(Error::StorageIntegrity)?;
+            self.cues.push(cue);
+        }
+        if let Some(language) = piece.language {
+            self.languages.push(language);
+        }
+        self.hashes.push(piece.spec_sha256);
+        Ok(())
+    }
+}
+
+async fn run_chunk(
+    task: &RecognitionTask,
+    stage: &LocalStage,
+    chunk: &PlannedChunk,
+    signal: &watch::Receiver<bool>,
+) -> Result<ChunkStep> {
+    let job = &task.job;
+    let Some(segment) = task.input.segment_for(chunk.interval_ordinal) else {
+        return Ok(ChunkStep::Stop(refused(
+            job,
+            LocalAsrFailure::InputUnavailable,
+        )?));
+    };
+    let Ok(spec) = recognition_spec(job, segment, chunk, &task.profile) else {
+        return Ok(ChunkStep::Stop(not_started(job)?));
+    };
+    let spec_sha256 = spec.spec_sha256.clone();
+    let envelope = LocalProcessExecutor
+        .execute(spec, stage.clone(), signal.clone())
+        .await?;
+    absorb_chunk(job, chunk, envelope, spec_sha256)
+}
+
+fn absorb_chunk(
+    job: &LocalAsrJob,
+    chunk: &PlannedChunk,
+    envelope: execution::ResultEnvelope,
+    spec_sha256: String,
+) -> Result<ChunkStep> {
+    let result = envelope.accept(&job.request.id, job.generation, Some(&spec_sha256))?;
+    let execution::TaskResult::Recognition(result) = result else {
+        return Err(Error::StorageIntegrity);
+    };
+    match result {
+        execution::RecognitionResult::Succeeded {
+            coverages,
+            cues,
+            languages,
+        } => one_piece(job, chunk, coverages, cues, languages, spec_sha256),
+        execution::RecognitionResult::Failed(failure) => {
+            Ok(ChunkStep::Stop(refused(job, failure)?))
+        }
+        execution::RecognitionResult::Cancelled => Ok(ChunkStep::Stop(cancelled(job)?)),
+    }
+}
+
+fn one_piece(
+    job: &LocalAsrJob,
+    chunk: &PlannedChunk,
+    coverages: Vec<crate::recognition::RecognitionCoverage>,
+    cues: Vec<RecognitionCue>,
+    languages: Vec<ChunkLanguage>,
+    spec_sha256: String,
+) -> Result<ChunkStep> {
+    if coverages.len() != 1 || languages.len() > 1 {
+        return Ok(ChunkStep::Stop(refused(
+            job,
+            LocalAsrFailure::InvalidOutput,
+        )?));
+    }
+    let mut coverage = coverages
+        .into_iter()
+        .next()
+        .ok_or(Error::StorageIntegrity)?;
+    coverage.ordinal = chunk.ordinal;
+    let language = languages.into_iter().next().map(|item| ChunkLanguage {
+        ordinal: chunk.ordinal,
+        code: item.code,
+    });
+    Ok(ChunkStep::Piece(ChunkPiece {
+        coverage,
+        cues,
+        language,
+        spec_sha256,
+    }))
+}
+
+fn finish_chunks(job: &LocalAsrJob, gathered: Gathered) -> Result<ReapedLocalAsr> {
+    let digest = crate::recognition::sha256_hex(&serde_json::to_vec(&(
+        "sigy-local-asr-chunks-v1",
+        &gathered.hashes,
+    ))?);
+    let envelope = execution::succeed_recognition(
+        &job.request.id,
+        job.generation,
+        &digest,
+        gathered.coverages,
+        gathered.cues,
+        gathered.languages,
+    );
+    ReapedLocalAsr::from_envelope(job, envelope, Some(&digest))
+}
+
+fn cancelled(job: &LocalAsrJob) -> Result<ReapedLocalAsr> {
+    let envelope = execution::cancel_recognition(&job.request.id, job.generation);
+    ReapedLocalAsr::from_envelope(job, envelope, None)
+}
+
+/// Block language labels for the chunks that produced cues.
+/// Span ordinals count emitted spans, not silent chunks. The route stays unevaluated.
 pub(crate) fn language_evidence(
     job: &LocalAsrJob,
     input: &LocalAsrInput,
-    code: &str,
+    languages: &[ChunkLanguage],
 ) -> crate::languages::LanguageEvidence {
-    use crate::languages::{
-        LanguageEvidence, LanguageLabel, LanguageMethod, LanguageRoute, LanguageSpan,
-        TranscriptReference,
-    };
+    use crate::languages::{LanguageEvidence, LanguageMethod, TranscriptReference};
     let request = &job.request;
     LanguageEvidence {
         id: request.id.clone(),
@@ -263,16 +423,42 @@ pub(crate) fn language_evidence(
         },
         outcome: "succeeded".into(),
         reason: None,
-        spans: vec![LanguageSpan {
-            ordinal: 0,
-            interval_ordinal: input.interval_ordinal,
-            start_us: input.start_us,
-            end_us: input.end_us,
+        spans: language_spans(job, input, languages),
+    }
+}
+
+fn language_spans(
+    job: &LocalAsrJob,
+    input: &LocalAsrInput,
+    languages: &[ChunkLanguage],
+) -> Vec<crate::languages::LanguageSpan> {
+    use crate::languages::{LanguageLabel, LanguageRoute, LanguageSpan};
+    let mut spans = Vec::new();
+    for language in languages {
+        let Some(chunk) = input
+            .chunks
+            .iter()
+            .find(|chunk| chunk.ordinal == language.ordinal)
+        else {
+            continue;
+        };
+        if language.code.is_empty() {
+            continue;
+        }
+        let Ok(ordinal) = u32::try_from(spans.len()) else {
+            break;
+        };
+        let request = &job.request;
+        spans.push(LanguageSpan {
+            ordinal,
+            interval_ordinal: chunk.interval_ordinal,
+            start_us: chunk.start_us,
+            end_us: chunk.end_us,
             cue_ordinal: None,
             observation: "identified".into(),
             languages: vec![LanguageLabel {
-                tag: whisper::language_tag(code),
-                provider_label: code.to_owned(),
+                tag: whisper::language_tag(&language.code),
+                provider_label: language.code.clone(),
             }],
             route: LanguageRoute {
                 task: "transcription".into(),
@@ -282,8 +468,9 @@ pub(crate) fn language_evidence(
                 basis: "declared".into(),
                 basis_sha256: request.profile_sha256.clone(),
             },
-        }],
+        });
     }
+    spans
 }
 
 pub mod translate;

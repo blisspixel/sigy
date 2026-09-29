@@ -94,7 +94,7 @@ Update with `sigy update --check` and `sigy update`. Let recordings finish and s
 
 ## Now building
 
-Sigy can now transcribe a retained recording on your own machine: a hash-pinned multilingual recognizer runs under strict process limits, and the text keeps its original script and exact media time. Early English translation runs the same way, cue by cue beside the original, and monitors now drive both automatically within your caps. The next steps are recordings longer than a minute, delegated containment so local models run on Linux, fair scheduling with measured capacity, and reference-scored translation checks. The [roadmap](ROADMAP.md#whats-next) explains the order and the reasons, and the [language pipeline plan](docs/development/language-pipeline.md) defines how quality is measured.
+Sigy can now transcribe a retained recording on your own machine, including one longer than a minute: a hash-pinned multilingual recognizer runs under strict process limits, in chunks of at most 30 seconds, and the text keeps its original script and exact media time. Early English translation runs the same way, cue by cue beside the original, and monitors now drive both automatically within your caps. The next steps are fair scheduling with measured capacity, delegated containment so local models run on Linux, and reference-scored translation checks. The [roadmap](ROADMAP.md#whats-next) explains the order and the reasons, and the [language pipeline plan](docs/development/language-pipeline.md) defines how quality is measured.
 
 ## Learn more
 

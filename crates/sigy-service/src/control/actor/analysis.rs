@@ -348,27 +348,20 @@ impl Actor {
         else {
             return Ok(());
         };
-        let store = self.library.store();
-        let format = store
-            .recording(&work.input.recording_id)
-            .ok()
-            .and_then(|recording| {
-                recording
-                    .intervals
-                    .into_iter()
-                    .find(|interval| interval.ordinal == work.input.interval_ordinal)
-                    .map(|interval| interval.format)
-            });
-        let profile = store.recognition_profile(&work.job.request.profile);
-        let task = match (format, profile) {
-            (Some(format), Ok(profile)) => Ok(RecognitionTask {
-                directory: self.library.directory().to_path_buf(),
-                decoder,
-                format,
-                profile,
-                job: work.job.clone(),
-                input: work.input.clone(),
-            }),
+        let profile = self
+            .library
+            .store()
+            .recognition_profile(&work.job.request.profile);
+        let task = match profile {
+            Ok(profile) if !work.input.segments.is_empty() && !work.input.chunks.is_empty() => {
+                Ok(RecognitionTask {
+                    directory: self.library.directory().to_path_buf(),
+                    decoder,
+                    profile,
+                    job: work.job.clone(),
+                    input: work.input.clone(),
+                })
+            }
             _ => Err(Error::StorageIntegrity),
         };
         let spawned = task.and_then(|task| {
@@ -431,12 +424,10 @@ impl Actor {
             .library
             .store_mut()
             .finish_local_asr(&work, &reaped, now)?;
-        if job.state == "succeeded"
-            && let Some(code) = reaped.language()
-        {
+        if job.state == "succeeded" && !reaped.languages().is_empty() {
             // Best effort after the transcript commit: missing evidence stays visibly absent
             // and never rewrites or fails the published transcript.
-            let evidence = recognizer::language_evidence(&job, &work.input, code);
+            let evidence = recognizer::language_evidence(&job, &work.input, reaped.languages());
             let _ = self
                 .library
                 .store_mut()

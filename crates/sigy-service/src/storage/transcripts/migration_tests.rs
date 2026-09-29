@@ -296,7 +296,7 @@ fn header(
 
 fn coverage(connection: &Connection, revision: i64) -> rusqlite::Result<usize> {
     connection.execute(
-        "INSERT INTO transcript_coverage VALUES ('pin', ?1, 0, 0, 1000000, ?2, ?3, 16000, 16000)",
+        "INSERT INTO transcript_coverage(transcript_id, revision, ordinal, interval_ordinal, start_us, end_us, source_sha256, decoded_sha256, sample_rate, sample_count) VALUES ('pin', ?1, 0, 0, 0, 1000000, ?2, ?3, 16000, 16000)",
         params![revision, "a".repeat(64), "d".repeat(64)],
     )
 }
@@ -316,13 +316,13 @@ fn result_fixture(store: &mut Store, job: &str, revision: i64, text: &str) -> Re
     let transaction = store.connection.transaction()?;
     admit_fixture(&transaction, job, revision - 1)?;
     header(&transaction, job, revision, text)?;
+    coverage(&transaction, revision)?;
     if !text.is_empty() {
         transaction.execute(
             "INSERT INTO transcript_cues VALUES ('pin', ?1, 0, 0, 1000000, ?2, 'uncertain')",
             params![revision, text],
         )?;
     }
-    coverage(&transaction, revision)?;
     seal(&transaction, job, revision)?;
     audit(&transaction)?;
     transaction.commit()?;
