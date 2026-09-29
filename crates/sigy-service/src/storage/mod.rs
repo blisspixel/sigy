@@ -22,6 +22,7 @@ pub use clicks::ClickStatus;
 pub(crate) mod analysis;
 pub(crate) mod analysis_jobs;
 pub(crate) mod backup;
+mod deadline;
 pub(crate) mod directory_policy;
 pub(crate) mod job_pool;
 pub(crate) mod monitors;

@@ -2,7 +2,8 @@
 //!
 //! Admission enqueues a job. The service scheduler claims the next fair job of a kind
 //! whose transcript lineage has no active job, up to a per-kind cap, and records a lease
-//! owned by this service process. A fresh cursor still starts at the oldest job.
+//! owned by this service process. A fresh cursor starts at the oldest job when every
+//! candidate is batch, and at the soonest live recognition job when one is waiting.
 //! A restart ends every lease: running zero-cost local work returns to the queue under
 //! a new generation until its attempt limit, while
 //! cancelling or exhausted work becomes interrupted. Every ended attempt is recorded.
@@ -10,6 +11,7 @@
 
 use rusqlite::{Connection, Transaction, params};
 
+use super::deadline::classify;
 use super::{Store, widen};
 use crate::fairness::{Candidate, Class, FairCursor, Pick, choose};
 use crate::{Error, Result};
@@ -42,7 +44,7 @@ impl JobKind {
                 "SELECT j.id, j.created_ms, c.source_revision FROM analysis_jobs j JOIN capture_jobs c ON c.id = j.recording_id WHERE j.kind = 'verify' AND j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM analysis_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling'))"
             }
             Self::Recognition => {
-                "SELECT j.id, j.created_ms, c.source_revision FROM analysis_jobs j JOIN capture_jobs c ON c.id = j.recording_id WHERE j.kind = 'local_asr' AND j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM analysis_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling'))"
+                "SELECT j.id, j.created_ms, c.source_revision, j.profile, a.timeline_json, (SELECT max(k.sealed_ms) FROM recording_segment_clocks k WHERE k.recording_id = j.recording_id) FROM analysis_jobs j JOIN capture_jobs c ON c.id = j.recording_id JOIN analysis_inputs a ON a.id = j.analysis_id AND a.revision = j.analysis_revision WHERE j.kind = 'local_asr' AND j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM analysis_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling'))"
             }
             Self::Translation => {
                 "SELECT j.id, j.created_ms, c.source_revision FROM translation_jobs j JOIN transcripts t ON t.id = j.transcript_id AND t.revision = j.transcript_revision JOIN capture_jobs c ON c.id = t.recording_id WHERE j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM translation_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling'))"
@@ -233,10 +235,29 @@ pub(super) fn recover(connection: &mut Connection, family: Family, now: i64) -> 
 }
 
 impl Store {
-    /// The next claim for this kind. A default cursor returns the oldest eligible job.
+    /// The next claim for this kind.
+    ///
+    /// Recognition is live only while an unpaused monitor follows its source and
+    /// `now_ms` is still within the last seal plus retained audio at that profile's
+    /// measured pace. Verification, translation, and every other recognition job stay
+    /// batch. A default cursor with only batch jobs returns the oldest one.
     /// # Errors
     /// Returns catalog read errors.
-    pub(crate) fn next_fair(&self, kind: JobKind, cursor: &FairCursor) -> Result<Option<Pick>> {
+    pub(crate) fn next_fair(
+        &self,
+        kind: JobKind,
+        cursor: &FairCursor,
+        now_ms: i64,
+    ) -> Result<Option<Pick>> {
+        let candidates = if kind == JobKind::Recognition {
+            self.recognition_candidates(now_ms)?
+        } else {
+            self.batch_candidates(kind)?
+        };
+        Ok(choose(&candidates, cursor))
+    }
+
+    fn batch_candidates(&self, kind: JobKind) -> Result<Vec<Candidate>> {
         let mut statement = self.connection.prepare(kind.candidate_sql())?;
         let rows = statement.query_map([], |row| {
             let ready_ms = row.get(1)?;
@@ -248,17 +269,58 @@ impl Store {
                 deadline_ms: ready_ms,
             })
         })?;
-        let candidates = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(choose(&candidates, cursor))
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    fn recognition_candidates(&self, now_ms: i64) -> Result<Vec<Candidate>> {
+        let paces = self.recognition_profile_paces()?;
+        let followed = self.followed_sources()?;
+        let mut statement = self
+            .connection
+            .prepare(JobKind::Recognition.candidate_sql())?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+            ))
+        })?;
+        let mut candidates = Vec::new();
+        for row in rows {
+            let (id, ready_ms, source, profile, timeline, seal_ms) = row?;
+            let audio_us = super::analysis::retained_audio_us(&timeline)?;
+            let (class, deadline_ms) = classify(
+                now_ms,
+                ready_ms,
+                followed.contains(&source),
+                audio_us,
+                seal_ms,
+                paces.get(&profile).copied(),
+            );
+            candidates.push(Candidate {
+                id,
+                source,
+                class,
+                ready_ms,
+                deadline_ms,
+            });
+        }
+        Ok(candidates)
     }
 
     /// The oldest queued job of this kind whose lineage has no active job.
+    ///
+    /// The clock is far enough ahead that a finite live window has closed, so the
+    /// result stays in arrival order. A live test passes its own clock to `next_fair`.
     /// # Errors
     /// Returns catalog read errors.
     #[cfg(test)]
     pub(crate) fn next_queued(&self, kind: JobKind) -> Result<Option<String>> {
         Ok(self
-            .next_fair(kind, &FairCursor::default())?
+            .next_fair(kind, &FairCursor::default(), i64::MAX)?
             .map(|pick| pick.id))
     }
 

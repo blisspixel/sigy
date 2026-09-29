@@ -1,7 +1,9 @@
 //! Observed recognition pace from completed jobs on this library.
 //!
 //! The figure is total wall time of those attempts divided by retained audio.
-//! It is not a host capacity, and it does not change which job is claimed.
+//! It is not a host capacity and it does not predict a backlog. Claim
+//! classification reads the same per-profile figure, including profiles the
+//! doctor report does not name.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -44,28 +46,20 @@ pub(crate) enum RecognitionPace {
     },
 }
 
+#[derive(Default)]
 struct Accumulator {
     jobs: u32,
     audio_us: u64,
     wall_ms: u64,
 }
 
-/// Combine runs into one pace. `newest_limited` means the caller kept only the newest jobs.
-/// # Errors
-/// Returns a storage error when a total overflows.
-pub(crate) fn observe(runs: &[RecognitionRun], newest_limited: bool) -> Result<RecognitionPace> {
-    let mut totals: BTreeMap<&str, Accumulator> = BTreeMap::new();
+fn accumulate(runs: &[RecognitionRun]) -> Result<BTreeMap<String, Accumulator>> {
+    let mut totals: BTreeMap<String, Accumulator> = BTreeMap::new();
     for run in runs {
         if run.audio_us == 0 || run.wall_ms == 0 {
             continue;
         }
-        let total = totals
-            .entry(run.profile.as_str())
-            .or_insert_with(|| Accumulator {
-                jobs: 0,
-                audio_us: 0,
-                wall_ms: 0,
-            });
+        let total = totals.entry(run.profile.clone()).or_default();
         total.jobs = total.jobs.checked_add(1).ok_or(Error::StorageIntegrity)?;
         total.audio_us = total
             .audio_us
@@ -76,6 +70,27 @@ pub(crate) fn observe(runs: &[RecognitionRun], newest_limited: bool) -> Result<R
             .checked_add(run.wall_ms)
             .ok_or(Error::StorageIntegrity)?;
     }
+    Ok(totals)
+}
+
+/// Pace of every profile in the sample, including ones a doctor report would hide.
+/// # Errors
+/// Returns a storage error when a total overflows.
+pub(crate) fn profile_paces(runs: &[RecognitionRun]) -> Result<BTreeMap<String, u64>> {
+    let totals = accumulate(runs)?;
+    let mut paces = BTreeMap::new();
+    for (profile, total) in totals {
+        let pace = pace_of(&profile, &total)?;
+        paces.insert(profile, pace.wall_ms_per_audio_second);
+    }
+    Ok(paces)
+}
+
+/// Combine runs into one pace. `newest_limited` means the caller kept only the newest jobs.
+/// # Errors
+/// Returns a storage error when a total overflows.
+pub(crate) fn observe(runs: &[RecognitionRun], newest_limited: bool) -> Result<RecognitionPace> {
+    let totals = accumulate(runs)?;
     if totals.is_empty() {
         return Ok(RecognitionPace::Unmeasured);
     }
@@ -85,14 +100,14 @@ pub(crate) fn observe(runs: &[RecognitionRun], newest_limited: bool) -> Result<R
             .1
             .audio_us
             .cmp(&left.1.audio_us)
-            .then_with(|| left.0.cmp(right.0))
+            .then_with(|| left.0.cmp(&right.0))
     });
     let hidden_profiles = u32::try_from(ranked.len().saturating_sub(MAX_PACE_PROFILES))
         .map_err(|_| Error::StorageIntegrity)?;
     ranked.truncate(MAX_PACE_PROFILES);
     let profiles = ranked
         .into_iter()
-        .map(|(profile, total)| pace_of(profile, &total))
+        .map(|(profile, total)| pace_of(&profile, &total))
         .collect::<Result<Vec<_>>>()?;
     Ok(RecognitionPace::Observed {
         profiles,
@@ -169,10 +184,7 @@ fn pace_of(profile: &str, total: &Accumulator) -> Result<ProfilePace> {
 }
 
 impl Store {
-    /// Pace of the newest completed recognition jobs. Failed and queued work is omitted.
-    /// # Errors
-    /// Returns catalog and timeline errors.
-    pub(crate) fn recognition_pace(&self) -> Result<RecognitionPace> {
+    fn recognition_runs(&self) -> Result<(Vec<RecognitionRun>, bool)> {
         let eligible: i64 = self.connection.query_row(
             "SELECT count(*) FROM analysis_jobs WHERE kind = 'local_asr' AND state = 'succeeded' AND started_ms IS NOT NULL AND finished_ms IS NOT NULL AND finished_ms > started_ms",
             [],
@@ -206,7 +218,23 @@ impl Store {
             });
         }
         let eligible = u32::try_from(eligible).map_err(|_| Error::StorageIntegrity)?;
-        observe(&runs, eligible > MAX_PACE_JOBS)
+        Ok((runs, eligible > MAX_PACE_JOBS))
+    }
+
+    /// Pace of the newest completed recognition jobs. Failed and queued work is omitted.
+    /// # Errors
+    /// Returns catalog and timeline errors.
+    pub(crate) fn recognition_pace(&self) -> Result<RecognitionPace> {
+        let (runs, newest_limited) = self.recognition_runs()?;
+        observe(&runs, newest_limited)
+    }
+
+    /// Per-profile pace for claim classification. Profiles the doctor report hides are included.
+    /// # Errors
+    /// Returns catalog and timeline errors.
+    pub(crate) fn recognition_profile_paces(&self) -> Result<BTreeMap<String, u64>> {
+        let (runs, _) = self.recognition_runs()?;
+        profile_paces(&runs)
     }
 }
 
@@ -286,6 +314,9 @@ mod tests {
         assert_eq!(profiles.len(), MAX_PACE_PROFILES);
         assert_eq!(profiles[0].profile, format!("p{MAX_PACE_PROFILES}"));
         assert_eq!(profiles[0].wall_ms_per_audio_second, 111);
+        let paces = super::profile_paces(&runs).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(paces.len(), MAX_PACE_PROFILES + 1);
+        assert_eq!(paces.get("p0").copied(), Some(1_000));
         let text = super::describe(&RecognitionPace::Observed {
             profiles,
             hidden_profiles,

@@ -3,7 +3,9 @@
 //! Admission only enqueues. [`Actor::schedule`] claims queued jobs in source rotation,
 //! with every fourth claim reserved for the oldest waiting job, up to each kind's
 //! concurrency cap and never two in one transcript lineage, and starts one supervised
-//! worker per claim. Capture workers are separate and never wait on the pool.
+//! worker per claim. A monitored recognition job is live while its measured pace still
+//! fits after the last seal. Verification and translation stay batch. Capture workers
+//! are separate and never wait on the pool.
 
 use std::collections::HashMap;
 
@@ -163,7 +165,8 @@ impl Actor {
                     break;
                 }
                 let cursor = self.pool.fairness.cursor(kind).clone();
-                let Some(pick) = self.library.store().next_fair(kind, &cursor)? else {
+                let now = now_ms()?;
+                let Some(pick) = self.library.store().next_fair(kind, &cursor, now)? else {
                     break;
                 };
                 claims += 1;

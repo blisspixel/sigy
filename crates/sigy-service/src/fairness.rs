@@ -3,8 +3,8 @@
 //! Claims rotate across sources. Every fourth claim is reserved for the oldest
 //! waiting batch job, so a source that keeps arriving cannot hold the slot.
 //! Live work, when any is waiting, takes the other three claims and is ordered
-//! by deadline inside each source. The service does not yet mark any catalog
-//! job live: a live deadline is not stored. Restart begins again at the oldest job.
+//! by deadline inside each source. The caller decides which jobs are live at
+//! claim time. That class is not stored. Restart begins again at the oldest job.
 
 use std::cmp::Ordering;
 

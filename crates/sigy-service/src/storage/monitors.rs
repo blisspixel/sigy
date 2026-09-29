@@ -1,5 +1,7 @@
 //! Monitor versions and the action log. Versions and actions are append-only.
 
+use std::collections::BTreeSet;
+
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::{Store, validate_key};
@@ -208,6 +210,34 @@ fn to_action(row: ActionRow) -> Result<MonitorAction> {
 const ACTION_COLUMNS: &str = "monitor_id, ordinal, action_id, policy_version, origin, proposal_json, decision, reason, created_ms";
 
 impl Store {
+    /// Source revisions followed by at least one unpaused monitor.
+    ///
+    /// Membership is the latest version plus applied source changes. A paused monitor
+    /// does not count. The table holds at most 256 monitors.
+    /// # Errors
+    /// Returns catalog and specification errors.
+    pub(crate) fn followed_sources(&self) -> Result<BTreeSet<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT id FROM monitors ORDER BY id LIMIT 256")?;
+        let ids = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        let mut followed = BTreeSet::new();
+        for id in ids {
+            if paused(&self.connection, &id)? {
+                continue;
+            }
+            if let Some(version) = latest_version(&self.connection, &id)? {
+                for source in active_sources(&self.connection, &version)? {
+                    followed.insert(source);
+                }
+            }
+        }
+        Ok(followed)
+    }
+
     /// Create a monitor with its first version. An identical replay is unchanged.
     /// # Errors
     /// Refuses an invalid specification, a missing reference, or a changed replay.

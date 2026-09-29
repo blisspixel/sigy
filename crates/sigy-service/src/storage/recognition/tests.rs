@@ -3,10 +3,14 @@
 use std::path::Path;
 
 use super::*;
+use crate::fairness::{Class, FairCursor};
+use crate::monitor::{ActionOrigin, MonitorSpec, MonitorTerm, Proposal};
 use crate::recognition::{
     LocalAsrFailure, LocalAsrOutcome, ReapedLocalAsr, RecognitionCoverage, RecognitionCue,
     RecognitionOutput, TRANSCRIPT_PAGE_BYTES,
 };
+use crate::sources::{HttpSource, NetworkScope};
+use crate::storage::job_pool::JobKind;
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
@@ -1268,6 +1272,184 @@ fn break_job_check(path: &Path) -> Result<()> {
         return Err(Error::StorageIntegrity);
     }
     connection.pragma_update(None, "writable_schema", false)?;
+    Ok(())
+}
+
+fn publish_followed(store: &mut Store) -> Result<()> {
+    store.register_source(
+        "radio:v2",
+        &HttpSource::new(
+            "Fixture",
+            "https://example.com/audio",
+            NetworkScope::PublicInternet {},
+        )?,
+    )?;
+    let recording = store
+        .admit_recording(
+            "two",
+            "radio:v2",
+            60,
+            600,
+            super::super::dvr::Retention::Temporary,
+            false,
+        )?
+        .ok_or(Error::StorageIntegrity)?;
+    store.publish_recording(
+        &recording.version,
+        &minute_publication(100, 1_000_000, "wav"),
+    )?;
+    store.admit_analysis("live", "two", false, 30)?;
+    store.publish_analysis("live", 1)?;
+    Ok(())
+}
+
+fn enqueue_asr(
+    store: &mut Store,
+    id: &str,
+    pin: &str,
+    parent: i64,
+    profile: &str,
+    now: i64,
+) -> Result<()> {
+    let mut queued = request(id, parent);
+    queued.analysis_id = pin.into();
+    queued.profile = profile.into();
+    let (job, created) = store.enqueue_local_asr(&queued, now)?;
+    if !created || job.state != "queued" {
+        return Err(Error::StorageIntegrity);
+    }
+    Ok(())
+}
+
+fn follow(source: &str) -> MonitorSpec {
+    MonitorSpec {
+        name: "Desk".into(),
+        goal: "Follow this source.".into(),
+        terms: vec![MonitorTerm {
+            language: "en".into(),
+            text: "news".into(),
+        }],
+        sources: vec![source.into()],
+        candidate_sources: Vec::new(),
+        schedules: Vec::new(),
+        daily_audio_seconds: 3600,
+        total_audio_seconds: 3600,
+        recognition_profile: None,
+        translation_profile: None,
+    }
+}
+
+fn seal_of(store: &Store, recording: &str) -> Result<i64> {
+    Ok(store.connection.query_row(
+        "SELECT max(sealed_ms) FROM recording_segment_clocks WHERE recording_id = ?1",
+        [recording],
+        |row| row.get(0),
+    )?)
+}
+
+fn recognition_at(store: &Store, now: i64, turn: u64) -> Result<crate::fairness::Pick> {
+    store
+        .next_fair(
+            JobKind::Recognition,
+            &FairCursor {
+                turn,
+                ..FairCursor::default()
+            },
+            now,
+        )?
+        .ok_or(Error::StorageIntegrity)
+}
+
+#[test]
+fn a_monitored_recording_stays_live_while_its_measured_pace_fits() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit(&mut store, "pace", 0)?;
+    store.finish_local_asr(&work, &proof(&work, "heard"), 20 + 3_600_000)?;
+    publish_followed(&mut store)?;
+    let profile = "synthetic-storage-fixture-v1";
+    enqueue_asr(&mut store, "older", "pin", 1, profile, 100)?;
+    enqueue_asr(&mut store, "stranger", "live", 0, "unmeasured-profile", 150)?;
+    let seal = seal_of(&store, "two")?;
+    assert_eq!(recognition_at(&store, seal, 0)?.id, "older");
+    store.create_monitor("desk", &follow("radio:v2"), 40)?;
+    assert_eq!(
+        recognition_at(&store, seal, 0)?.id,
+        "older",
+        "a monitored job with no pace for its profile stays behind"
+    );
+    enqueue_asr(&mut store, "newer", "live", 0, profile, 200)?;
+    let live = recognition_at(&store, seal, 0)?;
+    assert_eq!(
+        (live.id.as_str(), live.class, live.source.as_str()),
+        ("newer", Class::Live, "radio:v2")
+    );
+    let reserved = recognition_at(&store, seal, 3)?;
+    assert_eq!(
+        (reserved.id.as_str(), reserved.class),
+        ("older", Class::Batch)
+    );
+    let pause = store.propose_monitor_action(
+        "desk",
+        "pause-desk",
+        ActionOrigin::User,
+        &Proposal::Pause,
+        41,
+    )?;
+    assert_eq!(pause.decision, "applied");
+    assert_eq!(recognition_at(&store, seal, 0)?.id, "older");
+    store.create_monitor("also", &follow("radio:v2"), 42)?;
+    assert_eq!(
+        recognition_at(&store, seal, 0)?.id,
+        "newer",
+        "one unpaused monitor is enough"
+    );
+    assert_eq!(recognition_at(&store, seal + 3_600_000, 0)?.id, "newer");
+    assert_eq!(recognition_at(&store, seal + 3_600_001, 0)?.id, "older");
+    assert_eq!(
+        store.next_queued(JobKind::Recognition)?.as_deref(),
+        Some("older")
+    );
+    store.enqueue_verification("verify-old", "pin", 1, 50)?;
+    let verify = store
+        .next_fair(JobKind::Verification, &FairCursor::default(), seal)?
+        .ok_or(Error::StorageIntegrity)?;
+    assert_eq!(
+        (verify.id.as_str(), verify.class),
+        ("verify-old", Class::Batch)
+    );
+    assert_eq!(
+        store.recognition_profile_paces()?.get(profile).copied(),
+        Some(3_600_000)
+    );
+    Ok(())
+}
+
+#[test]
+fn an_unmeasured_monitor_does_not_jump_the_queue() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    publish_followed(&mut store)?;
+    enqueue_asr(
+        &mut store,
+        "older",
+        "pin",
+        0,
+        "synthetic-storage-fixture-v1",
+        100,
+    )?;
+    enqueue_asr(
+        &mut store,
+        "newer",
+        "live",
+        0,
+        "synthetic-storage-fixture-v1",
+        200,
+    )?;
+    store.create_monitor("desk", &follow("radio:v2"), 40)?;
+    let seal = seal_of(&store, "two")?;
+    let pick = recognition_at(&store, seal, 0)?;
+    assert_eq!((pick.id.as_str(), pick.class), ("older", Class::Batch));
     Ok(())
 }
 
