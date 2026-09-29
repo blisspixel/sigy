@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Catalog schema and local IPC are v34. One recognition job transcribes a retained recording in chunks of at most 30 seconds, up to 1,024 chunks, and publishes one original-script transcript. The 64 MiB byte cap, the cue cap and the text cap are unchanged. A queued job from an older manifest fails as no longer current. No language is qualified.
+- Catalog schema and local IPC are v34. One recognition job hears windows of at most 30 seconds, up to 1,024 windows, and publishes one original-script transcript. A phrase that reaches a window edge while audio remains waits, and the next window starts at that phrase. A phrase with no earlier break is stored through the window end, so a word there can still be cut. Published coverages abut, stay within 30 seconds, and tile each segment. The 64 MiB byte cap, the cue cap and the text cap are unchanged. A queued job from an older manifest fails as no longer current. No language is qualified.
 
 ## 0.1.0-dev.20260925 (development prerelease, source only)
 

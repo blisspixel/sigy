@@ -5,8 +5,8 @@ use std::path::Path;
 use sha2::Digest;
 
 use super::{
-    Drained, Executor, LocalProcessExecutor, LocalStage, RecognitionResult, ResultEnvelope,
-    TaskResult, TaskSpec, asr::write_wav, translate::completion_text,
+    Drained, Executor, LocalProcessExecutor, LocalStage, RecognitionParams, RecognitionResult,
+    ResultEnvelope, TaskParams, TaskResult, TaskSpec, asr::write_wav, translate::completion_text,
 };
 use crate::{
     Error,
@@ -431,6 +431,176 @@ fn wav_header_describes_sixteen_bit_mono_at_the_worker_rate() -> TestResult {
     assert_eq!(&bytes[36..40], b"data");
     assert_eq!(u32::from_le_bytes(bytes[40..44].try_into()?), 4);
     assert_eq!(&bytes[44..], &[1, 0, 2, 0]);
+    Ok(())
+}
+
+fn heard_params(end_us: u64, segment_end_us: Option<u64>) -> RecognitionParams {
+    RecognitionParams {
+        interval_ordinal: 0,
+        start_us: 0,
+        end_us,
+        sample_rate: 16_000,
+        decoder: "ffmpeg-s16le-mono-16k-v1".into(),
+        threads: 1,
+        file_offset_us: None,
+        slice_us: None,
+        chunk_ordinal: None,
+        segment_end_us,
+    }
+}
+
+fn whisper_json(segments: &str) -> String {
+    format!(r#"{{"result":{{"language":"fr"}},"transcription":[{segments}]}}"#)
+}
+
+fn succeeded(
+    params: &RecognitionParams,
+    pcm: &[u8],
+    json: &str,
+) -> (
+    Vec<crate::recognition::RecognitionCoverage>,
+    Vec<crate::recognition::RecognitionCue>,
+    Vec<crate::recognition::ChunkLanguage>,
+) {
+    let result = super::asr::transcribed(params, pcm, json.as_bytes(), &"5".repeat(64))
+        .unwrap_or_else(|failure| panic!("transcription {failure:?}"));
+    let RecognitionResult::Succeeded {
+        coverages,
+        cues,
+        languages,
+    } = result
+    else {
+        panic!("succeeded");
+    };
+    (coverages, cues, languages)
+}
+
+#[test]
+fn a_final_window_clamps_an_overrun_and_hashes_the_whole_window() {
+    let pcm = vec![0_u8; 32_000];
+    let json = whisper_json(
+        r#"{"offsets":{"from":0,"to":400},"text":" bonjour "},{"offsets":{"from":500,"to":1250},"text":"le monde"}"#,
+    );
+    let (coverages, cues, languages) = succeeded(&heard_params(1_000_000, None), &pcm, &json);
+    let [coverage] = coverages.as_slice() else {
+        panic!("one coverage");
+    };
+    assert_eq!(coverage.end_us, 1_000_000);
+    assert_eq!(coverage.sample_count, 16_000);
+    assert_eq!(
+        coverage.decoded_sha256,
+        crate::storage::dvr::hex(&sha2::Sha256::digest(&pcm))
+    );
+    assert_eq!(cues.len(), 2);
+    assert_eq!(cues[0].script, "bonjour");
+    assert_eq!(cues[1].end_us, 1_000_000);
+    assert_eq!(languages[0].end_us, 1_000_000);
+    assert_eq!(languages[0].code, "fr");
+}
+
+#[test]
+fn an_unfinished_phrase_is_omitted_and_the_prefix_is_hashed() {
+    let pcm = vec![7_u8; 64_000];
+    let json = whisper_json(
+        r#"{"offsets":{"from":0,"to":800},"text":"kept"},{"offsets":{"from":1500,"to":2100},"text":"edge"}"#,
+    );
+    let params = heard_params(2_000_000, Some(4_000_000));
+    let (coverages, cues, languages) = succeeded(&params, &pcm, &json);
+    let [coverage] = coverages.as_slice() else {
+        panic!("one coverage");
+    };
+    assert_eq!(coverage.end_us, 1_500_000);
+    assert_eq!(coverage.sample_count, 24_000);
+    assert_eq!(
+        coverage.decoded_sha256,
+        crate::storage::dvr::hex(&sha2::Sha256::digest(&pcm[..48_000]))
+    );
+    assert_ne!(
+        coverage.decoded_sha256,
+        crate::storage::dvr::hex(&sha2::Sha256::digest(&pcm))
+    );
+    assert_eq!(cues.len(), 1);
+    assert_eq!(cues[0].script, "kept");
+    assert_eq!(languages[0].end_us, 1_500_000);
+}
+
+#[test]
+fn a_window_with_no_internal_boundary_keeps_the_clipped_edge() {
+    let pcm = vec![3_u8; 64_000];
+    let json = whisper_json(r#"{"offsets":{"from":0,"to":2100},"text":"continues"}"#);
+    let (coverages, cues, languages) =
+        succeeded(&heard_params(2_000_000, Some(4_000_000)), &pcm, &json);
+    let [coverage] = coverages.as_slice() else {
+        panic!("one coverage");
+    };
+    assert_eq!(coverage.end_us, 2_000_000);
+    assert_eq!(coverage.sample_count, 32_000);
+    assert_eq!(cues.len(), 1);
+    assert_eq!(cues[0].end_us, 2_000_000);
+    assert_eq!(languages[0].end_us, 2_000_000);
+}
+
+#[test]
+fn silence_advances_a_full_window_without_a_language() {
+    let pcm = vec![0_u8; 64_000];
+    let (coverages, cues, languages) = succeeded(
+        &heard_params(2_000_000, Some(4_000_000)),
+        &pcm,
+        &whisper_json(""),
+    );
+    let [coverage] = coverages.as_slice() else {
+        panic!("one coverage");
+    };
+    assert_eq!(coverage.end_us, 2_000_000);
+    assert_eq!(coverage.sample_count, 32_000);
+    assert!(cues.is_empty());
+    assert!(languages.is_empty());
+}
+
+#[test]
+fn a_later_window_records_the_segment_end_and_a_finished_window_omits_it() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let profile = profile(root.path());
+    let job = job("asr-window");
+    let mut audio = input();
+    audio.segments[0].end_us = 60_000_000;
+    audio.chunks[0].end_us = 30_000_000;
+    let spec = chunk_spec(&job, &audio, &profile)?;
+    let TaskParams::Recognition(params) = &spec.params else {
+        panic!("recognition params");
+    };
+    assert_eq!(params.slice_us, Some(30_000_000));
+    assert!(params.file_offset_us.is_none());
+    assert!(params.chunk_ordinal.is_none());
+    assert_eq!(params.segment_end_us, Some(60_000_000));
+    assert!(serde_json::to_string(&spec)?.contains("\"segment_end_us\":60000000"));
+
+    audio.chunks[0].ordinal = 1;
+    audio.chunks[0].start_us = 22_000_000;
+    audio.chunks[0].end_us = 52_000_000;
+    let later = chunk_spec(&job, &audio, &profile)?;
+    let TaskParams::Recognition(params) = &later.params else {
+        panic!("recognition params");
+    };
+    assert_eq!(params.file_offset_us, Some(22_000_000));
+    assert_eq!(params.slice_us, Some(30_000_000));
+    assert_eq!(params.chunk_ordinal, Some(1));
+    assert_eq!(params.segment_end_us, Some(60_000_000));
+    let mut broken = later;
+    let TaskParams::Recognition(params) = &mut broken.params else {
+        panic!("recognition params");
+    };
+    params.segment_end_us = Some(params.end_us);
+    assert!(broken.seal().is_err());
+
+    audio.chunks[0].start_us = 30_000_000;
+    audio.chunks[0].end_us = 60_000_000;
+    let finished = chunk_spec(&job, &audio, &profile)?;
+    let TaskParams::Recognition(params) = &finished.params else {
+        panic!("recognition params");
+    };
+    assert!(params.segment_end_us.is_none());
+    assert!(!serde_json::to_string(&finished)?.contains("segment_end_us"));
     Ok(())
 }
 

@@ -100,6 +100,10 @@ pub(crate) struct RecognitionParams {
     /// Chunk ordinal. Absent for the first chunk so an untrimmed spec stays canonical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chunk_ordinal: Option<u32>,
+    /// Segment end on the media clock when this window ends before the segment.
+    /// Absent when the window finishes the segment, so a whole-segment spec stays canonical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment_end_us: Option<u64>,
 }
 
 impl RecognitionParams {
@@ -295,6 +299,7 @@ fn recognition_params_valid(params: &RecognitionParams) -> bool {
         && slice_matches
         && params.file_offset_us.is_none_or(|offset| offset > 0)
         && params.chunk_ordinal.is_none_or(|ordinal| ordinal > 0)
+        && params.segment_end_us.is_none_or(|end| end > params.end_us)
 }
 
 fn asset_valid(asset: &AssetRef) -> bool {

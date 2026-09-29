@@ -734,14 +734,19 @@ fn a_ninety_second_file_publishes_three_chunks_and_skips_a_silent_span() -> Test
     assert_eq!(page.coverages.len(), 3);
     let evidence = crate::recognizer::language_evidence(
         &job,
-        &work.input,
         &[
             crate::recognition::ChunkLanguage {
                 ordinal: 0,
+                interval_ordinal: work.input.chunks[0].interval_ordinal,
+                start_us: work.input.chunks[0].start_us,
+                end_us: work.input.chunks[0].end_us,
                 code: "es".into(),
             },
             crate::recognition::ChunkLanguage {
                 ordinal: 2,
+                interval_ordinal: third.interval_ordinal,
+                start_us: third.start_us,
+                end_us: third.end_us,
                 code: "fr".into(),
             },
         ],
@@ -804,6 +809,155 @@ fn admit_named(store: &mut Store, request: &LocalAsrRequest) -> Result<LocalAsrW
         .admit_local_asr(request, 21)?
         .1
         .ok_or(Error::StorageIntegrity)
+}
+
+fn admit_show(store: &mut Store, seconds: u64, decoded_us: u64) -> Result<LocalAsrWork> {
+    let recording = store
+        .admit_recording(
+            "show",
+            "radio:v1",
+            seconds,
+            1_000,
+            super::super::dvr::Retention::Temporary,
+            false,
+        )?
+        .ok_or(Error::StorageIntegrity)?;
+    store.publish_recording(
+        &recording.version,
+        &minute_publication(1_000, decoded_us, "wav"),
+    )?;
+    store.admit_analysis("show", "show", false, 20)?;
+    store.publish_analysis("show", 1)?;
+    let mut request = request("show", 0);
+    request.analysis_id = "show".into();
+    admit_named(store, &request)
+}
+
+fn coverage_row(
+    ordinal: u32,
+    start_us: u64,
+    end_us: u64,
+    samples: u64,
+    source: &str,
+) -> RecognitionCoverage {
+    RecognitionCoverage {
+        ordinal,
+        interval_ordinal: 0,
+        start_us,
+        end_us,
+        source_sha256: source.to_owned(),
+        decoded_sha256: "c".repeat(64),
+        sample_rate: 16_000,
+        sample_count: samples,
+    }
+}
+
+fn finish_custom(
+    store: &mut Store,
+    work: &LocalAsrWork,
+    coverages: Vec<RecognitionCoverage>,
+    cues: Vec<RecognitionCue>,
+) -> Result<crate::recognition::LocalAsrJob> {
+    let value = RecognitionOutput {
+        profile_sha256: work.job.request.profile_sha256.clone(),
+        manifest_sha256: work.job.manifest_sha256.clone(),
+        coverages,
+        cues,
+    };
+    store.finish_local_asr(
+        work,
+        &ReapedLocalAsr::synthetic_fixture(work, LocalAsrOutcome::Succeeded(value)),
+        22,
+    )
+}
+
+#[test]
+fn a_phrase_boundary_can_publish_more_coverages_than_the_plan() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit_show(&mut store, 60, 60_000_000)?;
+    assert_eq!(work.input.chunks.len(), 2);
+    let source = work.input.segments[0].source_sha256.clone();
+    let coverages = vec![
+        coverage_row(0, 0, 22_000_000, 352_000, &source),
+        coverage_row(1, 22_000_000, 52_000_000, 480_000, &source),
+        coverage_row(2, 52_000_000, 60_000_000, 128_000, &source),
+    ];
+    let cues = vec![
+        RecognitionCue {
+            ordinal: 0,
+            start_us: 0,
+            end_us: 1_000_000,
+            script: "one".into(),
+        },
+        RecognitionCue {
+            ordinal: 1,
+            start_us: 22_000_000,
+            end_us: 23_000_000,
+            script: "two".into(),
+        },
+        RecognitionCue {
+            ordinal: 2,
+            start_us: 52_000_000,
+            end_us: 53_000_000,
+            script: "three".into(),
+        },
+    ];
+    let job = finish_custom(&mut store, &work, coverages, cues)?;
+    assert_eq!(job.state, "succeeded");
+    assert_eq!(counts(&store)?, (1, 3, 3, 1));
+    let page = store.transcript_cues_page("show", 1, None)?;
+    assert_eq!(page.coverages[0].end_us, 22_000_000);
+    assert_eq!(page.coverages[1].end_us, 52_000_000);
+    assert_eq!(page.coverages[2].sample_count, 128_000);
+    Ok(())
+}
+
+#[test]
+fn a_cue_across_a_published_phrase_cut_publishes_nothing() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit_show(&mut store, 60, 60_000_000)?;
+    let source = work.input.segments[0].source_sha256.clone();
+    let rows = vec![
+        coverage_row(0, 0, 22_000_000, 352_000, &source),
+        coverage_row(1, 22_000_000, 52_000_000, 480_000, &source),
+        coverage_row(2, 52_000_000, 60_000_000, 128_000, &source),
+    ];
+    let crossed = finish_custom(
+        &mut store,
+        &work,
+        rows,
+        vec![RecognitionCue {
+            ordinal: 0,
+            start_us: 21_500_000,
+            end_us: 22_500_000,
+            script: "cross".into(),
+        }],
+    )?;
+    assert_eq!(crossed.reason.as_deref(), Some("invalid-worker-result"));
+    assert_eq!(counts(&store)?, (0, 0, 0, 0));
+    Ok(())
+}
+
+#[test]
+fn a_gap_between_published_coverages_publishes_nothing() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit_show(&mut store, 60, 60_000_000)?;
+    let source = work.input.segments[0].source_sha256.clone();
+    let gapped = finish_custom(
+        &mut store,
+        &work,
+        vec![
+            coverage_row(0, 0, 22_000_000, 352_000, &source),
+            coverage_row(1, 30_000_000, 60_000_000, 480_000, &source),
+        ],
+        Vec::new(),
+    )?;
+    assert_eq!(gapped.reason.as_deref(), Some("invalid-worker-result"));
+    assert_eq!(counts(&store)?, (0, 0, 0, 0));
+    Ok(())
 }
 
 #[test]

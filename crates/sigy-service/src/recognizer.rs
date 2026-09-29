@@ -1,13 +1,17 @@
 //! Native local recognition supervisor.
 //!
-//! One job walks its frozen chunk plan. Each chunk decodes one slice of a retained
+//! One job walks each retained segment. A window decodes at most 30 seconds of that
 //! segment to 16 kHz mono PCM with the configured `FFmpeg`, then runs one pinned
-//! recognizer process. The service describes each chunk as a content-addressed task
-//! spec and runs it through the local process executor; see [`crate::execution`] for
-//! containment and the drain proof. The spec carries no source URL, catalog handle,
-//! library path, provider secret or network configuration. This is not an
-//! operating-system network sandbox; see the recognition decision record for that
-//! limitation. A failure or cancellation publishes nothing. Restart redoes every chunk.
+//! recognizer process. When a phrase reaches the window edge and audio remains, that
+//! phrase is not stored and the next window starts where the phrase starts. A window
+//! with no internal phrase boundary is stored through its end, so a word inside that
+//! one phrase can still be clipped. The service describes each window as a
+//! content-addressed task spec and runs it through the local process executor; see
+//! [`crate::execution`] for containment and the drain proof. The spec carries no
+//! source URL, catalog handle, library path, provider secret or network configuration.
+//! This is not an operating-system network sandbox; see the recognition decision
+//! record for that limitation. A failure or cancellation publishes nothing. Restart
+//! redoes every window.
 
 use std::{
     path::{Path, PathBuf},
@@ -24,9 +28,9 @@ use crate::{
         hash_file, runtime_manifest,
     },
     recognition::{
-        AsrSegment, ChunkLanguage, LocalAsrFailure, LocalAsrInput, LocalAsrJob, MAX_MODEL_BYTES,
-        MAX_VAD_BYTES, PlannedChunk, ReapedLocalAsr, RecognitionCue, RecognitionProfile,
-        WHISPER_CPP_CLI, WHISPER_TEMPLATE,
+        AsrSegment, CHUNK_US, ChunkLanguage, LocalAsrFailure, LocalAsrInput, LocalAsrJob,
+        MAX_MODEL_BYTES, MAX_VAD_BYTES, PlannedChunk, ReapedLocalAsr, RecognitionCue,
+        RecognitionProfile, WHISPER_CPP_CLI, WHISPER_TEMPLATE, coverages_fit_one_page,
     },
 };
 
@@ -175,6 +179,7 @@ pub(crate) fn recognition_spec(
             file_offset_us: (file_offset_us > 0).then_some(file_offset_us),
             slice_us,
             chunk_ordinal: (chunk.ordinal > 0).then_some(chunk.ordinal),
+            segment_end_us: (chunk.end_us < segment.end_us).then_some(segment.end_us),
         }),
         limits: TaskLimits {
             processes: 1,
@@ -245,20 +250,80 @@ pub(crate) async fn run(
     if task.profile.identity().ok().as_deref() != Some(task.profile.profile_sha256.as_str()) {
         return refused(job, LocalAsrFailure::ProfileUnavailable);
     }
-    if task.input.chunks.is_empty() {
+    if task.input.chunks.is_empty() || task.input.segments.is_empty() {
         return refused(job, LocalAsrFailure::InputUnavailable);
     }
     let mut gathered = Gathered::default();
-    for chunk in &task.input.chunks {
-        if *signal.borrow() {
-            return cancelled(job);
-        }
-        match run_chunk(&task, &stage, chunk, &signal).await? {
-            ChunkStep::Stop(reaped) => return Ok(reaped),
-            ChunkStep::Piece(piece) => gathered.push(piece)?,
+    for segment in &task.input.segments {
+        if let Some(reaped) =
+            advance_segment(&task, &stage, segment, &signal, &mut gathered).await?
+        {
+            return Ok(reaped);
         }
     }
     finish_chunks(job, gathered)
+}
+
+async fn advance_segment(
+    task: &RecognitionTask,
+    stage: &LocalStage,
+    segment: &AsrSegment,
+    signal: &watch::Receiver<bool>,
+    gathered: &mut Gathered,
+) -> Result<Option<ReapedLocalAsr>> {
+    let mut cursor = segment.start_us;
+    while cursor < segment.end_us {
+        if *signal.borrow() {
+            return Ok(Some(cancelled(&task.job)?));
+        }
+        if !coverages_fit_one_page(gathered.coverages.len().saturating_add(1)) {
+            return Ok(Some(refused(&task.job, LocalAsrFailure::InvalidOutput)?));
+        }
+        let heard_end = cursor.saturating_add(CHUNK_US).min(segment.end_us);
+        let ordinal =
+            u32::try_from(gathered.coverages.len()).map_err(|_| Error::StorageIntegrity)?;
+        let window = PlannedChunk {
+            ordinal,
+            interval_ordinal: segment.ordinal,
+            start_us: cursor,
+            end_us: heard_end,
+            source_sha256: segment.source_sha256.clone(),
+        };
+        match run_chunk(task, stage, &window, signal).await? {
+            ChunkStep::Stop(reaped) => return Ok(Some(reaped)),
+            ChunkStep::Piece(piece) => {
+                if !window_accepted(&piece, &window) {
+                    return Ok(Some(refused(&task.job, LocalAsrFailure::InvalidOutput)?));
+                }
+                cursor = piece.coverage.end_us;
+                gathered.push(piece)?;
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn window_accepted(piece: &ChunkPiece, window: &PlannedChunk) -> bool {
+    let coverage = &piece.coverage;
+    let inside = coverage.ordinal == window.ordinal
+        && coverage.interval_ordinal == window.interval_ordinal
+        && coverage.source_sha256 == window.source_sha256
+        && coverage.start_us == window.start_us
+        && coverage.end_us > window.start_us
+        && coverage.end_us <= window.end_us;
+    let cues_inside = piece.cues.iter().all(|cue| {
+        cue.start_us >= coverage.start_us
+            && cue.end_us <= coverage.end_us
+            && cue.end_us > cue.start_us
+    });
+    let language_inside = piece.language.as_ref().is_none_or(|language| {
+        language.ordinal == coverage.ordinal
+            && language.interval_ordinal == coverage.interval_ordinal
+            && language.start_us == coverage.start_us
+            && language.end_us == coverage.end_us
+            && !language.code.is_empty()
+    });
+    inside && cues_inside && language_inside
 }
 
 enum ChunkStep {
@@ -363,10 +428,16 @@ fn one_piece(
         .next()
         .ok_or(Error::StorageIntegrity)?;
     coverage.ordinal = chunk.ordinal;
-    let language = languages.into_iter().next().map(|item| ChunkLanguage {
-        ordinal: chunk.ordinal,
-        code: item.code,
-    });
+    let language = (!cues.is_empty())
+        .then(|| languages.into_iter().next())
+        .flatten()
+        .map(|item| ChunkLanguage {
+            ordinal: chunk.ordinal,
+            interval_ordinal: coverage.interval_ordinal,
+            start_us: coverage.start_us,
+            end_us: coverage.end_us,
+            code: item.code,
+        });
     Ok(ChunkStep::Piece(ChunkPiece {
         coverage,
         cues,
@@ -396,11 +467,10 @@ fn cancelled(job: &LocalAsrJob) -> Result<ReapedLocalAsr> {
     ReapedLocalAsr::from_envelope(job, envelope, None)
 }
 
-/// Block language labels for the chunks that produced cues.
-/// Span ordinals count emitted spans, not silent chunks. The route stays unevaluated.
+/// Block language labels for the coverages that produced cues.
+/// Span ordinals count emitted spans, not silent coverages. The route stays unevaluated.
 pub(crate) fn language_evidence(
     job: &LocalAsrJob,
-    input: &LocalAsrInput,
     languages: &[ChunkLanguage],
 ) -> crate::languages::LanguageEvidence {
     use crate::languages::{LanguageEvidence, LanguageMethod, TranscriptReference};
@@ -423,26 +493,18 @@ pub(crate) fn language_evidence(
         },
         outcome: "succeeded".into(),
         reason: None,
-        spans: language_spans(job, input, languages),
+        spans: language_spans(job, languages),
     }
 }
 
 fn language_spans(
     job: &LocalAsrJob,
-    input: &LocalAsrInput,
     languages: &[ChunkLanguage],
 ) -> Vec<crate::languages::LanguageSpan> {
     use crate::languages::{LanguageLabel, LanguageRoute, LanguageSpan};
     let mut spans = Vec::new();
     for language in languages {
-        let Some(chunk) = input
-            .chunks
-            .iter()
-            .find(|chunk| chunk.ordinal == language.ordinal)
-        else {
-            continue;
-        };
-        if language.code.is_empty() {
+        if language.code.is_empty() || language.end_us <= language.start_us {
             continue;
         }
         let Ok(ordinal) = u32::try_from(spans.len()) else {
@@ -451,9 +513,9 @@ fn language_spans(
         let request = &job.request;
         spans.push(LanguageSpan {
             ordinal,
-            interval_ordinal: chunk.interval_ordinal,
-            start_us: chunk.start_us,
-            end_us: chunk.end_us,
+            interval_ordinal: language.interval_ordinal,
+            start_us: language.start_us,
+            end_us: language.end_us,
             cue_ordinal: None,
             observation: "identified".into(),
             languages: vec![LanguageLabel {

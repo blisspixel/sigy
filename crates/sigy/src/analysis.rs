@@ -608,7 +608,7 @@ fn render_transcript(writer: &mut impl Write, page: &TranscriptCuePage) -> io::R
     for coverage in &page.coverages {
         writeln!(
             writer,
-            "Covers chunk {} of interval {}: {} to {} | {} samples at {} Hz.",
+            "Coverage {} of interval {}: {} to {} | {} samples at {} Hz.",
             coverage.ordinal,
             coverage.interval_ordinal,
             clock(coverage.start_us),

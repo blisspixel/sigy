@@ -71,7 +71,7 @@ pub(crate) enum RecognitionResult {
     Succeeded {
         coverages: Vec<RecognitionCoverage>,
         cues: Vec<RecognitionCue>,
-        /// Block language codes for chunks that produced cues.
+        /// Block language codes for coverages that produced cues.
         languages: Vec<ChunkLanguage>,
     },
     Failed(LocalAsrFailure),
@@ -162,7 +162,7 @@ fn output_digest(result: &TaskResult) -> Option<String> {
     Some(crate::recognition::sha256_hex(&bytes))
 }
 
-/// One recognition job finished every chunk. The spec hash is the chunk-plan digest.
+/// One recognition job finished every window. The spec hash covers the windows that ran.
 pub(crate) fn succeed_recognition(
     task_id: &str,
     generation: u32,

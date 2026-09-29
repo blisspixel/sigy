@@ -2,6 +2,8 @@
 //!
 //! Each chunk is at most 30 seconds of one retained interval. Abutting segments stay
 //! separate, a short tail stays its own chunk, and a gap or uncovered hole is never a chunk.
+//! This grid admits the job and fixes its manifest. The worker may end a window earlier
+//! when a phrase reaches the window edge and audio remains in the segment.
 
 use std::fmt;
 

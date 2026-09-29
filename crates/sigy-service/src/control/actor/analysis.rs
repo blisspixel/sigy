@@ -427,7 +427,7 @@ impl Actor {
         if job.state == "succeeded" && !reaped.languages().is_empty() {
             // Best effort after the transcript commit: missing evidence stays visibly absent
             // and never rewrites or fails the published transcript.
-            let evidence = recognizer::language_evidence(&job, &work.input, reaped.languages());
+            let evidence = recognizer::language_evidence(&job, reaped.languages());
             let _ = self
                 .library
                 .store_mut()

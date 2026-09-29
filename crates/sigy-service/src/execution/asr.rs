@@ -161,13 +161,10 @@ async fn decode_and_recognize(
         Stage::Done(pcm) => pcm,
         Stage::Stopped(result) => return Ok((result, Drained(()))),
     };
-    let sample_count = (pcm.len() / 2) as u64;
-    let decoded_sha256 = hex(&Sha256::digest(&pcm));
     let wav = scratch.join("input.wav");
     if write_wav(&wav, &pcm, params.sample_rate).is_err() {
         return Ok(failed(RecognizerFailed));
     }
-    drop(pcm);
     if stopped(signal) {
         return Ok(cancelled());
     }
@@ -178,39 +175,86 @@ async fn decode_and_recognize(
     let Some(blob) = plan.spec.blob() else {
         return Ok(failed(InputUnavailable));
     };
+    match transcribed(params, &pcm, &json, &blob.sha256) {
+        Ok(result) => Ok((result, Drained(()))),
+        Err(failure) => Ok(failed(failure)),
+    }
+}
+
+/// Map one recognizer transcript onto the published prefix of the heard window.
+///
+/// The wav the recognizer read is the whole window. The stored hash and sample
+/// count describe only the prefix that this coverage keeps.
+/// # Errors
+/// Returns invalid output when the transcript or the owned prefix cannot be stored.
+pub(super) fn transcribed(
+    params: &RecognitionParams,
+    pcm: &[u8],
+    json: &[u8],
+    source_sha256: &str,
+) -> std::result::Result<RecognitionResult, LocalAsrFailure> {
+    if pcm.is_empty() || !pcm.len().is_multiple_of(2) {
+        return Err(InvalidOutput);
+    }
+    let full_samples = u64::try_from(pcm.len() / 2).map_err(|_| InvalidOutput)?;
+    let at_end = params.segment_end_us.is_none();
+    let ceiling = crate::recognition::clamp_end(params.end_us, at_end);
+    let parsed =
+        crate::recognizer::parse_whisper_json(json, params.start_us, ceiling, full_samples)
+            .map_err(|_| InvalidOutput)?;
+    let cut = crate::recognition::cut_window(params.start_us, params.end_us, at_end, &parsed.cues);
+    if cut.end_us <= params.start_us || cut.end_us > params.end_us {
+        return Err(InvalidOutput);
+    }
+    let cues = crate::recognition::kept_cues(&parsed.cues, &cut).ok_or(InvalidOutput)?;
+    let (sample_count, decoded_sha256) = owned_audio(pcm, full_samples, params, cut.end_us)?;
     let coverage = RecognitionCoverage {
         ordinal: params.ordinal(),
         interval_ordinal: params.interval_ordinal,
         start_us: params.start_us,
-        end_us: params.end_us,
-        source_sha256: blob.sha256.clone(),
+        end_us: cut.end_us,
+        source_sha256: source_sha256.to_owned(),
         decoded_sha256,
         sample_rate: params.sample_rate,
         sample_count,
     };
-    let Ok(parsed) =
-        crate::recognizer::parse_whisper_json(&json, params.start_us, params.end_us, sample_count)
-    else {
-        return Ok(failed(InvalidOutput));
-    };
-    let cues = parsed.cues;
     let languages = parsed
         .language
         .filter(|_| !cues.is_empty())
         .map(|code| ChunkLanguage {
             ordinal: params.ordinal(),
+            interval_ordinal: coverage.interval_ordinal,
+            start_us: coverage.start_us,
+            end_us: coverage.end_us,
             code,
         })
         .into_iter()
         .collect();
-    Ok((
-        RecognitionResult::Succeeded {
-            coverages: vec![coverage],
-            cues,
-            languages,
-        },
-        Drained(()),
-    ))
+    Ok(RecognitionResult::Succeeded {
+        coverages: vec![coverage],
+        cues,
+        languages,
+    })
+}
+
+fn owned_audio(
+    pcm: &[u8],
+    full_samples: u64,
+    params: &RecognitionParams,
+    end_us: u64,
+) -> std::result::Result<(u64, String), LocalAsrFailure> {
+    if end_us == params.end_us {
+        return Ok((full_samples, hex(&Sha256::digest(pcm))));
+    }
+    let sample_count = crate::recognition::owned_sample_count(
+        end_us.saturating_sub(params.start_us),
+        params.sample_rate,
+        full_samples,
+    )
+    .ok_or(InvalidOutput)?;
+    let bytes = usize::try_from(sample_count.saturating_mul(2)).map_err(|_| InvalidOutput)?;
+    let prefix = pcm.get(..bytes).ok_or(InvalidOutput)?;
+    Ok((sample_count, hex(&Sha256::digest(prefix))))
 }
 
 /// The files a profile pins, re-hashed before every run.

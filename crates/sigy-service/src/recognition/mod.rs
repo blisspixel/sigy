@@ -35,8 +35,10 @@ use sha2::{Digest, Sha256};
 use crate::{Error, Result, storage::validate_key};
 
 mod chunks;
+mod cut;
 pub use chunks::{AsrSegment, PlannedChunk};
-pub(crate) use chunks::{ChunkHole, ChunkSpan, MAX_CHUNKS, plan_chunks};
+pub(crate) use chunks::{CHUNK_US, ChunkHole, ChunkSpan, MAX_CHUNKS, plan_chunks};
+pub(crate) use cut::{clamp_end, cut_window, kept_cues, owned_sample_count};
 
 pub const MAX_ASR_CUES: usize = 256;
 pub const MAX_ASR_TEXT_BYTES: usize = 65_536;
@@ -98,7 +100,8 @@ pub struct LocalAsrJob {
 }
 
 /// An immutable catalog descriptor, never a source URL or filesystem path.
-/// `chunks` is the frozen plan. A later read does not replan it.
+/// `chunks` is the frozen admission grid. A later read does not replan it.
+/// Published coverages tile each segment and may end earlier than these chunks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LocalAsrInput {
     pub recording_id: String,
@@ -176,16 +179,21 @@ pub struct RecognitionCoverage {
 pub struct RecognitionOutput {
     pub profile_sha256: String,
     pub manifest_sha256: String,
-    /// One row per planned chunk. Silence is a row with no cue, not a missing row.
+    /// One row per published coverage. Silence is a row with no cue, not a missing row.
+    /// Rows tile each segment. A row can end earlier than the admission grid.
     pub coverages: Vec<RecognitionCoverage>,
     /// An empty list means evaluated coverage with no recognized text, not a gap.
     pub cues: Vec<RecognitionCue>,
 }
 
-/// The recognizer's block language code for one chunk that produced cues.
+/// The recognizer's block language code for one published coverage that produced cues.
+/// The clock is that coverage. The process may have heard audio past `end_us`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ChunkLanguage {
     pub ordinal: u32,
+    pub interval_ordinal: u32,
+    pub start_us: u64,
+    pub end_us: u64,
     pub code: String,
 }
 

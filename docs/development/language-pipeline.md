@@ -1,6 +1,6 @@
 # Retained-recording language pipeline
 
-Updated: 2026-09-29. Status: authorized build goal and implementation plan. The service recognizes speech, stores recognizer block labels as unevaluated evidence, and translates recognized cues into English locally. Measured language detection, reference-scored translation, and paid provider dispatch remain open. [Chunked recognition](../decisions/0049-chunked-recognition.md) covers recordings longer than 60 seconds. The 2026-09-24 decisions below are unchanged.
+Updated: 2026-09-29. Status: authorized build goal and implementation plan. The service recognizes speech, stores recognizer block labels as unevaluated evidence, and translates recognized cues into English locally. Measured language detection, reference-scored translation, and paid provider dispatch remain open. [Chunked recognition](../decisions/0049-chunked-recognition.md) covers recordings longer than 60 seconds. A phrase at a window edge while audio remains waits for the next window. The 2026-09-24 decisions below are unchanged.
 
 ## 2026-09-24 decisions
 
@@ -16,7 +16,7 @@ Updated: 2026-09-29. Status: authorized build goal and implementation plan. The 
 
 Turn one retained recording into inspectable original-script text, language evidence, and aligned English translation. Preserve its checksum, media clock, gaps, revisions, and uncertainty. Prove the local path with paid processing disabled, then compare explicitly authorized remote profiles under exact finite reservations. Continue through the [first-release build order](../../ROADMAP.md#build-order) only as each operation earns its evidence.
 
-The service now runs that local path: recognition, unevaluated recognizer language spans, local English translation, and chunked recognition of recordings longer than 60 seconds. Per-language benchmarks, reference-scored translation, and paid dispatch remain open. [Progress](progress.md) is the current record. The notes below keep the order in which each slice landed.
+The service now runs that local path: recognition, unevaluated recognizer language spans, local English translation, and recognition of recordings longer than 60 seconds in windows of at most 30 seconds. A phrase at a window edge while audio remains is stored in the next window. Per-language benchmarks, reference-scored translation, and paid dispatch remain open. [Progress](progress.md) is the current record. The notes below keep the order in which each slice landed.
 
 Operation 22 pins published inputs. Operation 23 originally hashed retained files and stored empty cues marked `uncertain` under `local-unmeasured`. Those rows remain legacy history. New `analysis transcribe` requests originally failed until a measured recognizer was configured; `analysis verify` performs supervised retained-file checks under [decision 0034](../decisions/0034-retained-input-verification.md). Schema v23 enforces those empty cues and one transcript revision; an adapter cannot simply fill them in. [Local transcript decision](../decisions/0032-local-transcripts.md).
 
