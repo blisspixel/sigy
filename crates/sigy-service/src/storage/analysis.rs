@@ -380,6 +380,23 @@ fn read_revision(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredRevision> {
     })
 }
 
+/// Retained audio on a pin, in microseconds. Gaps are not audio.
+/// # Errors
+/// Returns a storage error when the timeline cannot be read.
+pub(crate) fn retained_audio_us(timeline_json: &str) -> Result<u64> {
+    let timeline: Timeline =
+        serde_json::from_str(timeline_json).map_err(|_| Error::StorageIntegrity)?;
+    let mut total = 0_u64;
+    for interval in &timeline.intervals {
+        let span = interval
+            .end_us
+            .checked_sub(interval.start_us)
+            .ok_or(Error::StorageIntegrity)?;
+        total = total.checked_add(span).ok_or(Error::StorageIntegrity)?;
+    }
+    Ok(total)
+}
+
 fn record_from(id: &str, row: &StoredRevision) -> Result<AnalysisRecord> {
     let timeline: Timeline = serde_json::from_str(&row.timeline_json)?;
     Ok(AnalysisRecord {

@@ -15,6 +15,8 @@ use crate::{Error, Result};
 
 mod jobs;
 mod migrate;
+mod pace;
+pub(crate) use pace::{RecognitionPace, describe};
 mod profiles;
 mod publish;
 mod reads;

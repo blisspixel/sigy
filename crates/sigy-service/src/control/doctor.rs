@@ -85,6 +85,7 @@ fn inspect(
         podcasts(store)?,
         publisher_text(store)?,
         captures(view.captures.interrupted),
+        recognition(&store.recognition_pace()?),
     ];
     Ok(DoctorReport { checks })
 }
@@ -328,6 +329,15 @@ fn publisher_text(store: &Store) -> Result<DoctorCheck> {
     }
 }
 
+fn recognition(pace: &crate::storage::recognition::RecognitionPace) -> DoctorCheck {
+    check(
+        "recognition",
+        DoctorState::Ok,
+        crate::storage::recognition::describe(pace),
+        None,
+    )
+}
+
 fn captures(interrupted: u64) -> DoctorCheck {
     if interrupted == 0 {
         check(
@@ -388,6 +398,17 @@ mod tests {
             .ok_or("directory")?;
         if directory.command.as_deref() != Some("radio refresh NEW_ID --limit 100") {
             return Err("empty cache did not suggest a refresh".into());
+        }
+        let recognition = report
+            .checks
+            .iter()
+            .find(|check| check.name == "recognition")
+            .ok_or("recognition")?;
+        if recognition.state != DoctorState::Ok
+            || !recognition.detail.contains("pace is unmeasured")
+            || recognition.command.is_some()
+        {
+            return Err(format!("fresh pace was not unmeasured: {recognition:?}").into());
         }
         Ok(())
     }

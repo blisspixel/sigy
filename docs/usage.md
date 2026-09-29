@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 `--data-dir` is required except for `sigy update`, help, and version. Use a private directory outside the checkout. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v25 and local IPC is v26. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v34 and local IPC is v34. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Update
 
@@ -24,7 +24,7 @@ sigy --data-dir PATH_TO_LIBRARY doctor --strict
 
 `doctor` reads the local library and does not refresh, delete, or contact a network. It reports each check as ok, attention, or blocked. Attention means the library still works and names the command that would improve it. Blocked means a configured check is unusable, and the process exits with an error. `--strict` also exits with an error when any check needs attention.
 
-An empty station cache, a cached station older than 24 hours, or a cached station with no observation time is attention. Those stations stay searchable. Favorites stay. Doctor also runs SQLite `quick_check` and does not print the engine's own error text. A refresh merges one page and does not delete unseen stations. The report suggests `radio refresh NEW_ID --limit 100`. Choose a new id for each fetch. A running refresh is reported instead of starting another one. Podcast snapshots older than 24 hours are attention and are not downloaded by that suggestion. A missing decoder is attention until recording is required. A configured decoder path that is not a file is blocked, and recording refuses to start.
+An empty station cache, a cached station older than 24 hours, or a cached station with no observation time is attention. Those stations stay searchable. Favorites stay. Doctor also runs SQLite `quick_check` and does not print the engine's own error text. A refresh merges one page and does not delete unseen stations. The report suggests `radio refresh NEW_ID --limit 100`. Choose a new id for each fetch. A running refresh is reported instead of starting another one. Podcast snapshots older than 24 hours are attention and are not downloaded by that suggestion. A missing decoder is attention until recording is required. A configured decoder path that is not a file is blocked, and recording refuses to start. Doctor also reports the pace of completed recognition on this library, or that the pace is unmeasured. That check stays ok. It is the wall time of those jobs per second of retained audio, and it does not predict how long a backlog will take.
 
 ## Library and budget
 

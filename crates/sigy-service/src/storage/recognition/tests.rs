@@ -125,6 +125,40 @@ fn admission_is_exact_replay_without_redispatch_and_shares_worker_slot() -> Test
 }
 
 #[test]
+fn completed_recognition_reports_its_own_pace() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    assert!(matches!(
+        store.recognition_pace()?,
+        crate::storage::recognition::RecognitionPace::Unmeasured
+    ));
+    let work = admit(&mut store, "asr", 0)?;
+    let job = store.finish_local_asr(&work, &proof(&work, "heard"), 21)?;
+    assert_eq!(job.state, "succeeded");
+    let pace = store.recognition_pace()?;
+    let text = crate::storage::recognition::describe(&pace);
+    let crate::storage::recognition::RecognitionPace::Observed {
+        profiles,
+        hidden_profiles,
+        newest_limited,
+    } = pace
+    else {
+        return Err("completed recognition stayed unmeasured".into());
+    };
+    assert!(!newest_limited);
+    assert_eq!(hidden_profiles, 0);
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0].profile, "synthetic-storage-fixture-v1");
+    assert_eq!(profiles[0].jobs, 1);
+    assert_eq!(profiles[0].wall_ms_per_audio_second, 1);
+    assert_eq!(
+        text,
+        "synthetic-storage-fixture-v1: 1 job, 1 ms wall per audio second. Observed on this library."
+    );
+    Ok(())
+}
+
+#[test]
 fn unicode_success_is_atomic_zero_cost_and_replays_after_media_expiry() -> TestResult {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("catalog");

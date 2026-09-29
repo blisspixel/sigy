@@ -3,7 +3,8 @@
 ## Unreleased
 
 - Catalog schema and local IPC are v34. One recognition job hears windows of at most 30 seconds, up to 1,024 windows, and publishes one original-script transcript. A phrase that reaches a window edge while audio remains waits, and the next window starts at that phrase. A phrase with no earlier break is stored through the window end, so a word there can still be cut. Published coverages abut, stay within 30 seconds, and tile each segment. The 64 MiB byte cap, the cue cap and the text cap are unchanged. A queued job from an older manifest fails as no longer current. No language is qualified.
-- Queued jobs rotate across sources. Every fourth claim takes the oldest waiting job, so one busy source cannot hold the single slot. Jobs on one source still run oldest first. Live deadlines and measured capacity remain open.
+- Queued jobs rotate across sources. Every fourth claim takes the oldest waiting job, so one busy source cannot hold the single slot. Jobs on one source still run oldest first. Live deadlines, host budgets, and a catch-up report remain open.
+- `sigy doctor` reports the pace of completed recognition on this library, in milliseconds of wall time per second of retained audio, or that the pace is unmeasured. The check stays ok. The figure does not change claim order or predict a backlog.
 
 ## 0.1.0-dev.20260925 (development prerelease, source only)
 
