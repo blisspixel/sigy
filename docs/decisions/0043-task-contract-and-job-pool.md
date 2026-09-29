@@ -31,7 +31,7 @@ Unit tests cover the spec, envelope binding, executor refusal of tampered specs,
 
 ## Limitations
 
-- Caps are fixed at one per kind; host CPU, memory and GPU budgets, fairness between sources and live classes are operation 28.
+- Amended 2026-09-29 by [fair claim order](0050-fair-claim-order.md): claims rotate across sources, and every fourth claim is the oldest waiting job. Caps stay one per kind. Host CPU, memory and GPU budgets, and a stored live deadline, remain open.
 - Leases have no heartbeat or reaper; they matter only across a restart of the single local service.
 - Requeue depends on the previous service's process groups ending with it; this is observed on Windows only.
 - A queued job does not protect its input from retention, so backlog can fail jobs as `input-no-longer-current` under quota pressure. Backlog reporting is not implemented.

@@ -7,6 +7,7 @@ pub mod control;
 pub mod discovery;
 mod error;
 mod execution;
+mod fairness;
 pub mod languages;
 pub mod library;
 pub mod monitor;

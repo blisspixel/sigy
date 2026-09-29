@@ -1,15 +1,17 @@
 //! The durable local job pool shared by verification, recognition and translation.
 //!
-//! Admission enqueues a job. The service scheduler claims the oldest queued job of a kind
+//! Admission enqueues a job. The service scheduler claims the next fair job of a kind
 //! whose transcript lineage has no active job, up to a per-kind cap, and records a lease
-//! owned by this service process. A restart ends every lease: running zero-cost local
-//! work returns to the queue under a new generation until its attempt limit, while
+//! owned by this service process. A fresh cursor still starts at the oldest job.
+//! A restart ends every lease: running zero-cost local work returns to the queue under
+//! a new generation until its attempt limit, while
 //! cancelling or exhausted work becomes interrupted. Every ended attempt is recorded.
 //! A queued job holds no read lease; its input is checked again when it is claimed.
 
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, Transaction, params};
 
 use super::{Store, widen};
+use crate::fairness::{Candidate, Class, FairCursor, Pick, choose};
 use crate::{Error, Result};
 
 /// Queued plus active jobs allowed in one job table. Terminal history is not bounded.
@@ -34,16 +36,16 @@ pub(crate) enum JobKind {
 impl JobKind {
     pub(crate) const ALL: [Self; 3] = [Self::Verification, Self::Recognition, Self::Translation];
 
-    fn queued_sql(self) -> &'static str {
+    fn candidate_sql(self) -> &'static str {
         match self {
             Self::Verification => {
-                "SELECT j.id FROM analysis_jobs j WHERE j.kind = 'verify' AND j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM analysis_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling')) ORDER BY j.created_ms, j.rowid LIMIT 1"
+                "SELECT j.id, j.created_ms, c.source_revision FROM analysis_jobs j JOIN capture_jobs c ON c.id = j.recording_id WHERE j.kind = 'verify' AND j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM analysis_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling'))"
             }
             Self::Recognition => {
-                "SELECT j.id FROM analysis_jobs j WHERE j.kind = 'local_asr' AND j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM analysis_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling')) ORDER BY j.created_ms, j.rowid LIMIT 1"
+                "SELECT j.id, j.created_ms, c.source_revision FROM analysis_jobs j JOIN capture_jobs c ON c.id = j.recording_id WHERE j.kind = 'local_asr' AND j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM analysis_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling'))"
             }
             Self::Translation => {
-                "SELECT j.id FROM translation_jobs j WHERE j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM translation_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling')) ORDER BY j.created_ms, j.rowid LIMIT 1"
+                "SELECT j.id, j.created_ms, c.source_revision FROM translation_jobs j JOIN transcripts t ON t.id = j.transcript_id AND t.revision = j.transcript_revision JOIN capture_jobs c ON c.id = t.recording_id WHERE j.state = 'queued' AND NOT EXISTS (SELECT 1 FROM translation_jobs r WHERE r.lineage = j.lineage AND r.state IN ('running', 'cancelling'))"
             }
         }
     }
@@ -231,14 +233,33 @@ pub(super) fn recover(connection: &mut Connection, family: Family, now: i64) -> 
 }
 
 impl Store {
+    /// The next claim for this kind. A default cursor returns the oldest eligible job.
+    /// # Errors
+    /// Returns catalog read errors.
+    pub(crate) fn next_fair(&self, kind: JobKind, cursor: &FairCursor) -> Result<Option<Pick>> {
+        let mut statement = self.connection.prepare(kind.candidate_sql())?;
+        let rows = statement.query_map([], |row| {
+            let ready_ms = row.get(1)?;
+            Ok(Candidate {
+                id: row.get(0)?,
+                source: row.get(2)?,
+                class: Class::Batch,
+                ready_ms,
+                deadline_ms: ready_ms,
+            })
+        })?;
+        let candidates = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(choose(&candidates, cursor))
+    }
+
     /// The oldest queued job of this kind whose lineage has no active job.
     /// # Errors
     /// Returns catalog read errors.
+    #[cfg(test)]
     pub(crate) fn next_queued(&self, kind: JobKind) -> Result<Option<String>> {
         Ok(self
-            .connection
-            .query_row(kind.queued_sql(), [], |row| row.get(0))
-            .optional()?)
+            .next_fair(kind, &FairCursor::default())?
+            .map(|pick| pick.id))
     }
 
     /// Recorded attempts a restart ended for one job, oldest first.

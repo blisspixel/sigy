@@ -1,14 +1,17 @@
 //! The service scheduler for the durable local job pool.
 //!
-//! Admission only enqueues. [`Actor::schedule`] claims queued jobs, oldest first, up to
-//! each kind's concurrency cap and never two in one transcript lineage, and starts one
-//! supervised worker per claim. Capture workers are separate and never wait on the pool.
+//! Admission only enqueues. [`Actor::schedule`] claims queued jobs in source rotation,
+//! with every fourth claim reserved for the oldest waiting job, up to each kind's
+//! concurrency cap and never two in one transcript lineage, and starts one supervised
+//! worker per claim. Capture workers are separate and never wait on the pool.
 
 use std::collections::HashMap;
 
 use super::{Actor, Message, Worker};
 use crate::{
-    Error, Result, execution, processing,
+    Error, Result, execution,
+    fairness::{FairCursor, Pick},
+    processing,
     recognition::{LocalAsrRequest, LocalAsrWork, ReapedLocalAsr},
     recognizer::{self, RecognitionTask},
     storage::{
@@ -41,12 +44,40 @@ pub(super) struct TranslationWorker {
     pub work: TranslationWork,
 }
 
+/// One rotation cursor for each job kind. It lasts for this service process.
+#[derive(Debug, Default)]
+struct Fairness {
+    verification: FairCursor,
+    recognition: FairCursor,
+    translation: FairCursor,
+}
+
+impl Fairness {
+    fn cursor(&self, kind: JobKind) -> &FairCursor {
+        match kind {
+            JobKind::Verification => &self.verification,
+            JobKind::Recognition => &self.recognition,
+            JobKind::Translation => &self.translation,
+        }
+    }
+
+    fn advance(&mut self, kind: JobKind, pick: &Pick) {
+        let cursor = match kind {
+            JobKind::Verification => &mut self.verification,
+            JobKind::Recognition => &mut self.recognition,
+            JobKind::Translation => &mut self.translation,
+        };
+        cursor.advance(pick);
+    }
+}
+
 /// Running pool workers, by job ID, and the caps and lease owner of this service.
 pub(super) struct Pool {
     pub caps: PoolCaps,
     pub owner: String,
     /// False once the service is stopping; no new job starts after that.
     pub accepting: bool,
+    fairness: Fairness,
     pub verification: HashMap<String, VerificationWorker>,
     pub recognition: HashMap<String, RecognitionWorker>,
     pub translation: HashMap<String, TranslationWorker>,
@@ -58,6 +89,7 @@ impl Pool {
             caps: PoolCaps::default(),
             owner,
             accepting: true,
+            fairness: Fairness::default(),
             verification: HashMap::new(),
             recognition: HashMap::new(),
             translation: HashMap::new(),
@@ -130,14 +162,18 @@ impl Actor {
                     // Recognition stays queued until a decoder is configured again.
                     break;
                 }
-                let Some(id) = self.library.store().next_queued(kind)? else {
+                let cursor = self.pool.fairness.cursor(kind).clone();
+                let Some(pick) = self.library.store().next_fair(kind, &cursor)? else {
                     break;
                 };
                 claims += 1;
-                match kind {
-                    JobKind::Verification => self.launch_verification(&id)?,
-                    JobKind::Recognition => self.launch_recognition(&id)?,
-                    JobKind::Translation => self.launch_translation(&id)?,
+                let started = match kind {
+                    JobKind::Verification => self.launch_verification(&pick.id)?,
+                    JobKind::Recognition => self.launch_recognition(&pick.id)?,
+                    JobKind::Translation => self.launch_translation(&pick.id)?,
+                };
+                if started {
+                    self.pool.fairness.advance(kind, &pick);
                 }
             }
         }
@@ -156,14 +192,14 @@ impl Actor {
         self.schedule()
     }
 
-    fn launch_verification(&mut self, id: &str) -> Result<()> {
+    fn launch_verification(&mut self, id: &str) -> Result<bool> {
         let owner = self.pool.owner.clone();
         let Some((job, manifest)) =
             self.library
                 .store_mut()
                 .claim_verification(id, &owner, now_ms()?)?
         else {
-            return Ok(());
+            return Ok(false);
         };
         let directory = self.library.directory().to_path_buf();
         let ownership = self.library.hold_ownership();
@@ -182,7 +218,7 @@ impl Actor {
                 self.pool
                     .verification
                     .insert(job.id, VerificationWorker { generation, worker });
-                Ok(())
+                Ok(true)
             }
             Err(error) => {
                 self.fail_analysis_spawn(&job)?;
@@ -338,7 +374,7 @@ impl Actor {
         self.schedule()
     }
 
-    fn launch_recognition(&mut self, id: &str) -> Result<()> {
+    fn launch_recognition(&mut self, id: &str) -> Result<bool> {
         let decoder = self.decoder()?;
         let owner = self.pool.owner.clone();
         let Some(work) = self
@@ -346,7 +382,7 @@ impl Actor {
             .store_mut()
             .claim_local_asr(id, &owner, now_ms()?)?
         else {
-            return Ok(());
+            return Ok(false);
         };
         let profile = self
             .library
@@ -386,7 +422,7 @@ impl Actor {
                         work,
                     },
                 );
-                Ok(())
+                Ok(true)
             }
             Err(error) => {
                 let reaped = recognizer::not_started(&work.job)?;
@@ -477,14 +513,14 @@ impl Actor {
         self.schedule()
     }
 
-    fn launch_translation(&mut self, id: &str) -> Result<()> {
+    fn launch_translation(&mut self, id: &str) -> Result<bool> {
         let owner = self.pool.owner.clone();
         let Some(work) = self
             .library
             .store_mut()
             .claim_translation(id, &owner, now_ms()?)?
         else {
-            return Ok(());
+            return Ok(false);
         };
         let spawned = self
             .library
@@ -519,7 +555,7 @@ impl Actor {
                         work,
                     },
                 );
-                Ok(())
+                Ok(true)
             }
             Err(error) => {
                 let envelope = execution::refuse_translation(
