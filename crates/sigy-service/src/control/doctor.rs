@@ -85,7 +85,7 @@ fn inspect(
         podcasts(store)?,
         publisher_text(store)?,
         captures(view.captures.interrupted),
-        recognition(&store.recognition_pace()?),
+        recognition(&store.recognition_pace()?, &store.recognition_queue()?),
     ];
     Ok(DoctorReport { checks })
 }
@@ -329,11 +329,17 @@ fn publisher_text(store: &Store) -> Result<DoctorCheck> {
     }
 }
 
-fn recognition(pace: &crate::storage::recognition::RecognitionPace) -> DoctorCheck {
+fn recognition(
+    pace: &crate::storage::recognition::RecognitionPace,
+    queue: &crate::storage::recognition::RecognitionQueue,
+) -> DoctorCheck {
     check(
         "recognition",
         DoctorState::Ok,
-        crate::storage::recognition::describe(pace),
+        crate::storage::recognition::describe_recognition(
+            &crate::storage::recognition::describe(pace),
+            &crate::storage::recognition::describe_queue(queue),
+        ),
         None,
     )
 }
@@ -405,7 +411,8 @@ mod tests {
             .find(|check| check.name == "recognition")
             .ok_or("recognition")?;
         if recognition.state != DoctorState::Ok
-            || !recognition.detail.contains("pace is unmeasured")
+            || recognition.detail
+                != "no completed recognition has a measured duration, so pace is unmeasured. No recognition job is queued."
             || recognition.command.is_some()
         {
             return Err(format!("fresh pace was not unmeasured: {recognition:?}").into());

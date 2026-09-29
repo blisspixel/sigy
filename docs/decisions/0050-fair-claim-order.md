@@ -1,6 +1,6 @@
 # Fair claim order
 
-Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC stay v34. This is the claim-order part of roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). It amends the oldest-first claim in the [task contract and job pool](0043-task-contract-and-job-pool.md). Amended the same day by [live recognition deadline](0052-live-recognition-deadline.md): recognition is classified at claim time. The rotation rules below are unchanged, and the deadline is still not a stored column. Host budgets and a catch-up report remain open. No language is qualified.
+Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC stay v34. This is the claim-order part of roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). It amends the oldest-first claim in the [task contract and job pool](0043-task-contract-and-job-pool.md). Amended the same day by [live recognition deadline](0052-live-recognition-deadline.md): recognition is classified at claim time. The rotation rules below are unchanged, and the deadline is still not a stored column. Host budgets remain open. [Queued recognition](0053-queued-recognition.md) reports the processing time of audio already waiting. No language is qualified.
 
 ## Decision
 

@@ -57,7 +57,7 @@ pub(crate) fn classify(
 
 /// Milliseconds of wall time for this audio at the already-rounded pace.
 /// A non-zero remainder rounds up. The product has to fit in an `i64`.
-fn lag_ms(audio_us: u64, pace_ms_per_audio_second: u64) -> Option<i64> {
+pub(crate) fn lag_ms(audio_us: u64, pace_ms_per_audio_second: u64) -> Option<i64> {
     let product = u128::from(audio_us).checked_mul(u128::from(pace_ms_per_audio_second))?;
     let rounded = product.checked_add(US_PER_SECOND - 1)? / US_PER_SECOND;
     i64::try_from(rounded).ok()

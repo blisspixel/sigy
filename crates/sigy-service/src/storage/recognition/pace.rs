@@ -1,9 +1,9 @@
 //! Observed recognition pace from completed jobs on this library.
 //!
 //! The figure is total wall time of those attempts divided by retained audio.
-//! It is not a host capacity and it does not predict a backlog. Claim
-//! classification reads the same per-profile figure, including profiles the
-//! doctor report does not name.
+//! It is not a host capacity. Claim classification and the queued-audio report
+//! read the same per-profile figure, including profiles the doctor report does
+//! not name.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;

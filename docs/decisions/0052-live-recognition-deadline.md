@@ -1,6 +1,6 @@
 # Live recognition deadline
 
-Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC stay v34. This is the live-classification part of roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). It uses the pace from [recognition pace](0051-recognition-pace.md) and the rotation from [fair claim order](0050-fair-claim-order.md). Host budgets and a catch-up report remain open. No language is qualified.
+Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC stay v34. This is the live-classification part of roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). It uses the pace from [recognition pace](0051-recognition-pace.md) and the rotation from [fair claim order](0050-fair-claim-order.md). Host budgets remain open. [Queued recognition](0053-queued-recognition.md) reports the processing time of audio already waiting at this pace. No language is qualified.
 
 ## Decision
 
@@ -33,7 +33,7 @@ On 2026-09-29, `cargo verify` passed 483 tests, with 15 native-media tests ignor
 ## Limitations
 
 - Host CPU, memory, and GPU budgets are not applied. Caps stay one job of each kind.
-- There is no catch-up report, and this deadline is not compared with an arrival rate.
+- This deadline is not compared with an arrival rate. [Queued recognition](0053-queued-recognition.md) reports the processing time of audio already queued.
 - The newest 256 jobs can leave an older run out, so a profile with only older completions stays batch.
 - A pace of zero closes the window at the seal.
 - The seal is the system clock at publication.

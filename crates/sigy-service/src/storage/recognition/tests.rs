@@ -163,6 +163,64 @@ fn completed_recognition_reports_its_own_pace() -> TestResult {
 }
 
 #[test]
+fn queued_recognition_reports_wall_time_at_the_observed_pace() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    assert_eq!(
+        crate::storage::recognition::describe_queue(&store.recognition_queue()?),
+        "No recognition job is queued."
+    );
+    let work = admit(&mut store, "asr", 0)?;
+    assert_eq!(
+        crate::storage::recognition::describe_queue(&store.recognition_queue()?),
+        "1 recognition job is running. No recognition job is queued."
+    );
+    assert_eq!(store.cancel_local_asr("asr", 1)?.state, "cancelling");
+    assert_eq!(
+        crate::storage::recognition::describe_queue(&store.recognition_queue()?),
+        "1 recognition job is stopping. No recognition job is queued."
+    );
+    assert_eq!(
+        store
+            .finish_local_asr(&work, &proof(&work, "heard"), 21)?
+            .state,
+        "cancelled"
+    );
+    let work = admit(&mut store, "kept", 0)?;
+    store.finish_local_asr(&work, &proof(&work, "heard"), 22)?;
+    store.enqueue_local_asr(&request("again", 1), 30)?;
+    let waiting = store.recognition_queue()?;
+    assert_eq!(waiting.running_jobs, 0);
+    assert_eq!(waiting.queued_jobs, 1);
+    assert_eq!(waiting.queued_audio_us, 1_000_000);
+    assert_eq!(waiting.measured_wall_ms, 2);
+    assert_eq!(waiting.unmeasured_audio_us, 0);
+    let measured = crate::storage::recognition::describe_queue(&waiting);
+    assert_eq!(
+        measured,
+        "Queued recognition is 1 job, 1000000 us of audio, 2 ms of wall time at the observed pace on this library."
+    );
+    store.admit_verification("verify-other", "pin", 1, 31)?;
+    assert_eq!(
+        crate::storage::recognition::describe_queue(&store.recognition_queue()?),
+        measured
+    );
+    let mut stranger = request("stranger", 1);
+    stranger.profile = "unmeasured-profile".into();
+    store.enqueue_local_asr(&stranger, 32)?;
+    assert_eq!(
+        crate::storage::recognition::describe_queue(&store.recognition_queue()?),
+        "Queued recognition is 2 jobs, 2000000 us of audio. 1000000 us is 2 ms of wall time at the observed pace. 1000000 us has no measured pace. Observed on this library."
+    );
+    assert_eq!(store.cancel_local_asr("stranger", 1)?.state, "cancelled");
+    assert_eq!(
+        crate::storage::recognition::describe_queue(&store.recognition_queue()?),
+        measured
+    );
+    Ok(())
+}
+
+#[test]
 fn unicode_success_is_atomic_zero_cost_and_replays_after_media_expiry() -> TestResult {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("catalog");
