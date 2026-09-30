@@ -65,14 +65,14 @@ pub(super) async fn run(
         return Ok(ResultEnvelope::new(
             &spec,
             TaskResult::Translation(failed),
-            Drained(()),
+            Drained::none(),
         ));
     }
     let Some(plan) = plan(&spec, &stage) else {
         return Ok(ResultEnvelope::new(
             &spec,
             TaskResult::Translation(failed),
-            Drained(()),
+            Drained::none(),
         ));
     };
     let scratch = stage.scratch(&spec);
@@ -84,7 +84,7 @@ pub(super) async fn run(
     Ok(ResultEnvelope::new(
         &spec,
         TaskResult::Translation(result),
-        Drained(()),
+        Drained::none(),
     ))
 }
 
@@ -228,7 +228,8 @@ async fn translate_cue(
     let Some(stdout) = child.stdout.take() else {
         let _ = group.kill_all();
         let _ = child.wait().await;
-        drain(&group).await?;
+        // Translation jobs are not analysis jobs, so this snapshot is not stored.
+        let _snapshot = drain(&group).await?;
         return Ok(Some(untranslated(cue.ordinal, "translator-failed")));
     };
     let read = async {
@@ -246,7 +247,8 @@ async fn translate_cue(
         _ = signal.changed() => None,
     };
     let _ = group.kill_all();
-    drain(&group).await?;
+    // Translation jobs are not analysis jobs, so this snapshot is not stored.
+    let _snapshot = drain(&group).await?;
     let _ = std::fs::remove_file(&prompt);
     Ok(match result {
         None => None,

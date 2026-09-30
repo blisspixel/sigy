@@ -299,7 +299,7 @@ fn an_envelope_binds_one_task_generation_spec_and_output() -> TestResult {
         ResultEnvelope::new(
             &spec,
             TaskResult::Recognition(RecognitionResult::Cancelled),
-            Drained(()),
+            Drained::none(),
         )
     };
     let hash = Some(spec.spec_sha256.as_str());
@@ -352,7 +352,8 @@ async fn the_local_executor_refuses_a_tampered_spec_without_starting_a_process()
     let stage = LocalStage::new(root.path());
     let envelope = LocalProcessExecutor.execute(spec, stage, signal).await?;
     let hash = envelope.spec_sha256.clone();
-    let result = envelope.accept("asr-tamper", 1, hash.as_deref())?;
+    let (result, accounts) = envelope.accept("asr-tamper", 1, hash.as_deref())?;
+    assert!(accounts.is_empty());
     assert_eq!(
         result,
         TaskResult::Recognition(RecognitionResult::Failed(LocalAsrFailure::RecognizerFailed))
@@ -375,8 +376,10 @@ async fn an_unmapped_hash_is_unavailable_without_starting_a_process() -> TestRes
     let envelope = LocalProcessExecutor
         .execute(spec, LocalStage::new(root.path()), signal)
         .await?;
+    let (result, accounts) = envelope.accept("mt-golden", 1, Some(&hash))?;
+    assert!(accounts.is_empty());
     assert_eq!(
-        envelope.accept("mt-golden", 1, Some(&hash))?,
+        result,
         TaskResult::Translation(TranslationResult::Failed("translator-failed"))
     );
     Ok(())

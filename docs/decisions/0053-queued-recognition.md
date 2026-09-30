@@ -1,6 +1,6 @@
 # Queued recognition
 
-Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC stay v34. This is the queue-report part of roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). It reads the pace from [recognition pace](0051-recognition-pace.md). Host budgets remain open. An arrival-rate comparison remains open. No language is qualified.
+Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC stay v34. This is the queue-report part of roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). It reads the pace from [recognition pace](0051-recognition-pace.md). Host budgets remain open. An arrival-rate comparison remains open. No language is qualified. Amended the same day by [recognition worker cost](0054-recognition-worker-cost.md): catalog schema and local IPC are now v35. This queue report is unchanged, and the new rows are not a host budget.
 
 ## Decision
 
@@ -31,4 +31,4 @@ On 2026-09-29, `cargo verify` for this fixture passed 491 tests, with 15 native-
 - A running or stopping job contributes no remaining-audio estimate.
 - The newest 256 completed jobs can leave an older run out, so a profile with only older completions has no measured pace.
 - One library's pace is not a capacity for another host or for a profile that has not completed work here.
-- Operation 28 is not exited. Host budgets remain.
+- Operation 28 is not exited. Host budgets remain. [Recognition worker cost](0054-recognition-worker-cost.md) stores an empty-group snapshot and leaves those budgets open.

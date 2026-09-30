@@ -32,7 +32,7 @@ mod translate;
 mod tests;
 
 pub(crate) use files::{hash_file, runtime_manifest};
-pub(crate) use local::{LocalProcessExecutor, clear_scratch};
+pub(crate) use local::{GroupAccount, GroupSnapshot, LocalProcessExecutor, clear_scratch};
 pub(crate) use spec::{
     AssetRef, AssetRole, BlobRef, DECODER_TEMPLATE, DecoderLimits, InlineText, RecognitionParams,
     SPEC_VERSION, TaskInput, TaskKind, TaskLimits, TaskParams, TaskSpec, TranslationParams,
@@ -40,9 +40,23 @@ pub(crate) use spec::{
 pub(crate) use stage::LocalStage;
 
 /// Proof that every native process started for one task has left its group.
-/// Only the execution module can construct it.
+/// Recognition accounts are the empty-group snapshots. Only this module can construct it.
 #[derive(Debug)]
-pub(crate) struct Drained(());
+pub(crate) struct Drained {
+    accounts: Vec<GroupAccount>,
+}
+
+impl Drained {
+    fn none() -> Self {
+        Self {
+            accounts: Vec::new(),
+        }
+    }
+
+    fn accounts(accounts: Vec<GroupAccount>) -> Self {
+        Self { accounts }
+    }
+}
 
 /// How an executor shows that a task's work has stopped.
 #[derive(Debug)]
@@ -121,7 +135,7 @@ impl ResultEnvelope {
             result,
             output_sha256: None,
             evidence: LOCAL_EVIDENCE,
-            containment: Containment::Drained(Drained(())),
+            containment: Containment::Drained(Drained::none()),
         }
     }
 
@@ -134,18 +148,18 @@ impl ResultEnvelope {
         task_id: &str,
         generation: u32,
         spec_sha256: Option<&str>,
-    ) -> Result<TaskResult> {
+    ) -> Result<(TaskResult, Vec<GroupAccount>)> {
         if self.task_id != task_id || self.generation != generation {
             return Err(Error::Analysis("stale-worker"));
         }
-        let Containment::Drained(Drained(())) = self.containment;
+        let Containment::Drained(drained) = self.containment;
         if self.spec_sha256.as_deref() != spec_sha256
             || self.output_sha256 != output_digest(&self.result)
             || self.evidence != LOCAL_EVIDENCE
         {
             return Err(Error::StorageIntegrity);
         }
-        Ok(self.result)
+        Ok((self.result, drained.accounts))
     }
 }
 
@@ -170,6 +184,7 @@ pub(crate) fn succeed_recognition(
     coverages: Vec<RecognitionCoverage>,
     cues: Vec<RecognitionCue>,
     languages: Vec<ChunkLanguage>,
+    accounts: Vec<GroupAccount>,
 ) -> ResultEnvelope {
     let result = TaskResult::Recognition(RecognitionResult::Succeeded {
         coverages,
@@ -183,7 +198,7 @@ pub(crate) fn succeed_recognition(
         output_sha256: output_digest(&result),
         result,
         evidence: LOCAL_EVIDENCE,
-        containment: Containment::Drained(Drained(())),
+        containment: Containment::Drained(Drained::accounts(accounts)),
     }
 }
 

@@ -85,7 +85,11 @@ fn inspect(
         podcasts(store)?,
         publisher_text(store)?,
         captures(view.captures.interrupted),
-        recognition(&store.recognition_pace()?, &store.recognition_queue()?),
+        recognition(
+            &store.recognition_pace()?,
+            &store.recognition_queue()?,
+            &store.recognition_worker_cost()?,
+        ),
     ];
     Ok(DoctorReport { checks })
 }
@@ -332,16 +336,15 @@ fn publisher_text(store: &Store) -> Result<DoctorCheck> {
 fn recognition(
     pace: &crate::storage::recognition::RecognitionPace,
     queue: &crate::storage::recognition::RecognitionQueue,
+    cost: &crate::storage::recognition::WorkerCost,
 ) -> DoctorCheck {
-    check(
-        "recognition",
-        DoctorState::Ok,
-        crate::storage::recognition::describe_recognition(
-            &crate::storage::recognition::describe(pace),
-            &crate::storage::recognition::describe_queue(queue),
-        ),
-        None,
-    )
+    let mut detail = crate::storage::recognition::describe_recognition(
+        &crate::storage::recognition::describe(pace),
+        &crate::storage::recognition::describe_queue(queue),
+    );
+    detail.push(' ');
+    detail.push_str(&crate::storage::recognition::describe_cost(cost));
+    check("recognition", DoctorState::Ok, detail, None)
 }
 
 fn captures(interrupted: u64) -> DoctorCheck {
@@ -412,7 +415,7 @@ mod tests {
             .ok_or("recognition")?;
         if recognition.state != DoctorState::Ok
             || recognition.detail
-                != "no completed recognition has a measured duration, so pace is unmeasured. No recognition job is queued."
+                != "no completed recognition has a measured duration, so pace is unmeasured. No recognition job is queued. Recognition worker cost is unmeasured on this library."
             || recognition.command.is_some()
         {
             return Err(format!("fresh pace was not unmeasured: {recognition:?}").into());

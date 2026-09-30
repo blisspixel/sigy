@@ -19,7 +19,8 @@ use sha2::{Digest, Sha256};
 use tokio::{io::AsyncReadExt, sync::watch};
 
 use super::{
-    AssetRole, Drained, RecognitionResult, ResultEnvelope, TaskParams, TaskResult, TaskSpec,
+    AssetRole, Drained, GroupAccount, GroupSnapshot, RecognitionResult, ResultEnvelope, TaskParams,
+    TaskResult, TaskSpec,
     files::{hash_file, runtime_manifest},
     local::{blocking, contained, drain, prepare_scratch, runtime_environment, stopped},
     spec::{DecoderLimits, RecognitionParams},
@@ -85,7 +86,7 @@ pub(super) async fn run(
         Ok(ResultEnvelope::new(
             &spec,
             TaskResult::Recognition(RecognitionResult::Failed(failure)),
-            Drained(()),
+            Drained::none(),
         ))
     };
     if spec.validate().is_err() {
@@ -97,7 +98,7 @@ pub(super) async fn run(
     let scratch = stage.scratch(&spec);
     let (result, proof) = match prepare_scratch(&scratch) {
         Ok(()) => attempt(&plan, &scratch, &mut signal).await?,
-        Err(_) => (RecognitionResult::Failed(RecognizerFailed), Drained(())),
+        Err(_) => (RecognitionResult::Failed(RecognizerFailed), Drained::none()),
     };
     let _ = std::fs::remove_dir_all(&scratch);
     Ok(ResultEnvelope::new(
@@ -110,11 +111,18 @@ pub(super) async fn run(
 type Attempt = Result<(RecognitionResult, Drained)>;
 
 fn failed(failure: LocalAsrFailure) -> (RecognitionResult, Drained) {
-    (RecognitionResult::Failed(failure), Drained(()))
+    (RecognitionResult::Failed(failure), Drained::none())
 }
 
 fn cancelled() -> (RecognitionResult, Drained) {
-    (RecognitionResult::Cancelled, Drained(()))
+    (RecognitionResult::Cancelled, Drained::none())
+}
+
+fn recorded(
+    result: RecognitionResult,
+    accounts: Vec<GroupAccount>,
+) -> (RecognitionResult, Drained) {
+    (result, Drained::accounts(accounts))
 }
 
 async fn attempt(plan: &Plan<'_>, scratch: &Path, signal: &mut watch::Receiver<bool>) -> Attempt {
@@ -155,29 +163,60 @@ async fn decode_and_recognize(
     signal: &mut watch::Receiver<bool>,
 ) -> Attempt {
     let params = plan.params;
+    let ordinal = params.ordinal();
     let expected_samples =
         (params.end_us - params.start_us) * u64::from(params.sample_rate) / 1_000_000;
+    let mut accounts = Vec::new();
     let pcm = match decode(plan, input_path, expected_samples, signal).await? {
-        Stage::Done(pcm) => pcm,
-        Stage::Stopped(result) => return Ok((result, Drained(()))),
+        Stage::Done(pcm, snapshot) => {
+            accounts.push(snapshot.labeled("decode", ordinal));
+            pcm
+        }
+        Stage::Stopped(result, snapshot) => {
+            push_account(&mut accounts, snapshot, "decode", ordinal);
+            return Ok(recorded(result, accounts));
+        }
     };
     let wav = scratch.join("input.wav");
     if write_wav(&wav, &pcm, params.sample_rate).is_err() {
-        return Ok(failed(RecognizerFailed));
+        return Ok(recorded(
+            RecognitionResult::Failed(RecognizerFailed),
+            accounts,
+        ));
     }
     if stopped(signal) {
-        return Ok(cancelled());
+        return Ok(recorded(RecognitionResult::Cancelled, accounts));
     }
     let json = match recognize(plan, scratch, &wav, signal).await? {
-        Stage::Done(json) => json,
-        Stage::Stopped(result) => return Ok((result, Drained(()))),
+        Stage::Done(json, snapshot) => {
+            accounts.push(snapshot.labeled("recognize", ordinal));
+            json
+        }
+        Stage::Stopped(result, snapshot) => {
+            push_account(&mut accounts, snapshot, "recognize", ordinal);
+            return Ok(recorded(result, accounts));
+        }
     };
     let Some(blob) = plan.spec.blob() else {
-        return Ok(failed(InputUnavailable));
+        return Ok(recorded(
+            RecognitionResult::Failed(InputUnavailable),
+            accounts,
+        ));
     };
     match transcribed(params, &pcm, &json, &blob.sha256) {
-        Ok(result) => Ok((result, Drained(()))),
-        Err(failure) => Ok(failed(failure)),
+        Ok(result) => Ok(recorded(result, accounts)),
+        Err(failure) => Ok(recorded(RecognitionResult::Failed(failure), accounts)),
+    }
+}
+
+fn push_account(
+    accounts: &mut Vec<GroupAccount>,
+    snapshot: Option<GroupSnapshot>,
+    role: &'static str,
+    ordinal: u32,
+) {
+    if let Some(snapshot) = snapshot {
+        accounts.push(snapshot.labeled(role, ordinal));
     }
 }
 
@@ -299,12 +338,26 @@ impl AssetCheck {
 }
 
 enum Stage<T> {
+    Done(T, GroupSnapshot),
+    Stopped(RecognitionResult, Option<GroupSnapshot>),
+}
+
+enum ProcessEnd<T> {
     Done(T),
     Stopped(RecognitionResult),
 }
 
+impl<T> ProcessEnd<T> {
+    fn with_snapshot(self, snapshot: GroupSnapshot) -> Stage<T> {
+        match self {
+            Self::Done(value) => Stage::Done(value, snapshot),
+            Self::Stopped(result) => Stage::Stopped(result, Some(snapshot)),
+        }
+    }
+}
+
 fn stop_with<T>(failure: LocalAsrFailure) -> Stage<T> {
-    Stage::Stopped(RecognitionResult::Failed(failure))
+    Stage::Stopped(RecognitionResult::Failed(failure), None)
 }
 
 /// How much of the piped segment the decoder keeps.
@@ -430,8 +483,11 @@ async fn decode(
     let Some(stdout) = child.stdout.take() else {
         let _ = group.kill_all();
         let _ = child.wait().await;
-        drain(&group).await?;
-        return Ok(stop_with(DecoderFailed));
+        let snapshot = drain(&group).await?;
+        return Ok(Stage::Stopped(
+            RecognitionResult::Failed(DecoderFailed),
+            Some(snapshot),
+        ));
     };
     let read = async {
         let mut pcm = Vec::new();
@@ -444,22 +500,22 @@ async fn decode(
         result = tokio::time::timeout(deadline, read) => Some(result),
         _ = signal.changed() => None,
     };
-    let stage = match result {
-        None => Stage::Stopped(RecognitionResult::Cancelled),
-        Some(Err(_)) => Stage::Stopped(RecognitionResult::Failed(Deadline)),
+    let ended = match result {
+        None => ProcessEnd::Stopped(RecognitionResult::Cancelled),
+        Some(Err(_)) => ProcessEnd::Stopped(RecognitionResult::Failed(Deadline)),
         Some(Ok(Ok((pcm, status))))
             if status.success()
                 && pcm.len() as u64 <= limit
                 && !pcm.is_empty()
                 && pcm.len() % 2 == 0 =>
         {
-            Stage::Done(pcm)
+            ProcessEnd::Done(pcm)
         }
-        Some(Ok(_)) => Stage::Stopped(RecognitionResult::Failed(DecoderFailed)),
+        Some(Ok(_)) => ProcessEnd::Stopped(RecognitionResult::Failed(DecoderFailed)),
     };
     let _ = group.kill_all();
-    drain(&group).await?;
-    Ok(stage)
+    let snapshot = drain(&group).await?;
+    Ok(ended.with_snapshot(snapshot))
 }
 
 pub(super) fn write_wav(path: &Path, pcm: &[u8], sample_rate: u32) -> Result<()> {
@@ -533,21 +589,23 @@ async fn recognize(
         result = tokio::time::timeout(deadline, child.wait()) => Some(result),
         _ = signal.changed() => None,
     };
-    let stage = match result {
-        None => Stage::Stopped(RecognitionResult::Cancelled),
-        Some(Err(_)) => Stage::Stopped(RecognitionResult::Failed(Deadline)),
-        Some(Ok(Ok(status))) if status.success() => Stage::Done(()),
-        Some(Ok(_)) => Stage::Stopped(RecognitionResult::Failed(RecognizerFailed)),
+    let ended = match result {
+        None => ProcessEnd::Stopped(RecognitionResult::Cancelled),
+        Some(Err(_)) => ProcessEnd::Stopped(RecognitionResult::Failed(Deadline)),
+        Some(Ok(Ok(status))) if status.success() => ProcessEnd::Done(()),
+        Some(Ok(_)) => ProcessEnd::Stopped(RecognitionResult::Failed(RecognizerFailed)),
     };
     let _ = group.kill_all();
     let _ = child.wait().await;
-    drain(&group).await?;
-    Ok(match stage {
-        Stage::Done(()) => match read_output(&output.with_extension("json"), limits.output_bytes) {
-            Some(json) => Stage::Done(json),
-            None => Stage::Stopped(RecognitionResult::Failed(InvalidOutput)),
-        },
-        Stage::Stopped(result) => Stage::Stopped(result),
+    let snapshot = drain(&group).await?;
+    Ok(match ended {
+        ProcessEnd::Done(()) => {
+            match read_output(&output.with_extension("json"), limits.output_bytes) {
+                Some(json) => Stage::Done(json, snapshot),
+                None => Stage::Stopped(RecognitionResult::Failed(InvalidOutput), Some(snapshot)),
+            }
+        }
+        ProcessEnd::Stopped(result) => Stage::Stopped(result, Some(snapshot)),
     })
 }
 

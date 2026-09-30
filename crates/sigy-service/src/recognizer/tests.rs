@@ -360,3 +360,84 @@ fn language_codes_are_bounded_and_mapped_without_losing_the_original() -> TestRe
     assert_eq!(whisper::language_tag("zh"), "zh");
     Ok(())
 }
+
+fn asr_job() -> crate::recognition::LocalAsrJob {
+    crate::recognition::LocalAsrJob {
+        request: crate::recognition::LocalAsrRequest {
+            id: "asr".into(),
+            analysis_id: "pin".into(),
+            analysis_revision: 1,
+            profile: "cpu".into(),
+            profile_sha256: "b".repeat(64),
+            parent_revision: 0,
+        },
+        generation: 1,
+        recording_id: "one".into(),
+        state: "running".into(),
+        expected_bytes: 100,
+        manifest_sha256: "d".repeat(64),
+        reason: None,
+        amount_usd: "0.000000".into(),
+        created_ms: 1,
+        finished_ms: None,
+        attempt: 1,
+        started_ms: Some(1),
+    }
+}
+
+fn account(role: &'static str, ordinal: u32) -> crate::execution::GroupAccount {
+    crate::execution::GroupAccount {
+        role,
+        ordinal,
+        mechanism: "job_object",
+        peak_memory_bytes: Some(64),
+        cpu_time_us: Some(u64::from(ordinal) + 2),
+    }
+}
+
+#[test]
+fn gathered_observations_follow_the_chunk_that_drained_them() -> TestResult {
+    let job = asr_job();
+    let earlier = account("decode", 0);
+    let mut gathered = super::Gathered::default();
+    gathered.observations.push(earlier.clone());
+    let mut stopping = super::cancelled(&job)?;
+    stopping.set_observations(vec![account("recognize", 1)]);
+    let kept = super::keep(&gathered, stopping);
+    assert_eq!(kept.observations().len(), 2);
+    assert_eq!(kept.observations()[0].role, "decode");
+    assert_eq!(kept.observations()[1].ordinal, 1);
+    let finished = super::finish_chunks(&job, gathered)?;
+    assert_eq!(finished.observations(), std::slice::from_ref(&earlier));
+    let chunk = PlannedChunk {
+        ordinal: 0,
+        interval_ordinal: 0,
+        start_us: 0,
+        end_us: 1_000_000,
+        source_sha256: "c".repeat(64),
+    };
+    let hash = "a".repeat(64);
+    let envelope = crate::execution::succeed_recognition(
+        &job.request.id,
+        job.generation,
+        &hash,
+        vec![crate::recognition::RecognitionCoverage {
+            ordinal: 0,
+            interval_ordinal: 0,
+            start_us: 0,
+            end_us: 1_000_000,
+            source_sha256: "c".repeat(64),
+            decoded_sha256: "d".repeat(64),
+            sample_rate: 16_000,
+            sample_count: 16_000,
+        }],
+        Vec::new(),
+        Vec::new(),
+        vec![earlier.clone()],
+    );
+    let super::ChunkStep::Piece(piece) = super::absorb_chunk(&job, &chunk, envelope, hash)? else {
+        return Err("a drained success dropped its account".into());
+    };
+    assert_eq!(piece.observations, vec![earlier]);
+    Ok(())
+}

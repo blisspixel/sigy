@@ -404,7 +404,7 @@ fn three_stations_keep_publishing_while_the_queue_report_stays_honest() -> TestR
     assert!(detail.command.is_none());
     assert_eq!(
         detail.detail,
-        "synthetic-storage-fixture-v1: 1 job, 3600000 ms wall per audio second. Observed on this library. Queued recognition is 3 jobs, 2500000 us of audio, 9000000 ms of wall time at the observed pace on this library."
+        "synthetic-storage-fixture-v1: 1 job, 3600000 ms wall per audio second. Observed on this library. Queued recognition is 3 jobs, 2500000 us of audio, 9000000 ms of wall time at the observed pace on this library. Recognition worker cost is unmeasured on this library."
     );
     let queue = store.recognition_queue()?;
     assert_eq!(
@@ -1983,4 +1983,269 @@ mod translation {
         ));
         Ok(())
     }
+}
+
+fn account(
+    role: &'static str,
+    ordinal: u32,
+    mechanism: &'static str,
+    peak: Option<u64>,
+    cpu: Option<u64>,
+) -> crate::execution::GroupAccount {
+    crate::execution::GroupAccount {
+        role,
+        ordinal,
+        mechanism,
+        peak_memory_bytes: peak,
+        cpu_time_us: cpu,
+    }
+}
+
+fn observation_count(store: &Store) -> Result<i64> {
+    Ok(store
+        .connection
+        .query_row("SELECT count(*) FROM worker_observations", [], |row| {
+            row.get(0)
+        })?)
+}
+
+#[test]
+fn a_finish_without_a_process_reports_unmeasured_worker_cost() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit(&mut store, "asr", 0)?;
+    store.finish_local_asr(&work, &proof(&work, "heard"), 21)?;
+    assert_eq!(observation_count(&store)?, 0);
+    let detail = recognition_detail(&store)?;
+    assert_eq!(detail.state, crate::control::DoctorState::Ok);
+    assert!(detail.command.is_none());
+    assert!(
+        detail
+            .detail
+            .ends_with(" Recognition worker cost is unmeasured on this library.")
+    );
+    Ok(())
+}
+
+#[test]
+fn job_object_accounts_round_trip_and_a_replay_keeps_the_first() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit(&mut store, "asr", 0)?;
+    let mut first = proof(&work, "heard");
+    first.set_observations(vec![
+        account("decode", 0, "job_object", Some(1_000), Some(10)),
+        account("recognize", 0, "job_object", Some(5_000), Some(40)),
+    ]);
+    assert_eq!(
+        store.finish_local_asr(&work, &first, 21)?.state,
+        "succeeded"
+    );
+    let mut replay = proof(&work, "heard");
+    replay.set_observations(vec![account(
+        "recognize",
+        0,
+        "job_object",
+        Some(9),
+        Some(9),
+    )]);
+    store.finish_local_asr(&work, &replay, 22)?;
+    let (count, peak, cpu): (i64, i64, i64) = store.connection.query_row(
+        "SELECT count(*), max(peak_memory_bytes), sum(cpu_time_us) FROM worker_observations",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    assert_eq!((count, peak, cpu), (2, 5_000, 50));
+    let detail = recognition_detail(&store)?;
+    assert_eq!(detail.state, crate::control::DoctorState::Ok);
+    assert!(detail.command.is_none());
+    assert_eq!(
+        detail.detail,
+        "synthetic-storage-fixture-v1: 1 job, 1 ms wall per audio second. Observed on this library. No recognition job is queued. Observed job-object recognition on this library: 2 groups, highest peak committed memory 5000 bytes, 50 us of CPU time. This is not a host budget."
+    );
+    assert!(
+        store
+            .connection
+            .execute("UPDATE worker_observations SET cpu_time_us = 1", [])
+            .is_err()
+    );
+    assert!(
+        store
+            .connection
+            .execute("DELETE FROM worker_observations", [])
+            .is_err()
+    );
+    assert_eq!(observation_count(&store)?, 2);
+    Ok(())
+}
+
+#[test]
+fn a_failed_decode_keeps_its_empty_group_snapshot() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit(&mut store, "asr", 0)?;
+    let mut reaped = ReapedLocalAsr::synthetic_fixture(
+        &work,
+        LocalAsrOutcome::Failed(LocalAsrFailure::DecoderFailed),
+    );
+    reaped.set_observations(vec![account("decode", 0, "job_object", Some(3), Some(1))]);
+    assert_eq!(store.finish_local_asr(&work, &reaped, 21)?.state, "failed");
+    assert_eq!(observation_count(&store)?, 1);
+    let detail = recognition_detail(&store)?;
+    assert!(detail.command.is_none());
+    assert!(detail.detail.ends_with(
+        " Observed job-object recognition on this library: 1 group, highest peak committed memory 3 bytes, 1 us of CPU time. This is not a host budget."
+    ));
+    Ok(())
+}
+
+#[test]
+fn a_stored_peak_does_not_block_the_next_claim() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit(&mut store, "asr", 0)?;
+    let mut done = proof(&work, "heard");
+    done.set_observations(vec![account(
+        "recognize",
+        0,
+        "job_object",
+        Some(9_000_000_000_000),
+        Some(1),
+    )]);
+    store.finish_local_asr(&work, &done, 21)?;
+    store.enqueue_local_asr(&request("later", 1), 30)?;
+    assert!(store.claim_local_asr("later", "owner", 31)?.is_some());
+    Ok(())
+}
+
+#[test]
+fn a_bad_observation_rolls_the_finish_back() -> TestResult {
+    let cases = [
+        vec![account("decode", 0, "gpu", Some(1), Some(1))],
+        vec![
+            account("decode", 0, "job_object", Some(1), Some(1)),
+            account("decode", 0, "job_object", Some(2), Some(2)),
+        ],
+        vec![account("recognize", 1024, "job_object", Some(1), Some(1))],
+        vec![account(
+            "recognize",
+            0,
+            "job_object",
+            Some(u64::MAX),
+            Some(1),
+        )],
+    ];
+    for observations in cases {
+        let directory = tempfile::tempdir()?;
+        let mut store = setup(&directory.path().join("catalog"), false)?;
+        let work = admit(&mut store, "asr", 0)?;
+        let mut reaped = proof(&work, "heard");
+        reaped.set_observations(observations);
+        assert!(matches!(
+            store.finish_local_asr(&work, &reaped, 21),
+            Err(Error::StorageIntegrity)
+        ));
+        assert_eq!(store.local_asr_job("asr")?.state, "running");
+        assert_eq!(observation_count(&store)?, 0);
+    }
+    Ok(())
+}
+
+#[test]
+fn an_unaccounted_group_stays_out_of_the_job_object_figure() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit(&mut store, "asr", 0)?;
+    let mut reaped = proof(&work, "");
+    reaped.set_observations(vec![account("decode", 0, "cgroup_v2", None, None)]);
+    store.finish_local_asr(&work, &reaped, 21)?;
+    let detail = recognition_detail(&store)?;
+    assert_eq!(detail.state, crate::control::DoctorState::Ok);
+    assert!(detail.command.is_none());
+    assert!(detail.detail.ends_with(
+        " Recognition worker cost is unmeasured on this library. 1 group had no job-object accounting."
+    ));
+    store.enqueue_local_asr(&request("next", 1), 30)?;
+    let next = store
+        .claim_local_asr("next", "owner", 31)?
+        .ok_or(Error::StorageIntegrity)?;
+    let mut measured = proof(&next, "");
+    measured.set_observations(vec![account(
+        "recognize",
+        0,
+        "job_object",
+        Some(80),
+        Some(7),
+    )]);
+    store.finish_local_asr(&next, &measured, 32)?;
+    assert!(
+        recognition_detail(&store)?
+            .detail
+            .ends_with(" 1 group is not in that figure. This is not a host budget.")
+    );
+    Ok(())
+}
+
+#[test]
+fn an_observation_on_a_running_job_fails_the_next_open() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    let mut store = setup(&path, false)?;
+    admit(&mut store, "asr", 0)?;
+    store.connection.execute(
+        "INSERT INTO worker_observations(job_id, generation, role, ordinal, mechanism, peak_memory_bytes, cpu_time_us) VALUES ('asr', 1, 'decode', 0, 'job_object', 1, 1)",
+        [],
+    )?;
+    drop(store);
+    assert!(matches!(Store::open(&path), Err(Error::CatalogIntegrity)));
+    Ok(())
+}
+
+#[test]
+fn worker_observations_migrate_from_v34_and_keep_the_transcript() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    write_v34(&path)?;
+    let store = Store::open(&path)?;
+    let version: i64 = store
+        .connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, i64::from(super::super::SCHEMA_VERSION));
+    assert_eq!(observation_count(&store)?, 0);
+    let page = store.transcript_cues_page("long", 1, None)?;
+    assert_eq!(page.transcript.outcome, "no_text");
+    assert_eq!(page.coverages.len(), 1);
+    assert_eq!(page.coverages[0].sample_count, 960_000);
+    Ok(())
+}
+
+#[test]
+fn an_interrupted_observation_migration_stays_at_version_34() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    write_v34(&path)?;
+    let connection = rusqlite::Connection::open(&path)?;
+    connection.execute_batch("CREATE TABLE worker_observations (id INTEGER);")?;
+    drop(connection);
+    assert!(Store::open(&path).is_err());
+    let connection = rusqlite::Connection::open(&path)?;
+    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 34);
+    let sql: String = connection.query_row(
+        "SELECT sql FROM sqlite_schema WHERE name = 'worker_observations'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert!(!sql.contains("peak_memory_bytes"), "{sql}");
+    Ok(())
+}
+
+fn write_v34(path: &Path) -> Result<()> {
+    write_v33(path)?;
+    let mut connection = rusqlite::Connection::open(path)?;
+    connection.pragma_update(None, "foreign_keys", true)?;
+    let tx = connection.transaction()?;
+    super::migrate_034(&tx)?;
+    tx.commit()?;
+    Ok(())
 }

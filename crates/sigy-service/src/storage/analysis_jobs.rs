@@ -326,7 +326,9 @@ impl Store {
     }
 
     pub(crate) fn audit_analysis_jobs(&self) -> Result<()> {
-        audit(&self.connection)
+        audit(&self.connection)?;
+        // The v26 migration audits jobs before worker_observations exists.
+        super::recognition::audit_observations(&self.connection)
     }
 }
 

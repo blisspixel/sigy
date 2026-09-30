@@ -220,7 +220,7 @@ impl TranslationOutcome {
         envelope: crate::execution::ResultEnvelope,
         spec_sha256: Option<&str>,
     ) -> Result<Self> {
-        let result = envelope.accept(&job.request.id, job.generation, spec_sha256)?;
+        let (result, _) = envelope.accept(&job.request.id, job.generation, spec_sha256)?;
         let crate::execution::TaskResult::Translation(result) = result else {
             return Err(Error::StorageIntegrity);
         };

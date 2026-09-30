@@ -99,10 +99,12 @@ BEGIN SELECT RAISE(ABORT, 'invalid recognition request'); END;
 ///
 /// Opening a current catalog rewrites both. A test that then rewinds `user_version`
 /// and compares `sqlite_schema` with a file-built v30 catalog must undo that rewrite.
+/// Worker observations are dropped so a later open can create that table again.
 /// # Errors
 /// Fails when the widened check is not present exactly once or the trigger cannot be restored.
 #[cfg(test)]
 pub(in crate::storage) fn revert_034_for_tests(tx: &Transaction<'_>) -> Result<()> {
+    tx.execute_batch("DROP TABLE IF EXISTS worker_observations;")?;
     super::super::widen::rebuild(tx, "analysis_jobs", &[(FILES_CHECK.1, FILES_CHECK.0)], &[])?;
     tx.execute_batch(ASR_INPUT_V30)?;
     Ok(())

@@ -32,7 +32,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{Error, Result, storage::validate_key};
+use crate::{Error, Result, execution::GroupAccount, storage::validate_key};
 
 mod chunks;
 mod cut;
@@ -246,6 +246,8 @@ pub(crate) struct ReapedLocalAsr {
     outcome: LocalAsrOutcome,
     /// Block language codes for chunks that produced cues, outside the replayed output.
     languages: Vec<ChunkLanguage>,
+    /// Empty-group snapshots from groups this attempt drained. Absent when no process started.
+    observations: Vec<GroupAccount>,
 }
 
 impl ReapedLocalAsr {
@@ -259,7 +261,8 @@ impl ReapedLocalAsr {
         spec_sha256: Option<&str>,
     ) -> Result<Self> {
         use crate::execution::{RecognitionResult, TaskResult};
-        let result = envelope.accept(&job.request.id, job.generation, spec_sha256)?;
+        let (result, observations) =
+            envelope.accept(&job.request.id, job.generation, spec_sha256)?;
         let TaskResult::Recognition(result) = result else {
             return Err(Error::StorageIntegrity);
         };
@@ -285,11 +288,24 @@ impl ReapedLocalAsr {
             generation: job.generation,
             outcome,
             languages,
+            observations,
         })
     }
 
     pub(crate) fn languages(&self) -> &[ChunkLanguage] {
         &self.languages
+    }
+
+    pub(crate) fn observations(&self) -> &[GroupAccount] {
+        &self.observations
+    }
+
+    pub(crate) fn set_observations(&mut self, observations: Vec<GroupAccount>) {
+        self.observations = observations;
+    }
+
+    pub(crate) fn take_observations(&mut self) -> Vec<GroupAccount> {
+        std::mem::take(&mut self.observations)
     }
 
     pub(crate) fn matches(&self, work: &LocalAsrWork) -> bool {
@@ -307,6 +323,7 @@ impl ReapedLocalAsr {
             generation: work.job.generation,
             outcome,
             languages: Vec::new(),
+            observations: Vec::new(),
         }
     }
 }

@@ -266,11 +266,15 @@ fn backup_restores_one_recognized_chunk() -> TestResult {
         }],
         cues: Vec::new(),
     };
-    library.store_mut().finish_local_asr(
-        &work,
-        &ReapedLocalAsr::synthetic_fixture(&work, LocalAsrOutcome::Succeeded(output)),
-        21,
-    )?;
+    let mut reaped = ReapedLocalAsr::synthetic_fixture(&work, LocalAsrOutcome::Succeeded(output));
+    reaped.set_observations(vec![crate::execution::GroupAccount {
+        role: "recognize",
+        ordinal: 0,
+        mechanism: "job_object",
+        peak_memory_bytes: Some(4_096),
+        cpu_time_us: Some(12),
+    }]);
+    library.store_mut().finish_local_asr(&work, &reaped, 21)?;
     backup(&library, &root.path().join("backup"))?;
     drop(library);
     let restored_path = root.path().join("restored");
@@ -280,6 +284,10 @@ fn backup_restores_one_recognized_chunk() -> TestResult {
     assert_eq!(page.transcript.outcome, "no_text");
     assert_eq!(page.coverages.len(), 1);
     assert_eq!(page.coverages[0].sample_count, 16_000);
+    let cost = restored.store().recognition_worker_cost()?;
+    assert_eq!(cost.complete_groups, 1);
+    assert_eq!(cost.peak_memory_bytes, Some(4_096));
+    assert_eq!(cost.cpu_time_us, Some(12));
     Ok(())
 }
 

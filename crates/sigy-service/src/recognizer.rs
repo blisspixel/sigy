@@ -274,10 +274,13 @@ async fn advance_segment(
     let mut cursor = segment.start_us;
     while cursor < segment.end_us {
         if *signal.borrow() {
-            return Ok(Some(cancelled(&task.job)?));
+            return Ok(Some(keep(gathered, cancelled(&task.job)?)));
         }
         if !coverages_fit_one_page(gathered.coverages.len().saturating_add(1)) {
-            return Ok(Some(refused(&task.job, LocalAsrFailure::InvalidOutput)?));
+            return Ok(Some(keep(
+                gathered,
+                refused(&task.job, LocalAsrFailure::InvalidOutput)?,
+            )));
         }
         let heard_end = cursor.saturating_add(CHUNK_US).min(segment.end_us);
         let ordinal =
@@ -290,10 +293,12 @@ async fn advance_segment(
             source_sha256: segment.source_sha256.clone(),
         };
         match run_chunk(task, stage, &window, signal).await? {
-            ChunkStep::Stop(reaped) => return Ok(Some(reaped)),
+            ChunkStep::Stop(reaped) => return Ok(Some(keep(gathered, reaped))),
             ChunkStep::Piece(piece) => {
                 if !window_accepted(&piece, &window) {
-                    return Ok(Some(refused(&task.job, LocalAsrFailure::InvalidOutput)?));
+                    let mut reaped = refused(&task.job, LocalAsrFailure::InvalidOutput)?;
+                    reaped.set_observations(piece.observations);
+                    return Ok(Some(keep(gathered, reaped)));
                 }
                 cursor = piece.coverage.end_us;
                 gathered.push(piece)?;
@@ -336,6 +341,7 @@ struct ChunkPiece {
     cues: Vec<RecognitionCue>,
     language: Option<ChunkLanguage>,
     spec_sha256: String,
+    observations: Vec<crate::execution::GroupAccount>,
 }
 
 #[derive(Default)]
@@ -344,6 +350,7 @@ struct Gathered {
     cues: Vec<RecognitionCue>,
     languages: Vec<ChunkLanguage>,
     hashes: Vec<String>,
+    observations: Vec<crate::execution::GroupAccount>,
 }
 
 impl Gathered {
@@ -359,8 +366,16 @@ impl Gathered {
             self.languages.push(language);
         }
         self.hashes.push(piece.spec_sha256);
+        self.observations.extend(piece.observations);
         Ok(())
     }
+}
+
+fn keep(gathered: &Gathered, mut reaped: ReapedLocalAsr) -> ReapedLocalAsr {
+    let mut observations = gathered.observations.clone();
+    observations.extend(reaped.take_observations());
+    reaped.set_observations(observations);
+    reaped
 }
 
 async fn run_chunk(
@@ -392,20 +407,33 @@ fn absorb_chunk(
     envelope: execution::ResultEnvelope,
     spec_sha256: String,
 ) -> Result<ChunkStep> {
-    let result = envelope.accept(&job.request.id, job.generation, Some(&spec_sha256))?;
+    let (result, accounts) =
+        envelope.accept(&job.request.id, job.generation, Some(&spec_sha256))?;
     let execution::TaskResult::Recognition(result) = result else {
         return Err(Error::StorageIntegrity);
     };
-    match result {
+    let step = match result {
         execution::RecognitionResult::Succeeded {
             coverages,
             cues,
             languages,
-        } => one_piece(job, chunk, coverages, cues, languages, spec_sha256),
-        execution::RecognitionResult::Failed(failure) => {
-            Ok(ChunkStep::Stop(refused(job, failure)?))
+        } => one_piece(job, chunk, coverages, cues, languages, spec_sha256)?,
+        execution::RecognitionResult::Failed(failure) => ChunkStep::Stop(refused(job, failure)?),
+        execution::RecognitionResult::Cancelled => ChunkStep::Stop(cancelled(job)?),
+    };
+    Ok(attach_accounts(step, accounts))
+}
+
+fn attach_accounts(step: ChunkStep, accounts: Vec<crate::execution::GroupAccount>) -> ChunkStep {
+    match step {
+        ChunkStep::Piece(mut piece) => {
+            piece.observations = accounts;
+            ChunkStep::Piece(piece)
         }
-        execution::RecognitionResult::Cancelled => Ok(ChunkStep::Stop(cancelled(job)?)),
+        ChunkStep::Stop(mut reaped) => {
+            reaped.set_observations(accounts);
+            ChunkStep::Stop(reaped)
+        }
     }
 }
 
@@ -443,6 +471,7 @@ fn one_piece(
         cues,
         language,
         spec_sha256,
+        observations: Vec::new(),
     }))
 }
 
@@ -458,6 +487,7 @@ fn finish_chunks(job: &LocalAsrJob, gathered: Gathered) -> Result<ReapedLocalAsr
         gathered.coverages,
         gathered.cues,
         gathered.languages,
+        gathered.observations,
     );
     ReapedLocalAsr::from_envelope(job, envelope, Some(&digest))
 }

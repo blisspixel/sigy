@@ -51,6 +51,7 @@ A manual run on this host used whisper.cpp b5130 with `ggml-large-v3-turbo-q5_0`
 - No operating-system network denial is enforced. The runtime's static imports include no networking library, but that does not cover dynamic loading.
 - ProcessKit creates the child suspended and then assigns it to the job. A service death in that window can leave a suspended child outside the job.
 - Committed memory excludes mapped model pages and any GPU memory. GPU use is disabled in this engine template.
+- Amended 2026-09-29 by [recognition worker cost](0054-recognition-worker-cost.md): the snapshot that proves the group empty keeps peak committed memory and total CPU time when that mechanism accounts for them. A Windows job object includes processes that have already exited. An empty Linux cgroup does not, so that row stores no numbers. Doctor reports the job-object peak and CPU sum. The rows are not a host budget.
 - Profile files are hashed before launch and could change between the hash and the load.
 - Amended 2026-09-29 by [chunked recognition](0049-chunked-recognition.md): one job hears windows of at most 30 seconds. A phrase at a window edge while audio remains is stored from the next window, which starts at that phrase. A phrase with no earlier break is stored through the window end, and a word there can still be cut. The byte cap, the cue cap and the text cap are unchanged. A migrated coverage of up to 60 seconds stays valid.
 - Hashing a large model takes seconds on each run.

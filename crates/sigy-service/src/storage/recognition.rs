@@ -13,10 +13,13 @@ use crate::recognition::{
 };
 use crate::{Error, Result};
 
+mod cost;
 mod jobs;
 mod migrate;
 mod pace;
 mod queue;
+pub(in crate::storage) use cost::audit_observations;
+pub(crate) use cost::{WorkerCost, describe_cost};
 pub(crate) use pace::{RecognitionPace, describe};
 pub(crate) use queue::{RecognitionQueue, describe_queue, describe_recognition};
 mod profiles;

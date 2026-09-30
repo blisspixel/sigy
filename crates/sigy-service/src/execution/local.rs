@@ -90,16 +90,53 @@ pub(super) fn contained(options: ProcessGroupOptions) -> Option<ProcessGroup> {
     ProcessGroup::with_options(options).ok()
 }
 
-/// Wait for a started group to report no active member.
-pub(super) async fn drain(group: &ProcessGroup) -> Result<()> {
+/// The empty-group snapshot. `None` means that mechanism does not account for the field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct GroupSnapshot {
+    pub mechanism: &'static str,
+    pub peak_memory_bytes: Option<u64>,
+    pub cpu_time_us: Option<u64>,
+}
+
+/// One drained recognition group, labeled for storage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GroupAccount {
+    pub role: &'static str,
+    pub ordinal: u32,
+    pub mechanism: &'static str,
+    pub peak_memory_bytes: Option<u64>,
+    pub cpu_time_us: Option<u64>,
+}
+
+impl GroupSnapshot {
+    pub(crate) fn labeled(self, role: &'static str, ordinal: u32) -> GroupAccount {
+        GroupAccount {
+            role,
+            ordinal,
+            mechanism: self.mechanism,
+            peak_memory_bytes: self.peak_memory_bytes,
+            cpu_time_us: self.cpu_time_us,
+        }
+    }
+}
+
+/// Wait until the group reports no active member, and return that same snapshot.
+/// A later `stats` call is a different observation.
+pub(super) async fn drain(group: &ProcessGroup) -> Result<GroupSnapshot> {
     let end = tokio::time::Instant::now() + DRAIN_DEADLINE;
     loop {
-        let active = group
+        let stats = group
             .stats()
-            .map_err(|_| Error::Analysis("native-cleanup-unproven"))?
-            .active_process_count;
-        if active == 0 {
-            return Ok(());
+            .map_err(|_| Error::Analysis("native-cleanup-unproven"))?;
+        if stats.active_process_count == 0 {
+            let cpu_time_us = stats
+                .total_cpu_time
+                .and_then(|duration| u64::try_from(duration.as_micros()).ok());
+            return Ok(GroupSnapshot {
+                mechanism: group.mechanism().name(),
+                peak_memory_bytes: stats.peak_memory_bytes,
+                cpu_time_us,
+            });
         }
         if tokio::time::Instant::now() >= end {
             let _ = group.kill_all();
@@ -126,4 +163,67 @@ pub(super) fn runtime_environment(command: &mut tokio::process::Command, runtime
     command
         .env("LD_LIBRARY_PATH", runtime)
         .env("DYLD_LIBRARY_PATH", runtime);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::Stdio;
+
+    use processkit::ProcessGroupOptions;
+
+    use super::{contained, drain};
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    #[tokio::test]
+    async fn an_empty_group_keeps_the_snapshot_that_proved_it_empty() -> TestResult {
+        let Some(group) = contained(
+            ProcessGroupOptions::default()
+                .max_processes(1)
+                .max_memory(64 * 1024 * 1024),
+        ) else {
+            if cfg!(windows) {
+                return Err("windows job object was unavailable".into());
+            }
+            return Ok(());
+        };
+        let mut command = if cfg!(windows) {
+            let mut command = tokio::process::Command::new("cmd");
+            command.args(["/d", "/c", "exit", "0"]);
+            command
+        } else {
+            tokio::process::Command::new("true")
+        };
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = group.spawn(command)?;
+        let status = child.wait().await?;
+        if !status.success() {
+            return Err("contained process did not exit successfully".into());
+        }
+        let _ = group.kill_all();
+        let snapshot = drain(&group).await?;
+        match snapshot.mechanism {
+            "job_object" => {
+                let peak = snapshot
+                    .peak_memory_bytes
+                    .ok_or("job object omitted peak committed memory")?;
+                if peak == 0 {
+                    return Err("job object reported a zero peak".into());
+                }
+                if snapshot.cpu_time_us.is_none() {
+                    return Err("job object omitted cpu time".into());
+                }
+            }
+            "cgroup_v2" | "process_group" | "process_reaper" => {
+                if snapshot.peak_memory_bytes.is_some() || snapshot.cpu_time_us.is_some() {
+                    return Err("an empty unaccounted group reported a measurement".into());
+                }
+            }
+            other => return Err(format!("unexpected mechanism {other}").into()),
+        }
+        Ok(())
+    }
 }

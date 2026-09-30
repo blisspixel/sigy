@@ -51,6 +51,12 @@ impl Store {
             };
             insert_result(&tx, work, output, finished)?;
         }
+        super::cost::insert(
+            &tx,
+            &job.request.id,
+            job.generation,
+            completion.observations(),
+        )?;
         let changed = tx.execute(
             "UPDATE analysis_jobs SET state = ?3, reason = ?4, finished_ms = ?5 WHERE id = ?1 AND generation = ?2 AND state IN ('running', 'cancelling')",
             params![job.request.id, job.generation, state, reason, finished],
