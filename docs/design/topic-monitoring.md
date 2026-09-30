@@ -1,6 +1,6 @@
 # Topic monitoring
 
-Status: proposed design, 2026-09-24. This turns roadmap operations 30 to 35 into a concrete first slice on the implemented recognition, language evidence and translation records. Implemented so far: monitor versions and the action log ([0046](../decisions/0046-monitor-versions-and-actions.md)), coverage counts and literal passage matches ([0047](../decisions/0047-monitor-coverage-and-matches.md)), and automatic processing within caps ([0048](../decisions/0048-monitor-processing.md)). Findings, briefings and capture scheduling are not. It follows [analysis and knowledge](../planning/10-analysis-and-knowledge.md) and the [scaling architecture](scaling-architecture.md).
+Status: proposed design, 2026-09-24. This turns roadmap operations 30 to 35 into a concrete first slice on the implemented recognition, language evidence and translation records. Implemented so far: monitor versions and the action log ([0046](../decisions/0046-monitor-versions-and-actions.md)), coverage counts and literal passage matches ([0047](../decisions/0047-monitor-coverage-and-matches.md)), and automatic processing within caps ([0048](../decisions/0048-monitor-processing.md)). A stored finding cites one passage ([0057](../decisions/0057-stored-findings.md)). Briefings, claim grouping, and capture scheduling remain. It follows [analysis and knowledge](../planning/10-analysis-and-knowledge.md) and the [scaling architecture](scaling-architecture.md).
 
 ## What a user does
 
@@ -26,7 +26,7 @@ Status: proposed design, 2026-09-24. This turns roadmap operations 30 to 35 into
 - **Coverage.** Planned, captured, decoded, transcribed, translated and included time are separate numbers. Gaps and missed windows stay in the denominator. A briefing states coverage before it states findings.
 - **Repetition is not corroboration.** Two passages with near-identical normalized text, or a rebroadcast of the same interval hash, form a repetition group that counts once. Independence between sources is unknown unless the user states it.
 - **No classifier by default.** Support and contradiction are "unresolved" until a user marks them or a later measured classifier profile, with its own allowance, proposes them. Missing classification is shown as off or pending, never as agreement.
-- **Corrections.** A new transcript or translation revision marks dependent passage matches and findings stale. Recomputation runs through the normal queue and policy; a correction grants no new source, spend or retention.
+- **Corrections.** A new transcript or translation revision marks dependent passage matches and findings stale. A stored finding reports that staleness on read and keeps the cited revision. Recomputation through the normal queue remains; a correction grants no new source, spend or retention.
 - **History.** A new briefing generation never deletes an older one. A crash while publishing a generation leaves either the whole generation or none.
 
 ## Matching without a model

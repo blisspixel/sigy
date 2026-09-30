@@ -390,5 +390,51 @@ pub struct MonitorMatches {
     pub more: bool,
 }
 
+/// What the finding says about the cue's audio. Times are stored only for [`FindingOriginal::Retained`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FindingOriginal {
+    /// The cue lies inside one published interval of the retained recording.
+    Retained,
+    /// The recording is deleting or deleted. No interval is stored.
+    Expired,
+    /// The cue is uncovered or overlaps a gap. No interval is stored.
+    Missing,
+}
+
+/// The citation a user asks to store. The service copies the cue interval when it is retained.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FindingCite {
+    pub transcript_id: String,
+    pub transcript_revision: i64,
+    pub translation_revision: i64,
+    pub cue_ordinal: u32,
+    pub original: FindingOriginal,
+}
+
+/// One stored citation. Absent stale fields mean the cited revisions are still current.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FindingPage {
+    pub monitor_id: String,
+    pub id: String,
+    pub transcript_id: String,
+    pub transcript_revision: i64,
+    pub translation_revision: i64,
+    pub cue_ordinal: u32,
+    pub original: FindingOriginal,
+    pub recording_id: String,
+    pub start_us: Option<u64>,
+    pub end_us: Option<u64>,
+    pub original_script: String,
+    pub english: Option<String>,
+    pub untranslated_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_transcript: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_translation: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests;

@@ -1795,6 +1795,7 @@ mod translation {
     //! Translation storage fixtures over a published recognition transcript.
     use super::*;
 
+    mod findings;
     mod monitor_coverage;
     use crate::translation::{
         TranslatedCue, TranslationOutcome, TranslationProfile, TranslationRequest,

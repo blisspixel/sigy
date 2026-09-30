@@ -9,8 +9,9 @@ use clap::{Args, Subcommand, ValueEnum};
 use sigy_service::{
     control::{MonitorOperation, MonitorPage, Operation},
     monitor::{
-        ActionOrigin, MonitorAction, MonitorCoverage, MonitorMatches, MonitorSpec, MonitorTerm,
-        MonitorVersion, MonitorView, PassageMatch, Proposal,
+        ActionOrigin, FindingCite, FindingOriginal, FindingPage, MonitorAction, MonitorCoverage,
+        MonitorMatches, MonitorSpec, MonitorTerm, MonitorVersion, MonitorView, PassageMatch,
+        Proposal,
     },
 };
 
@@ -115,6 +116,33 @@ pub enum Origin {
     Model,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum OriginalChoice {
+    Retained,
+    Expired,
+    Missing,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum FindingAction {
+    /// Store one citation. The same citation changes nothing. A missing range is rejected.
+    Add {
+        #[arg(long)]
+        transcript: String,
+        #[arg(long)]
+        transcript_revision: i64,
+        #[arg(long)]
+        translation_revision: i64,
+        #[arg(long)]
+        ordinal: u32,
+        /// `retained` copies the cue interval. `expired` or `missing` stores no interval.
+        #[arg(long, value_enum, default_value = "retained")]
+        original: OriginalChoice,
+    },
+    /// Show one stored citation.
+    Show,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum MonitorCommand {
     /// Create a monitor. Nothing is captured, sent or spent by this command.
@@ -183,6 +211,13 @@ pub enum MonitorCommand {
         /// Any other request, kept verbatim and refused.
         #[arg(long)]
         request: Option<String>,
+    },
+    /// Cite one cue. The service copies the interval. Transcript text does not create a finding.
+    Finding {
+        monitor: String,
+        finding: String,
+        #[command(subcommand)]
+        action: FindingAction,
     },
 }
 
@@ -273,8 +308,43 @@ impl MonitorCommand {
                     }
                 },
             },
+            Self::Finding {
+                monitor,
+                finding,
+                action,
+            } => finding_operation(monitor, finding, action),
         };
         Ok(Operation::Monitor { command })
+    }
+}
+
+fn finding_operation(monitor: &str, finding: &str, action: &FindingAction) -> MonitorOperation {
+    match action {
+        FindingAction::Show => MonitorOperation::ShowFinding {
+            monitor: monitor.to_owned(),
+            finding: finding.to_owned(),
+        },
+        FindingAction::Add {
+            transcript,
+            transcript_revision,
+            translation_revision,
+            ordinal,
+            original,
+        } => MonitorOperation::PublishFinding {
+            monitor: monitor.to_owned(),
+            finding: finding.to_owned(),
+            cite: FindingCite {
+                transcript_id: transcript.clone(),
+                transcript_revision: *transcript_revision,
+                translation_revision: *translation_revision,
+                cue_ordinal: *ordinal,
+                original: match original {
+                    OriginalChoice::Retained => FindingOriginal::Retained,
+                    OriginalChoice::Expired => FindingOriginal::Expired,
+                    OriginalChoice::Missing => FindingOriginal::Missing,
+                },
+            },
+        },
     }
 }
 
@@ -570,5 +640,224 @@ pub fn render(writer: &mut impl Write, page: &MonitorPage) -> io::Result<()> {
             }
             Ok(())
         }
+        MonitorPage::Finding { finding } => render_finding(writer, finding),
+    }
+}
+
+fn render_finding(writer: &mut impl Write, finding: &FindingPage) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Finding {}/{} | transcript {} revision {} | translation revision {} | cue {}",
+        finding.monitor_id,
+        finding.id,
+        finding.transcript_id,
+        finding.transcript_revision,
+        finding.translation_revision,
+        finding.cue_ordinal
+    )?;
+    writeln!(
+        writer,
+        "Original script: {}",
+        sanitize(&finding.original_script, 400)
+    )?;
+    match &finding.english {
+        Some(english) => writeln!(
+            writer,
+            "English (translation {}, machine output): {}",
+            finding.translation_revision,
+            sanitize(english, 400)
+        )?,
+        None => match &finding.untranslated_reason {
+            Some(reason) => writeln!(
+                writer,
+                "English: untranslated in translation {} ({})",
+                finding.translation_revision,
+                sanitize(reason, 64)
+            )?,
+            None => writeln!(
+                writer,
+                "English: untranslated in translation {}.",
+                finding.translation_revision
+            )?,
+        },
+    }
+    match finding.original {
+        FindingOriginal::Retained => match (finding.start_us, finding.end_us) {
+            (Some(start), Some(end)) => writeln!(
+                writer,
+                "Retained interval: {} to {} on recording {}.",
+                cue_clock(start),
+                cue_clock(end),
+                finding.recording_id
+            )?,
+            _ => writeln!(
+                writer,
+                "Original audio was cited as retained. The stored interval is incomplete."
+            )?,
+        },
+        FindingOriginal::Expired => {
+            writeln!(
+                writer,
+                "Original audio is expired. No retained interval is cited."
+            )?;
+        }
+        FindingOriginal::Missing => {
+            writeln!(
+                writer,
+                "Original audio is missing for this cue. No retained interval is cited."
+            )?;
+        }
+    }
+    if finding.stale_transcript == Some(true) {
+        writeln!(
+            writer,
+            "A newer transcript revision exists, so this finding is stale. The cited revision stays readable."
+        )?;
+    }
+    if finding.stale_translation == Some(true) {
+        writeln!(
+            writer,
+            "A newer translation of this transcript revision exists, so this finding is stale."
+        )?;
+    }
+    writeln!(
+        writer,
+        "The cited revision stays readable. Wording remains uncertain. This is not human review."
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Only {
+        #[command(subcommand)]
+        command: MonitorCommand,
+    }
+
+    fn page(original: FindingOriginal) -> FindingPage {
+        FindingPage {
+            monitor_id: "fair".into(),
+            id: "world".into(),
+            transcript_id: "pin".into(),
+            transcript_revision: 1,
+            translation_revision: 1,
+            cue_ordinal: 0,
+            original,
+            recording_id: "one".into(),
+            start_us: matches!(original, FindingOriginal::Retained).then_some(0),
+            end_us: matches!(original, FindingOriginal::Retained).then_some(1_000_000),
+            original_script: "Una feria mundial".into(),
+            english: Some("A world fair".into()),
+            untranslated_reason: None,
+            stale_transcript: None,
+            stale_translation: None,
+        }
+    }
+
+    fn rendered(finding: &FindingPage) -> Result<String, Box<dyn std::error::Error>> {
+        let mut buffer = Vec::new();
+        render_finding(&mut buffer, finding)?;
+        Ok(String::from_utf8(buffer)?)
+    }
+
+    #[test]
+    fn a_finding_names_the_citation_and_keeps_wording_uncertain()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let retained = rendered(&page(FindingOriginal::Retained))?;
+        assert!(retained.contains(
+            "Finding fair/world | transcript pin revision 1 | translation revision 1 | cue 0"
+        ));
+        assert!(retained.contains("Original script: Una feria mundial"));
+        assert!(retained.contains("English (translation 1, machine output): A world fair"));
+        assert!(retained.contains("Retained interval: 00:00.000 to 00:01.000 on recording one."));
+        assert!(retained.contains(
+            "The cited revision stays readable. Wording remains uncertain. This is not human review."
+        ));
+        assert!(!retained.contains("No retained interval"));
+
+        let expired = rendered(&page(FindingOriginal::Expired))?;
+        assert!(expired.contains("Original audio is expired. No retained interval is cited."));
+        assert!(!expired.contains("Retained interval:"));
+
+        let missing = rendered(&page(FindingOriginal::Missing))?;
+        assert!(
+            missing
+                .contains("Original audio is missing for this cue. No retained interval is cited.")
+        );
+
+        let mut untranslated = page(FindingOriginal::Retained);
+        untranslated.english = None;
+        untranslated.untranslated_reason = Some("unsupported-language".into());
+        let untranslated = rendered(&untranslated)?;
+        assert!(
+            untranslated.contains("English: untranslated in translation 1 (unsupported-language)")
+        );
+
+        let mut stale = page(FindingOriginal::Retained);
+        stale.stale_transcript = Some(true);
+        stale.stale_translation = Some(true);
+        let stale = rendered(&stale)?;
+        assert!(stale.contains(
+            "A newer transcript revision exists, so this finding is stale. The cited revision stays readable."
+        ));
+        assert!(stale.contains(
+            "A newer translation of this transcript revision exists, so this finding is stale."
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn finding_add_defaults_to_retained_and_show_only_reads()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let add = Only::try_parse_from([
+            "sigy",
+            "finding",
+            "fair",
+            "world",
+            "add",
+            "--transcript",
+            "pin",
+            "--transcript-revision",
+            "1",
+            "--translation-revision",
+            "1",
+            "--ordinal",
+            "0",
+        ])?;
+        let operation = add.command.operation()?;
+        match operation {
+            Operation::Monitor {
+                command:
+                    MonitorOperation::PublishFinding {
+                        monitor,
+                        finding,
+                        cite,
+                    },
+            } => {
+                assert_eq!((monitor.as_str(), finding.as_str()), ("fair", "world"));
+                assert_eq!(cite.transcript_id, "pin");
+                assert_eq!(
+                    (
+                        cite.transcript_revision,
+                        cite.translation_revision,
+                        cite.cue_ordinal
+                    ),
+                    (1, 1, 0)
+                );
+                assert_eq!(cite.original, FindingOriginal::Retained);
+            }
+            other => return Err(format!("{other:?}").into()),
+        }
+        let show = Only::try_parse_from(["sigy", "finding", "fair", "world", "show"])?;
+        match show.command.operation()? {
+            Operation::Monitor {
+                command: MonitorOperation::ShowFinding { monitor, finding },
+            } => assert_eq!((monitor.as_str(), finding.as_str()), ("fair", "world")),
+            other => return Err(format!("{other:?}").into()),
+        }
+        Ok(())
     }
 }

@@ -1,6 +1,6 @@
 # Transcript corrections
 
-Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v36. This is the local exit of roadmap operation 29. One call appends one original-script cue edit. Names, language-span edits, interpretations, and automatic reprocessing remain. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited.
+Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v36. This is the local exit of roadmap operation 29. One call appends one original-script cue edit. Names, language-span edits, interpretations, and automatic reprocessing remain. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited. Amended the same day by [stored findings](0057-stored-findings.md): a stored finding can cite this correction or a recognition revision. This command does not publish a finding. Catalog schema and local IPC are now v37.
 
 ## Decision
 

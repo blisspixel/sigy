@@ -25,6 +25,7 @@ pub(crate) mod backup;
 pub(crate) mod corrections;
 mod deadline;
 pub(crate) mod directory_policy;
+pub(crate) mod findings;
 pub(crate) mod job_pool;
 pub(crate) mod monitors;
 pub(crate) mod providers;
@@ -36,7 +37,7 @@ mod widen;
 #[cfg(test)]
 mod widen_tests;
 
-pub const SCHEMA_VERSION: u32 = 36;
+pub const SCHEMA_VERSION: u32 = 37;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -111,6 +112,7 @@ impl Store {
         store.audit_podcasts()?;
         store.audit_schedules()?;
         store.audit_transcripts()?;
+        store.audit_findings()?;
         store.audit_language_evidence()?;
         store.audit_analysis_jobs()?;
         store.audit_providers()?;
@@ -265,6 +267,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=35).contains(&version) {
         corrections::migrate_036(transaction)?;
+    }
+    if (0..=36).contains(&version) {
+        transaction.execute_batch(include_str!("037-findings.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

@@ -7,8 +7,8 @@ use super::{Snapshot, snapshot};
 use crate::{
     Result,
     monitor::{
-        ActionOrigin, MonitorAction, MonitorCoverage, MonitorMatches, MonitorSpec, MonitorVersion,
-        MonitorView, Proposal,
+        ActionOrigin, FindingCite, FindingPage, MonitorAction, MonitorCoverage, MonitorMatches,
+        MonitorSpec, MonitorVersion, MonitorView, Proposal,
     },
     storage::{Store, monitors::VersionWrite},
 };
@@ -58,6 +58,17 @@ pub enum MonitorOperation {
         from_ms: i64,
         to_ms: i64,
     },
+    /// Store one citation. The same citation returns the stored page and writes nothing.
+    PublishFinding {
+        monitor: String,
+        finding: String,
+        cite: FindingCite,
+    },
+    /// Read one stored citation.
+    ShowFinding {
+        monitor: String,
+        finding: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,6 +96,9 @@ pub enum MonitorPage {
     },
     Matches {
         matches: Box<MonitorMatches>,
+    },
+    Finding {
+        finding: FindingPage,
     },
 }
 
@@ -139,6 +153,16 @@ pub(super) fn apply(store: &mut Store, command: MonitorOperation) -> Result<Snap
         },
         MonitorOperation::Matches { id, from_ms, to_ms } => MonitorPage::Matches {
             matches: Box::new(store.monitor_matches(&id, from_ms, to_ms)?),
+        },
+        MonitorOperation::PublishFinding {
+            monitor,
+            finding,
+            cite,
+        } => MonitorPage::Finding {
+            finding: store.publish_finding(&monitor, &finding, &cite, now)?,
+        },
+        MonitorOperation::ShowFinding { monitor, finding } => MonitorPage::Finding {
+            finding: store.finding(&monitor, &finding)?,
         },
     };
     let mut view = snapshot(store)?;

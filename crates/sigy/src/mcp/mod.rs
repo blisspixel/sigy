@@ -310,11 +310,12 @@ mod tests {
             }
         }
         if names.iter().any(|name| {
-            name.starts_with("monitor_")
-                && (name.contains("create")
-                    || name.contains("revise")
-                    || name.contains("pause")
-                    || name.contains("resume"))
+            name.contains("finding")
+                || (name.starts_with("monitor_")
+                    && (name.contains("create")
+                        || name.contains("revise")
+                        || name.contains("pause")
+                        || name.contains("resume")))
         }) {
             return Err(format!("{names:?}"));
         }

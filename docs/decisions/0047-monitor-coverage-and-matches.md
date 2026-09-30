@@ -1,6 +1,6 @@
 # Monitor coverage and passage matches
 
-Date: 2026-09-24. Status: implemented and tested on Windows x86_64. This covers the counting part of roadmap operation 31 and the matching part of operation 32 in the [topic monitoring design](../design/topic-monitoring.md). Monitors still do not schedule, store findings or write briefings.
+Date: 2026-09-24. Status: implemented and tested on Windows x86_64. This covers the counting part of roadmap operation 31 and the matching part of operation 32 in the [topic monitoring design](../design/topic-monitoring.md). Passage matches stay computed on read and are not stored findings. A finding is a separate stored citation in [stored findings](0057-stored-findings.md). Monitors still do not schedule captures or write briefings.
 
 ## Decision
 
@@ -18,4 +18,4 @@ A storage fixture covers one published recording with a gap, one recognized Span
 
 ## Limitations
 
-Coverage uses the sources followed now, not the sources followed when each capture ran. No normalization means spelling and diacritic variants are missed, and recognizer errors hide terms. Matches are not stored, so there are no finding IDs or evidence links yet; those come with cited findings in operation 32. No scheduling, repetition grouping or briefing exists. Neither view is exposed through `sigy mcp` yet.
+Coverage uses the sources followed now, not the sources followed when each capture ran. No normalization means spelling and diacritic variants are missed, and recognizer errors hide terms. Matches stay computed on read. Amended 2026-09-29 by [stored findings](0057-stored-findings.md): a finding is a separate stored citation. A match is a place to check, and it does not publish that citation. Scheduling, repetition grouping, and briefings remain. Coverage and matches are read-only through `sigy mcp`. There is no tool that publishes a finding.
