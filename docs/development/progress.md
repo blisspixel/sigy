@@ -12,7 +12,7 @@ This record holds current state only. The detailed narrative from 2026-09-20 to 
 | Verification | `cargo verify`: 532 tests passed, 15 native-media tests ignored, warnings-denied Clippy, build, and `cargo audit` of 312 crates against 1,277 advisories. The decoder and acquisition path are unchanged, so `cargo verify-media` was not rerun. The last media run passed 15 of 15 on FFmpeg 9.0.1. One earlier media run hit the spawn hang below |
 | Host | Windows 11 x86_64, Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Two build jobs, two test threads, one media-test thread |
 | Other platforms | Linux x86_64 (Debian 12 container, Rust 1.98.1, WSL2 kernel 6.18): `cargo verify` passes; `cargo verify-media` passes 14 of 15 on FFmpeg 5.1.9, and the native recognizer fixture fails closed with `limits-unavailable` (see open gates). macOS and small always-on hosts are untested. Nothing is qualified |
-| Public source | `main` on [blisspixel/sigy](https://github.com/blisspixel/sigy); source-only development prereleases [2026-09-23](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20260923) and [2026-09-25](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20260925); neither is a supported release |
+| Public source | `main` on [blisspixel/sigy](https://github.com/blisspixel/sigy); source-only development prereleases [2026-09-23](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20260923), [2026-09-25](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20260925), and [2026-09-30](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20260930); none is a supported release |
 
 ## Operations
 

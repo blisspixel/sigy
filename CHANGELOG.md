@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.1.0-dev.20260930 (development prerelease, source only)
+
+Not a supported release and no roadmap stage exit. Catalog schema and local IPC are v39. Windows x86_64 has the test evidence; Linux passes the suite in a container but cannot yet run local models; macOS is untested.
+
 - `monitor briefing` freezes coverage with the generation. A later generation keeps the earlier one. A correction marks a cited finding stale and writes no ledger event. `monitor briefing export` prints a redacted snapshot that is not the catalog and writes nothing. `monitor coverage` stays a live read. The same window changes nothing. Classification stays off. `sigy mcp` has no tool that publishes or exports a briefing. Wording remains uncertain. Catalog schema and local IPC are v39.
 - `monitor briefing` stores one generation over a monitor's findings. Coverage is stated first and read again for the stored window. A repeated original script counts once. A different script stays an unresolved conflict. Classification stays off. The same window changes nothing. A different window conflicts and writes nothing. Transcript text creates no job, and `sigy mcp` has no tool that publishes a briefing. Wording remains uncertain. Catalog schema and local IPC are v38.
 - `monitor finding` stores one citation of a translation revision, an original transcript revision, and a retained cue interval, or an explicit statement that the original is expired or missing. A missing range is rejected and writes nothing. The same citation changes nothing. A different citation for that finding id conflicts. A newer transcript or translation is reported stale and the finding is not rewritten. Transcript text creates no job, and `sigy mcp` has no tool that publishes a finding. Wording remains uncertain. Catalog schema and local IPC are v37.
