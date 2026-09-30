@@ -7,8 +7,8 @@ use super::{Snapshot, snapshot};
 use crate::{
     Result,
     monitor::{
-        ActionOrigin, FindingCite, FindingPage, MonitorAction, MonitorCoverage, MonitorMatches,
-        MonitorSpec, MonitorVersion, MonitorView, Proposal,
+        ActionOrigin, BriefingPage, FindingCite, FindingPage, MonitorAction, MonitorCoverage,
+        MonitorMatches, MonitorSpec, MonitorVersion, MonitorView, Proposal,
     },
     storage::{Store, monitors::VersionWrite},
 };
@@ -69,6 +69,18 @@ pub enum MonitorOperation {
         monitor: String,
         finding: String,
     },
+    /// Store one briefing generation. The same id and window return the stored generation.
+    PublishBriefing {
+        monitor: String,
+        briefing: String,
+        from_ms: i64,
+        to_ms: i64,
+    },
+    /// Read one briefing. Coverage is current for its stored window.
+    ShowBriefing {
+        monitor: String,
+        briefing: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +111,9 @@ pub enum MonitorPage {
     },
     Finding {
         finding: FindingPage,
+    },
+    Briefing {
+        briefing: Box<BriefingPage>,
     },
 }
 
@@ -163,6 +178,17 @@ pub(super) fn apply(store: &mut Store, command: MonitorOperation) -> Result<Snap
         },
         MonitorOperation::ShowFinding { monitor, finding } => MonitorPage::Finding {
             finding: store.finding(&monitor, &finding)?,
+        },
+        MonitorOperation::PublishBriefing {
+            monitor,
+            briefing,
+            from_ms,
+            to_ms,
+        } => MonitorPage::Briefing {
+            briefing: Box::new(store.publish_briefing(&monitor, &briefing, from_ms, to_ms, now)?),
+        },
+        MonitorOperation::ShowBriefing { monitor, briefing } => MonitorPage::Briefing {
+            briefing: Box::new(store.briefing(&monitor, &briefing)?),
         },
     };
     let mut view = snapshot(store)?;

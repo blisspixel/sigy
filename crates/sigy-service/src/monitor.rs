@@ -436,5 +436,40 @@ pub struct FindingPage {
     pub stale_translation: Option<bool>,
 }
 
+/// One finding inside a frozen briefing generation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BriefingMember {
+    pub finding_id: String,
+    pub group_ordinal: u32,
+    pub original_script: String,
+    pub english: Option<String>,
+    pub untranslated_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_transcript: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_translation: Option<bool>,
+}
+
+/// A coverage-first briefing. Finding membership is frozen. Coverage is read again on show.
+/// Classification stays off, so support and contradiction are not assigned by a model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BriefingPage {
+    pub monitor_id: String,
+    pub id: String,
+    pub generation: u32,
+    pub from_ms: i64,
+    pub to_ms: i64,
+    /// Monitor version current when the generation was stored.
+    pub monitor_version: u32,
+    /// Always `off` for this operation.
+    pub classification: String,
+    /// Repetition groups, counting each group once.
+    pub corroboration: u32,
+    pub coverage: MonitorCoverage,
+    pub members: Vec<BriefingMember>,
+}
+
 #[cfg(test)]
 mod tests;

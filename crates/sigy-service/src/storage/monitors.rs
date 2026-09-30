@@ -24,7 +24,7 @@ pub(crate) fn count_for_tests(store: &Store, sql: &str) -> Result<u32> {
 #[cfg(test)]
 pub(crate) fn revert_032_for_tests(connection: &Connection) -> Result<()> {
     connection.execute_batch(
-        "DROP TABLE IF EXISTS monitor_findings; DROP TABLE monitor_steps; DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; PRAGMA user_version = 31;",
+        "DROP TABLE IF EXISTS monitor_briefing_members; DROP TABLE IF EXISTS monitor_briefings; DROP TABLE IF EXISTS monitor_findings; DROP TABLE monitor_steps; DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; PRAGMA user_version = 31;",
     )?;
     Ok(())
 }

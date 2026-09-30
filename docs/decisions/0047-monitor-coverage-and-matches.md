@@ -1,6 +1,6 @@
 # Monitor coverage and passage matches
 
-Date: 2026-09-24. Status: implemented and tested on Windows x86_64. This covers the counting part of roadmap operation 31 and the matching part of operation 32 in the [topic monitoring design](../design/topic-monitoring.md). Passage matches stay computed on read and are not stored findings. A finding is a separate stored citation in [stored findings](0057-stored-findings.md). Monitors still do not schedule captures or write briefings.
+Date: 2026-09-24. Status: implemented and tested on Windows x86_64. This covers the counting part of roadmap operation 31 and the matching part of operation 32 in the [topic monitoring design](../design/topic-monitoring.md). Passage matches stay computed on read and are not stored findings. A finding is a separate stored citation in [stored findings](0057-stored-findings.md). Monitors still do not schedule captures. A briefing is a separate generation in [briefings](0058-briefings.md). This command does not publish one.
 
 ## Decision
 
@@ -18,4 +18,4 @@ A storage fixture covers one published recording with a gap, one recognized Span
 
 ## Limitations
 
-Coverage uses the sources followed now, not the sources followed when each capture ran. No normalization means spelling and diacritic variants are missed, and recognizer errors hide terms. Matches stay computed on read. Amended 2026-09-29 by [stored findings](0057-stored-findings.md): a finding is a separate stored citation. A match is a place to check, and it does not publish that citation. Scheduling, repetition grouping, and briefings remain. Coverage and matches are read-only through `sigy mcp`. There is no tool that publishes a finding.
+Coverage uses the sources followed now, not the sources followed when each capture ran. No normalization means spelling and diacritic variants are missed, and recognizer errors hide terms. Matches stay computed on read. Amended 2026-09-29 by [stored findings](0057-stored-findings.md): a finding is a separate stored citation. A match is a place to check, and it does not publish that citation. Scheduling remains. [Briefings](0058-briefings.md) group repeated findings once. This command does not publish a briefing. Coverage and matches are read-only through `sigy mcp`. There is no tool that publishes a finding or a briefing.

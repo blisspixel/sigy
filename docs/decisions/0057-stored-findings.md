@@ -1,6 +1,6 @@
 # Stored findings
 
-Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v37. This is the local exit of roadmap operation 32 for one citation: a missing range is rejected. Claim grouping, relationships, briefings, and automatic reprocessing remain. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited.
+Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v37. This is the local exit of roadmap operation 32 for one citation: a missing range is rejected. Claim grouping, relationships, briefings, and automatic reprocessing remain. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited. Amended the same day by [briefings](0058-briefings.md): a briefing can include a finding. This command does not publish a briefing. Catalog schema and local IPC are now v38.
 
 ## Decision
 
@@ -44,7 +44,7 @@ On 2026-09-29, `cargo verify` passed 525 tests, with 15 native-media tests ignor
 
 ## Limitations
 
-- One citation per finding id. Claim grouping, relationships, and briefings remain.
+- One citation per finding id. A briefing can include this finding ([briefings](0058-briefings.md)). This command does not publish a briefing. Relationships beyond that repetition, and automatic reprocessing, remain.
 - A newer revision is labeled stale on read. Automatic recomputation remains with operation 34. This command does not enqueue it.
 - Wording remains uncertain. A finding is not human review and qualifies no language.
 - The unavailable recording state, a retained checksum mismatch or a reserved recording while the interval covers and no gap overlaps, is implemented and not fixture-tested.

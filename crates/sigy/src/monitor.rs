@@ -9,9 +9,9 @@ use clap::{Args, Subcommand, ValueEnum};
 use sigy_service::{
     control::{MonitorOperation, MonitorPage, Operation},
     monitor::{
-        ActionOrigin, FindingCite, FindingOriginal, FindingPage, MonitorAction, MonitorCoverage,
-        MonitorMatches, MonitorSpec, MonitorTerm, MonitorVersion, MonitorView, PassageMatch,
-        Proposal,
+        ActionOrigin, BriefingMember, BriefingPage, FindingCite, FindingOriginal, FindingPage,
+        MonitorAction, MonitorCoverage, MonitorMatches, MonitorSpec, MonitorTerm, MonitorVersion,
+        MonitorView, PassageMatch, Proposal,
     },
 };
 
@@ -144,6 +144,17 @@ pub enum FindingAction {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum BriefingAction {
+    /// Store one generation for this window. The same id and window changes nothing.
+    Add {
+        #[command(flatten)]
+        window: WindowArgs,
+    },
+    /// Show one stored generation. Coverage is read again for its stored window.
+    Show,
+}
+
+#[derive(Debug, Subcommand)]
 pub enum MonitorCommand {
     /// Create a monitor. Nothing is captured, sent or spent by this command.
     Create {
@@ -218,6 +229,13 @@ pub enum MonitorCommand {
         finding: String,
         #[command(subcommand)]
         action: FindingAction,
+    },
+    /// Publish one briefing. Classification stays off. Transcript text does not create one.
+    Briefing {
+        monitor: String,
+        briefing: String,
+        #[command(subcommand)]
+        action: BriefingAction,
     },
 }
 
@@ -313,9 +331,36 @@ impl MonitorCommand {
                 finding,
                 action,
             } => finding_operation(monitor, finding, action),
+            Self::Briefing {
+                monitor,
+                briefing,
+                action,
+            } => briefing_operation(monitor, briefing, action)?,
         };
         Ok(Operation::Monitor { command })
     }
+}
+
+fn briefing_operation(
+    monitor: &str,
+    briefing: &str,
+    action: &BriefingAction,
+) -> Result<MonitorOperation, Box<dyn std::error::Error>> {
+    Ok(match action {
+        BriefingAction::Show => MonitorOperation::ShowBriefing {
+            monitor: monitor.to_owned(),
+            briefing: briefing.to_owned(),
+        },
+        BriefingAction::Add { window } => {
+            let (from_ms, to_ms) = window.window()?;
+            MonitorOperation::PublishBriefing {
+                monitor: monitor.to_owned(),
+                briefing: briefing.to_owned(),
+                from_ms,
+                to_ms,
+            }
+        }
+    })
 }
 
 fn finding_operation(monitor: &str, finding: &str, action: &FindingAction) -> MonitorOperation {
@@ -641,7 +686,67 @@ pub fn render(writer: &mut impl Write, page: &MonitorPage) -> io::Result<()> {
             Ok(())
         }
         MonitorPage::Finding { finding } => render_finding(writer, finding),
+        MonitorPage::Briefing { briefing } => render_briefing(writer, briefing),
     }
+}
+
+fn render_briefing(writer: &mut impl Write, briefing: &BriefingPage) -> io::Result<()> {
+    writeln!(
+        writer,
+        "# Briefing {}/{} generation {}",
+        briefing.monitor_id, briefing.id, briefing.generation
+    )?;
+    writeln!(
+        writer,
+        "Classification is off. Finding membership is frozen at monitor version {}. Coverage below is the current read of this window.",
+        briefing.monitor_version
+    )?;
+    render_coverage(writer, &briefing.coverage)?;
+    render_reports(writer, briefing)?;
+    writeln!(writer, "Support: none. Classification is off.")?;
+    writeln!(writer, "Contradiction: unresolved. Classification is off.")?;
+    writeln!(writer, "Independence: unresolved.")?;
+    writeln!(
+        writer,
+        "Wording remains uncertain. This is not human review."
+    )
+}
+
+fn render_reports(writer: &mut impl Write, briefing: &BriefingPage) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Reports: {}. Repetition groups: {}. Corroboration: {}. Repetition is not independent corroboration.",
+        briefing.members.len(),
+        briefing.corroboration,
+        briefing.corroboration
+    )?;
+    for ordinal in 0..briefing.corroboration {
+        let members: Vec<&BriefingMember> = briefing
+            .members
+            .iter()
+            .filter(|member| member.group_ordinal == ordinal)
+            .collect();
+        if members.len() > 1 {
+            let ids = members
+                .iter()
+                .map(|member| member.finding_id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(
+                writer,
+                "Repetition group {ordinal}: {ids}. These copies count once."
+            )?;
+        }
+        for member in members {
+            writeln!(
+                writer,
+                "Finding {}: {}",
+                member.finding_id,
+                sanitize(&member.original_script, 400)
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn render_finding(writer: &mut impl Write, finding: &FindingPage) -> io::Result<()> {
@@ -859,5 +964,89 @@ mod tests {
             other => return Err(format!("{other:?}").into()),
         }
         Ok(())
+    }
+
+    #[test]
+    fn a_briefing_states_coverage_then_one_repetition_and_unresolved_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let page = BriefingPage {
+            monitor_id: "fair".into(),
+            id: "week".into(),
+            generation: 1,
+            from_ms: 0,
+            to_ms: 60_000,
+            monitor_version: 1,
+            classification: "off".into(),
+            corroboration: 2,
+            coverage: MonitorCoverage {
+                id: "fair".into(),
+                version: 1,
+                from_ms: 0,
+                to_ms: 60_000,
+                daily_audio_seconds: 60,
+                sources: Vec::new(),
+                schedules: Vec::new(),
+            },
+            members: vec![
+                member("copy", 0, "Una feria mundial"),
+                member("world", 0, "Una feria mundial"),
+                member("local", 1, "Una feria local"),
+            ],
+        };
+        let mut buffer = Vec::new();
+        render_briefing(&mut buffer, &page)?;
+        let text = String::from_utf8(buffer)?;
+        let coverage = text.find("Daily audio cap").ok_or("coverage")?;
+        let repetition = text
+            .find("Repetition group 0: copy, world.")
+            .ok_or("group")?;
+        assert!(coverage < repetition);
+        assert!(text.contains("# Briefing fair/week generation 1"));
+        assert!(text.contains("Reports: 3. Repetition groups: 2. Corroboration: 2."));
+        assert!(text.contains("Repetition is not independent corroboration."));
+        assert!(text.contains("Contradiction: unresolved. Classification is off."));
+        assert!(text.contains("Support: none. Classification is off."));
+        assert!(text.contains("Independence: unresolved."));
+        assert!(text.contains("Classification is off."));
+        assert!(!text.contains("classifier"));
+        let add = Only::try_parse_from([
+            "sigy",
+            "briefing",
+            "fair",
+            "week",
+            "add",
+            "--from-ms",
+            "0",
+            "--to-ms",
+            "60000",
+        ])?;
+        match add.command.operation()? {
+            Operation::Monitor {
+                command:
+                    MonitorOperation::PublishBriefing {
+                        monitor,
+                        briefing,
+                        from_ms,
+                        to_ms,
+                    },
+            } => {
+                assert_eq!((monitor.as_str(), briefing.as_str()), ("fair", "week"));
+                assert_eq!((from_ms, to_ms), (0, 60_000));
+            }
+            other => return Err(format!("{other:?}").into()),
+        }
+        Ok(())
+    }
+
+    fn member(id: &str, group: u32, script: &str) -> BriefingMember {
+        BriefingMember {
+            finding_id: id.into(),
+            group_ordinal: group,
+            original_script: script.into(),
+            english: None,
+            untranslated_reason: None,
+            stale_transcript: None,
+            stale_translation: None,
+        }
     }
 }

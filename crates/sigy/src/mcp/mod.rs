@@ -311,6 +311,7 @@ mod tests {
         }
         if names.iter().any(|name| {
             name.contains("finding")
+                || name.contains("briefing")
                 || (name.starts_with("monitor_")
                     && (name.contains("create")
                         || name.contains("revise")
