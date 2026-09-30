@@ -220,6 +220,239 @@ fn queued_recognition_reports_wall_time_at_the_observed_pace() -> TestResult {
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct Station {
+    source: &'static str,
+    url: &'static str,
+    recording: &'static str,
+    pin: &'static str,
+    audio_us: u64,
+    gap: bool,
+}
+
+fn publish_station(store: &mut Store, station: Station, now: i64) -> Result<()> {
+    store.register_source(
+        station.source,
+        &HttpSource::new("Fixture", station.url, NetworkScope::PublicInternet {})?,
+    )?;
+    let recording = store
+        .admit_recording(
+            station.recording,
+            station.source,
+            60,
+            600,
+            super::super::dvr::Retention::Temporary,
+            false,
+        )?
+        .ok_or(Error::StorageIntegrity)?;
+    let mut publication = minute_publication(100, station.audio_us, "wav");
+    if station.gap {
+        publication.end_reason = "stream_gap";
+        publication.gap = Some(super::super::dvr::GapCause::Disconnect);
+    }
+    store.publish_recording(&recording.version, &publication)?;
+    store.admit_analysis(station.pin, station.recording, false, now)?;
+    store.publish_analysis(station.pin, 1)?;
+    Ok(())
+}
+
+fn publish_capture(store: &mut Store, id: &str, source: &str, audio_us: u64) -> Result<()> {
+    let recording = store
+        .admit_recording(
+            id,
+            source,
+            60,
+            600,
+            super::super::dvr::Retention::Temporary,
+            false,
+        )?
+        .ok_or(Error::StorageIntegrity)?;
+    store.publish_recording(
+        &recording.version,
+        &minute_publication(100, audio_us, "wav"),
+    )?;
+    let saved = store.recording(id)?;
+    if saved.state != "completed"
+        || saved.storage_state != "retained"
+        || saved.decoded_microseconds != Some(audio_us)
+    {
+        return Err(Error::StorageIntegrity);
+    }
+    let jobs: i64 = store.connection.query_row(
+        "SELECT count(*) FROM analysis_jobs WHERE recording_id = ?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    if jobs != 0 {
+        return Err(Error::StorageIntegrity);
+    }
+    Ok(())
+}
+
+fn arrange_three_stations(store: &mut Store) -> Result<i64> {
+    let work = admit(store, "pace", 0)?;
+    store.finish_local_asr(&work, &proof(&work, "heard"), 20 + 3_600_000)?;
+    publish_station(
+        store,
+        Station {
+            source: "radio:v2",
+            url: "https://example.com/west",
+            recording: "west",
+            pin: "west-pin",
+            audio_us: 1_000_000,
+            gap: false,
+        },
+        40,
+    )?;
+    publish_station(
+        store,
+        Station {
+            source: "radio:v3",
+            url: "https://example.com/east",
+            recording: "east",
+            pin: "east-pin",
+            audio_us: 500_000,
+            gap: true,
+        },
+        41,
+    )?;
+    store.create_monitor("home", &follow("radio:v1"), 42)?;
+    store.create_monitor("west-desk", &follow("radio:v2"), 43)?;
+    store.create_monitor("east-desk", &follow("radio:v3"), 44)?;
+    let profile = "synthetic-storage-fixture-v1";
+    enqueue_asr(store, "home", "pin", 1, profile, 100)?;
+    enqueue_asr(store, "west-job", "west-pin", 0, profile, 110)?;
+    enqueue_asr(store, "east-job", "east-pin", 0, profile, 120)?;
+    let mt = translation::profile()?;
+    store.add_translation_profile(&mt, 129)?;
+    let (translation, created) = store.enqueue_translation(
+        &crate::translation::TranslationRequest {
+            id: "mt-pin".into(),
+            transcript_id: "pin".into(),
+            transcript_revision: 1,
+            profile: mt.id,
+            profile_sha256: mt.profile_sha256,
+        },
+        130,
+    )?;
+    if !created || translation.state != "queued" {
+        return Err(Error::StorageIntegrity);
+    }
+    seal_of(store, "one")
+}
+
+fn claim_sources(store: &Store, now: i64, class: Class) -> Result<Vec<String>> {
+    let mut cursor = FairCursor::default();
+    let mut sources = Vec::new();
+    for _ in 0..3 {
+        let pick = store
+            .next_fair(JobKind::Recognition, &cursor, now)?
+            .ok_or(Error::StorageIntegrity)?;
+        if pick.class != class {
+            return Err(Error::StorageIntegrity);
+        }
+        let source = pick.source.clone();
+        cursor.advance(&pick);
+        sources.push(source);
+    }
+    Ok(sources)
+}
+
+fn recognition_detail(store: &Store) -> Result<crate::control::DoctorCheck> {
+    let snapshot = crate::control::doctor::apply(store)?;
+    snapshot
+        .doctor
+        .ok_or(Error::StorageIntegrity)?
+        .checks
+        .into_iter()
+        .find(|check| check.name == "recognition")
+        .ok_or(Error::StorageIntegrity)
+}
+
+fn pause_monitors(store: &mut Store) -> Result<()> {
+    for (id, action, now) in [
+        ("home", "pause-home", 200),
+        ("west-desk", "pause-west", 201),
+        ("east-desk", "pause-east", 202),
+    ] {
+        let applied =
+            store.propose_monitor_action(id, action, ActionOrigin::User, &Proposal::Pause, now)?;
+        if applied.decision != "applied" {
+            return Err(Error::StorageIntegrity);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn three_stations_keep_publishing_while_the_queue_report_stays_honest() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let seal = arrange_three_stations(&mut store)?;
+    let mut live = claim_sources(&store, seal, Class::Live)?;
+    live.sort();
+    assert_eq!(
+        live,
+        vec![
+            "radio:v1".to_owned(),
+            "radio:v2".to_owned(),
+            "radio:v3".to_owned()
+        ]
+    );
+    let detail = recognition_detail(&store)?;
+    assert_eq!(detail.state, crate::control::DoctorState::Ok);
+    assert!(detail.command.is_none());
+    assert_eq!(
+        detail.detail,
+        "synthetic-storage-fixture-v1: 1 job, 3600000 ms wall per audio second. Observed on this library. Queued recognition is 3 jobs, 2500000 us of audio, 9000000 ms of wall time at the observed pace on this library."
+    );
+    let queue = store.recognition_queue()?;
+    assert_eq!(
+        (
+            queue.running_jobs,
+            queue.stopping_jobs,
+            queue.queued_jobs,
+            queue.queued_audio_us,
+            queue.measured_wall_ms,
+            queue.unmeasured_audio_us,
+        ),
+        (0, 0, 3, 2_500_000, 9_000_000, 0)
+    );
+    publish_capture(&mut store, "later", "radio:v1", 2_000_000)?;
+    assert_eq!(recognition_detail(&store)?.detail, detail.detail);
+    pause_monitors(&mut store)?;
+    assert_eq!(
+        claim_sources(&store, seal, Class::Batch)?,
+        vec![
+            "radio:v1".to_owned(),
+            "radio:v2".to_owned(),
+            "radio:v3".to_owned()
+        ]
+    );
+    publish_capture(&mut store, "quiet", "radio:v3", 750_000)?;
+    assert_eq!(recognition_detail(&store)?.detail, detail.detail);
+    let east = store.recording("east")?;
+    assert_eq!(east.gaps.len(), 1);
+    assert_eq!(east.gaps[0].cause, super::super::dvr::GapCause::Disconnect);
+    assert_eq!(
+        (east.gaps[0].start_us, east.gaps[0].end_us),
+        (500_000, 60_000_000)
+    );
+    let paid: (i64, i64) = store.connection.query_row(
+        "SELECT (SELECT count(*) FROM requests), (SELECT count(*) FROM ledger_events)",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!(paid, (0, 0));
+    let translations: i64 = store.connection.query_row(
+        "SELECT count(*) FROM translation_jobs WHERE state = 'queued'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(translations, 1);
+    Ok(())
+}
+
 #[test]
 fn unicode_success_is_atomic_zero_cost_and_replays_after_media_expiry() -> TestResult {
     let directory = tempfile::tempdir()?;
@@ -1521,7 +1754,7 @@ mod translation {
         TranslationResult,
     };
 
-    fn profile() -> Result<TranslationProfile> {
+    pub(super) fn profile() -> Result<TranslationProfile> {
         let root = std::env::temp_dir();
         let mut profile = TranslationProfile {
             id: "mt".into(),

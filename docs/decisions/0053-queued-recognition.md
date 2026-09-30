@@ -20,6 +20,10 @@ A storage fixture cancels one running recognition and reports it as stopping, th
 
 On 2026-09-29, `cargo verify` passed 490 tests, with 15 native-media tests ignored, warnings-denied Clippy, a locked build, and `cargo audit` of 312 crate dependencies against 1,277 advisories. The decoder and acquisition path are unchanged, so `cargo verify-media` was not rerun. This is one Windows host, not a platform matrix.
 
+A later storage fixture on the same day finishes one recognition, then queues recognition on three monitored sources. One recording ends in a disconnect gap, so its pin keeps 500,000 microseconds of audio from a 60-second plan. Doctor reports 2,500,000 microseconds and 9,000,000 ms of wall time for the three queued jobs, and the check stays ok. The completed job's wall clock is the one-hour storage interval that keeps those jobs live at the seal. It is not a measured recognizer pace. A queued translation is omitted. Two further recordings publish while the three jobs wait, one of them after all three monitors are paused. Neither recording has a recognition job, and neither changes the sentence. While the monitors are active, three successive claims cover the three sources once. After the pause, the same jobs are batch and rotate in arrival order. No paid request is created.
+
+On 2026-09-29, `cargo verify` for this fixture passed 491 tests, with 15 native-media tests ignored, warnings-denied Clippy, a locked build, and `cargo audit` of 312 crate dependencies against 1,277 advisories. The decoder and acquisition path are unchanged, so `cargo verify-media` was not rerun. This is one Windows host, not a platform matrix.
+
 ## Limitations
 
 - Host CPU, memory, and GPU budgets are not applied. Caps stay one job of each kind.
@@ -27,4 +31,4 @@ On 2026-09-29, `cargo verify` passed 490 tests, with 15 native-media tests ignor
 - A running or stopping job contributes no remaining-audio estimate.
 - The newest 256 completed jobs can leave an older run out, so a profile with only older completions has no measured pace.
 - One library's pace is not a capacity for another host or for a profile that has not completed work here.
-- Operation 28 is not exited. The three-station fixture remains.
+- Operation 28 is not exited. Host budgets remain.

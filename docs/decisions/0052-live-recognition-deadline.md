@@ -38,4 +38,4 @@ On 2026-09-29, `cargo verify` passed 483 tests, with 15 native-media tests ignor
 - A pace of zero closes the window at the seal.
 - The seal is the system clock at publication.
 - One library's pace is not a capacity for another host or for a profile that has not completed work here.
-- Operation 28 is not exited. The three-station fixture remains.
+- Operation 28 is not exited. Host budgets remain. The three-station publication fixture is recorded in [queued recognition](0053-queued-recognition.md).
