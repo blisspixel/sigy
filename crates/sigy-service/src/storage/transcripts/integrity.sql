@@ -107,3 +107,35 @@ OR EXISTS (
         )
     )
 )
+OR EXISTS (
+    SELECT 1 FROM transcripts WHERE kind NOT IN ('legacy_placeholder', 'recognition', 'correction')
+)
+OR EXISTS (
+    SELECT 1 FROM transcripts t WHERE t.kind = 'correction' AND (
+        t.profile != 'user-correction-v1' OR t.outcome != 'text'
+        OR t.parent_revision IS NULL OR t.revision != t.parent_revision + 1
+        OR t.job_id IS NOT NULL OR t.job_generation IS NOT NULL OR t.profile_sha256 IS NOT NULL
+        OR EXISTS (SELECT 1 FROM transcript_coverage WHERE transcript_id = t.id AND revision = t.revision)
+        OR t.cue_count != (SELECT count(*) FROM transcript_cues WHERE transcript_id = t.id AND revision = t.revision)
+        OR t.text_bytes != coalesce((SELECT sum(length(CAST(script AS BLOB))) FROM transcript_cues WHERE transcript_id = t.id AND revision = t.revision), 0)
+        OR t.cue_count != (SELECT count(*) FROM transcript_cues WHERE transcript_id = t.id AND revision = t.parent_revision)
+        OR NOT EXISTS (
+            SELECT 1 FROM transcripts p
+            WHERE p.id = t.id AND p.revision = t.parent_revision AND p.outcome = 'text'
+              AND p.analysis_id = t.analysis_id AND p.analysis_revision = t.analysis_revision
+              AND p.recording_id = t.recording_id AND p.media_sha256 = t.media_sha256
+        )
+        OR EXISTS (
+            SELECT 1 FROM transcript_cues n
+            WHERE n.transcript_id = t.id AND n.revision = t.revision
+              AND (
+                  length(CAST(n.script AS BLOB)) NOT BETWEEN 1 AND 4096
+                  OR NOT EXISTS (
+                      SELECT 1 FROM transcript_cues p
+                      WHERE p.transcript_id = n.transcript_id AND p.revision = t.parent_revision
+                        AND p.ordinal = n.ordinal AND p.start_us = n.start_us AND p.end_us = n.end_us
+                  )
+              )
+        )
+    )
+)

@@ -1,6 +1,6 @@
 # Local translation worker
 
-Date: 2026-09-24. Status: implemented and tested on Windows x86_64 (catalog and local IPC v29). This is roadmap operation 25's storage and worker. Translation quality is not qualified by this record.
+Date: 2026-09-24. Status: implemented and tested on Windows x86_64 (catalog and local IPC v29). This is roadmap operation 25's storage and worker. Translation quality is not qualified by this record. Amended on 2026-09-29 by [transcript corrections](0056-transcript-corrections.md): an explicit translation may follow a correction revision that has text. `analysis correct` itself does not translate.
 
 ## Decision
 
@@ -12,7 +12,7 @@ Date: 2026-09-24. Status: implemented and tested on Windows x86_64 (catalog and 
 
 ## Execution
 
-Admission accepts only a recognition transcript with text. The worker receives the cue texts and the recognizer's block language label, never media, a source URL, a catalog handle or a secret. It re-hashes the profile files first; any change fails the job as `profile-unavailable` before a process starts.
+Admission accepts a recognition or correction transcript with text. The worker receives the cue texts and the recognizer's block language label, never media, a source URL, a catalog handle or a secret. It re-hashes the profile files first; any change fails the job as `profile-unavailable` before a process starts.
 
 If the block label is `en`, every cue is untranslated with reason `source-english`. If the label names a language the profile does not declare, every cue is untranslated with `unsupported-language`. Without a label, translation is attempted.
 

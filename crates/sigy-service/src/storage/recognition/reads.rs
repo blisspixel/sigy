@@ -80,6 +80,8 @@ impl Store {
             coverages: coverages(&self.connection, id, revision)?,
             cues: Vec::new(),
             next_after_ordinal: None,
+            stale_translation_of: stale_revision(&self.connection, "translations", id, revision)?,
+            stale_language_of: stale_revision(&self.connection, "language_evidence", id, revision)?,
         };
         if serde_json::to_vec(&page)?.len() > TRANSCRIPT_PAGE_BYTES {
             return Err(Error::StorageIntegrity);
@@ -114,6 +116,42 @@ impl Store {
         page.next_after_ordinal = last.filter(|_| more);
         Ok(page)
     }
+}
+
+/// The newest transcript revision cites an older row of `table` and has none of its own.
+fn stale_revision(
+    connection: &Connection,
+    table: &str,
+    id: &str,
+    revision: i64,
+) -> Result<Option<i64>> {
+    let (current_sql, older_sql) = match table {
+        "translations" => (
+            "SELECT count(*) FROM translations WHERE transcript_id = ?1 AND transcript_revision = ?2",
+            "SELECT max(transcript_revision) FROM translations WHERE transcript_id = ?1 AND transcript_revision < ?2",
+        ),
+        "language_evidence" => (
+            "SELECT count(*) FROM language_evidence WHERE transcript_id = ?1 AND transcript_revision = ?2",
+            "SELECT max(transcript_revision) FROM language_evidence WHERE transcript_id = ?1 AND transcript_revision < ?2",
+        ),
+        _ => return Err(Error::StorageIntegrity),
+    };
+    let latest: i64 = connection.query_row(
+        "SELECT coalesce(max(revision), 0) FROM transcripts WHERE id = ?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    if revision != latest {
+        return Ok(None);
+    }
+    let current: i64 =
+        connection.query_row(current_sql, params![id, revision], |row| row.get(0))?;
+    if current > 0 {
+        return Ok(None);
+    }
+    connection
+        .query_row(older_sql, params![id, revision], |row| row.get(0))
+        .map_err(Error::from)
 }
 
 fn validate_read(id: &str, revision: i64, zero: bool) -> Result<()> {

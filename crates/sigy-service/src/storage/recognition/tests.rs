@@ -1789,6 +1789,8 @@ fn an_unmeasured_monitor_does_not_jump_the_queue() -> TestResult {
     Ok(())
 }
 
+mod corrections;
+
 mod translation {
     //! Translation storage fixtures over a published recognition transcript.
     use super::*;

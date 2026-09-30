@@ -284,4 +284,8 @@ pub struct TranslationPage {
     pub created_ms: i64,
     pub pairs: Vec<TranslationPairView>,
     pub next_after_ordinal: Option<u32>,
+    /// A newer transcript revision exists. This translation stays readable.
+    /// Absent means the translation follows the newest transcript revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale: Option<bool>,
 }

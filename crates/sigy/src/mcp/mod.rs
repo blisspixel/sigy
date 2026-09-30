@@ -270,6 +270,7 @@ mod tests {
         for expected in [
             "analysis_transcribe",
             "analysis_translate",
+            "analysis_correct",
             "analysis_transcript",
             "analysis_translation",
             "analysis_job",

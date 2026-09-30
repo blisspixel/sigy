@@ -203,6 +203,79 @@ fn matches_cite_the_cue_and_use_the_latest_translation() -> TestResult {
 }
 
 #[test]
+fn a_correction_makes_the_older_translation_stale_without_dispatching() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let (mut store, from, to) = monitored(&directory.path().join("catalog"))?;
+    let transcribed_us = store.monitor_coverage("fair", from, to)?.sources[0].transcribed_us;
+    translate(&mut store, "mt-1", translated(0, "A world fair"), 30)?;
+    let jobs = |store: &Store| -> Result<i64> {
+        Ok(store.connection.query_row(
+            "SELECT (SELECT count(*) FROM translation_jobs) + (SELECT count(*) FROM provider_attempts) + (SELECT count(*) FROM requests)",
+            [],
+            |row| row.get(0),
+        )?)
+    };
+    let before = jobs(&store)?;
+    store.correct_transcript("pin", 1, 0, "Una feria local", 40)?;
+    assert_eq!(jobs(&store)?, before);
+    let radio = store.monitor_coverage("fair", from, to)?.sources[0].clone();
+    assert_eq!(radio.transcribed_us, transcribed_us);
+    assert!(transcribed_us > 0);
+    assert_eq!(
+        (radio.translated_cues, radio.cues_without_translation),
+        (0, 1)
+    );
+    let matches = store.monitor_matches("fair", from, to)?;
+    let terms: Vec<&str> = matches
+        .matches
+        .iter()
+        .map(|found| found.term.as_str())
+        .collect();
+    assert_eq!(terms, vec!["FERIA"]);
+    assert_eq!(
+        (
+            matches.matches[0].transcript_revision,
+            matches.matches[0].translation_revision,
+            matches.matches[0].field.as_str()
+        ),
+        (2, None, "original")
+    );
+    let old = store.transcript_cues_page("pin", 1, None)?;
+    assert_eq!(old.cues[0].script, "Una feria mundial");
+    assert_eq!(old.stale_translation_of, None);
+    let current = store.transcript_cues_page("pin", 2, None)?;
+    assert_eq!(current.transcript.kind, "correction");
+    assert_eq!(current.cues[0].script, "Una feria local");
+    assert_eq!(current.stale_translation_of, Some(1));
+    assert_eq!(store.translation_page("pin", 1, 1, None)?.stale, Some(true));
+    let mut request = request("mt-2")?;
+    request.transcript_revision = 2;
+    let (job, work) = store.admit_translation(&request, 50)?;
+    let outcome = TranslationOutcome::synthetic_fixture(
+        &job,
+        TranslationResult::Succeeded(vec![translated(0, "A local fair")]),
+    );
+    store.finish_translation(&work.ok_or("work")?, &outcome, 51)?;
+    assert_eq!(
+        store
+            .transcript_cues_page("pin", 2, None)?
+            .stale_translation_of,
+        None
+    );
+    let attempts: i64 =
+        store
+            .connection
+            .query_row("SELECT count(*) FROM provider_attempts", [], |row| {
+                row.get(0)
+            })?;
+    assert_eq!(attempts, 0);
+    let radio = store.monitor_coverage("fair", from, to)?.sources[0].clone();
+    assert_eq!(radio.transcribed_us, transcribed_us);
+    assert_eq!(radio.translated_cues, 1);
+    Ok(())
+}
+
+#[test]
 fn reading_coverage_and_matches_writes_nothing() -> TestResult {
     let directory = tempfile::tempdir()?;
     let (store, from, to) = monitored(&directory.path().join("catalog"))?;

@@ -470,6 +470,14 @@ pub struct TranscriptCuePage {
     pub cues: Vec<RecognitionCue>,
     /// Pass this ordinal with the same exact transcript ID and revision.
     pub next_after_ordinal: Option<u32>,
+    /// An older transcript revision that still has a translation, when this revision is
+    /// newest and has none. The older translation stays stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_translation_of: Option<i64>,
+    /// An older transcript revision that language evidence still cites, when this revision
+    /// is newest and has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_language_of: Option<i64>,
 }
 
 /// Whether `count` worst-case coverage rows, plus a full transcript summary, fit one page.
@@ -485,6 +493,8 @@ pub(crate) fn coverages_fit_one_page(count: usize) -> bool {
         coverages: vec![worst_coverage(); count],
         cues: Vec::new(),
         next_after_ordinal: None,
+        stale_translation_of: None,
+        stale_language_of: None,
     };
     serde_json::to_vec(&page).is_ok_and(|bytes| bytes.len() <= TRANSCRIPT_PAGE_BYTES)
 }

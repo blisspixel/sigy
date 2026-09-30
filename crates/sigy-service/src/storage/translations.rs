@@ -443,6 +443,11 @@ impl Store {
             None
         };
         let (job_id, profile, profile_sha256, cue_count, translated_count, created_ms) = header;
+        let latest: i64 = self.connection.query_row(
+            "SELECT coalesce(max(revision), 0) FROM transcripts WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
         Ok(TranslationPage {
             transcript_id: id.to_owned(),
             transcript_revision,
@@ -456,13 +461,14 @@ impl Store {
             created_ms,
             pairs,
             next_after_ordinal,
+            stale: (transcript_revision < latest).then_some(true),
         })
     }
 }
 
 fn has_text(connection: &rusqlite::Connection, request: &TranslationRequest) -> Result<bool> {
     Ok(connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM transcripts WHERE id = ?1 AND revision = ?2 AND kind = 'recognition' AND outcome = 'text')",
+        "SELECT EXISTS(SELECT 1 FROM transcripts WHERE id = ?1 AND revision = ?2 AND kind IN ('recognition', 'correction') AND outcome = 'text')",
         params![request.transcript_id, request.transcript_revision],
         |row| row.get(0),
     )?)

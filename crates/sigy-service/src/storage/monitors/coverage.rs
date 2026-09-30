@@ -85,6 +85,26 @@ fn latest_pin(connection: &Connection, recording: &str) -> Result<Option<(String
         .optional()?)
 }
 
+fn current_text(connection: &Connection, pin: &(String, i64)) -> Result<Option<Recognized>> {
+    let row: Option<(i64, String, u32)> = connection
+        .query_row(
+            "SELECT revision, outcome, cue_count FROM transcripts WHERE analysis_id = ?1 AND analysis_revision = ?2 AND kind IN ('recognition', 'correction') AND outcome = 'text' ORDER BY revision DESC LIMIT 1",
+            params![pin.0, pin.1],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((revision, outcome, cue_count)) = row else {
+        return Ok(None);
+    };
+    Ok(Some(Recognized {
+        transcript_id: pin.0.clone(),
+        revision,
+        outcome,
+        cue_count,
+        covered_us: 0,
+    }))
+}
+
 fn recognized(connection: &Connection, pin: &(String, i64)) -> Result<Option<Recognized>> {
     let row: Option<(i64, String, u32)> = connection
         .query_row(
@@ -193,7 +213,8 @@ fn source_coverage(
         if transcript.outcome == "text" {
             coverage.transcribed += 1;
             coverage.transcribed_us += transcript.covered_us;
-            count_translation(connection, &transcript, &mut coverage, &mut reasons)?;
+            let text = current_text(connection, &pin)?.unwrap_or(transcript);
+            count_translation(connection, &text, &mut coverage, &mut reasons)?;
         } else {
             coverage.no_text += 1;
             coverage.no_text_us += transcript.covered_us;
@@ -322,8 +343,9 @@ impl Store {
         })
     }
 
-    /// Literal term matches in the latest recognition revision (and its latest English
-    /// translation) of each capture the monitor's current sources started in the window.
+    /// Literal term matches in the newest original-script revision, and in a translation of
+    /// that same revision, for each capture the monitor's sources started in the window.
+    /// A translation of an older revision stays stored and is not treated as current.
     /// # Errors
     /// Refuses a missing monitor or an invalid window.
     pub fn monitor_matches(&self, id: &str, from_ms: i64, to_ms: i64) -> Result<MonitorMatches> {
@@ -347,7 +369,7 @@ impl Store {
                 let Some(pin) = latest_pin(&self.connection, &capture.id)? else {
                     continue;
                 };
-                let Some(transcript) = recognized(&self.connection, &pin)? else {
+                let Some(transcript) = current_text(&self.connection, &pin)? else {
                     continue;
                 };
                 if transcript.outcome != "text" {

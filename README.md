@@ -38,6 +38,7 @@ It starts with internet radio and podcasts, which need nothing but a computer. T
 | Agents | An MCP server so an assistant can use the same operations inside your library |
 | Speech recognition | Early: transcribe a retained recording in its original script with your own local whisper.cpp model, on the CPU, fully offline. Measured on 32 reference clips across eight languages and tried on five live stations |
 | Translation | Early: translate recognized text into English with your own local llama.cpp model, cue by cue beside the original. Not yet quality-checked |
+| Corrections | One cue's original script can be replaced by appending a revision. The previous revision stays readable. Times are copied and wording stays uncertain. Names, language spans, and automatic reprocessing are not included |
 | Globe and day/night map | Early: an orthographic globe or flat map in the terminal with offline coastlines, geometric night at an explicit time, and stations placed by directory coordinates |
 | Topic monitoring | Early: a monitor keeps your terms in any script, the stations to follow and daily and total audio caps. New recordings from those stations are transcribed and translated automatically within the caps, and every step is logged. Coverage is counted stage by stage, and term matches cite the exact cue, time and translation. Agents can read monitors and propose changes, which only apply when your version already allows them. Scheduling, findings and briefings are next |
 | Visualizers | Planned for the first complete release |

@@ -77,6 +77,19 @@ pub enum AnalysisCommand {
         #[arg(long)]
         after: Option<u32>,
     },
+    /// Replace one cue's original script by appending a transcript revision.
+    Correct {
+        id: String,
+        /// Revision last read. A newer revision conflicts and nothing is written.
+        #[arg(long)]
+        expect: i64,
+        /// Cue ordinal whose text is replaced. Other cues are copied.
+        #[arg(long)]
+        ordinal: u32,
+        /// Replacement original-script text for that cue.
+        #[arg(long)]
+        text: String,
+    },
     /// Manage local recognizer profiles. Files are hashed now and before every run.
     Profile {
         #[command(subcommand)]
@@ -253,6 +266,17 @@ impl AnalysisCommand {
                 id: id.clone(),
                 revision: *revision,
                 after: *after,
+            },
+            Self::Correct {
+                id,
+                expect,
+                ordinal,
+                text,
+            } => AnalysisOperation::Correct {
+                id: id.clone(),
+                expect: *expect,
+                ordinal: *ordinal,
+                text: text.clone(),
             },
             Self::Profile { command } => AnalysisOperation::Profile {
                 command: command.operation()?,
@@ -491,6 +515,12 @@ fn render_translation(writer: &mut impl Write, page: &TranslationPage) -> io::Re
         writer,
         "Machine translation into English, unreviewed. It can be wrong; the original is the evidence."
     )?;
+    if page.stale == Some(true) {
+        writeln!(
+            writer,
+            "This translation follows an older transcript revision, so it is stale. The previous revision stays readable."
+        )?;
+    }
     for pair in &page.pairs {
         writeln!(
             writer,
@@ -598,11 +628,35 @@ fn render_transcript(writer: &mut impl Write, page: &TranscriptCuePage) -> io::R
     )?;
     if summary.kind == "legacy_placeholder" {
         writeln!(writer, "Legacy placeholder. No speech was recognized.")?;
+    } else if summary.kind == "correction" {
+        if let Some(parent) = summary.parent_revision {
+            writeln!(
+                writer,
+                "User correction of transcript revision {parent}. The previous revision stays readable. Wording remains uncertain."
+            )?;
+            writeln!(
+                writer,
+                "Previous revision: sigy analysis transcript {} --revision {parent}",
+                summary.id
+            )?;
+        }
     } else {
         writeln!(
             writer,
             "Machine-recognized text in the original script. Unreviewed; wording {}.",
             summary.wording
+        )?;
+    }
+    if let Some(revision) = page.stale_translation_of {
+        writeln!(
+            writer,
+            "Translation of transcript revision {revision} is stale. This revision has no translation."
+        )?;
+    }
+    if let Some(revision) = page.stale_language_of {
+        writeln!(
+            writer,
+            "Language evidence bound to transcript revision {revision} is stale."
         )?;
     }
     for coverage in &page.coverages {
@@ -844,6 +898,83 @@ mod tests {
                 .map(|row| row.cues[0].script.as_str()),
             Some(script)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_correction_says_the_previous_revision_stays_readable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use sigy_service::recognition::{RecognitionCue, TranscriptSummary};
+        let page = TranscriptCuePage {
+            transcript: TranscriptSummary {
+                id: "pin".into(),
+                revision: 2,
+                analysis_revision: 1,
+                recording_id: "one".into(),
+                media_sha256: "a".repeat(64),
+                kind: "correction".into(),
+                outcome: "text".into(),
+                parent_revision: Some(1),
+                profile: "user-correction-v1".into(),
+                profile_sha256: None,
+                job_id: None,
+                job_generation: None,
+                cue_count: 1,
+                text_bytes: 5,
+                created_ms: 40,
+                amount_usd: "0.000000".into(),
+                wording: "uncertain".into(),
+            },
+            coverages: Vec::new(),
+            cues: vec![RecognitionCue {
+                ordinal: 0,
+                start_us: 0,
+                end_us: 1_000_000,
+                script: "alpha".into(),
+            }],
+            next_after_ordinal: None,
+            stale_translation_of: Some(1),
+            stale_language_of: Some(1),
+        };
+        let mut buffer = Vec::new();
+        render_transcript(&mut buffer, &page)?;
+        let text = String::from_utf8(buffer)?;
+        assert!(text.contains(
+            "User correction of transcript revision 1. The previous revision stays readable. Wording remains uncertain."
+        ));
+        assert!(text.contains("Previous revision: sigy analysis transcript pin --revision 1"));
+        assert!(text.contains(
+            "Translation of transcript revision 1 is stale. This revision has no translation."
+        ));
+        assert!(text.contains("Language evidence bound to transcript revision 1 is stale."));
+        assert!(text.contains("Wording remains uncertain."));
+        let stale = TranslationPage {
+            transcript_id: "pin".into(),
+            transcript_revision: 1,
+            revision: 1,
+            job_id: "mt-1".into(),
+            profile: "mt".into(),
+            profile_sha256: "ab".repeat(32),
+            cue_count: 1,
+            translated_count: 1,
+            amount_usd: "0.000000".into(),
+            created_ms: 30,
+            pairs: Vec::new(),
+            next_after_ordinal: None,
+            stale: Some(true),
+        };
+        let mut buffer = Vec::new();
+        render_translation(&mut buffer, &stale)?;
+        let text = String::from_utf8(buffer)?;
+        assert!(text.contains(
+            "This translation follows an older transcript revision, so it is stale. The previous revision stays readable."
+        ));
+        let mut current = stale;
+        current.stale = None;
+        let mut buffer = Vec::new();
+        render_translation(&mut buffer, &current)?;
+        let text = String::from_utf8(buffer)?;
+        assert!(!text.contains("so it is stale"));
         Ok(())
     }
 }

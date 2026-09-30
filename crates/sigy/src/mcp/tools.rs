@@ -694,6 +694,30 @@ const TOOLS: &[Tool] = &[
         timeout: SHORT,
     },
     Tool {
+        name: "analysis_correct",
+        description: "Append one transcript revision that replaces one cue's original script and copies the other cues. Name the revision last read. A second edit of that same revision conflicts. The previous revision stays readable. This does not start recognition, translation, or a paid request, and it does not restore a deleted recording.",
+        hints: HINT_CHANGE,
+        words: &["analysis", "correct"],
+        slots: &[
+            pos("id", "Analysis pin id."),
+            required_count(
+                "expect",
+                "--expect",
+                1,
+                63,
+                "Transcript revision last read. A newer revision conflicts.",
+            ),
+            required_count("ordinal", "--ordinal", 0, 255, "Cue ordinal to replace."),
+            text(
+                "text",
+                "--text",
+                true,
+                "Replacement original-script text for that cue.",
+            ),
+        ],
+        timeout: SHORT,
+    },
+    Tool {
         name: "analysis_transcript",
         description: "Read recognized cues in the original script with media times. Machine output, unreviewed; quote it as such.",
         hints: HINT_QUERY,

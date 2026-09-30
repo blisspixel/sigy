@@ -50,6 +50,14 @@ pub enum AnalysisOperation {
         #[serde(default)]
         after: Option<u32>,
     },
+    /// Append one original-script correction. The expected revision must be the newest.
+    /// Other cues are copied. No recognition, translation, or paid request is started.
+    Correct {
+        id: String,
+        expect: i64,
+        ordinal: u32,
+        text: String,
+    },
     Profile {
         command: ProfileOperation,
     },
@@ -270,6 +278,15 @@ pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Sna
             revision,
             after,
         } => return transcript(store, &id, revision, after),
+        AnalysisOperation::Correct {
+            id,
+            expect,
+            ordinal,
+            text,
+        } => {
+            let revision = store.correct_transcript(&id, expect, ordinal, &text, now)?;
+            return transcript(store, &id, Some(revision), None);
+        }
         AnalysisOperation::Profile { command } => return profile(store, command, now),
         AnalysisOperation::Translation {
             id,
