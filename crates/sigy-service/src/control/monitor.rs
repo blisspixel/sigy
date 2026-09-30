@@ -8,7 +8,7 @@ use crate::{
     Result,
     monitor::{
         ActionOrigin, BriefingPage, FindingCite, FindingPage, MonitorAction, MonitorCoverage,
-        MonitorMatches, MonitorSpec, MonitorVersion, MonitorView, Proposal,
+        MonitorMatches, MonitorSpec, MonitorVersion, MonitorView, Proposal, briefing_export,
     },
     storage::{Store, monitors::VersionWrite},
 };
@@ -76,8 +76,13 @@ pub enum MonitorOperation {
         from_ms: i64,
         to_ms: i64,
     },
-    /// Read one briefing. Coverage is current for its stored window.
+    /// Read one briefing. Coverage is the copy stored with that generation.
     ShowBriefing {
+        monitor: String,
+        briefing: String,
+    },
+    /// Read the redacted snapshot. This writes nothing and is not the catalog.
+    ExportBriefing {
         monitor: String,
         briefing: String,
     },
@@ -119,6 +124,7 @@ pub enum MonitorPage {
 
 pub(super) fn apply(store: &mut Store, command: MonitorOperation) -> Result<Snapshot> {
     let now = crate::storage::now_ms()?;
+    let mut export = None;
     let page = match command {
         MonitorOperation::Create { id, spec } => {
             let written = store.create_monitor(&id, &spec, now)?;
@@ -190,8 +196,16 @@ pub(super) fn apply(store: &mut Store, command: MonitorOperation) -> Result<Snap
         MonitorOperation::ShowBriefing { monitor, briefing } => MonitorPage::Briefing {
             briefing: Box::new(store.briefing(&monitor, &briefing)?),
         },
+        MonitorOperation::ExportBriefing { monitor, briefing } => {
+            let page = store.briefing(&monitor, &briefing)?;
+            export = Some(Box::new(briefing_export(&page)));
+            MonitorPage::Briefing {
+                briefing: Box::new(page),
+            }
+        }
     };
     let mut view = snapshot(store)?;
     view.monitor = Some(Box::new(page));
+    view.briefing_export = export;
     Ok(view)
 }

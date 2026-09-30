@@ -255,9 +255,7 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     };
     let ink = style::Ink::stdout(cli.json);
     let mut stdout = io::stdout().lock();
-    if let Some(metadata) = &view.recording_metadata {
-        serde_json::to_writer_pretty(&mut stdout, metadata)?;
-        writeln!(stdout)?;
+    if write_document(&mut stdout, &view)? {
         return Ok(());
     }
     if matches!(
@@ -335,6 +333,22 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+fn write_document(
+    stdout: &mut impl Write,
+    view: &Snapshot,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    if let Some(metadata) = &view.recording_metadata {
+        serde_json::to_writer_pretty(&mut *stdout, metadata)?;
+        writeln!(stdout)?;
+        return Ok(true);
+    }
+    if let Some(export) = &view.briefing_export {
+        monitor::write_export(stdout, export)?;
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 fn render_doctor(

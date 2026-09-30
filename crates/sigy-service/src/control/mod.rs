@@ -50,7 +50,7 @@ pub use provider::{
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 
-pub const PROTOCOL_VERSION: u32 = 38;
+pub const PROTOCOL_VERSION: u32 = 39;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -241,6 +241,9 @@ pub struct Snapshot {
     pub provider: Option<ProviderPage>,
     #[serde(default)]
     pub monitor: Option<Box<MonitorPage>>,
+    /// A redacted briefing snapshot. Present only for `monitor briefing export`.
+    #[serde(default)]
+    pub briefing_export: Option<Box<crate::monitor::BriefingExport>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -434,6 +437,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         recognition: None,
         provider: None,
         monitor: None,
+        briefing_export: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

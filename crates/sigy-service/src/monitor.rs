@@ -451,7 +451,7 @@ pub struct BriefingMember {
     pub stale_translation: Option<bool>,
 }
 
-/// A coverage-first briefing. Finding membership is frozen. Coverage is read again on show.
+/// A coverage-first briefing. Finding membership and coverage are frozen at publish.
 /// Classification stays off, so support and contradiction are not assigned by a model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -469,6 +469,55 @@ pub struct BriefingPage {
     pub corroboration: u32,
     pub coverage: MonitorCoverage,
     pub members: Vec<BriefingMember>,
+}
+
+/// Export document name. This file is not a catalog.
+pub const BRIEFING_DOCUMENT: &str = "sigy.briefing";
+
+/// The sentence carried by every briefing export.
+pub const BRIEFING_EXPORT_NOTE: &str = "This snapshot is not the catalog. It grants no permission, spend, or retention. Wording remains uncertain. This is not human review.";
+
+/// A redacted snapshot of one frozen generation. It grants no authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BriefingExport {
+    pub document: String,
+    pub document_version: u32,
+    pub catalog: bool,
+    pub authority: String,
+    pub note: String,
+    pub monitor_id: String,
+    pub briefing_id: String,
+    pub generation: u32,
+    pub from_ms: i64,
+    pub to_ms: i64,
+    pub monitor_version: u32,
+    pub classification: String,
+    pub corroboration: u32,
+    pub coverage: MonitorCoverage,
+    pub members: Vec<BriefingMember>,
+}
+
+/// Copy one stored generation into the redacted export document.
+#[must_use]
+pub fn briefing_export(page: &BriefingPage) -> BriefingExport {
+    BriefingExport {
+        document: BRIEFING_DOCUMENT.to_owned(),
+        document_version: 1,
+        catalog: false,
+        authority: "none".to_owned(),
+        note: BRIEFING_EXPORT_NOTE.to_owned(),
+        monitor_id: page.monitor_id.clone(),
+        briefing_id: page.id.clone(),
+        generation: page.generation,
+        from_ms: page.from_ms,
+        to_ms: page.to_ms,
+        monitor_version: page.monitor_version,
+        classification: page.classification.clone(),
+        corroboration: page.corroboration,
+        coverage: page.coverage.clone(),
+        members: page.members.clone(),
+    }
 }
 
 #[cfg(test)]

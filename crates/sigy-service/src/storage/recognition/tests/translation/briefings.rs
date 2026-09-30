@@ -167,3 +167,109 @@ fn the_same_window_changes_nothing_and_another_window_conflicts() -> TestResult 
     );
     Ok(())
 }
+
+#[test]
+fn a_new_generation_keeps_the_frozen_coverage_and_the_export() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    let mut store = desk(&path)?;
+    store.publish_finding("fair", "world", &cite(1), 40)?;
+    let (from_ms, to_ms) = window(&store)?;
+    let first = store.publish_briefing("fair", "week", from_ms, to_ms, 90)?;
+    assert_eq!(first.generation, 1);
+    assert_eq!(first.coverage.daily_audio_seconds, 3600);
+    assert_eq!(first.coverage.version, 1);
+    let mut spec = super::super::follow("radio:v1");
+    spec.daily_audio_seconds = 7200;
+    spec.total_audio_seconds = 7200;
+    store.revise_monitor("fair", 1, &spec, 100)?;
+    let live = store.monitor_coverage("fair", from_ms, to_ms)?;
+    assert_eq!(live.daily_audio_seconds, 7200);
+    assert_eq!(live.version, 2);
+    let frozen = store.briefing("fair", "week")?;
+    assert_eq!(frozen.coverage.daily_audio_seconds, 3600);
+    assert_eq!(frozen.coverage.version, 1);
+    assert_eq!(frozen.coverage.sources, live.sources);
+    let second = store.publish_briefing("fair", "next", from_ms, to_ms, 110)?;
+    assert_eq!(second.generation, 2);
+    assert_eq!(second.coverage.daily_audio_seconds, 7200);
+    assert_eq!(store.briefing("fair", "week")?.generation, 1);
+    let found = findings(&store)?;
+    let before = activity(&store)?;
+    let revision = store.correct_transcript("pin", 1, 0, "Una feria distinta", 120)?;
+    assert_eq!(revision, 2);
+    assert_eq!(findings(&store)?, found);
+    assert_eq!(activity(&store)?, before);
+    let shown = store.briefing("fair", "week")?;
+    assert_eq!(shown.members[0].original_script, "Una feria mundial");
+    assert_eq!(shown.members[0].stale_transcript, Some(true));
+    assert_eq!(shown.coverage, frozen.coverage);
+    let count = briefings(&store)?;
+    let export = crate::monitor::briefing_export(&shown);
+    assert_eq!(briefings(&store)?, count);
+    assert!(!export.catalog);
+    assert_eq!(export.document, "sigy.briefing");
+    assert_eq!(export.authority, "none");
+    assert_eq!(export.coverage.daily_audio_seconds, 3600);
+    let text = serde_json::to_string(&export)?;
+    assert!(text.contains("not the catalog"));
+    assert!(!text.contains("http"));
+    assert!(!text.contains("ledger"));
+    assert!(!text.contains("secret"));
+    {
+        let tx = store.connection.transaction()?;
+        tx.execute(
+            "INSERT INTO monitor_briefings(monitor_id, id, generation, from_ms, to_ms, monitor_version, classification, corroboration, created_ms) VALUES ('fair', 'partial', ?1, 0, 1000, 1, 'off', 0, 130)",
+            [count + 1],
+        )?;
+    }
+    assert_eq!(briefings(&store)?, count);
+    assert!(store.briefing("fair", "partial").is_err());
+    assert!(
+        store
+            .connection
+            .execute(
+                "UPDATE monitor_briefing_coverage SET daily_audio_seconds = 1",
+                [],
+            )
+            .is_err()
+    );
+    drop(store);
+    let store = Store::open(&path)?;
+    assert_eq!(
+        store.briefing("fair", "week")?.coverage.daily_audio_seconds,
+        3600
+    );
+    assert_eq!(store.briefing("fair", "next")?.generation, 2);
+    assert_eq!(
+        store.briefing("fair", "next")?.coverage.daily_audio_seconds,
+        7200
+    );
+    Ok(())
+}
+
+fn findings(store: &Store) -> Result<i64> {
+    Ok(store
+        .connection
+        .query_row("SELECT count(*) FROM monitor_findings", [], |row| {
+            row.get(0)
+        })?)
+}
+
+#[test]
+fn a_briefing_without_coverage_fails_to_open() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    {
+        let store = desk(&path)?;
+        store.connection.execute(
+            "INSERT INTO monitor_briefings(monitor_id, id, generation, from_ms, to_ms, monitor_version, classification, corroboration, created_ms) VALUES ('fair', 'bare', 1, 0, 1000, 1, 'off', 0, 90)",
+            [],
+        )?;
+    }
+    match Store::open(&path) {
+        Err(Error::CatalogIntegrity) => Ok(()),
+        Err(error) => Err(error.into()),
+        Ok(_) => Err("a briefing without coverage opened".into()),
+    }
+}

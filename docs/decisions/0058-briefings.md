@@ -1,6 +1,6 @@
 # Briefings
 
-Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v38. This is the local exit of roadmap operation 33: one generation over stored findings, with coverage stated first, one repetition group counted once, and conflict left unresolved. Classification stays off. Frozen coverage, a redacted export, and a classifier remain. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited. Operations 34 and 35 remain.
+Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v38. This is the local exit of roadmap operation 33: one generation over stored findings, with coverage stated first, one repetition group counted once, and conflict left unresolved. Classification stays off. Frozen coverage, a redacted export, and a classifier remain. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited. Operations 34 and 35 remain. Amended 2026-09-30 by [frozen briefing coverage](0059-frozen-briefing-coverage.md): coverage on a stored briefing is the snapshot frozen at publish. `monitor coverage` still reads live. This briefing command does not by itself write the export. Catalog schema and local IPC are now v39. Operation 35 remains.
 
 ## Decision
 
@@ -12,7 +12,7 @@ The same monitor id, briefing id, and identical window returns the stored genera
 
 Each publish freezes finding membership inside one immediate transaction. Every stored finding on the monitor becomes a member, in finding-id order. The window selects the coverage that the page reports. It does not choose which findings are members. A finding stored after publish is absent from that generation. A later show still reports only the members stored with the generation.
 
-Coverage is read again on show, through the same count as `monitor coverage` for the stored window. The rendered text places that coverage, including the daily audio cap, before the findings. The page says finding membership is frozen at the monitor version that was current when the generation was stored, and that coverage is the current read of this window.
+Coverage is read again on show, through the same count as `monitor coverage` for the stored window. The rendered text places that coverage, including the daily audio cap, before the findings. The page says finding membership is frozen at the monitor version that was current when the generation was stored, and that coverage is the current read of this window. Amended 2026-09-30 by [frozen briefing coverage](0059-frozen-briefing-coverage.md): show reads the snapshot stored with the generation. `monitor coverage` stays a live read.
 
 Repetition compares the original script after Unicode lowercase and whitespace folding. Runs of whitespace become one space, and the ends are dropped. No edit distance and no Unicode normalization form are applied. Near-identical paraphrases stay in separate groups. Sharing a retained interval does not merge findings: a correction can reuse cue times while the script changes, and merging those would hide the conflict. Interval-hash rebroadcast grouping remains.
 
@@ -42,7 +42,7 @@ On 2026-09-29, `cargo verify` passed 530 tests, with 15 native-media tests ignor
 
 ## Limitations
 
-- Coverage is the current read of the stored window. A frozen coverage snapshot and a redacted export remain with operation 34.
+- Amended 2026-09-30 by [frozen briefing coverage](0059-frozen-briefing-coverage.md): show reads the snapshot stored with the generation. `monitor coverage` stays a live read. The export is a separate read.
 - Finding membership is every stored finding at publish time. The window does not filter findings by cue time.
 - The briefing text shows finding ids and the original script. English, an untranslated reason, and stale flags are on the page. The retained interval stays on the finding.
 - Repetition is exact lowercase and whitespace equality of the original script. It is not edit distance and it is not an interval hash. Near-identical paraphrases stay unresolved.
@@ -50,8 +50,8 @@ On 2026-09-29, `cargo verify` passed 530 tests, with 15 native-media tests ignor
 - Wording remains uncertain. A briefing is not human review and qualifies no language.
 - The 1,024 cap is enforced by the trigger and the Rust pre-check. The fixture set does not insert 1,024 rows.
 - Show of a briefing id that was never stored returns not found. The fixture covers a missing monitor on publish.
-- `sigy mcp` cannot publish a briefing.
+- `sigy mcp` cannot publish or export a briefing.
 - The fixture is one local Spanish cue family. It is not a public-station run.
 - A recognition phrase stored through a window end can still clip a word. This command does not reopen that recognition.
 - Linux delegated-cgroup containment and the suspended-spawn assignment window remain deferred. The window stays open.
-- Stage 5 is not exited. Operations 23, 24, 25, and 28 remain partial. Operation 28 is not exited. Operation 34 has not started.
+- Stage 5 is not exited. Operations 23, 24, 25, and 28 remain partial. Operation 28 is not exited. Operation 35 has not started.

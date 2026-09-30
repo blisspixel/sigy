@@ -9,9 +9,9 @@ use clap::{Args, Subcommand, ValueEnum};
 use sigy_service::{
     control::{MonitorOperation, MonitorPage, Operation},
     monitor::{
-        ActionOrigin, BriefingMember, BriefingPage, FindingCite, FindingOriginal, FindingPage,
-        MonitorAction, MonitorCoverage, MonitorMatches, MonitorSpec, MonitorTerm, MonitorVersion,
-        MonitorView, PassageMatch, Proposal,
+        ActionOrigin, BriefingExport, BriefingMember, BriefingPage, FindingCite, FindingOriginal,
+        FindingPage, MonitorAction, MonitorCoverage, MonitorMatches, MonitorSpec, MonitorTerm,
+        MonitorVersion, MonitorView, PassageMatch, Proposal,
     },
 };
 
@@ -150,8 +150,10 @@ pub enum BriefingAction {
         #[command(flatten)]
         window: WindowArgs,
     },
-    /// Show one stored generation. Coverage is read again for its stored window.
+    /// Show one stored generation. Coverage is the copy stored with it.
     Show,
+    /// Print the redacted JSON snapshot. This writes nothing and is not the catalog.
+    Export,
 }
 
 #[derive(Debug, Subcommand)]
@@ -348,6 +350,10 @@ fn briefing_operation(
 ) -> Result<MonitorOperation, Box<dyn std::error::Error>> {
     Ok(match action {
         BriefingAction::Show => MonitorOperation::ShowBriefing {
+            monitor: monitor.to_owned(),
+            briefing: briefing.to_owned(),
+        },
+        BriefingAction::Export => MonitorOperation::ExportBriefing {
             monitor: monitor.to_owned(),
             briefing: briefing.to_owned(),
         },
@@ -690,6 +696,14 @@ pub fn render(writer: &mut impl Write, page: &MonitorPage) -> io::Result<()> {
     }
 }
 
+/// Write the redacted briefing snapshot as JSON. The catalog is not included.
+/// # Errors
+/// Returns an error when the document cannot be written.
+pub fn write_export(writer: &mut impl Write, export: &BriefingExport) -> io::Result<()> {
+    serde_json::to_writer_pretty(&mut *writer, export).map_err(io::Error::other)?;
+    writeln!(writer)
+}
+
 fn render_briefing(writer: &mut impl Write, briefing: &BriefingPage) -> io::Result<()> {
     writeln!(
         writer,
@@ -698,7 +712,7 @@ fn render_briefing(writer: &mut impl Write, briefing: &BriefingPage) -> io::Resu
     )?;
     writeln!(
         writer,
-        "Classification is off. Finding membership is frozen at monitor version {}. Coverage below is the current read of this window.",
+        "Classification is off. Finding membership is frozen at monitor version {}. Coverage below was frozen when this generation was stored.",
         briefing.monitor_version
     )?;
     render_coverage(writer, &briefing.coverage)?;
@@ -1008,7 +1022,27 @@ mod tests {
         assert!(text.contains("Support: none. Classification is off."));
         assert!(text.contains("Independence: unresolved."));
         assert!(text.contains("Classification is off."));
+        assert!(text.contains("Coverage below was frozen when this generation was stored."));
+        assert!(!text.contains("current read"));
         assert!(!text.contains("classifier"));
+        let document = sigy_service::monitor::briefing_export(&page);
+        assert!(!document.catalog);
+        assert_eq!(document.document, "sigy.briefing");
+        assert_eq!(document.authority, "none");
+        let mut exported = Vec::new();
+        write_export(&mut exported, &document)?;
+        let json = String::from_utf8(exported)?;
+        assert!(json.contains("This snapshot is not the catalog."));
+        assert!(!json.contains("http"));
+        assert!(!json.contains("ledger"));
+        assert!(!json.contains("secret"));
+        let exported = Only::try_parse_from(["sigy", "briefing", "fair", "week", "export"])?;
+        match exported.command.operation()? {
+            Operation::Monitor {
+                command: MonitorOperation::ExportBriefing { monitor, briefing },
+            } => assert_eq!((monitor.as_str(), briefing.as_str()), ("fair", "week")),
+            other => return Err(format!("{other:?}").into()),
+        }
         let add = Only::try_parse_from([
             "sigy",
             "briefing",

@@ -1,4 +1,4 @@
-//! One frozen briefing generation per id. Classification stays off.
+//! One frozen briefing generation per id. Coverage is copied at publish. Classification stays off.
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
@@ -62,7 +62,7 @@ impl Store {
         self.briefing(monitor, id)
     }
 
-    /// Read one generation. Coverage is the current read of its stored window.
+    /// Read one generation. Coverage is the copy stored with that generation.
     ///
     /// # Errors
     /// Returns not found when that briefing was never stored.
@@ -70,7 +70,7 @@ impl Store {
         validate_key(monitor, "monitor ID")?;
         validate_key(id, "briefing ID")?;
         let header = header(&self.connection, monitor, id)?.ok_or(Error::NotFound)?;
-        let coverage = self.monitor_coverage(monitor, header.from_ms, header.to_ms)?;
+        let coverage = load_snapshot(&self.connection, monitor, id, header.from_ms, header.to_ms)?;
         assemble(&self.connection, monitor, id, &header, coverage)
     }
 
@@ -121,7 +121,19 @@ fn write_briefing(connection: &Connection, request: &Request<'_>) -> Result<()> 
     let corroboration = i64::try_from(distinct).map_err(|_| Error::StorageIntegrity)?;
     insert_header(connection, request, generation, version, corroboration)?;
     insert_members(connection, request, &cited, &groups)?;
+    let coverage = super::monitors::coverage::coverage_at(
+        connection,
+        request.monitor,
+        request.from_ms,
+        request.to_ms,
+    )?;
+    store_snapshot(connection, request.monitor, request.id, &coverage)?;
     Ok(())
+}
+
+pub(super) fn migrate_039(connection: &Connection) -> Result<()> {
+    connection.execute_batch(include_str!("039-briefing-coverage.sql"))?;
+    backfill_coverage(connection)
 }
 
 fn monitor_exists(connection: &Connection, monitor: &str) -> Result<bool> {
@@ -305,6 +317,317 @@ fn member_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BriefingMember> {
 
 fn number(value: i64) -> Result<u32> {
     u32::try_from(value).map_err(|_| Error::StorageIntegrity)
+}
+
+fn wide(value: i64) -> Result<u64> {
+    u64::try_from(value).map_err(|_| Error::StorageIntegrity)
+}
+
+fn ordinal(value: usize, limit: usize) -> Result<i64> {
+    if value >= limit {
+        return Err(Error::StorageIntegrity);
+    }
+    i64::try_from(value).map_err(|_| Error::StorageIntegrity)
+}
+
+fn bit(value: i64) -> Result<bool> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(Error::StorageIntegrity),
+    }
+}
+
+fn backfill_coverage(connection: &Connection) -> Result<()> {
+    let mut statement = connection.prepare(
+        "SELECT monitor_id, id, from_ms, to_ms FROM monitor_briefings AS b WHERE NOT EXISTS (SELECT 1 FROM monitor_briefing_coverage AS c WHERE c.monitor_id = b.monitor_id AND c.briefing_id = b.id)",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?;
+    let pending = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    for (monitor, id, from_ms, to_ms) in pending {
+        let coverage =
+            super::monitors::coverage::coverage_at(connection, &monitor, from_ms, to_ms)?;
+        store_snapshot(connection, &monitor, &id, &coverage)?;
+    }
+    Ok(())
+}
+
+fn store_snapshot(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+    coverage: &MonitorCoverage,
+) -> Result<()> {
+    connection.execute(
+        "INSERT INTO monitor_briefing_coverage(monitor_id, briefing_id, monitor_version, daily_audio_seconds) VALUES (?1, ?2, ?3, ?4)",
+        params![
+            monitor,
+            id,
+            i64::from(coverage.version),
+            i64::from(coverage.daily_audio_seconds)
+        ],
+    )?;
+    for (index, source) in coverage.sources.iter().enumerate() {
+        insert_source(connection, monitor, id, index, source)?;
+    }
+    for (index, schedule) in coverage.schedules.iter().enumerate() {
+        insert_schedule(connection, monitor, id, index, schedule)?;
+    }
+    Ok(())
+}
+
+fn insert_source(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+    index: usize,
+    source: &crate::monitor::SourceCoverage,
+) -> Result<()> {
+    let ordinal = ordinal(index, 32)?;
+    connection.execute(
+        "INSERT INTO monitor_briefing_sources(monitor_id, briefing_id, ordinal, source, captures, published, recorded_us, gaps, gap_us, pinned, transcribed, transcribed_us, no_text, no_text_us, translated_cues, untranslated_cues, cues_without_translation, truncated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        params![
+            monitor,
+            id,
+            ordinal,
+            source.source,
+            i64::from(source.captures),
+            i64::from(source.published),
+            i64::try_from(source.recorded_us).map_err(|_| Error::StorageIntegrity)?,
+            i64::from(source.gaps),
+            i64::try_from(source.gap_us).map_err(|_| Error::StorageIntegrity)?,
+            i64::from(source.pinned),
+            i64::from(source.transcribed),
+            i64::try_from(source.transcribed_us).map_err(|_| Error::StorageIntegrity)?,
+            i64::from(source.no_text),
+            i64::try_from(source.no_text_us).map_err(|_| Error::StorageIntegrity)?,
+            i64::from(source.translated_cues),
+            i64::from(source.untranslated_cues),
+            i64::from(source.cues_without_translation),
+            i64::from(source.truncated)
+        ],
+    )?;
+    for (index, (reason, count)) in source.untranslated_reasons.iter().enumerate() {
+        insert_reason(connection, monitor, id, ordinal, index, reason, *count)?;
+    }
+    Ok(())
+}
+
+fn insert_reason(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+    source_ordinal: i64,
+    index: usize,
+    reason: &str,
+    count: u32,
+) -> Result<()> {
+    if reason.is_empty() || reason.len() > 1024 || count == 0 {
+        return Err(Error::StorageIntegrity);
+    }
+    connection.execute(
+        "INSERT INTO monitor_briefing_reasons(monitor_id, briefing_id, source_ordinal, ordinal, reason, count) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            monitor,
+            id,
+            source_ordinal,
+            ordinal(index, 256)?,
+            reason,
+            i64::from(count)
+        ],
+    )?;
+    Ok(())
+}
+
+fn insert_schedule(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+    index: usize,
+    schedule: &crate::monitor::ScheduleCoverage,
+) -> Result<()> {
+    connection.execute(
+        "INSERT INTO monitor_briefing_schedules(monitor_id, briefing_id, ordinal, schedule, admitted, missed_elapsed, missed_spring_forward, waiting) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            monitor,
+            id,
+            ordinal(index, 32)?,
+            schedule.schedule,
+            i64::from(schedule.admitted),
+            i64::from(schedule.missed_elapsed),
+            i64::from(schedule.missed_spring_forward),
+            i64::from(schedule.waiting)
+        ],
+    )?;
+    Ok(())
+}
+
+fn load_snapshot(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+    from_ms: i64,
+    to_ms: i64,
+) -> Result<MonitorCoverage> {
+    let row = connection
+        .query_row(
+            "SELECT monitor_version, daily_audio_seconds FROM monitor_briefing_coverage WHERE monitor_id = ?1 AND briefing_id = ?2",
+            params![monitor, id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    let Some((version, daily)) = row else {
+        return Err(Error::StorageIntegrity);
+    };
+    Ok(MonitorCoverage {
+        id: monitor.to_owned(),
+        version: number(version)?,
+        from_ms,
+        to_ms,
+        daily_audio_seconds: number(daily)?,
+        sources: load_sources(connection, monitor, id)?,
+        schedules: load_schedules(connection, monitor, id)?,
+    })
+}
+
+struct StoredSource {
+    ordinal: i64,
+    source: String,
+    captures: i64,
+    published: i64,
+    recorded_us: i64,
+    gaps: i64,
+    gap_us: i64,
+    pinned: i64,
+    transcribed: i64,
+    transcribed_us: i64,
+    no_text: i64,
+    no_text_us: i64,
+    translated: i64,
+    untranslated: i64,
+    missing: i64,
+    truncated: i64,
+}
+
+fn load_sources(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+) -> Result<Vec<crate::monitor::SourceCoverage>> {
+    let mut statement = connection.prepare(
+        "SELECT ordinal, source, captures, published, recorded_us, gaps, gap_us, pinned, transcribed, transcribed_us, no_text, no_text_us, translated_cues, untranslated_cues, cues_without_translation, truncated FROM monitor_briefing_sources WHERE monitor_id = ?1 AND briefing_id = ?2 ORDER BY ordinal",
+    )?;
+    let rows = statement.query_map(params![monitor, id], stored_source)?;
+    let rows = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    rows.into_iter()
+        .map(|row| source_from(connection, monitor, id, row))
+        .collect()
+}
+
+fn stored_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredSource> {
+    Ok(StoredSource {
+        ordinal: row.get(0)?,
+        source: row.get(1)?,
+        captures: row.get(2)?,
+        published: row.get(3)?,
+        recorded_us: row.get(4)?,
+        gaps: row.get(5)?,
+        gap_us: row.get(6)?,
+        pinned: row.get(7)?,
+        transcribed: row.get(8)?,
+        transcribed_us: row.get(9)?,
+        no_text: row.get(10)?,
+        no_text_us: row.get(11)?,
+        translated: row.get(12)?,
+        untranslated: row.get(13)?,
+        missing: row.get(14)?,
+        truncated: row.get(15)?,
+    })
+}
+
+fn source_from(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+    row: StoredSource,
+) -> Result<crate::monitor::SourceCoverage> {
+    Ok(crate::monitor::SourceCoverage {
+        source: row.source,
+        captures: number(row.captures)?,
+        published: number(row.published)?,
+        recorded_us: wide(row.recorded_us)?,
+        gaps: number(row.gaps)?,
+        gap_us: wide(row.gap_us)?,
+        pinned: number(row.pinned)?,
+        transcribed: number(row.transcribed)?,
+        transcribed_us: wide(row.transcribed_us)?,
+        no_text: number(row.no_text)?,
+        no_text_us: wide(row.no_text_us)?,
+        translated_cues: number(row.translated)?,
+        untranslated_cues: number(row.untranslated)?,
+        cues_without_translation: number(row.missing)?,
+        truncated: bit(row.truncated)?,
+        untranslated_reasons: load_reasons(connection, monitor, id, row.ordinal)?,
+    })
+}
+
+fn load_reasons(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+    source_ordinal: i64,
+) -> Result<Vec<(String, u32)>> {
+    let mut statement = connection.prepare(
+        "SELECT reason, count FROM monitor_briefing_reasons WHERE monitor_id = ?1 AND briefing_id = ?2 AND source_ordinal = ?3 ORDER BY ordinal",
+    )?;
+    let rows = statement.query_map(params![monitor, id, source_ordinal], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    rows.map(|row| -> Result<_> {
+        let (reason, count) = row.map_err(Error::Database)?;
+        Ok((reason, number(count)?))
+    })
+    .collect()
+}
+
+fn load_schedules(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+) -> Result<Vec<crate::monitor::ScheduleCoverage>> {
+    let mut statement = connection.prepare(
+        "SELECT schedule, admitted, missed_elapsed, missed_spring_forward, waiting FROM monitor_briefing_schedules WHERE monitor_id = ?1 AND briefing_id = ?2 ORDER BY ordinal",
+    )?;
+    let rows = statement.query_map(params![monitor, id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, i64>(4)?,
+        ))
+    })?;
+    rows.map(|row| -> Result<_> {
+        let (schedule, admitted, missed_elapsed, missed_spring_forward, waiting) =
+            row.map_err(Error::Database)?;
+        Ok(crate::monitor::ScheduleCoverage {
+            schedule,
+            admitted: number(admitted)?,
+            missed_elapsed: number(missed_elapsed)?,
+            missed_spring_forward: number(missed_spring_forward)?,
+            waiting: number(waiting)?,
+        })
+    })
+    .collect()
 }
 
 #[cfg(test)]

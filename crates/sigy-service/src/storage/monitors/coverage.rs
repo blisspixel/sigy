@@ -313,34 +313,46 @@ fn cues(connection: &Connection, transcript: &Recognized) -> Result<Vec<Cue>> {
         .collect()
 }
 
+/// Stage counts for every source the monitor follows now and every saved schedule of
+/// its latest version, over captures that started in `[from_ms, to_ms)`.
+/// # Errors
+/// Refuses a missing monitor or an invalid window.
+pub(crate) fn coverage_at(
+    connection: &Connection,
+    id: &str,
+    from_ms: i64,
+    to_ms: i64,
+) -> Result<MonitorCoverage> {
+    validate_key(id, "monitor ID")?;
+    check_window(from_ms, to_ms)?;
+    let version = latest_version(connection, id)?.ok_or(Error::NotFound)?;
+    let sources = active_sources(connection, &version)?
+        .iter()
+        .map(|source| source_coverage(connection, source, from_ms, to_ms))
+        .collect::<Result<Vec<_>>>()?;
+    let schedules = version
+        .spec
+        .schedules
+        .iter()
+        .map(|schedule| schedule_coverage(connection, schedule, from_ms, to_ms))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(MonitorCoverage {
+        id: id.to_owned(),
+        version: version.version,
+        from_ms,
+        to_ms,
+        daily_audio_seconds: version.spec.daily_audio_seconds,
+        sources,
+        schedules,
+    })
+}
+
 impl Store {
-    /// Stage counts for every source the monitor follows now and every saved schedule of
-    /// its latest version, over captures that started in `[from_ms, to_ms)`.
+    /// Live stage counts. A stored briefing keeps the copy taken when it was published.
     /// # Errors
     /// Refuses a missing monitor or an invalid window.
     pub fn monitor_coverage(&self, id: &str, from_ms: i64, to_ms: i64) -> Result<MonitorCoverage> {
-        validate_key(id, "monitor ID")?;
-        check_window(from_ms, to_ms)?;
-        let version = latest_version(&self.connection, id)?.ok_or(Error::NotFound)?;
-        let sources = active_sources(&self.connection, &version)?
-            .iter()
-            .map(|source| source_coverage(&self.connection, source, from_ms, to_ms))
-            .collect::<Result<Vec<_>>>()?;
-        let schedules = version
-            .spec
-            .schedules
-            .iter()
-            .map(|schedule| schedule_coverage(&self.connection, schedule, from_ms, to_ms))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(MonitorCoverage {
-            id: id.to_owned(),
-            version: version.version,
-            from_ms,
-            to_ms,
-            daily_audio_seconds: version.spec.daily_audio_seconds,
-            sources,
-            schedules,
-        })
+        coverage_at(&self.connection, id, from_ms, to_ms)
     }
 
     /// Literal term matches in the newest original-script revision, and in a translation of
