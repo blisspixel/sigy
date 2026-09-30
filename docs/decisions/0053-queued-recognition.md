@@ -1,6 +1,6 @@
 # Queued recognition
 
-Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC stay v34. This is the queue-report part of roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). It reads the pace from [recognition pace](0051-recognition-pace.md). Host budgets remain open. An arrival-rate comparison remains open. No language is qualified. Amended the same day by [recognition worker cost](0054-recognition-worker-cost.md): catalog schema and local IPC are now v35. This queue report is unchanged, and the new rows are not a host budget.
+Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC stay v34. This is the queue-report part of roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). It reads the pace from [recognition pace](0051-recognition-pace.md). Host budgets remain open. No language is qualified. Amended the same day by [recognition worker cost](0054-recognition-worker-cost.md): catalog schema and local IPC are now v35. This queue report is unchanged, and the new rows are not a host budget. Amended the same day by [recognition arrival](0055-recognition-arrival.md): doctor adds a separate sentence. This queue report is unchanged, and catalog schema and local IPC stay v35.
 
 ## Decision
 
@@ -10,7 +10,7 @@ The sentence counts local recognition jobs that are running, stopping (`cancelli
 
 Queued audio is the retained audio on those pins. Gaps are not audio. A job with no retained audio adds to the job count and adds no wall time. For each profile that has a pace in the same newest 256 succeeded recognition jobs, including profiles the pace sentence does not name, that profile's queued audio is multiplied by the pace and rounded up to the next millisecond once. A pace of zero is reported as under 1 ms of wall time per audio second. Audio whose profile is absent from the sample is reported as having no measured pace, and those microseconds stay out of the wall-time total. The pace figure is already rounded down. This product uses that integer and rounds up. It does not restore the fraction the pace figure dropped.
 
-The profile totals are added. That matches one recognition job at a time. The sum is the processing time of audio already queued, at the observed pace on this library. It is not a clock time when the queue will be empty. New audio can arrive, and claims still rotate across sources. The figure is not compared with an arrival rate. It does not set a host CPU, memory, or GPU budget, and it does not admit work. Nothing is stored. No paid request is created.
+The profile totals are added. That matches one recognition job at a time. The sum is the processing time of audio already queued, at the observed pace on this library. It is not a clock time when the queue will be empty. New audio can arrive, and claims still rotate across sources. This queue report does not compare arrivals. [Recognition arrival](0055-recognition-arrival.md) is a separate sentence. This report does not set a host CPU, memory, or GPU budget, and it does not admit work. Nothing is stored. No paid request is created.
 
 ## Evidence
 
@@ -27,8 +27,8 @@ On 2026-09-29, `cargo verify` for this fixture passed 491 tests, with 15 native-
 ## Limitations
 
 - Host CPU, memory, and GPU budgets are not applied. Caps stay one job of each kind.
-- The figure is not compared with an arrival rate, so it does not say whether waiting audio is growing faster than this pace.
+- The queue sentence does not compare arrivals. [Recognition arrival](0055-recognition-arrival.md) does that in a separate sentence and does not change this report.
 - A running or stopping job contributes no remaining-audio estimate.
 - The newest 256 completed jobs can leave an older run out, so a profile with only older completions has no measured pace.
 - One library's pace is not a capacity for another host or for a profile that has not completed work here.
-- Operation 28 is not exited. Host budgets remain. [Recognition worker cost](0054-recognition-worker-cost.md) stores an empty-group snapshot and leaves those budgets open.
+- Operation 28 is not exited. Host budgets remain. [Recognition worker cost](0054-recognition-worker-cost.md) stores an empty-group snapshot and leaves those budgets open. [Recognition arrival](0055-recognition-arrival.md) compares admitted audio with completed busy time and leaves those budgets open.

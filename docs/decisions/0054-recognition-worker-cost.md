@@ -1,6 +1,6 @@
 # Recognition worker cost
 
-Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v35. This is the empty-group measurement in roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). Claim order, pace, live classification, and the [queued recognition](0053-queued-recognition.md) report are unchanged. Host budgets remain open. An arrival-rate comparison remains open. No language is qualified. Operation 28 is not exited.
+Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v35. This is the empty-group measurement in roadmap operation 28 and increment 5 of the [scaling architecture](../design/scaling-architecture.md#increments). Claim order, pace, live classification, and the [queued recognition](0053-queued-recognition.md) report are unchanged. Host budgets remain open. No language is qualified. Amended the same day by [recognition arrival](0055-recognition-arrival.md): doctor compares admitted audio with completed busy time. These rows are not that comparison. Operation 28 is not exited.
 
 ## Decision
 
@@ -45,7 +45,7 @@ On 2026-09-29, `cargo verify` passed 506 tests, with 15 native-media tests ignor
 ## Limitations
 
 - The figure is not a host CPU, memory, or GPU budget, and it does not admit work.
-- The figure is not compared with an arrival rate.
+- The figure is not the arrival comparison. [Recognition arrival](0055-recognition-arrival.md) uses completed busy time and does not read these rows.
 - Committed memory excludes mapped model pages and GPU memory. GPU use stays off in this profile.
 - CPU time across groups is a sum of historical counters. It is not a rate and it is not current load. Decode and recognize peaks stay separate. Doctor reports the highest of those peaks.
 - An empty cgroup, process group, or process reaper stores no numbers. Those groups are counted apart from the job-object figure.

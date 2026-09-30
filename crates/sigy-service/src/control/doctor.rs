@@ -88,6 +88,7 @@ fn inspect(
         recognition(
             &store.recognition_pace()?,
             &store.recognition_queue()?,
+            &store.recognition_arrival()?,
             &store.recognition_worker_cost()?,
         ),
     ];
@@ -336,12 +337,15 @@ fn publisher_text(store: &Store) -> Result<DoctorCheck> {
 fn recognition(
     pace: &crate::storage::recognition::RecognitionPace,
     queue: &crate::storage::recognition::RecognitionQueue,
+    arrival: &crate::storage::recognition::ArrivalReport,
     cost: &crate::storage::recognition::WorkerCost,
 ) -> DoctorCheck {
     let mut detail = crate::storage::recognition::describe_recognition(
         &crate::storage::recognition::describe(pace),
         &crate::storage::recognition::describe_queue(queue),
     );
+    detail.push(' ');
+    detail.push_str(&crate::storage::recognition::describe_arrival(arrival));
     detail.push(' ');
     detail.push_str(&crate::storage::recognition::describe_cost(cost));
     check("recognition", DoctorState::Ok, detail, None)
@@ -415,7 +419,7 @@ mod tests {
             .ok_or("recognition")?;
         if recognition.state != DoctorState::Ok
             || recognition.detail
-                != "no completed recognition has a measured duration, so pace is unmeasured. No recognition job is queued. Recognition worker cost is unmeasured on this library."
+                != "no completed recognition has a measured duration, so pace is unmeasured. No recognition job is queued. Recognition arrival is unmeasured on this library. Recognition worker cost is unmeasured on this library."
             || recognition.command.is_some()
         {
             return Err(format!("fresh pace was not unmeasured: {recognition:?}").into());

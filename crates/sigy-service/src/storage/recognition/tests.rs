@@ -220,6 +220,51 @@ fn queued_recognition_reports_wall_time_at_the_observed_pace() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn slower_arrivals_stay_a_report_and_the_next_job_still_claims() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    let work = admit(&mut store, "asr", 0)?;
+    store.finish_local_asr(&work, &proof(&work, "heard"), 21)?;
+    store.enqueue_local_asr(&request("again", 1), 1_020)?;
+    let super::arrival::ArrivalReport::Compared {
+        relation,
+        window,
+        busy,
+    } = store.recognition_arrival()?
+    else {
+        return Err("arrival was not compared".into());
+    };
+    assert_eq!(relation, super::arrival::ArrivalRelation::Slower);
+    assert_eq!(
+        (
+            window.jobs,
+            window.audio_us,
+            window.span_ms,
+            window.newest_limited
+        ),
+        (2, 2_000_000, 1_000, false)
+    );
+    assert_eq!((busy.jobs, busy.audio_us, busy.wall_ms), (1, 1_000_000, 1));
+    let detail = recognition_detail(&store)?;
+    assert_eq!(detail.state, crate::control::DoctorState::Ok);
+    assert!(detail.command.is_none());
+    assert_eq!(
+        detail.detail,
+        "synthetic-storage-fixture-v1: 1 job, 1 ms wall per audio second. Observed on this library. Queued recognition is 1 job, 1000000 us of audio, 1 ms of wall time at the observed pace on this library. Observed recognition arrivals: 2 jobs, 2000000 us of audio over 1000 ms. Completed recognition processed 1000000 us in 1 ms of busy wall time across 1 job. Admissions brought less audio per wall millisecond than that completed work processed. This is not a clock time for an empty queue and it is not a host budget. Observed on this library. Recognition worker cost is unmeasured on this library."
+    );
+    assert!(store.claim_local_asr("again", "owner", 1_021)?.is_some());
+    let super::arrival::ArrivalReport::Compared {
+        relation: after_claim,
+        ..
+    } = store.recognition_arrival()?
+    else {
+        return Err("claim changed the arrival into something else".into());
+    };
+    assert_eq!(after_claim, super::arrival::ArrivalRelation::Slower);
+    Ok(())
+}
+
 #[derive(Clone, Copy)]
 struct Station {
     source: &'static str,
@@ -404,7 +449,7 @@ fn three_stations_keep_publishing_while_the_queue_report_stays_honest() -> TestR
     assert!(detail.command.is_none());
     assert_eq!(
         detail.detail,
-        "synthetic-storage-fixture-v1: 1 job, 3600000 ms wall per audio second. Observed on this library. Queued recognition is 3 jobs, 2500000 us of audio, 9000000 ms of wall time at the observed pace on this library. Recognition worker cost is unmeasured on this library."
+        "synthetic-storage-fixture-v1: 1 job, 3600000 ms wall per audio second. Observed on this library. Queued recognition is 3 jobs, 2500000 us of audio, 9000000 ms of wall time at the observed pace on this library. Observed recognition arrivals: 4 jobs, 3500000 us of audio over 100 ms. Completed recognition processed 1000000 us in 3600000 ms of busy wall time across 1 job. Admissions brought more audio per wall millisecond than that completed work processed. This is not a clock time for an empty queue and it is not a host budget. Observed on this library. Recognition worker cost is unmeasured on this library."
     );
     let queue = store.recognition_queue()?;
     assert_eq!(
@@ -2061,7 +2106,7 @@ fn job_object_accounts_round_trip_and_a_replay_keeps_the_first() -> TestResult {
     assert!(detail.command.is_none());
     assert_eq!(
         detail.detail,
-        "synthetic-storage-fixture-v1: 1 job, 1 ms wall per audio second. Observed on this library. No recognition job is queued. Observed job-object recognition on this library: 2 groups, highest peak committed memory 5000 bytes, 50 us of CPU time. This is not a host budget."
+        "synthetic-storage-fixture-v1: 1 job, 1 ms wall per audio second. Observed on this library. No recognition job is queued. Recognition arrival is unmeasured on this library. Observed job-object recognition on this library: 2 groups, highest peak committed memory 5000 bytes, 50 us of CPU time. This is not a host budget."
     );
     assert!(
         store

@@ -236,6 +236,49 @@ impl Store {
         let (runs, _) = self.recognition_runs()?;
         profile_paces(&runs)
     }
+
+    /// Audio and busy wall time of the same completed jobs the pace report uses.
+    /// # Errors
+    /// Returns a storage error when a total overflows.
+    pub(crate) fn recognition_busy_work(&self) -> Result<Option<BusyRecognition>> {
+        let (runs, _) = self.recognition_runs()?;
+        busy_recognition(&runs)
+    }
+}
+
+/// Completed recognition before per-profile rounding. This is not a host budget.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BusyRecognition {
+    pub jobs: u32,
+    pub audio_us: u64,
+    pub wall_ms: u64,
+}
+
+/// Sum the pace sample. An empty sample has no busy work.
+/// # Errors
+/// Returns a storage error when a total overflows.
+pub(crate) fn busy_recognition(runs: &[RecognitionRun]) -> Result<Option<BusyRecognition>> {
+    if runs.is_empty() {
+        return Ok(None);
+    }
+    let mut audio_us = 0_u64;
+    let mut wall_ms = 0_u64;
+    for run in runs {
+        audio_us = audio_us
+            .checked_add(run.audio_us)
+            .ok_or(Error::StorageIntegrity)?;
+        wall_ms = wall_ms
+            .checked_add(run.wall_ms)
+            .ok_or(Error::StorageIntegrity)?;
+    }
+    if audio_us == 0 || wall_ms == 0 {
+        return Ok(None);
+    }
+    Ok(Some(BusyRecognition {
+        jobs: u32::try_from(runs.len()).map_err(|_| Error::StorageIntegrity)?,
+        audio_us,
+        wall_ms,
+    }))
 }
 
 #[cfg(test)]

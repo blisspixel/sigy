@@ -13,11 +13,13 @@ use crate::recognition::{
 };
 use crate::{Error, Result};
 
+mod arrival;
 mod cost;
 mod jobs;
 mod migrate;
 mod pace;
 mod queue;
+pub(crate) use arrival::{ArrivalReport, describe_arrival};
 pub(in crate::storage) use cost::audit_observations;
 pub(crate) use cost::{WorkerCost, describe_cost};
 pub(crate) use pace::{RecognitionPace, describe};
