@@ -1447,7 +1447,9 @@ fn migration_keeps_a_full_minute_and_reopens_only_the_limit_skip() -> TestResult
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("catalog");
     write_v33(&path)?;
+    let policy = historical_monitor_policy(&path)?;
     let mut store = Store::open(&path)?;
+    assert_eq!(historical_monitor_policy(&path)?, policy);
     let version: i64 = store
         .connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))?;
@@ -1591,10 +1593,22 @@ fn insert_stale_and_skips(store: &mut Store) -> Result<()> {
         "INSERT INTO monitors(id, created_ms) VALUES ('desk', 1)",
         [],
     )?;
-    store.connection.execute("INSERT INTO monitor_versions(monitor_id, version, spec_json, spec_sha256, created_ms) VALUES ('desk', 1, '{}', ?1, 1)", params!["a".repeat(64)])?;
+    // Preserve the schema-33 policy shape rather than constructing it from current types.
+    let json = r#"{"name":"Desk","goal":"Follow this source.","terms":[{"language":"en","text":"news"}],"sources":["radio:v1"],"candidate_sources":[],"schedules":[],"daily_audio_seconds":3600,"total_audio_seconds":3600,"recognition_profile":null,"translation_profile":null}"#;
+    let digest =
+        crate::recognition::sha256_hex(format!("[\"sigy-monitor-spec-v1\",{json}]").as_bytes());
+    store.connection.execute("INSERT INTO monitor_versions(monitor_id, version, spec_json, spec_sha256, created_ms) VALUES ('desk', 1, ?1, ?2, 1)", params![json, digest])?;
     store.connection.execute("INSERT INTO monitor_steps(monitor_id, recording_id, stage, policy_version, decision, reason, analysis_id, job_id, audio_us, charged_day, created_ms) VALUES ('desk', 'one', 'recognition', 1, 'skipped', 'recognition-input-limit', NULL, NULL, 0, 0, 1)", [])?;
     store.connection.execute("INSERT INTO monitor_steps(monitor_id, recording_id, stage, policy_version, decision, reason, analysis_id, job_id, audio_us, charged_day, created_ms) VALUES ('desk', 'long', 'recognition', 1, 'skipped', 'longer-than-daily-cap', NULL, NULL, 0, 0, 2)", [])?;
     Ok(())
+}
+
+fn historical_monitor_policy(path: &Path) -> Result<(String, String)> {
+    Ok(rusqlite::Connection::open(path)?.query_row(
+        "SELECT spec_json, spec_sha256 FROM monitor_versions WHERE monitor_id = 'desk' AND version = 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?)
 }
 
 fn break_job_check(path: &Path) -> Result<()> {
@@ -1672,6 +1686,7 @@ fn follow(source: &str) -> MonitorSpec {
         total_audio_seconds: 3600,
         recognition_profile: None,
         translation_profile: None,
+        capture: None,
     }
 }
 
@@ -2255,7 +2270,9 @@ fn worker_observations_migrate_from_v34_and_keep_the_transcript() -> TestResult 
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("catalog");
     write_v34(&path)?;
+    let policy = historical_monitor_policy(&path)?;
     let store = Store::open(&path)?;
+    assert_eq!(historical_monitor_policy(&path)?, policy);
     let version: i64 = store
         .connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))?;

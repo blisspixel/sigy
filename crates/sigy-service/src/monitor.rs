@@ -48,6 +48,50 @@ pub struct MonitorSpec {
     pub recognition_profile: Option<String>,
     #[serde(default)]
     pub translation_profile: Option<String>,
+    /// Explicit bounds for newly created monitor-owned recording schedules.
+    /// Absent preserves the serialized identity and independent schedules of old versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture: Option<MonitorCaptureBounds>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonitorCaptureBounds {
+    pub daily_seconds: u32,
+    pub total_seconds: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonitorCaptureUsage {
+    pub used_today_seconds: u64,
+    pub used_total_seconds: u64,
+    pub reserved_total_bytes: u64,
+    pub admissions: u32,
+    pub refusals: Vec<(String, u32)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonitorScheduleOwner {
+    pub monitor_id: String,
+    pub version: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonitorCaptureAdmission {
+    pub occurrence_id: String,
+    pub monitor_id: String,
+    pub policy_version: u32,
+    pub policy_sha256: String,
+    pub rule_revision: i64,
+    pub source_revision: String,
+    pub planned_seconds: u64,
+    pub maximum_bytes: u64,
+    pub admitted_ms: i64,
+    pub action_ordinal: u32,
 }
 
 fn text_ok(value: &str, limit: usize) -> bool {
@@ -72,6 +116,15 @@ impl MonitorSpec {
     /// and caps outside their bounds.
     pub fn validate(&self) -> Result<()> {
         let invalid = Error::InvalidInput("monitor specification");
+        if let Some(bounds) = &self.capture
+            && (!(1..=MAX_DAILY_AUDIO_SECONDS).contains(&bounds.daily_seconds)
+                || !(1..=MAX_TOTAL_AUDIO_SECONDS).contains(&bounds.total_seconds)
+                || bounds.total_seconds < u64::from(bounds.daily_seconds)
+                || bounds.total_bytes == 0
+                || bounds.total_bytes > i64::MAX.cast_unsigned())
+        {
+            return Err(Error::InvalidInput("monitor capture bounds"));
+        }
         if !text_ok(&self.name, 120)
             || !text_ok(&self.goal, MAX_GOAL_CHARS)
             || self.terms.is_empty()
@@ -265,6 +318,8 @@ pub struct MonitorView {
     pub active_sources: Vec<String>,
     pub actions: u32,
     pub processing: MonitorProcessing,
+    #[serde(default)]
+    pub capture_usage: MonitorCaptureUsage,
 }
 
 /// Longest window a coverage or match request may cover.
@@ -273,6 +328,8 @@ pub const MAX_WINDOW_MS: i64 = 31 * 86_400_000;
 pub const MAX_WINDOW_CAPTURES: usize = 1_024;
 /// Most passage matches returned by one request.
 pub const MATCH_PAGE: usize = 64;
+/// Most transcripts inspected by one bounded passage-match request.
+pub(crate) const MAX_SCANNED_TRANSCRIPTS: u32 = 512;
 
 /// A half-open wall-clock window on capture start times.
 /// # Errors

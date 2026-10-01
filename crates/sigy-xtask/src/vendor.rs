@@ -154,4 +154,49 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn inventory_and_hashes_detect_tampering_and_extra_native_files()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempfile::tempdir()?;
+        let vendor = root.path().join("vendor/libsqlite3-sys");
+        std::fs::create_dir_all(vendor.join("nested"))?;
+        let source = vendor.join("nested/source.c");
+        std::fs::write(&source, b"abc")?;
+        let checksums = root.path().join("vendor/checksums.json");
+        // Independent published SHA-256 test vector, rather than hashing the
+        // expected value with the implementation being checked.
+        std::fs::write(&checksums, br#"[{"path":"nested/source.c","sha256":"BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"}]"#)?;
+        check_vendor(root.path())?;
+        std::fs::write(&source, b"abd")?;
+        assert!(
+            check_vendor(root.path())
+                .err()
+                .ok_or("tampered native source passed")?
+                .contains("checksum mismatch")
+        );
+        std::fs::write(&source, b"abc")?;
+        std::fs::write(vendor.join("extra.c"), b"new")?;
+        assert!(
+            check_vendor(root.path())
+                .err()
+                .ok_or("unlisted native source passed")?
+                .contains("inventory changed")
+        );
+        std::fs::remove_file(vendor.join("extra.c"))?;
+        std::fs::write(&checksums, b"invalid JSON")?;
+        assert!(check_vendor(root.path()).is_err());
+        for relative in [
+            "",
+            "/root",
+            "\\root",
+            "nested//source.c",
+            "nested/../source.c",
+        ] {
+            assert!(contained_file(&vendor, relative).is_err());
+        }
+        assert!(super::relative_forward(&vendor, root.path()).is_err());
+        assert!(super::strip_prefix("tiny", "longer/").is_none());
+        Ok(())
+    }
 }

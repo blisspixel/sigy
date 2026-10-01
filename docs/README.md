@@ -1,10 +1,14 @@
 # Design documents
 
-Last updated: 2026-09-23
+Last updated: 2026-09-30
 
 Read [Intent](../INTENT.md) first, followed by the [Roadmap](../ROADMAP.md).
 
+The latest increment adds [finite task evidence execution](decisions/0067-task-evidence-execution.md), with [effect, cancellation and retention-history fixtures](../research/experiments/task-execution-2026-09-30.md). It builds on [durable task scope and checkpoints](decisions/0066-durable-task-workflows.md), [restart and restore evidence](../research/experiments/task-scope-2026-09-30.md), [finding navigation](decisions/0063-terminal-finding-navigation.md), [native task bounds](decisions/0064-native-task-bounds.md), [monitor-owned capture schedules](decisions/0065-monitor-owned-capture-schedules.md), [station clusters](decisions/0060-terminal-station-clusters.md), [monitor inspection](decisions/0061-classification-off-and-monitor-inspection.md), and [recording timelines](decisions/0062-terminal-recording-timeline.md). Other evidence covers [offline translation validation](../research/experiments/local-mt/offline-validation-2026-09-30.md), the [Linux containment audit](../research/experiments/native-boundary/delegated-cgroups.md), and a [v39 restore rehearsal](../research/experiments/library-restore-v39.md). [Active work](development/progress.md) records verification and remaining gates.
+
 Implementation has begun. Read the [installation guide](install.md), [active work and evidence](development/progress.md), the [usage guide](usage.md), and the [Rust foundation decision](decisions/0001-rust-foundation.md) for current state. The planning chapters retain the broader product contract; they are not a list of shipped features.
+
+The 2026-09-30 clarification confirms [durable task workflows](design/task-workflows.md): plain-language tasks, qualified local planning, optional bounded providers, skills/plugin/MCP/A2A integration, private local diagnostics and service-owned recovery. The complete workflow design remains proposed; bounded scope, checkpoints and explicitly delegated evidence publication are implemented. The existing agent plugin is not a complete task harness. The [roadmap's task operations](../ROADMAP.md#i-durable-task-workflows-and-private-operation) build on this foundation with task-owned collection, processing and measured local planning. [Agentic research](../research/15-agentic-analysis.md) and [private diagnostics and recovery research](../research/32-private-diagnostics-and-recovery.md) record primary sources, alternatives and limits. The [delivery register](planning/05-delivery-and-decisions.md) tracks the remaining decisions and evidence packages.
 
 Implemented boundaries are recorded in the [local controller](decisions/0002-local-controller.md), [capture journal](decisions/0003-capture-journal.md) and [source authority and HTTP transport](decisions/0004-source-authority-and-http.md) decisions. Focused implementation targets cover the [terminal experience](design/terminal-experience.md), [language coverage and localization](design/languages.md), and [universal signal interpretation](design/signal-interpretation.md).
 
@@ -28,7 +32,7 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Decoded formats](decisions/0014-decoded-formats.md) names only the formats one local run decoded, on the operating system and FFmpeg build that ran them.
 
-[Terminal stack](decisions/0015-terminal-stack.md) selects Ratatui with the Termina backend. [The list explorer](decisions/0016-list-explorer.md) uses that backend. The client still opens no second catalog. The globe and map are not drawn.
+[Terminal stack](decisions/0015-terminal-stack.md) selects Ratatui with the Termina backend. [The list explorer](decisions/0016-list-explorer.md) uses that backend. The client still opens no second catalog. The later [terminal globe](decisions/0044-terminal-globe.md) and [station clustering](decisions/0060-terminal-station-clusters.md) slices draw the current filtered page with offline geometry; terminal latency with capture running remains unmeasured.
 
 [Local podcast subscriptions](decisions/0017-local-podcast-subscriptions.md) store one feed URL, scope, pin, and redirect policy. Subscribe does not resolve DNS or start a capture. Unsubscribe stops future polls and deletes nothing.
 

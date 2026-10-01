@@ -1,6 +1,6 @@
 # Frozen briefing coverage
 
-Date: 2026-09-30. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v39. This is the local exit of roadmap operation 34: one coverage snapshot is frozen with the briefing generation, an earlier generation stays readable, a later correction marks the cited finding stale and writes no ledger event, and a redacted export is a snapshot. Classification stays off. `monitor coverage` stays a live read. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited. Operation 35 remains.
+Date: 2026-09-30. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v39. This is the local exit of roadmap operation 34: one coverage snapshot is frozen with the briefing generation, an earlier generation stays readable, a later correction marks the cited finding stale and writes no ledger event, and a redacted export is a snapshot. Classification stays off. `monitor coverage` stays a live read. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited. The subsequent [classification-off increment](0061-classification-off-and-monitor-inspection.md) supplies operation 35 local evidence.
 
 ## Decision
 
@@ -47,4 +47,4 @@ On 2026-09-30, `cargo verify` passed 532 tests, with 15 native-media tests ignor
 - The fixture is one local Spanish cue family. It is not a public-station run.
 - A recognition phrase stored through a window end can still clip a word. This command does not reopen that recognition.
 - Linux delegated-cgroup containment and the suspended-spawn assignment window remain deferred. The window stays open.
-- Stage 5 is not exited. Operations 23, 24, 25, and 28 remain partial. Operation 28 is not exited. Operation 35 has not started.
+- Stage 5 is not exited. Operations 23, 24, 25, and 28 remain partial. Operation 28 is not exited. The subsequent [classification-off increment](0061-classification-off-and-monitor-inspection.md) supplies operation 35's local evidence; stage 6 remains open.

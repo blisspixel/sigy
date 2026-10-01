@@ -26,6 +26,7 @@ mod schedule;
 mod service;
 mod sources;
 mod style;
+mod task;
 mod update;
 
 #[derive(Debug, Parser)]
@@ -63,7 +64,7 @@ enum Command {
         #[command(subcommand)]
         command: schedule::ScheduleCommand,
     },
-    /// Inspect and verify retained analysis inputs. Recognition is not configured.
+    /// Inspect retained inputs and run configured local recognition and translation.
     Analysis {
         #[command(subcommand)]
         command: analysis::AnalysisCommand,
@@ -97,6 +98,11 @@ enum Command {
     Monitor {
         #[command(subcommand)]
         command: monitor::MonitorCommand,
+    },
+    /// Keep bounded task progress and explicitly delegate cited publications.
+    Task {
+        #[command(subcommand)]
+        command: task::TaskCommand,
     },
     /// Store provider routes and dated prices. Nothing is sent to a provider.
     Provider {
@@ -222,6 +228,8 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         command.operation()?
     } else if let Command::Monitor { command } = &cli.command {
         command.operation()?
+    } else if let Command::Task { command } = &cli.command {
+        command.operation()?
     } else if let Command::Provider { command } = &cli.command {
         command.operation()
     } else if matches!(cli.command, Command::Doctor { .. }) {
@@ -295,6 +303,8 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         dvr::render_records(&mut stdout, &page, ink)?;
     } else if let Some(page) = &view.monitor {
         monitor::render(&mut stdout, page)?;
+    } else if let Some(page) = &view.task {
+        task::render(&mut stdout, page)?;
     } else if let Some(page) = &view.provider {
         provider::render(&mut stdout, page)?;
     } else if let Some(page) = view.schedule {

@@ -1,6 +1,6 @@
 # Sigy research and design
 
-Last updated: 2026-09-22
+Last updated: 2026-09-30
 
 Status: research-backed product contract. Implementation has begun with a [Rust foundation decision](../decisions/0001-rust-foundation.md); [active work](../development/progress.md) records verified behavior and remaining qualification.
 
@@ -50,7 +50,7 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-21 | An extensible offline historical cipher laboratory includes Enigma, engaging TUI traces, self-generated encrypted messages, supplied-settings decryption, bounded classical unknown-key challenges, and reveal/compare/replay. Hidden answers remain outside solver inputs; originals, settings, cribs, search coverage, and uncertainty are preserved. |
 | C-22 | Modern authenticated encryption and post-quantum operations using supplied keys remain separate from classical cryptanalysis. Planned offline lessons use maintained ML-KEM key-establishment plus AEAD profiles and ML-DSA/SLH-DSA signatures, with independent vectors and no quantum-breaking claim. |
 | C-23 | Exploration, learning, and fun are explicit product goals; guided synthetic exercises make mechanisms and limits inspectable even without an operational purpose. Cipher and post-quantum lessons remain future roadmap stages 11 and 12. Setup asks for a local, editable country/state selection with US-default guidance and no GPS/IP inference; guidance and educational notices grant no interception, decryption, or transmission authority. |
-| C-24 | Sigy is practical signals intelligence for everyday people: broad everyday workflows must be fun and approachable to non-specialists while retaining advanced control. The informal "90%" ambition describes desired breadth, not verified coverage. |
+| C-24 | Sigy is practical signals intelligence for everyday people: broad everyday workflows must be fun, educational and approachable to non-specialists while retaining advanced control and demonstrable professional utility. The 2026-09-30 clarification prefers an instrument and operations-desk presentation; personal journal framing is not desired. Status reports and optional exploration achievements remain proposals. The informal "90%" ambition describes desired breadth, not verified coverage. |
 | C-25 | The project is licensed under Apache License 2.0. Preserve required third-party legal notices and review dependency/distribution compatibility. |
 | C-26 | Sigy is intended for lawful use. The README includes clear legal-responsibility, warranty, and liability notices without implying that a disclaimer authorizes otherwise unlawful activity. |
 | C-27 | Multi-stream local language detection and speech processing with no metered inference fees are priorities. Support live and batch queues, independently qualify capture/analysis capacity, and distinguish broad language ambition from tested support. |
@@ -68,6 +68,8 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-39 | Later receive-only RF exploration includes supported bands such as CB, tuning/scanning and signal-finding tools. Device capabilities, measured coverage and regional rules govern available profiles. |
 | C-40 | Broadcast analysis detects language shifts, candidate advertisements and new-song boundaries within one station. Preserve mixed/overlapping content and uncertainty; song boundaries do not require successful title identification. |
 | C-41 | Support personal-machine and server operation, with optional user-controlled proxy/VPN routing to improve access to sources across networks. Keep routing a small capability supporting a free and open internet; exact profiles, remote control and release placement require qualification. |
+| C-42 | Users can state a task and have a bounded, resumable agent workflow use Sigy's capabilities to deliver a useful evidence-backed result. Reusable skills, plugin/MCP access and A2A interoperability are required integration targets. Qualified local planning with zero metered inference fees is required; OpenRouter and other explicitly configured providers remain optional. The service retains policy and effect authority. |
+| C-43 | Local privacy, security and exceptional long-term dependability are explicit requirements: private bounded local diagnostics, no automatic analytics or diagnostic upload, protected necessary task/evidence state, resumable progress, defensive code, verified recovery and maintained portable contracts. Reliability and professional support claims require measured evidence, not institutional branding or an unproven service-life promise. |
 
 ## Reading the status labels
 

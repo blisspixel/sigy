@@ -6,6 +6,7 @@ use super::{Store, validate_key};
 use crate::{
     Error, Result,
     monitor::{FindingCite, FindingOriginal, FindingPage},
+    task::TaskCitation,
 };
 
 const PAGE_SQL: &str = "SELECT f.monitor_id, f.id, f.transcript_id, f.transcript_revision, f.translation_revision, f.cue_ordinal, f.recording_id, f.original_state, f.start_us, f.end_us, c.script, tc.english, tc.reason, EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = f.transcript_id AND n.revision > f.transcript_revision AND n.kind IN ('recognition', 'correction') AND n.outcome = 'text'), EXISTS (SELECT 1 FROM translations AS tr WHERE tr.transcript_id = f.transcript_id AND tr.transcript_revision = f.transcript_revision AND tr.revision > f.translation_revision) FROM monitor_findings AS f JOIN transcript_cues AS c ON c.transcript_id = f.transcript_id AND c.revision = f.transcript_revision AND c.ordinal = f.cue_ordinal JOIN translation_cues AS tc ON tc.transcript_id = f.transcript_id AND tc.transcript_revision = f.transcript_revision AND tc.revision = f.translation_revision AND tc.ordinal = f.cue_ordinal WHERE f.monitor_id = ?1 AND f.id = ?2";
@@ -31,6 +32,7 @@ struct Facts {
     sha_matches: bool,
     covered: bool,
     gapped: bool,
+    released_segment: Option<i64>,
 }
 
 enum Truth {
@@ -38,6 +40,59 @@ enum Truth {
     Expired,
     Missing,
     Unavailable,
+}
+
+/// Publish one already scope-validated task citation inside the caller's transaction.
+/// Replay preserves the original media statement after retention changes.
+pub(super) fn write_task_finding(
+    connection: &Connection,
+    monitor: &str,
+    id: &str,
+    citation: &TaskCitation,
+    now: i64,
+) -> Result<FindingPage> {
+    let translation_revision = citation
+        .translation_revision
+        .ok_or(Error::Analysis("task-translation-unavailable"))?;
+    if citation.cue_ordinal > 255 {
+        return Err(Error::Analysis("task-cue-unsupported"));
+    }
+    let mut cite = FindingCite {
+        transcript_id: citation.transcript_id.clone(),
+        transcript_revision: citation.transcript_revision,
+        translation_revision,
+        cue_ordinal: citation.cue_ordinal,
+        original: FindingOriginal::Retained,
+    };
+    validate_finding(monitor, id, &cite, now)?;
+    let facts = load_facts(connection, &cite)?;
+    let source: String = connection.query_row(
+        "SELECT source_revision FROM capture_jobs WHERE id = ?1",
+        [&facts.recording_id],
+        |row| row.get(0),
+    )?;
+    if facts.recording_id != citation.recording_id
+        || source != citation.source
+        || u64::try_from(facts.start_us).ok() != Some(citation.start_us)
+        || u64::try_from(facts.end_us).ok() != Some(citation.end_us)
+    {
+        return Err(Error::Analysis("task-citation-conflict"));
+    }
+    if let Some(page) = load(connection, monitor, id)? {
+        cite.original = page.original;
+        return if same(&page, &cite) && page.recording_id == citation.recording_id {
+            Ok(page)
+        } else {
+            Err(Error::Analysis("finding-conflict"))
+        };
+    }
+    cite.original = match media_truth(&facts) {
+        Truth::Retained => FindingOriginal::Retained,
+        Truth::Expired => FindingOriginal::Expired,
+        Truth::Missing => FindingOriginal::Missing,
+        Truth::Unavailable => return Err(Error::Analysis("task-original-unavailable")),
+    };
+    write_finding(connection, monitor, id, &cite, now)
 }
 
 impl Store {
@@ -178,6 +233,13 @@ fn load_facts(connection: &Connection, cite: &FindingCite) -> Result<Facts> {
             cue.start_us,
             cue.end_us,
         )?,
+        released_segment: connection
+            .query_row(
+                "SELECT i.ordinal FROM recording_intervals i JOIN recording_releases x ON x.recording_id = i.recording_id AND x.segment_ordinal = i.ordinal WHERE i.recording_id = ?1 AND i.decoded_start_us <= ?2 AND i.decoded_end_us >= ?3 ORDER BY i.ordinal LIMIT 1",
+                params![transcript.recording_id, cue.start_us, cue.end_us],
+                |row| row.get(0),
+            )
+            .optional()?,
     })
 }
 
@@ -260,7 +322,7 @@ fn flag(connection: &Connection, sql: &str, recording: &str, start: i64, end: i6
 
 fn media_truth(facts: &Facts) -> Truth {
     let expired = matches!(facts.storage_state.as_str(), "deleting" | "deleted");
-    if expired {
+    if expired || facts.released_segment.is_some() {
         return Truth::Expired;
     }
     if facts.storage_state == "retained" && facts.sha_matches && facts.covered && !facts.gapped {

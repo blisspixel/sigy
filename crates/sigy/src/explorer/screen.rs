@@ -12,9 +12,10 @@ use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, known, sanitize};
 
 pub const HELP_PRIMARY: &str =
-    "Help: / search, arrows select, v filter, f favorite, 7 globe, q quit";
+    "Help: / search, arrows, f favorite, 4 monitors, 5 findings, 7 globe, q quit";
 pub const HELP_SELECTION: &str = "Selection does not start audio, capture, refresh, or a click.";
-pub const RECOVERY: &str = "Too small\nq quits\nService\nstays up";
+pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
+const FOCUS_PREFIX: &str = "Focus ";
 
 pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
     let area = frame.area();
@@ -45,21 +46,56 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], mode
             render_globe(frame, *rect, section, model);
             continue;
         }
-        let mut lines = section.lines.clone();
+        let mut lines = if model.workspace() == Workspace::Monitors
+            && matches!(section.height, Height::Fill)
+        {
+            model
+                .monitors
+                .lines(usize::from(rect.height))
+                .into_iter()
+                .map(Line::from)
+                .collect()
+        } else if model.workspace() == Workspace::Recordings
+            && matches!(section.height, Height::Fill)
+        {
+            recording_lines(model, usize::from(rect.width), usize::from(rect.height))
+        } else if model.workspace() == Workspace::Findings && matches!(section.height, Height::Fill)
+        {
+            model
+                .findings
+                .lines(
+                    usize::from(rect.height),
+                    usize::from(rect.width),
+                    if section.linear_focus {
+                        FOCUS_PREFIX.len()
+                    } else {
+                        0
+                    },
+                )
+                .into_iter()
+                .map(Line::from)
+                .collect()
+        } else {
+            section.lines.clone()
+        };
         if section.linear_focus
             && let Some(first) = lines.first_mut()
         {
-            first.spans.insert(0, Span::raw("Focus "));
+            first.spans.insert(0, Span::raw(FOCUS_PREFIX));
         }
         frame.render_widget(Paragraph::new(lines).style(section.style), *rect);
     }
 }
 
 fn render_globe(frame: &mut Frame<'_>, area: Rect, section: &Section, model: &Explorer) {
-    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
-    let mut header = super::globe::header(model);
-    if section.linear_focus {
-        header.spans.insert(0, Span::raw("Focus "));
+    let header_height = if area.height >= 6 { 3 } else { 2 };
+    let rows =
+        Layout::vertical([Constraint::Length(header_height), Constraint::Min(1)]).split(area);
+    let mut header = super::globe::header_lines(model);
+    if section.linear_focus
+        && let Some(first) = header.first_mut()
+    {
+        first.spans.insert(0, Span::raw(FOCUS_PREFIX));
     }
     frame.render_widget(Paragraph::new(header).style(section.style), rows[0]);
     frame.render_widget(
@@ -100,7 +136,7 @@ fn full_sections(model: &Explorer) -> Vec<Section> {
         ),
         one(recording_line(model), false, model),
         one(quota_line(model), false, model),
-        many(help_lines(), model.focus() == Focus::Help, model),
+        many(help_lines(model), model.focus() == Focus::Help, model),
         one(plain(model.status()), false, model),
     ]
 }
@@ -119,7 +155,11 @@ fn compact_sections(model: &Explorer) -> Vec<Section> {
             model.focus() == Focus::Playback,
             model,
         ),
-        one(plain(HELP_PRIMARY), model.focus() == Focus::Help, model),
+        one(
+            plain(compact_help(model)),
+            model.focus() == Focus::Help,
+            model,
+        ),
         one(plain(model.status()), false, model),
         fill(body(model, 4), model.focus() == Focus::Results, model),
     ]
@@ -127,6 +167,26 @@ fn compact_sections(model: &Explorer) -> Vec<Section> {
 
 fn one(line: Line<'static>, focused: bool, model: &Explorer) -> Section {
     section(Height::Fixed(1), vec![line], focused, model)
+}
+
+fn compact_help(model: &Explorer) -> &'static str {
+    if editing(model) {
+        return "Help: Esc ends edit";
+    }
+    match model.workspace() {
+        Workspace::Findings => "Help: q quit, / IDs, o metadata",
+        Workspace::Recordings => "Help: q quit, arrows select, r reload",
+        Workspace::Monitors => "Help: q quit, Enter read, r reload",
+        Workspace::Globe => "Help: q quit, h/j/k/l turn, m map",
+        Workspace::Explore | Workspace::Live | Workspace::System => {
+            "Help: q quit, / search, 1-7 views"
+        }
+    }
+}
+
+fn editing(model: &Explorer) -> bool {
+    model.focus() == Focus::Search
+        || (model.workspace() == Workspace::Findings && model.findings.editing())
 }
 
 fn many(lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
@@ -313,6 +373,9 @@ fn cache_line(model: &Explorer) -> Line<'static> {
 }
 
 fn search_line(model: &Explorer) -> Line<'static> {
+    if model.workspace() == Workspace::Findings {
+        return plain(&format!("Finding IDs: [{}]", model.findings.query()));
+    }
     let color = color_on(model);
     let mut spans = vec![
         paint(color, Tone::Accent, "Search: ["),
@@ -327,6 +390,41 @@ fn search_line(model: &Explorer) -> Line<'static> {
 
 fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
     let color = color_on(model);
+    if model.workspace() == Workspace::Findings {
+        return vec![
+            plain("Stored citations: named lookup, / edits MONITOR FINDING."),
+            plain("o reads original recording metadata. Arrows scroll."),
+            plain("Classification off. Original script and uncertain English preserved."),
+        ];
+    }
+    if model.workspace() == Workspace::Recordings {
+        return vec![
+            plain(&format!(
+                "Selected recording: {}",
+                model
+                    .selected_recording()
+                    .map_or_else(|| "none".into(), |recording| sanitize(&recording.id, 64))
+            )),
+            plain("Published media, gaps and unpublished time remain separate."),
+            plain("Selection starts no playback, capture or processing."),
+        ];
+    }
+    if model.workspace() == Workspace::Monitors {
+        return vec![
+            plain(&format!(
+                "Selected monitor: {}",
+                model
+                    .monitors
+                    .selected()
+                    .map_or_else(|| "none".into(), |id| sanitize(id, 64))
+            )),
+            plain(&format!(
+                "Snapshot: {}. Arrows scroll; Escape returns.",
+                model.monitors.snapshot_label()
+            )),
+            plain("Classification off. Capture schedules and processing are unchanged."),
+        ];
+    }
     let Some(row) = model.selected() else {
         return vec![
             Line::from(vec![
@@ -453,8 +551,13 @@ fn quota_line(model: &Explorer) -> Line<'static> {
     ])
 }
 
-fn help_lines() -> Vec<Line<'static>> {
-    vec![plain(HELP_PRIMARY), plain(HELP_SELECTION)]
+fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
+    let primary = if editing(model) {
+        "Help: Esc ends edit; Enter reads; Ctrl-C quits"
+    } else {
+        HELP_PRIMARY
+    };
+    vec![plain(primary), plain(HELP_SELECTION)]
 }
 
 fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
@@ -462,11 +565,22 @@ fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
         match model.workspace() {
             Workspace::Explore => explore_lines(model),
             Workspace::Live => live_lines(model),
-            Workspace::Recordings => recording_lines(model),
+            Workspace::Recordings => recording_lines(model, 60, limit),
             Workspace::System => system_lines(model),
             // Drawn as a canvas by `render_sections`; see `explorer::globe`.
             Workspace::Globe => Vec::new(),
-            Workspace::Monitors | Workspace::Findings => unavailable_lines(model),
+            Workspace::Monitors => model
+                .monitors
+                .lines(limit)
+                .into_iter()
+                .map(Line::from)
+                .collect(),
+            Workspace::Findings => model
+                .findings
+                .lines(limit, 60, 0)
+                .into_iter()
+                .map(Line::from)
+                .collect(),
         }
     } else {
         unavailable_lines(model)
@@ -477,8 +591,10 @@ fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
 fn unavailable_lines(model: &Explorer) -> Vec<Line<'static>> {
     let color = color_on(model);
     let text = match model.workspace() {
-        Workspace::Findings => "Findings unavailable. No finding operation exists yet.",
-        Workspace::Monitors => "Monitors unavailable. No monitor operation exists yet.",
+        Workspace::Findings => {
+            "Stored findings: use sigy monitor finding MONITOR FINDING show. Listing is pending."
+        }
+        Workspace::Monitors => "Monitors: Enter reads coverage and literal passages.",
         Workspace::Explore
         | Workspace::Live
         | Workspace::Recordings
@@ -552,31 +668,84 @@ fn live_lines(model: &Explorer) -> Vec<Line<'static>> {
     lines
 }
 
-fn recording_lines(model: &Explorer) -> Vec<Line<'static>> {
+fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static>> {
     let color = color_on(model);
     if model.recordings().is_empty() {
         return vec![plain(
             "No recordings. record start is a separate CLI operation.",
         )];
     }
-    model
-        .recordings()
-        .iter()
-        .take(8)
-        .map(|recording| {
-            let format = recording.format.as_deref().unwrap_or("unknown");
-            let state = sanitize(&recording.state, 16);
-            let storage = sanitize(&recording.storage_state, 16);
-            Line::from(vec![
-                paint(color, Tone::Muted, sanitize(&recording.id, 24)),
-                paint(color, Tone::Plain, " "),
-                paint(color, tone_for_state(&state), state),
-                paint(color, Tone::Plain, " "),
-                paint(color, tone_for_state(&storage), storage),
-                paint(color, Tone::Plain, format!(" format {format}")),
-            ])
-        })
-        .collect()
+    if height <= 5
+        && let Some(recording) = model.selected_recording()
+    {
+        if recording.timeline.is_truncated() {
+            return vec![
+                plain(&recording.timeline.compact_axis()),
+                plain(&recording.timeline.summary()),
+            ];
+        }
+        return vec![
+            plain(&format!(
+                "Recording {}: metadata",
+                sanitize(&recording.id, 16)
+            )),
+            plain(&recording.timeline.compact_axis()),
+            plain(&recording.timeline.cells(width)),
+            plain("#:audio x:gone !:gap .:open +:mixed"),
+        ];
+    }
+    let mut lines = vec![plain(
+        "Recordings: arrows select; r reloads. Metadata snapshot only.",
+    )];
+    let limit = height.saturating_sub(6).clamp(1, 8);
+    let start = model
+        .recording_selection()
+        .saturating_sub(limit.saturating_sub(1));
+    lines.extend(
+        model
+            .recordings()
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(limit)
+            .map(|(index, recording)| {
+                let format = recording.format.as_deref().unwrap_or("unknown");
+                let state = sanitize(&recording.state, 16);
+                let storage = sanitize(&recording.storage_state, 16);
+                Line::from(vec![
+                    paint(
+                        color,
+                        Tone::Accent,
+                        if index == model.recording_selection() {
+                            "> "
+                        } else {
+                            "  "
+                        },
+                    ),
+                    paint(color, Tone::Muted, sanitize(&recording.id, 24)),
+                    paint(color, Tone::Plain, " "),
+                    paint(color, tone_for_state(&state), state),
+                    paint(color, Tone::Plain, " "),
+                    paint(color, tone_for_state(&storage), storage),
+                    paint(color, Tone::Plain, format!(" format {format}")),
+                ])
+            }),
+    );
+    if let Some(recording) = model.selected_recording() {
+        lines.push(plain(&recording.timeline.summary()));
+        lines.push(plain(&recording.timeline.axis()));
+        if recording.timeline.is_truncated() {
+            return lines;
+        }
+        lines.push(plain(&recording.timeline.cells(width)));
+        lines.push(plain(
+            "# available, x unavailable, ! gap, . unpublished, + mixed",
+        ));
+        lines.push(plain(
+            "No waveform or live samples. The open tail is unpublished; r reloads.",
+        ));
+    }
+    lines
 }
 
 fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
@@ -745,6 +914,7 @@ mod tests {
                 state: "running".into(),
                 storage_state: "reserved".into(),
                 format: None,
+                timeline: crate::explorer::timeline::fixture(),
             }],
             playback: Some(PlaybackView {
                 id: "listen-1".into(),
@@ -776,8 +946,14 @@ mod tests {
         let view = terminal.backend().buffer().clone();
         for y in 0..height {
             let mut line = String::new();
+            let mut covered_until = 0;
             for x in 0..width {
-                line.push_str(view[(x, y)].symbol());
+                if x >= covered_until {
+                    let symbol = view[(x, y)].symbol();
+                    line.push_str(symbol);
+                    let cells = ratatui::text::Span::raw(symbol).width();
+                    covered_until = x.saturating_add(u16::try_from(cells).unwrap_or(1));
+                }
             }
             lines.push(line.trim_end().to_owned());
         }
@@ -891,8 +1067,8 @@ mod tests {
         assert!(text.contains("Quota: charged 5"), "{text}");
         assert!(text.contains("service 42"), "{text}");
         assert!(text.contains("motion on"), "{text}");
-        assert!(text.contains("Monitors unavailable"), "{text}");
-        assert!(text.contains("Findings unavailable"), "{text}");
+        assert!(text.contains("Monitors"), "{text}");
+        assert!(text.contains("Findings"), "{text}");
         assert!(!text.contains('\u{1b}'), "{text}");
         assert!(!colored);
         let playback = text
@@ -954,15 +1130,313 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_workspace_is_visible_and_tiny_terminal_recovers() {
+    fn compact_help_matches_active_controls() {
+        for workspace in '1'..='7' {
+            let mut model = sample();
+            model.handle(Key::Char(workspace));
+            for (width, height) in [(20, 8), (40, 10), (80, 24)] {
+                let (text, _) = frame(&model, width, height);
+                assert!(text.contains("q quit"), "{workspace}: {text}");
+            }
+        }
+        for workspace in ['1', '5'] {
+            let mut model = sample();
+            model.handle(Key::Char(workspace));
+            model.handle(Key::Char('/'));
+            for (width, height) in [(20, 8), (40, 10), (80, 24)] {
+                let (text, _) = frame(&model, width, height);
+                assert!(text.contains("Esc ends edit"), "{workspace}: {text}");
+                assert!(!text.contains("q quit"), "{workspace}: {text}");
+            }
+            model.handle(Key::Escape);
+            assert!(frame(&model, 40, 10).0.contains("q quit"));
+        }
+    }
+
+    #[test]
+    fn minimum_finding_view_keeps_details_and_linear_edit_tail_visible()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for linear in [false, true] {
+            let mut model = Explorer::new(
+                Modes {
+                    reduced_motion: true,
+                    linear,
+                    monochrome: true,
+                },
+                10_000,
+            );
+            model.apply_desk(sample_desk());
+            model.handle(Key::Char('5'));
+            let monitor = "m".repeat(128);
+            let finding = format!("{}tail", "f".repeat(124));
+            model.handle(Key::Char('/'));
+            model.handle(Key::Paste(format!("{monitor} {finding}")));
+            for width in [20, 40, 80] {
+                let (text, _) = frame(&model, width, 10);
+                assert!(text.contains("tail]"), "{linear}: {text}");
+                assert!(text.contains("Esc ends edit"), "{linear}: {text}");
+                requested_snapshot(
+                    &model,
+                    &format!("finding-edit-linear-{linear}-{width}.json"),
+                    width,
+                    10,
+                )?;
+            }
+            model.handle(Key::Enter);
+            model.findings = crate::explorer::finding::Browser::default();
+            assert!(
+                model
+                    .findings
+                    .load("world-news", "one", &crate::explorer::finding::fixture())
+            );
+            let (initial, _) = frame(&model, 20, 8);
+            assert!(
+                initial.lines().any(|line| line.starts_with("Finding:")),
+                "{initial}"
+            );
+            let mut visited = String::new();
+            for offset in 0..64 {
+                let (text, _) = frame(&model, 20, 8);
+                visited.push_str(&text);
+                if matches!(offset, 0 | 11 | 16 | 18 | 25) {
+                    requested_snapshot(
+                        &model,
+                        &format!("finding-20x8-linear-{linear}-{offset}.json"),
+                        20,
+                        8,
+                    )?;
+                }
+                model.handle(Key::Down);
+            }
+            assert!(visited.contains("明日の会議です。"), "{visited}");
+            assert!(visited.contains("The meeting is"), "{visited}");
+            model.handle(Key::Char('/'));
+            model.handle(Key::Enter);
+            model.handle(Key::Escape);
+            let mut error_visited = String::new();
+            for _ in 0..64 {
+                error_visited.push_str(&frame(&model, 20, 8).0);
+                model.handle(Key::Down);
+            }
+            assert!(
+                error_visited.contains("Enter exactly two"),
+                "{error_visited}"
+            );
+            assert!(
+                error_visited.contains("明日の会議です。"),
+                "{error_visited}"
+            );
+        }
+        Ok(())
+    }
+
+    fn requested_snapshot(
+        model: &Explorer,
+        name: &str,
+        width: u16,
+        height: u16,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(directory) = std::env::var_os("SIGY_TUI_SNAPSHOT_DIR") {
+            let directory = std::path::PathBuf::from(directory);
+            std::fs::create_dir_all(&directory)?;
+            write_snapshot(&directory.join(name), model, width, height)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn monitor_workspace_is_visible_and_tiny_terminal_recovers() {
         let mut model = sample();
         model.handle(crate::explorer::state::Key::Char('4'));
         assert_eq!(model.workspace(), Workspace::Monitors);
         let (text, _) = frame(&model, 80, 24);
-        assert!(text.contains("Monitors unavailable. No monitor operation exists yet."));
+        assert!(text.contains("Monitors: arrows select, Enter reads"));
         let (small, _) = frame(&model, 10, 4);
         assert!(small.contains("Too small"), "{small}");
-        assert!(small.contains("q quits"), "{small}");
+        assert!(small.contains("^C quits"), "{small}");
+    }
+
+    #[test]
+    fn monitor_snapshots_render_coverage_and_keep_details_on_disconnect()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::explorer::state::Key;
+        let mut model = sample();
+        model.handle(Key::Char('4'));
+        model.monitors = crate::explorer::monitor::fixture();
+        for (width, height) in [(80, 24), (132, 40)] {
+            for (label, scroll) in [("summary", 0), ("coverage", 5), ("passages", 4)] {
+                for _ in 0..scroll {
+                    model.handle(Key::Down);
+                }
+                let (text, _) = frame(&model, width, height);
+                assert!(text.contains("Help:"));
+                assert!(text.contains("Monitors"));
+                assert!(!text.contains('\u{1b}'));
+                if let Some(directory) = std::env::var_os("SIGY_TUI_SNAPSHOT_DIR") {
+                    let directory = std::path::PathBuf::from(directory);
+                    std::fs::create_dir_all(&directory)?;
+                    let stem = format!("monitor-{width}x{height}-{label}");
+                    std::fs::write(directory.join(format!("{stem}.txt")), &text)?;
+                    write_snapshot(
+                        &directory.join(format!("{stem}.json")),
+                        &model,
+                        width,
+                        height,
+                    )?;
+                }
+            }
+            model.monitors = crate::explorer::monitor::fixture();
+        }
+        model.note_disconnect(model.now_ms(), "service stopped");
+        let (text, _) = frame(&model, 80, 24);
+        assert!(text.contains("Monitor news v1"));
+        assert!(text.contains("Last snapshot kept"));
+        assert!(text.contains("Capture was not stopped"));
+        Ok(())
+    }
+
+    #[test]
+    fn finding_frames_preserve_scripts_and_revision_citations()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut model = sample();
+        model.handle(Key::Char('5'));
+        let page = crate::explorer::finding::fixture();
+        for (width, height) in [(80, 24), (132, 40), (40, 10)] {
+            model.findings = crate::explorer::finding::Browser::default();
+            model.handle(Key::Char('/'));
+            model.handle(Key::Paste("world-news one".into()));
+            model.handle(Key::Enter);
+            assert!(model.findings.load("world-news", "one", &page));
+            let mut all = String::new();
+            for offset in 0..32 {
+                let (text, _) = frame(&model, width, height);
+                assert!(!text.contains('\u{1b}'));
+                all.push_str(&text);
+                if matches!(offset, 0 | 3 | 9 | 13 | 18)
+                    && let Some(directory) = std::env::var_os("SIGY_TUI_SNAPSHOT_DIR")
+                {
+                    let directory = std::path::PathBuf::from(directory);
+                    std::fs::create_dir_all(&directory)?;
+                    let stem = format!("finding-{width}x{height}-{offset}");
+                    std::fs::write(directory.join(format!("{stem}.txt")), &text)?;
+                    write_snapshot(
+                        &directory.join(format!("{stem}.json")),
+                        &model,
+                        width,
+                        height,
+                    )?;
+                }
+                model.handle(Key::Down);
+            }
+            assert!(all.contains("world-news"), "{all}");
+            assert!(all.contains("明日の会議です。"), "{all}");
+            assert!(all.contains("The meeting is tomorrow."), "{all}");
+            assert!(all.contains("revision 2"), "{all}");
+        }
+        model.note_disconnect(model.now_ms(), "service stopped");
+        let text = model.findings.lines(20, 132, 0).join("\n");
+        assert!(text.contains("work."));
+        assert!(model.playback().is_some());
+        Ok(())
+    }
+
+    fn write_snapshot(
+        path: &std::path::Path,
+        model: &Explorer,
+        width: u16,
+        height: u16,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height))?;
+        terminal.draw(|frame| render(frame, model))?;
+        let buffer = terminal.backend().buffer();
+        let mut cells = Vec::new();
+        for y in 0..height {
+            let mut covered_until = 0;
+            for x in 0..width {
+                let cell = &buffer[(x, y)];
+                let columns = ratatui::text::Span::raw(cell.symbol()).width();
+                let continuation = x < covered_until;
+                if !continuation {
+                    covered_until = x.saturating_add(u16::try_from(columns).unwrap_or(1));
+                }
+                cells.push(serde_json::json!({"x": x, "y": y, "text": cell.symbol(), "width": columns, "continuation": continuation, "fg": format!("{:?}", cell.fg), "bg": format!("{:?}", cell.bg), "modifiers": format!("{:?}", cell.modifier)}));
+            }
+        }
+        let frame = serde_json::json!({"cols": width, "rows": height, "method": "Ratatui TestBackend, synthetic fixture", "cells": cells});
+        std::fs::write(path, serde_json::to_vec(&frame)?)?;
+        Ok(())
+    }
+
+    #[test]
+    fn recording_timeline_frames_keep_gaps_and_unpublished_tail_visible()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut model = sample();
+        assert_eq!(
+            model.handle(Key::Char('3')),
+            crate::explorer::state::Effect::None
+        );
+        for (width, height) in [(80, 24), (132, 40), (40, 10)] {
+            let (text, _) = frame(&model, width, height);
+            if width >= 80 {
+                assert!(text.contains("Recordings: arrows select"));
+            } else {
+                assert!(text.contains("Recording rec-1: metadata"));
+                assert!(text.contains("#:audio x:gone !:gap .:open +:mixed"));
+                assert!(text.contains("########xxxxxxxx!!!!!!!!"));
+            }
+            if width >= 80 {
+                assert!(text.contains("Published intervals: 1 available, 1 unavailable; gaps 2"));
+                assert!(text.contains("# available, x unavailable, ! gap, . unpublished, + mixed"));
+                assert!(text.contains("Selected recording: rec-1"));
+                assert!(text.contains("Metadata snapshot"));
+            }
+            if let Some(directory) = std::env::var_os("SIGY_TUI_SNAPSHOT_DIR") {
+                let directory = std::path::PathBuf::from(directory);
+                std::fs::create_dir_all(&directory)?;
+                let stem = format!("recording-{width}x{height}");
+                std::fs::write(directory.join(format!("{stem}.txt")), text)?;
+                write_snapshot(
+                    &directory.join(format!("{stem}.json")),
+                    &model,
+                    width,
+                    height,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn truncated_recording_metadata_never_renders_a_fabricated_clock_or_tail()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut desk = sample_desk();
+        desk.recordings[0].timeline = crate::explorer::timeline::truncated_fixture();
+        let mut model = sample();
+        model.apply_desk(desk);
+        model.handle(Key::Char('3'));
+        for (width, height) in [(80, 24), (132, 40), (40, 10)] {
+            let (text, _) = frame(&model, width, height);
+            assert!(text.contains("Timeline unavailable: metadata"));
+            assert!(text.contains("Partial counts:"));
+            assert!(!text.contains("Clock:"));
+            assert!(!text.contains("10000000us"));
+            assert!(!text.contains("#:audio"));
+            assert!(!text.contains("+ mixed"));
+            assert!(!text.contains("!!!!"));
+            if let Some(directory) = std::env::var_os("SIGY_TUI_SNAPSHOT_DIR") {
+                let directory = std::path::PathBuf::from(directory);
+                std::fs::create_dir_all(&directory)?;
+                let stem = format!("recording-limit-{width}x{height}");
+                std::fs::write(directory.join(format!("{stem}.txt")), text)?;
+                write_snapshot(
+                    &directory.join(format!("{stem}.json")),
+                    &model,
+                    width,
+                    height,
+                )?;
+            }
+        }
+        Ok(())
     }
 
     #[test]

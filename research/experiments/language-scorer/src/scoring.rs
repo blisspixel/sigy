@@ -100,6 +100,10 @@ impl Aggregate {
     }
 }
 
+/// Validate or score bounded offline artifacts.
+///
+/// # Errors
+/// Rejects invalid identities, references, partitions, text bounds or evidence.
 pub fn score(
     selection: &Selection,
     partition: Partition,
@@ -149,8 +153,9 @@ pub fn score(
     })
 }
 
-fn source_bundle_digest() -> String {
-    let files: [(&str, &[u8]); 10] = [
+#[must_use]
+pub fn source_bundle_digest() -> String {
+    let files: [(&str, &[u8]); 18] = [
         ("Cargo.toml", include_bytes!("../Cargo.toml")),
         ("Cargo.lock", include_bytes!("../Cargo.lock")),
         (
@@ -158,11 +163,31 @@ fn source_bundle_digest() -> String {
             include_bytes!("../rust-toolchain.toml"),
         ),
         ("src/main.rs", include_bytes!("main.rs")),
+        ("src/lib.rs", include_bytes!("lib.rs")),
         ("src/metrics.rs", include_bytes!("metrics.rs")),
         ("src/records.rs", include_bytes!("records.rs")),
         ("src/scoring.rs", include_bytes!("scoring.rs")),
         ("src/selection.rs", include_bytes!("selection.rs")),
         ("src/tests.rs", include_bytes!("tests.rs")),
+        ("src/judge_records.rs", include_bytes!("judge_records.rs")),
+        ("src/judge_scoring.rs", include_bytes!("judge_scoring.rs")),
+        ("src/judge_tests.rs", include_bytes!("judge_tests.rs")),
+        (
+            "src/translation_metric.rs",
+            include_bytes!("translation_metric.rs"),
+        ),
+        (
+            "src/translation_records.rs",
+            include_bytes!("translation_records.rs"),
+        ),
+        (
+            "src/translation_scoring.rs",
+            include_bytes!("translation_scoring.rs"),
+        ),
+        (
+            "src/translation_tests.rs",
+            include_bytes!("translation_tests.rs"),
+        ),
         (
             "../language-corpus/fleurs-screening-manifest.json",
             include_bytes!("../../language-corpus/fleurs-screening-manifest.json"),

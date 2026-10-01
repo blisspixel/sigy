@@ -2,6 +2,9 @@
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
+mod task;
+pub(super) use task::write_task_briefing;
+
 use super::{Store, validate_key};
 use crate::{
     Error, Result,

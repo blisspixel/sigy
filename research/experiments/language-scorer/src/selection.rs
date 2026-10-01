@@ -27,6 +27,10 @@ pub enum Partition {
 }
 
 impl Partition {
+    /// Validate or score bounded offline artifacts.
+    ///
+    /// # Errors
+    /// Rejects invalid identities, references, partitions, text bounds or evidence.
     pub fn parse(value: &str) -> Result<Self, String> {
         match value {
             "calibration" => Ok(Self::Calibration),
@@ -35,6 +39,7 @@ impl Partition {
         }
     }
 
+    #[must_use]
     pub const fn groups(self) -> &'static [u32] {
         match self {
             Self::Calibration => &TRAIN_GROUPS,
@@ -70,7 +75,7 @@ struct Manifest {
 
 #[derive(Clone)]
 pub struct Selection {
-    pub by_id: BTreeMap<String, ManifestEntry>,
+    pub(crate) by_id: BTreeMap<String, ManifestEntry>,
 }
 
 #[derive(Serialize)]
@@ -92,6 +97,10 @@ pub struct InventoryClip<'a> {
 }
 
 impl Selection {
+    /// Validate or score bounded offline artifacts.
+    ///
+    /// # Errors
+    /// Rejects invalid identities, references, partitions, text bounds or evidence.
     pub fn from_frozen_bytes(bytes: &[u8]) -> Result<Self, String> {
         if sha256(bytes) != MANIFEST_SHA256 {
             return Err("manifest bytes do not match the frozen 112-clip selection".into());
@@ -155,6 +164,7 @@ impl Selection {
         Ok(Self { by_id })
     }
 
+    #[must_use]
     pub fn inventory(&self, partition: Partition) -> Inventory<'_> {
         Inventory {
             schema_version: 1,
@@ -191,6 +201,7 @@ fn validate_asset(asset: &ManifestEntry) -> Result<(), String> {
     Ok(())
 }
 
+#[must_use]
 pub fn is_sha256(value: &str) -> bool {
     value.len() == 64
         && value
@@ -198,11 +209,12 @@ pub fn is_sha256(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+#[must_use]
 pub fn sha256(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     bytes
         .iter()
@@ -223,6 +235,10 @@ fn opaque_id(asset_id: &str) -> String {
 }
 
 #[cfg(test)]
+/// Validate or score bounded offline artifacts.
+///
+/// # Errors
+/// Rejects invalid identities, references, partitions, text bounds or evidence.
 pub fn synthetic_selection() -> Result<Selection, String> {
     let mut assets = Vec::new();
     for config in CONFIGS {

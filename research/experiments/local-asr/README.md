@@ -1,5 +1,7 @@
 # First local ASR asset proposal
 
+Current evidence, 2026-09-30: the service runs the [bounded native recognition worker](../../../docs/decisions/0039-native-recognition-worker.md), and the [32-clip calibration](calibration-32.md) measured small and turbo CPU profiles on the frozen calibration partition. No language is qualified. The proposal and acquisition checkpoint below preserve the earlier evidence; disabled acquisition manifests remain disabled.
+
 **2026-09-24:** the pinned runtime, this model, and a larger turbo model have now run in a bounded research harness. See the [three-clip calibration](three-clip-calibration.md). The historical text below describes the state before that run.
 
 Reviewed: 2026-09-23. Candidate research, one bounded runtime-archive transfer, read-only member inventory, [four retained provenance documents](provenance-documents.md), [five source-file HEAD observations](source-head-pilot.md), and their [verified source content](source-content-pilot.md). The [Arabic](../language-corpus/arabic-audio-pilot.md) and [Hindi](../language-corpus/hindi-audio-pilot.md) corpus archives and selected originals have since been verified and decoded through separate routes. The [selected model](model-acquisition-pilot.md) is downloaded and hashed; no GPU SDK or inference run exists. No candidate is qualified. The original `download-manifest.json` remains disabled. The [WebAssembly compile feasibility review](wasm-compile-feasibility.md) proposes a separate CPU-only experiment with no acquired toolchain yet.

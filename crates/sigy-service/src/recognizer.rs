@@ -23,9 +23,9 @@ use tokio::sync::watch;
 use crate::{
     Error, Result,
     execution::{
-        self, AssetRef, AssetRole, BlobRef, DecoderLimits, Executor, LocalProcessExecutor,
-        LocalStage, RecognitionParams, TaskInput, TaskKind, TaskLimits, TaskParams, TaskSpec,
-        hash_file, runtime_manifest,
+        self, AssetRef, AssetRole, BlobRef, DECODER_DEADLINE_MS, DECODER_MEMORY, DecoderLimits,
+        Executor, LocalProcessExecutor, LocalStage, RECOGNITION_OUTPUT_BYTES, RecognitionParams,
+        TaskInput, TaskKind, TaskLimits, TaskParams, TaskSpec, hash_file, runtime_manifest,
     },
     recognition::{
         AsrSegment, CHUNK_US, ChunkLanguage, LocalAsrFailure, LocalAsrInput, LocalAsrJob,
@@ -35,9 +35,6 @@ use crate::{
 };
 
 pub const SAMPLE_RATE: u32 = 16_000;
-const MAX_OUTPUT_BYTES: u64 = 1024 * 1024;
-const DECODER_MEMORY: u64 = 512 * 1024 * 1024;
-const DECODER_DEADLINE_MS: u64 = 60_000;
 
 /// Everything one recognition job may read. Paths come from the catalog, never a source.
 #[derive(Debug)]
@@ -186,7 +183,7 @@ pub(crate) fn recognition_spec(
             memory_bytes: profile.memory_bytes,
             cpu_rate: profile.threads,
             wall_ms: profile.deadline_ms,
-            output_bytes: MAX_OUTPUT_BYTES,
+            output_bytes: RECOGNITION_OUTPUT_BYTES,
             decoder: Some(DecoderLimits {
                 memory_bytes: DECODER_MEMORY,
                 wall_ms: DECODER_DEADLINE_MS,

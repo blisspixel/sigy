@@ -1,9 +1,13 @@
 # Offline FLEURS scorer prototype
 
-Reviewed 2026-09-22. This standalone Rust 1.98.1 research package is outside the
+Reviewed 2026-09-30. This standalone Rust 1.98.1 research package is outside the
 product workspace and has `publish = false`. It scores local text artifacts only.
 It does not acquire audio, extract corpus text, run models, make paid calls, or
-contain a network client. No real speech quality result exists from this work.
+contain a network client. It now scores translation artifacts and declared
+critical-error judge controls as well as recognition text. The
+[calibration artifact replay](../local-mt/offline-validation-2026-09-30.md)
+checks the translation implementation against existing real outputs; it does
+not qualify language quality or a semantic judge.
 
 ## Frozen selection and input identity
 
@@ -57,7 +61,8 @@ cargo audit --no-fetch --no-yanked --file Cargo.lock
 ./target/debug/scorer-probe.exe selection ../language-corpus/fleurs-screening-manifest.json holdout
 ```
 
-The checks above passed with 24 tests on the Windows research host. The cached
+The checks above passed with 47 binary tests and 16 library test executions on
+the Windows research host. The shared modules supply both targets. The cached
 advisory check cannot establish that the local advisory database is current.
 Keep local run receipts and evaluator-only outputs in ignored `.agents/`, not in
 this source directory.
@@ -238,5 +243,161 @@ Primary source pointers for later review:
 - [Unicode 17 property data](https://www.unicode.org/Public/17.0.0/ucd/PropList.txt)
 - [Pinned normalization crate documentation](https://docs.rs/unicode-normalization/0.1.25/unicode_normalization/)
 
-This task read cached crate sources and local corpus metadata only; these links
-were not fetched during implementation.
+The original 2026-09-22 ASR increment read cached crate sources and local corpus
+metadata only; the pointers above were not fetched in that increment. The
+2026-09-30 translation increment reviewed the pinned metric sources cited below.
+
+## Translation screening
+
+```text
+scorer-probe mt-score MANIFEST calibration|holdout REFERENCES REFERENCES_SHA256 CANDIDATES CANDIDATES_SHA256
+```
+
+The command shares the ASR command's bounded, digest-checked local reads and
+static parsing diagnostics. Separate strict envelopes use schema version 1,
+the frozen `manifest_sha256`, and exactly one `partition`. Translation requires
+28 calibration or 70 holdout records: all seven non-English configurations,
+with four or ten clips each. English source clips are refused. Unknown fields,
+duplicate fields, duplicate clips, omissions, cross-partition records and
+altered references fail before output.
+
+Each reference record has `clip_id`, `source_text` and `english_text`. The
+original-script string must match the source clip's frozen transcription hash;
+English must match the frozen `en_us` clip for the same sentence group and
+partition. Each candidate has `clip_id`, `input_text`, `input_sha256` and an
+`outcome`: `translated` with `text`, or `abstained`, `failed`, or `unsupported`
+with a bounded `reason`. A translated empty string is counted separately.
+
+The candidate envelope also requires `profile_sha256`,
+`declared_tuning_partition: "calibration"`, the fixed `metric_signature` below,
+and `input_origin`. `{"kind":"reference_text"}` requires every candidate input
+to equal its verified published source. `{"kind":"recognized_text",
+"recognition_profile_sha256":"...","recognition_artifact_sha256":"..."}`
+binds the experiment's declared recognizer identities; each actual input string
+is independently hashed. These identity declarations do not load the named
+profile, authenticate its producer, or verify the external recognizer artifact.
+Record those provenance checks in the experiment receipt.
+
+Metric signature:
+
+```text
+chrF2++|case:mixed|eff:yes|nc:6|nw:2|space:no|raw-text-v1
+```
+
+The implementation follows the
+[pinned upstream chrF implementation](https://github.com/mjpost/sacrebleu/blob/c596d9d2072a8f84200574a7a5c56c618e8d37e8/sacrebleu/metrics/chrf.py),
+reviewed 2026-09-30: character orders 1 to 6, word orders 1 and 2, beta 2,
+effective-order averaging, mixed case, and character whitespace removal. Word
+splitting uses a fixed whitespace set matching the reviewed upstream split
+behavior, and splits one trailing ASCII punctuation character, otherwise one
+leading character. Raw Unicode forms and case remain unchanged. The ASR NFC
+normalizer checks text bounds but its normalized strings do not enter chrF++.
+
+Reports retain exact integer hypothesis/reference/match counts for all eight
+orders, derived floating-point corpus and clip scores, artifact and compiled
+source identities, input origin, coverage and the number of distinct English
+reference strings. Corpus scores aggregate per-clip counts; they are not means
+of sentence scores and n-grams never cross clip boundaries. All-clips scores
+include absent output as empty text. Translated-only scores are conditional;
+zero translated clips produce a null conditional score. Four English sentences
+repeated across seven languages remain four references, not 28 independent
+sentences. No chrF++ threshold establishes semantic correctness, critical-error
+detection, language qualification, or model ranking.
+
+Each text retains the existing 8192-byte, 1024-raw/normalized-scalar bound. At
+most 70 pairs keep each aggregate n-gram count below 71,680. Tests check the
+largest admitted counts, an independently hand-computed eight-order example,
+Unicode forms, punctuation, empty outputs, provenance and hostile envelopes.
+The real calibration replay reproduced all 32 prior per-language and overall
+scores without a difference at stored floating-point precision.
+
+## Offline judge-control calibration
+
+```text
+scorer-probe judge-inputs MANIFEST CONTROLS CONTROLS_SHA256
+scorer-probe judge-score MANIFEST CONTROLS CONTROLS_SHA256 JUDGMENTS JUDGMENTS_SHA256
+```
+
+These commands execute no model, access no provider and incur no inference
+charge. They prepare blinded inputs and evaluate separately recorded answers.
+They accept only calibration, never holdout. Pin control and criterion bytes
+before requesting any judgments; tool-side declarations cannot establish when
+that freeze occurred. Judge dispatch and independent-family comparison remain
+separate work.
+
+The control envelope requires schema version 1, frozen manifest identity,
+`partition: "calibration"`, `rubric_sha256`, `criteria`, and `controls`.
+Criteria specify `minimum_per_category` (1 to 64) and three exact fractions
+with `numerator` and `denominator`: `minimum_sensitivity`,
+`maximum_false_positive_rate`, and `maximum_abstention_rate`. Denominators are
+1 to 1000; fractions must lie between zero and one. The tool imposes no chosen
+quality thresholds; the experiment must freeze and justify them.
+
+Each control has an opaque lowercase SHA-256 `control_id`, frozen non-English
+`clip_id`, verified `source_text` and `english_reference`, `output_text`,
+`untrusted_context`, `category`, and `label_basis`. Categories are `unchanged`,
+`meaning_preserving_formatting`, `meaning_preserving_paraphrase`, `entity`,
+`quantity`, `negation`, `omission`, `fluent_unrelated`, and
+`instruction_injection`. Unchanged, formatting, paraphrase and injection are
+acceptable controls; the other five declare critical mutations.
+
+`label_basis` uses `kind: "unchanged"` for exact-reference output;
+`kind: "formatting_only"` requires changed raw bytes with the same fixed NFC
+and whitespace normalization. `kind: "deliberate_mutation"` requires a
+`reference_range` and `replacement_text`; replacing that exact English range
+must produce the entire candidate output. These checks prove string lineage,
+not the truth of a declared semantic category or severity. Paraphrase controls
+also require this single-span rewrite lineage; their acceptable-meaning label
+is a declared assertion, not independently validated by the string check. Mutation selection
+still needs published references and a documented rubric. Injection controls
+keep output unchanged and require a nonempty separate untrusted context.
+
+`judge-inputs` excludes clip locators, expected categories, label bases and
+thresholds. It emits opaque IDs, source and English reference text, candidate
+output and untrusted context. These are judge inputs; they must never become
+translator-worker inputs. Model identity is absent from each blinded item.
+
+Judgment envelopes require schema version 1, the exact
+`control_artifact_sha256`, `rubric_sha256`, `judge_profile_sha256`, bounded
+`judge_family`, and exactly one record per control. Outcomes are `acceptable`,
+`abstained` with `reason`, or `critical` with `source_quote`, `reference_quote`,
+optional `output_quote`, and `reason`. Quotes have `start_utf8_byte`,
+`end_utf8_byte` and `text`; every supplied quote must match a nonempty literal
+UTF-8 byte range, including valid character boundaries. An omission may have
+no output quote. A literal quote check does not establish valid reasoning.
+
+Reports show exact confusion and abstention counts by language and category.
+Sensitivity includes critical abstentions in its denominator. False-positive
+rate uses all acceptable controls, and an independent abstention ceiling
+prevents passing through mass abstention. Every non-English screening language
+appears; absent languages fail coverage. Passing all declared control criteria
+is explicitly distinct from qualifying that language or judging real model
+outputs. The [bounded reference-assisted runner](../local-mt/judge-runner/README.md)
+uses these shared Rust validation contracts; its experiment evidence remains
+separate from product or language qualification.
+
+The input cap remains 2 MiB and controls are limited to 448 total. Reference
+hashes, text bounds, labels, identities, quoted ranges, reasons and fractions
+are checked before a report. Tests are synthetic boundary fixtures; they cover
+false positives, retained abstentions, missing languages/categories, blinded
+output, mutated lineage, calibration-only admission and fabricated UTF-8
+quotes. They establish no semantic sensitivity or false-positive claim.
+
+The [2026-09-30 reference-assisted capability screen](../local-mt/judge-capability-2026-09-30.md)
+ran and scored 126 frozen controls. Every language group failed its criteria;
+it did not qualify a semantic judge. All candidates were English with English
+references visible, so grouping by source language does not prove multilingual
+understanding.
+
+This isolated crate measured 2247/2384 owned lines, 94.25%, from instrumented
+tests and the real offline judgment-scoring CLI, with test source included and
+no exclusions. It is outside root workspace coverage collection. Preserve the
+complete LLVM JSON and validate it from the repository root:
+
+```text
+cargo run --locked -p sigy-xtask -- verify-coverage-report research/experiments/language-scorer/Cargo.toml .agents/language-scorer-coverage-final.json
+```
+
+The [experiment verification record](../local-mt/judge-capability-2026-09-30.md#verification-receipts)
+preserves the collection scope and report hash. A passing coverage gate proves
+execution coverage, not language quality or semantic correctness.

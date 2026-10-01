@@ -1,6 +1,6 @@
 # Terminal globe and day/night map
 
-Date: 2026-09-24. Status: implemented and tested on Windows x86_64. This renders roadmap operation 36 on the [globe geometry](0038-globe-geometry.md). Operation 36 stays open until map and list agreement on one filter, clustering and a terminal measurement with capture running are recorded.
+Date: 2026-09-24. Updated: 2026-09-30. Status: implemented and tested on Windows x86_64. This renders roadmap operation 36 on the [globe geometry](0038-globe-geometry.md). [Terminal station clusters](0060-terminal-station-clusters.md) add clustering and map/list agreement on one filtered page. Operation 36 stays open until a terminal measurement with capture running is recorded.
 
 ## Decision
 
@@ -21,4 +21,4 @@ Tests cover exact UTC labels including a leap day and a pre-1970 date, complete 
 
 ## Limitations
 
-Only the current page of stations is plotted; there is no clustering of stations that share a cell. Braille needs a font with those glyphs. The cell aspect is assumed, not measured per terminal. Night uses the geometric horizon without refraction. The rendering cost with capture running has not been measured.
+Only the current page of stations is plotted. The cluster extension counts shared terminal cells and preserves the selected marker. Braille needs a font with those glyphs. The cell aspect is assumed, not measured per terminal. Night uses the geometric horizon without refraction. Terminal latency with capture running has not been measured.

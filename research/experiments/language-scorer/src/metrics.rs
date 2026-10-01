@@ -17,6 +17,10 @@ pub struct Rule {
     pub wer_limitation: &'static str,
 }
 
+/// Validate or score bounded offline artifacts.
+///
+/// # Errors
+/// Rejects invalid identities, references, partitions, text bounds or evidence.
 pub fn rule(config: &str) -> Result<Rule, String> {
     let (primary, note, limitation) = match config {
         "ar_eg" => (
@@ -89,6 +93,10 @@ fn whitespace(character: char) -> bool {
     )
 }
 
+/// Validate or score bounded offline artifacts.
+///
+/// # Errors
+/// Rejects invalid identities, references, partitions, text bounds or evidence.
 pub fn normalize(text: &str) -> Result<String, String> {
     if text.len() > MAX_TEXT_BYTES || text.chars().count() > MAX_SCALARS {
         return Err("raw text exceeds scorer byte or scalar limit".into());
@@ -124,6 +132,7 @@ pub struct Edits {
 }
 
 impl Edits {
+    #[must_use]
     pub const fn errors(self) -> usize {
         self.substitutions + self.deletions + self.insertions
     }
@@ -219,6 +228,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
+    #[must_use]
     pub fn measured(reference: &str, candidate: &str) -> Self {
         Self {
             cer: Metric::measured(
@@ -235,6 +245,7 @@ impl Metrics {
     }
 }
 
+#[must_use]
 pub fn alignment_cells(reference: &str, candidate: &str) -> usize {
     reference.chars().count() * candidate.chars().count()
         + tokens(reference).len() * tokens(candidate).len()

@@ -1,5 +1,5 @@
 //! Native recognition through the real service, decoder and process containment,
-//! with a fault-injecting stand-in recognizer. No model or network is used.
+//! with a fault-injecting stand-in recognizer. No real model or external network is used.
 
 use super::{RunningChild, TestResult, invoke, success};
 use std::{
@@ -457,9 +457,235 @@ fn contained_recognition_publishes_bounded_text_and_fails_closed_on_faults() -> 
 
     speech_and_replay(directory.path())?;
     translation_phase(directory.path(), files.path())?;
+    monitor_owned_capture(directory.path())?;
     faults(directory.path(), &assets)?;
     queue_in_order(directory.path())?;
     cancel_and_kill(directory.path(), &mut service)
+}
+
+fn capture_monitor(directory: &Path, expected: Option<&str>, capture: bool) -> TestResult {
+    let mut args = vec![
+        "monitor",
+        if expected.is_some() {
+            "revise"
+        } else {
+            "create"
+        },
+        "capture-monitor",
+    ];
+    if let Some(version) = expected {
+        args.extend(["--expected-version", version]);
+    }
+    args.extend([
+        "--name",
+        "Fixture news",
+        "--goal",
+        "Follow French news",
+        "--term",
+        "fr:bonjour",
+        "--source",
+        "monitor-a:v1",
+        "--source",
+        "monitor-b:v1",
+        "--source",
+        "radio:v1",
+        "--daily-minutes",
+        "1",
+        "--total-hours",
+        "1",
+        "--recognition-profile",
+        "speech",
+        "--translation-profile",
+        "mt-echo",
+    ]);
+    if capture {
+        args.extend([
+            "--capture-daily-minutes",
+            "1",
+            "--capture-total-hours",
+            "1",
+            "--capture-total-mib",
+            "2",
+        ]);
+    }
+    success(directory, &args)?;
+    Ok(())
+}
+
+fn owned_schedule(
+    directory: &Path,
+    source: &str,
+    rule: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let civil: String = rusqlite::Connection::open_in_memory()?.query_row(
+        "SELECT strftime('%Y-%m-%dT%H:%M:%S', 'now', '-2 seconds')",
+        [],
+        |row| row.get(0),
+    )?;
+    let date = civil.get(..10).ok_or("civil date")?;
+    let args = [
+        "schedule",
+        "create",
+        rule,
+        "--source",
+        source,
+        "--zone",
+        "Etc/UTC",
+        "--once",
+        &civil,
+        "--seconds",
+        "15",
+        "--max-mib",
+        "1",
+        "--monitor",
+        "capture-monitor",
+        "--monitor-version",
+        "1",
+    ];
+    success(directory, &args)?;
+    success(directory, &args)?;
+    Ok(format!("{rule}:{date}"))
+}
+
+fn wait_owned_recording(directory: &Path, id: &str) -> TestResult {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let page = success(directory, &["record", "show", id])?;
+        let state = &page["recording_page"]["entries"][0]["state"];
+        if state == "completed" {
+            return Ok(());
+        }
+        assert_ne!(state, "failed", "{page}");
+        assert!(Instant::now() < deadline, "capture deadline: {page}");
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn wait_owned_translation(directory: &Path, recording: &str) -> TestResult {
+    let pin = sigy_service::monitor::pipeline::pin_id(recording);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let response = invoke(directory, &["analysis", "translation", &pin])?;
+        if response.status.success() {
+            let page: serde_json::Value = serde_json::from_slice(&response.stdout)?;
+            if page["recognition"]["kind"] == "translation" {
+                assert_eq!(page["recognition"]["page"]["amount_usd"], "0.000000");
+                assert_eq!(
+                    page["recognition"]["page"]["pairs"][0]["original"],
+                    "bonjour"
+                );
+                return Ok(());
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "translation deadline: {}",
+            String::from_utf8_lossy(&response.stdout)
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn monitor_owned_capture(directory: &Path) -> TestResult {
+    let (first_url, first_server) = serve_once(tone())?;
+    let (second_url, second_server) = serve_once(tone())?;
+    for (id, url) in [
+        ("monitor-a:v1", first_url.as_str()),
+        ("monitor-b:v1", second_url.as_str()),
+    ] {
+        success(
+            directory,
+            &[
+                "source",
+                "add",
+                id,
+                "--name",
+                "Monitor fixture",
+                "--url",
+                url,
+                "--pin-address",
+                "127.0.0.1",
+            ],
+        )?;
+    }
+    capture_monitor(directory, None, true)?;
+    let first = owned_schedule(directory, "monitor-a:v1", "owned-first")?;
+    wait_owned_recording(directory, &first)?;
+    first_server.join().map_err(|_| "server panicked")??;
+    wait_owned_translation(directory, &first)?;
+    let recorded = success(directory, &["record", "show", &first])?;
+    let gaps = &recorded["recording_page"]["entries"][0]["gaps"];
+    assert_eq!(gaps[0]["cause"], "late_start", "{recorded}");
+    assert_eq!(gaps[0]["start_us"], 0);
+    assert!(
+        gaps[0]["end_us"]
+            .as_u64()
+            .is_some_and(|end| end >= 2_000_000)
+    );
+    let policy = success(directory, &["monitor", "show", "capture-monitor"])?;
+    assert_eq!(
+        policy["monitor"]["monitor"]["processing"]["recognition_queued"],
+        1
+    );
+    assert_eq!(
+        policy["monitor"]["monitor"]["processing"]["translation_queued"],
+        1
+    );
+    let historical_pin = sigy_service::monitor::pipeline::pin_id("morning");
+    assert!(
+        !invoke(directory, &["analysis", "show", &historical_pin])?
+            .status
+            .success()
+    );
+    let shown = success(directory, &["schedule", "show", "owned-first"])?;
+    assert_eq!(
+        shown["schedule"]["rules"][0]["monitor_owner"]["monitor_id"],
+        "capture-monitor"
+    );
+    assert_eq!(
+        shown["schedule"]["occurrences"][0]["capture_admission"]["planned_seconds"],
+        15
+    );
+    assert_eq!(
+        shown["schedule"]["occurrences"][0]["capture_admission"]["maximum_bytes"],
+        1_048_576
+    );
+    success(
+        directory,
+        &[
+            "monitor",
+            "pause",
+            "capture-monitor",
+            "--action-id",
+            "processing-pause",
+        ],
+    )?;
+    let second = owned_schedule(directory, "monitor-b:v1", "owned-paused")?;
+    wait_owned_recording(directory, &second)?;
+    second_server.join().map_err(|_| "server panicked")??;
+    let monitor = success(directory, &["monitor", "show", "capture-monitor"])?;
+    let usage = &monitor["monitor"]["monitor"]["capture_usage"];
+    assert_eq!(usage["admissions"], 2);
+    assert_eq!(usage["used_total_seconds"], 30);
+    assert_eq!(usage["reserved_total_bytes"], 2_097_152);
+    let second_pin = sigy_service::monitor::pipeline::pin_id(&second);
+    assert!(
+        !invoke(directory, &["analysis", "show", &second_pin])?
+            .status
+            .success()
+    );
+    capture_monitor(directory, Some("1"), false)?;
+    let monitor = success(directory, &["monitor", "show", "capture-monitor"])?;
+    assert_eq!(
+        monitor["monitor"]["monitor"]["capture_usage"]["admissions"],
+        2
+    );
+    assert!(
+        monitor["monitor"]["monitor"]["version"]["spec"]
+            .get("capture")
+            .is_none()
+    );
+    Ok(())
 }
 
 fn speech_and_replay(directory: &Path) -> TestResult {

@@ -238,6 +238,8 @@ Citation validation checks that referenced segments and quoted ranges exist. Thi
 
 Generated instructions inside a transcript or station description remain source data. They cannot become service operations, new destinations, shell commands, or budget changes. The planner emits typed proposals; the policy executor enforces the user's boundaries independently of the model.
 
+The 2026-09-30 [task workflow contract](../design/task-workflows.md) extends this boundary to user-stated tasks, reusable skills, local or configured hosted planners and plugin/MCP/A2A adapters. The service persists accepted task scope, checkpoints, job/effect identities, concise decisions and checked outcomes using the existing scheduler and exact ledger. It does not rely on chat history or hidden reasoning for restart correctness. General task orchestration and A2A are proposed, not implemented by the current MCP surface.
+
 ### Coverage and trends
 
 Record attempted, captured, decoded, transcribed, and analyzed duration separately. Calculate coverage from measurable intervals, not source count alone. Preserve denominators by station, language, geography, and collection window.

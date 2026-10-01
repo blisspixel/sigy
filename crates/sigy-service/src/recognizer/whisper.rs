@@ -54,7 +54,11 @@ pub(crate) fn parse_whisper_json(
     if parsed.transcription.len() > MAX_ASR_CUES * 4 {
         return Err("too many segments");
     }
-    let decoded_end = start_us + sample_count * 1_000_000 / u64::from(SAMPLE_RATE);
+    let decoded_end = sample_count
+        .checked_mul(1_000_000)
+        .and_then(|scaled| scaled.checked_div(u64::from(SAMPLE_RATE)))
+        .and_then(|duration| start_us.checked_add(duration))
+        .ok_or("decoded audio range")?;
     let mut cues = Vec::new();
     let mut previous_end = start_us;
     let mut text_bytes = 0_usize;
@@ -102,9 +106,7 @@ pub(crate) fn parse_whisper_json(
     let language = parsed
         .result
         .and_then(|result| result.language)
-        .filter(|code| {
-            (2..=8).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_lowercase())
-        });
+        .filter(|code| crate::recognition::block_language_valid(code));
     Ok(WhisperOutput { cues, language })
 }
 

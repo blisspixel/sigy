@@ -1,6 +1,6 @@
 # Research index
 
-Research baseline: **September 20, 2026**. Latest topic update: **September 23, 2026**. Individual notes retain their review dates.
+Research baseline: **September 20, 2026**. Latest evidence update: **September 30, 2026**. Individual notes retain their review dates.
 
 This folder records primary-source findings, measured experiments, design implications, competing approaches, and unanswered questions. It supports the [intent](../INTENT.md) and [design documents](../docs/README.md). Each note distinguishes completed measurements from proposed work and technology selection.
 
@@ -37,8 +37,13 @@ This folder records primary-source findings, measured experiments, design implic
 | User-controlled proxies, DNS trust, external VPNs and route evidence | [29. Network routing](29-network-routing.md) |
 | Native ASR/translation candidates, iGPU comparison, automated quality evidence, and bounded remote validation | [30. Retained-recording language evaluation](30-language-pipeline-evaluation.md) |
 | Job queues, execution isolation, containers, clusters, serverless GPU and hosted providers for scaling | [31. Scaling and execution](31-scaling-and-execution.md) |
+| Private local diagnostics, effect reconciliation, SQLite durability, corruption and restore qualification | [32. Private diagnostics and durable recovery](32-private-diagnostics-and-recovery.md) |
 
 ## Evidence discipline
+
+The [v41 task validation](experiments/task-scope-2026-09-30.md) connects the agentic and privacy/recovery research to implemented scope storage, frozen observations, restart and backup/restore fixtures. It establishes no planner or model qualification.
+
+The [v42 execution validation](experiments/task-execution-2026-09-30.md) extends that evidence with explicit selected-checkpoint publication, exact briefing membership, atomic receipts, cancellation, revocation and retained finding history. It remains narrower than task-owned collection, general planning and professional recovery qualification.
 
 - Prefer official specifications, API documentation, and upstream project documentation.
 - Distinguish a documented capability from demonstrated Sigy compatibility.
@@ -58,6 +63,10 @@ Additional research reviewed current speech/decision model cards, aggregator and
 
 Repository-engineering research covers workspace boundaries, instruction discovery, dependency review, and OpenSSF Scorecard practices. Naming research records candidate collisions and search limitations. Neither research area establishes an assessed security score or a cleared product name; selected technology and its qualification limits live in [architecture decisions](../docs/decisions/0001-rust-foundation.md).
 
+The first 2026-09-30 [offline translation validation](experiments/local-mt/offline-validation-2026-09-30.md) replays real calibration outputs through the bounded Rust scorer, reports missing outcomes and reference diversity, and adds blinded judge-control evaluation without inference. The subsequent [frozen local judge screen](experiments/local-mt/judge-capability-2026-09-30.md) completes 126 bounded calls on retained assets and fails the declared criteria in all seven tested languages. Constructed controls and English-reference comparisons do not prove multilingual understanding. The [delegated-cgroup source audit](experiments/native-boundary/delegated-cgroups.md) identifies the required Linux topology and the difference between a process cap and the PID controller's task cap. A [same-host v39 restore](experiments/library-restore-v39.md) preserves the 15 pilot media objects through migration and another backup/restore. These are scoped evidence and do not qualify language quality, Linux native workers, or clean-host recovery.
+
 ## Near-future review cadence
+
+The [terminal buffer and capture check](experiments/terminal-render-2026-09-30.md) records inspected frames, bounded warm-render samples and exact publication during a finite loopback capture. The [derive dependency repair](experiments/yoke-derive-2026-09-30.md) records the primary-source review behind the minimal yanked-package lockfile update.
 
 Review fast-moving provider interfaces and model capabilities at each integration decision and before release. Review prices at runtime according to the cost policy. Revisit terminal, driver, and OS compatibility when supported versions change. Retest model upgrades on the same evaluation corpus before changing defaults.

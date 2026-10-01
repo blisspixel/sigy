@@ -10,6 +10,7 @@ pub const LLAMA_CPP_COMPLETION: &str = "llama-cpp-completion-v1";
 pub const HY_MT2_PLAIN: &str = "hy-mt2-plain-v1";
 pub const MAX_TRANSLATION_MODEL_BYTES: u64 = 16 * 1024 * 1024 * 1024;
 pub const TRANSLATION_PAGE_ITEMS: usize = 16;
+pub(crate) const MAX_CUE_DEADLINE_MS: u64 = 600_000;
 
 /// One immutable local translator configuration. Paths locate files; hashes identify them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,7 +97,8 @@ impl TranslationProfile {
             || !(1..=crate::recognition::MAX_WORKER_THREADS).contains(&self.threads)
             || !(crate::recognition::MIN_WORKER_MEMORY..=crate::recognition::MAX_WORKER_MEMORY)
                 .contains(&self.memory_bytes)
-            || !(1_000..=600_000).contains(&self.cue_deadline_ms)
+            || !(crate::recognition::MIN_WORKER_DEADLINE_MS..=MAX_CUE_DEADLINE_MS)
+                .contains(&self.cue_deadline_ms)
         {
             return Err(invalid);
         }

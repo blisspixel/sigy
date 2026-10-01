@@ -1,6 +1,6 @@
 # Assurance and validation
 
-Updated: 2026-09-22. Status: engineering acceptance targets. [Active work](../development/progress.md) records the bounded tests already performed; the complete matrix and language benchmarks remain open. The goal is exceptional product reliability and maintainability, established through measured evidence and explicit limits.
+Updated: 2026-09-30. Status: engineering acceptance targets. [Active work](../development/progress.md) records the bounded tests already performed; the complete matrix and language benchmarks remain open. The goal is exceptional product reliability and maintainability, established through measured evidence and explicit limits.
 
 ## 1. Definition of quality
 
@@ -74,6 +74,8 @@ All detailed requirements below are proposed refinements of confirmed product co
 | R-56 | C-06, C-39 | RF detections distinguish measured activity, candidate identities and decoded content within actual device capabilities | Device/region profile validation, scan gaps, ambiguous station matches, numeric units, disconnect and tuner-conflict tests |
 | R-57 | C-17, C-18, C-40 | Separate revisable timelines represent language shifts, candidate ads and song boundaries without forcing one label onto overlapping content | Code switching, unknown languages, false ads, jingles, crossfades, DJ speech, metadata drift, provisional boundary corrections, deduplicated plays and expired evidence |
 | R-58 | C-15, C-41 | Selected routes preserve source authority, explicit DNS trust, credentials and truthful peer evidence; a required proxy never falls back directly | Local proxy/DNS/TLS fixtures, independent endpoint/target checks, no bypass or unexpected DNS, redirect/nested-resource inheritance, auth redaction, bounded stalls/retries, revocation/restart and versioned provenance; [routing contract](../design/network-routing.md) |
+| R-59 | C-10, C-11, C-15, C-42 | Plain-language tasks execute through scoped service operations, persist progress and produce checked outcomes through local or explicitly authorized hosted models and interoperable agent adapters | End-to-end task fixtures, planner/model qualification, client exit and restart at every transition, exact replay, stale attempts, cancellation/revocation, unsupported outcomes, fixed resource/loop limits, ambiguous-charge recovery, and plugin/MCP/A2A compatibility; [task workflow contract](../design/task-workflows.md) |
+| R-60 | C-10, C-15, C-43 | Task state, evidence and diagnostics preserve privacy and recoverability without automatic telemetry or unbounded log growth | Canary-secret and payload-redaction fixtures, diagnostic limits under disk pressure, explicit inspectable exports, private file/transport checks, observed denied egress, corruption and interrupted migration, clean-host restore, versioned replay, prolonged operation and documented platform limitations |
 
 ## 3. Capacity profiles
 

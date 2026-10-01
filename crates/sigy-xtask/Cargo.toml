@@ -1,5 +1,6 @@
 [package]
 name = "sigy-xtask"
+default-run = "sigy-xtask"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +9,10 @@ authors.workspace = true
 repository.workspace = true
 publish = false
 description = "Local verification commands for the Sigy workspace"
+
+[[bin]]
+name = "sigy-test-cargo"
+path = "tests/support/cargo.rs"
 
 [dependencies]
 serde.workspace = true

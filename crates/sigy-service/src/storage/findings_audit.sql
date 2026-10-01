@@ -19,7 +19,8 @@ EXISTS (
           AND (
             (
                 f.original_state = 'retained'
-                AND r.storage_state = 'retained'
+                -- Retention changes availability, not the publication's immutable history.
+                AND r.storage_state IN ('retained', 'deleting', 'deleted')
                 AND r.sha256 = t.media_sha256
                 AND f.start_us = c.start_us
                 AND f.end_us = c.end_us
@@ -38,13 +39,22 @@ EXISTS (
             )
             OR (
                 f.original_state = 'expired'
-                AND r.storage_state IN ('deleting', 'deleted')
+                AND (
+                    r.storage_state IN ('deleting', 'deleted')
+                    OR EXISTS (
+                        SELECT 1 FROM recording_intervals AS i
+                        JOIN recording_releases AS x
+                          ON x.recording_id = i.recording_id AND x.segment_ordinal = i.ordinal
+                        WHERE i.recording_id = r.id
+                          AND i.decoded_start_us <= c.start_us
+                          AND i.decoded_end_us >= c.end_us
+                    )
+                )
                 AND f.start_us IS NULL
                 AND f.end_us IS NULL
             )
             OR (
                 f.original_state = 'missing'
-                AND r.storage_state NOT IN ('deleting', 'deleted')
                 AND f.start_us IS NULL
                 AND f.end_us IS NULL
                 AND (

@@ -1,11 +1,14 @@
 //! List explorer. The client uses the existing catalog owner and leaves on quit.
 
 mod client;
+mod finding;
 mod globe;
+mod monitor;
 mod screen;
 mod state;
 mod terminal;
 pub(crate) mod text;
+mod timeline;
 
 pub(crate) use globe::utc_label;
 

@@ -15,6 +15,7 @@ mod podcast;
 mod provider;
 mod schedule;
 mod server;
+mod task;
 
 use serde::{Deserialize, Serialize};
 
@@ -49,8 +50,9 @@ pub use provider::{
 };
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
+pub use task::{TaskOperation, TaskPage};
 
-pub const PROTOCOL_VERSION: u32 = 39;
+pub const PROTOCOL_VERSION: u32 = 42;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -136,6 +138,10 @@ pub enum Operation {
     Monitor {
         command: MonitorOperation,
     },
+    /// Store an inspected finite scope or service-observed progress. Grants no authority.
+    Task {
+        command: TaskOperation,
+    },
 }
 
 impl std::fmt::Debug for Operation {
@@ -159,6 +165,7 @@ impl std::fmt::Debug for Operation {
             Self::Doctor {} => "doctor",
             Self::Provider { .. } => "provider",
             Self::Monitor { .. } => "monitor",
+            Self::Task { .. } => "task",
         };
         f.debug_struct("Operation")
             .field("kind", &kind)
@@ -244,6 +251,8 @@ pub struct Snapshot {
     /// A redacted briefing snapshot. Present only for `monitor briefing export`.
     #[serde(default)]
     pub briefing_export: Option<Box<crate::monitor::BriefingExport>>,
+    #[serde(default)]
+    pub task: Option<Box<TaskPage>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,6 +319,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         Operation::Analysis { command } => return analysis::apply(store, command),
         Operation::Provider { command } => return provider::apply(store, command),
         Operation::Monitor { command } => return monitor::apply(store, command),
+        Operation::Task { command } => return task::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
                 recording_metadata = Some(crate::recordings::metadata::export(
@@ -438,6 +448,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         provider: None,
         monitor: None,
         briefing_export: None,
+        task: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,

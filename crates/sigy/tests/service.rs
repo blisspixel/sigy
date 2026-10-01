@@ -23,6 +23,10 @@ mod podcast_fixtures;
 mod recognition_fixtures;
 #[path = "support/recording_fixtures.rs"]
 mod recording_fixtures;
+#[path = "support/task_execution_fixtures.rs"]
+mod task_execution_fixtures;
+#[path = "support/task_fixtures.rs"]
+mod task_fixtures;
 
 fn invoke(directory: &Path, arguments: &[&str]) -> std::io::Result<Output> {
     common::output(
@@ -41,7 +45,9 @@ fn success(
     let output = invoke(directory, arguments)?;
     assert!(
         output.status.success(),
-        "{}",
+        "{arguments:?}: {}; stdout: {}; stderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     Ok(serde_json::from_slice(&output.stdout)?)

@@ -10,8 +10,8 @@ use sigy_service::{
     control::{MonitorOperation, MonitorPage, Operation},
     monitor::{
         ActionOrigin, BriefingExport, BriefingMember, BriefingPage, FindingCite, FindingOriginal,
-        FindingPage, MonitorAction, MonitorCoverage, MonitorMatches, MonitorSpec, MonitorTerm,
-        MonitorVersion, MonitorView, PassageMatch, Proposal,
+        FindingPage, MonitorAction, MonitorCaptureBounds, MonitorCoverage, MonitorMatches,
+        MonitorSpec, MonitorTerm, MonitorVersion, MonitorView, PassageMatch, Proposal,
     },
 };
 
@@ -71,6 +71,15 @@ pub struct SpecArgs {
     recognition_profile: Option<String>,
     #[arg(long)]
     translation_profile: Option<String>,
+    /// Daily planned capture minutes for new monitor-owned schedules. Requires both lifetime caps.
+    #[arg(long, requires_all = ["capture_total_hours", "capture_total_mib"])]
+    capture_daily_minutes: Option<u32>,
+    /// Lifetime planned capture hours. This allowance never refills.
+    #[arg(long, requires_all = ["capture_daily_minutes", "capture_total_mib"])]
+    capture_total_hours: Option<u64>,
+    /// Lifetime sum of worst-case capture ceilings, in MiB. Failures do not refund it.
+    #[arg(long, requires_all = ["capture_daily_minutes", "capture_total_hours"])]
+    capture_total_mib: Option<u64>,
 }
 
 impl SpecArgs {
@@ -105,6 +114,25 @@ impl SpecArgs {
                 .ok_or("total hours are too large")?,
             recognition_profile: self.recognition_profile.clone(),
             translation_profile: self.translation_profile.clone(),
+            capture: match (
+                self.capture_daily_minutes,
+                self.capture_total_hours,
+                self.capture_total_mib,
+            ) {
+                (Some(daily), Some(total), Some(bytes)) => Some(MonitorCaptureBounds {
+                    daily_seconds: daily
+                        .checked_mul(60)
+                        .ok_or("daily capture minutes are too large")?,
+                    total_seconds: total
+                        .checked_mul(3600)
+                        .ok_or("total capture hours are too large")?,
+                    total_bytes: bytes
+                        .checked_mul(1024 * 1024)
+                        .ok_or("total capture bytes are too large")?,
+                }),
+                (None, None, None) => None,
+                _ => return Err("capture requires daily minutes, total hours and total MiB".into()),
+            },
         })
     }
 }
@@ -429,7 +457,7 @@ fn render_coverage(writer: &mut impl Write, coverage: &MonitorCoverage) -> io::R
     )?;
     writeln!(
         writer,
-        "Daily audio cap {} for automatic processing (UTC days). Monitors do not schedule captures yet. Each stage is counted on its own.",
+        "Daily audio cap {} for automatic processing (UTC days). Owned capture has separate explicit caps. Each stage is counted on its own.",
         duration(u64::from(coverage.daily_audio_seconds))
     )?;
     for source in &coverage.sources {
@@ -585,7 +613,8 @@ fn render_version(writer: &mut impl Write, version: &MonitorVersion) -> io::Resu
         duration(spec.total_audio_seconds),
         spec.recognition_profile.as_deref().unwrap_or("not set"),
         spec.translation_profile.as_deref().unwrap_or("not set")
-    )
+    )?;
+    render_capture_bounds(writer, spec.capture.as_ref())
 }
 
 fn render_monitor(
@@ -607,7 +636,47 @@ fn render_monitor(
     )?;
     render_version(writer, &view.version)?;
     writeln!(writer, "Following now: {}", view.active_sources.join(", "))?;
+    render_capture(writer, view)?;
     render_processing(writer, view)
+}
+
+fn render_capture(writer: &mut impl Write, view: &MonitorView) -> io::Result<()> {
+    let usage = &view.capture_usage;
+    writeln!(
+        writer,
+        "Capture reservations: {} seconds today, {} lifetime seconds, {} lifetime worst-case bytes; {} admissions. Failed captures retain their full planned reservations.",
+        usage.used_today_seconds,
+        usage.used_total_seconds,
+        usage.reserved_total_bytes,
+        usage.admissions
+    )?;
+    for (reason, count) in &usage.refusals {
+        writeln!(
+            writer,
+            "Capture refused: {} ({count} policy/occurrence records).",
+            sanitize(reason, 64)
+        )?;
+    }
+    Ok(())
+}
+
+fn render_capture_bounds(
+    writer: &mut impl Write,
+    bounds: Option<&MonitorCaptureBounds>,
+) -> io::Result<()> {
+    if let Some(bounds) = bounds {
+        writeln!(
+            writer,
+            "Owned capture caps: {} seconds per UTC day, {} lifetime seconds, {} lifetime bytes. Processing pause does not pause capture.",
+            bounds.daily_seconds, bounds.total_seconds, bounds.total_bytes
+        )?;
+    } else {
+        writeln!(
+            writer,
+            "Owned capture is disabled. Standalone schedules remain independent."
+        )?;
+    }
+    Ok(())
 }
 
 fn render_processing(writer: &mut impl Write, view: &MonitorView) -> io::Result<()> {
@@ -880,6 +949,60 @@ mod tests {
         let mut buffer = Vec::new();
         render_finding(&mut buffer, finding)?;
         Ok(String::from_utf8(buffer)?)
+    }
+
+    #[test]
+    fn capture_limits_are_explicit_checked_and_separate_from_processing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let base = [
+            "sigy",
+            "create",
+            "news",
+            "--name",
+            "News",
+            "--goal",
+            "Follow news",
+            "--term",
+            "ar:سد",
+            "--source",
+            "a:v1",
+            "--daily-minutes",
+            "1",
+            "--total-hours",
+            "1",
+        ];
+        let independent = Only::try_parse_from(base)?;
+        let value = serde_json::to_value(independent.command.operation()?)?;
+        assert!(value["command"]["spec"].get("capture").is_none());
+        let mut words = base.to_vec();
+        words.extend(["--capture-daily-minutes", "2"]);
+        assert!(Only::try_parse_from(&words).is_err());
+        words.extend(["--capture-total-hours", "3", "--capture-total-mib", "4"]);
+        let bounded = Only::try_parse_from(&words)?;
+        let value = serde_json::to_value(bounded.command.operation()?)?;
+        assert_eq!(value["command"]["spec"]["daily_audio_seconds"], 60);
+        assert_eq!(value["command"]["spec"]["capture"]["daily_seconds"], 120);
+        assert_eq!(value["command"]["spec"]["capture"]["total_seconds"], 10800);
+        assert_eq!(
+            value["command"]["spec"]["capture"]["total_bytes"],
+            4_194_304
+        );
+        let mut overflow = base.to_vec();
+        overflow.extend([
+            "--capture-daily-minutes",
+            "1",
+            "--capture-total-hours",
+            "1",
+            "--capture-total-mib",
+            "18446744073709551615",
+        ]);
+        assert!(
+            Only::try_parse_from(&overflow)?
+                .command
+                .operation()
+                .is_err()
+        );
+        Ok(())
     }
 
     #[test]

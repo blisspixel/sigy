@@ -34,8 +34,10 @@ mod tests;
 pub(crate) use files::{hash_file, runtime_manifest};
 pub(crate) use local::{GroupAccount, GroupSnapshot, LocalProcessExecutor, clear_scratch};
 pub(crate) use spec::{
-    AssetRef, AssetRole, BlobRef, DECODER_TEMPLATE, DecoderLimits, InlineText, RecognitionParams,
-    SPEC_VERSION, TaskInput, TaskKind, TaskLimits, TaskParams, TaskSpec, TranslationParams,
+    AssetRef, AssetRole, BlobRef, DECODER_DEADLINE_MS, DECODER_MEMORY, DECODER_TEMPLATE,
+    DecoderLimits, InlineText, RECOGNITION_OUTPUT_BYTES, RecognitionParams, SPEC_VERSION,
+    TRANSLATION_OUTPUT_BYTES, TaskInput, TaskKind, TaskLimits, TaskParams, TaskSpec,
+    TranslationParams,
 };
 pub(crate) use stage::LocalStage;
 

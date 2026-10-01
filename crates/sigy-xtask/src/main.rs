@@ -1,6 +1,7 @@
 //! Workspace verification. This is a development tool, not the Sigy application.
 
 mod coastline;
+mod coverage;
 mod vendor;
 
 use std::{
@@ -33,13 +34,23 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Error> {
     let mut args = env::args().skip(1).filter(|arg| arg != "--");
-    let command = args
-        .next()
-        .ok_or_else(|| Error::Check("use verify or verify-media".into()))?;
+    let command = args.next().ok_or_else(|| {
+        Error::Check("use verify, verify-media, verify-coverage or verify-coverage-report".into())
+    })?;
     let root = workspace_root()?;
     match command.as_str() {
         "verify" => verify(&root),
         "verify-media" => verify_media(&root, args.next()),
+        "verify-coverage" => coverage::verify(&root, &decoder_path(args.next())?),
+        "verify-coverage-report" => {
+            let usage = "usage: verify-coverage-report MANIFEST_PATH LLVM_JSON_REPORT";
+            let manifest = args.next().ok_or_else(|| Error::Check(usage.into()))?;
+            let report = args.next().ok_or_else(|| Error::Check(usage.into()))?;
+            if args.next().is_some() {
+                return Err(Error::Check(usage.into()));
+            }
+            coverage::verify_report(Path::new(&manifest), Path::new(&report))
+        }
         "coastline" => {
             let source = args
                 .next()
@@ -51,7 +62,7 @@ fn run() -> Result<(), Error> {
             .map_err(Error::Check)
         }
         other => Err(Error::Check(format!(
-            "unknown command {other}; use verify or verify-media"
+            "unknown command {other}; use verify, verify-media, verify-coverage or verify-coverage-report"
         ))),
     }
 }
@@ -233,4 +244,35 @@ fn find_on_path(name: &str) -> Result<String, Error> {
     Err(Error::Check(
         "FFmpeg was not found on PATH; set SIGY_TEST_FFMPEG".into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_and_explicit_decoder_paths_are_checked() -> Result<(), Error> {
+        let root = workspace_root()?;
+        assert!(root.join("Cargo.toml").is_file());
+        let temporary = tempfile::tempdir()?;
+        let file = temporary.path().join("decoder.exe");
+        fs::write(&file, b"fixture")?;
+        assert_eq!(
+            decoder_path(Some(file.to_string_lossy().into_owned()))?,
+            fs::canonicalize(&file)?
+        );
+        assert!(
+            decoder_path(Some(
+                temporary
+                    .path()
+                    .join("missing")
+                    .to_string_lossy()
+                    .into_owned()
+            ))
+            .is_err()
+        );
+        assert!(find_on_path("sigy-deliberately-missing-test-executable-18413").is_err());
+        assert!(verify(temporary.path()).is_err());
+        Ok(())
+    }
 }

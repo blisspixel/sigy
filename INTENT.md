@@ -1,12 +1,16 @@
 # Intent
 
-Last updated: 2026-09-21
+Last updated: 2026-09-30
 
 Sigy's purpose is practical signals intelligence for everyday people: a broad, approachable, enjoyable toolkit for discovering signals and turning observations into understanding.
 
 The central journey is to explore the world's signals and discover what they mean. Understanding includes the original observation, its context, the steps used to interpret it, and what remains unresolved. This applies across languages and representations, including mathematical and symbolic material, through the shared [interpretation contract](docs/design/signal-interpretation.md).
 
 It should be an exceptionally well-engineered application that feels natural in a terminal and remains dependable during long unattended runs. A newcomer should be able to achieve useful results while learning; experienced users should be able to inspect and control the details.
+
+The intended character is a professional signals instrument accessible to everyday people. Its usefulness comes from actual collection, measured observations, reproducible processing, inspectable evidence and dependable operation. Professional quality is an engineering and workflow goal to demonstrate through evidence. Present the product as a listening, analysis and operations desk; personal journal framing is not desired. Learning and enjoyment come from discovering real material, understanding mechanisms and accomplishing useful tasks.
+
+A user should be able to state a task and have a bounded agent workflow use the toolkit to complete it well. Reusable skills, the existing plugin and MCP surface, and agent-to-agent interoperability through A2A belong to this direction. A qualified local-model path with zero metered inference fees is required; OpenRouter and other explicitly configured providers are optional. The service owns durable progress, policy and effects across client exit and restart. [Durable task workflows](docs/design/task-workflows.md) records the current gap and proposed contract.
 
 Support a free and open internet through user choice: open discovery, portable data and optional user-controlled network routes. The same service should run on a personal machine or a server. Proxy configuration and compatibility with externally managed VPNs should remain small, optional capabilities; remote service access is a separate security boundary.
 
@@ -25,6 +29,8 @@ The ambition is to cover most everyday signal workflows in one coherent applicat
 Everyday tasks should begin with a clear action or question, such as "understand this station," "follow this topic," or "show me how this code works." Useful presets, plain-language status, contextual explanations, and reversible exploration help users progress. Detailed signal controls and reproducible automation remain available as users need them.
 
 Ease of use is part of engineering quality. Complexity belongs in well-designed internals and optional detail views; users should not need to assemble a decoder pipeline or understand model infrastructure to complete a supported common task.
+
+Status reports and optional exploration achievements are possibilities raised on 2026-09-30, not selected features. Reports could summarize actual source activity, collection and processing coverage, findings, gaps, failures and resource use. Achievements could encourage completing useful tasks across supported capabilities, with an inspectable basis. Their design must preserve the distinction between completing a task, learning a mechanism and qualifying an analysis result. Detailed proposals belong in [Product and experience](docs/planning/01-product-and-experience.md#professional-utility-and-exploration).
 
 The TUI must be visually polished, modern and enjoyable from its first usable increment. Expressive receiver views, purposeful motion and satisfying exploration belong alongside reliability and clear information. The [terminal experience contract](docs/design/terminal-experience.md) defines the visual direction, interaction standards and rendered-review requirements.
 
@@ -64,6 +70,10 @@ Optimize for long-term correctness, performance, maintainability, portability, a
 Keep dependencies minimal and intentional across the complete distribution, including native engines and model assets. Prefer maintained implementations for security-sensitive and specialized functionality. Periodic OpenSSF Scorecard reviews should strengthen applicable supply-chain practices as the project matures; a score does not establish product correctness.
 
 Reliability means preserving captured data, reporting gaps, recovering predictably, keeping resource use bounded, and letting a user understand what the system did. Analysis quality means separating original observations from interpretations and making findings checkable.
+
+Privacy and local security are product requirements. Product diagnostics stay private, local, minimal and bounded; there is no automatic analytics, crash upload or diagnostic phone-home. Explicit source acquisition and configured provider processing retain their separate destination and spending policies. Necessary task and evidence state is protected application data, not duplicated into ordinary logs. Secrets and unnecessary payloads are excluded from diagnostics, and any support export is inspectable before explicit sharing.
+
+Aim for software that remains understandable, recoverable and useful over a long service life: defensive contracts, resumable tasks, corruption detection, verified restores, controlled migrations, portable artifacts, intentional dependencies and maintained recovery instructions. Demonstrate these properties through fault injection, replay, long-running and real-platform evidence. Institutional labels, a passing test suite or an imagined service-life number cannot establish that reliability.
 
 Language choice contributes to this standard but cannot establish it alone. Rust is selected for the foundation after initial Rust/Go evaluation; Python is excluded. SQLite is the initial catalog. Model, media, and terminal choices retain their own evidence gates. See the [foundation decision](docs/decisions/0001-rust-foundation.md).
 

@@ -5,3 +5,4 @@ jobs = 2
 [alias]
 verify = "run --locked --package sigy-xtask -- verify"
 verify-media = "run --locked --package sigy-xtask -- verify-media"
+verify-coverage = "run --locked --package sigy-xtask -- verify-coverage"

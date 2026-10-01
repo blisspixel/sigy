@@ -145,4 +145,6 @@ Specify and later execute comparison workloads for multilingual detection/ASR, l
 
 Required failure cases include detector mistakes, unsupported language, translation distortion, rare-topic filtering, stale revisions, taxonomy changes, duplicate evidence, hidden provider retries, exhausted budgets, growing backlog, retention conflicts, and restart during a topic update. Acceptance evidence must demonstrate useful analysis as well as bounded resources and recoverable state.
 
-No pipeline described here has been implemented or benchmarked. These contracts inform the technology trade study; they do not pick its winner.
+These sections describe the broader planned pipeline. Implemented local recognition, translation, literal matches and immutable finding/briefing slices are recorded in [active work](../development/progress.md); their existence does not qualify the broader analysis or report-quality contract.
+
+The 2026-09-30 [durable task workflow](../design/task-workflows.md) is the next orchestration contract: a user-stated goal advances through existing service operations and produces a checked result, with private local diagnostics and resumable progress. Skills, plugin/MCP access and A2A connect to that contract. A configured model route or successful tool call is not proof that a task was completed competently.

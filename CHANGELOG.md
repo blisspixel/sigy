@@ -4,6 +4,19 @@
 
 Nothing yet.
 
+## 0.1.0-dev.20260930.1 (development prerelease, source only)
+
+Catalog schema and local IPC are v42. This checkpoint has no supported release profile or roadmap stage exit. No prebuilt application binary or model is distributed. Verification evidence and remaining platform, language, capacity and containment gates are recorded in [active work](docs/development/progress.md).
+
+- Added immutable finite task scope, frozen coverage and exact citation checkpoints, with original-script goals, policy drift detection, exact replay, bounded listing, restart and verified backup/restore fixtures.
+- Added explicit finite execution delegation from one selected checkpoint. The existing service tick publishes bounded task-owned literal findings and an exact-membership briefing, with atomic effect receipts, generation-fenced cancellation, policy revocation and truthful partial outcomes. This is a fixed evidence workflow; general planning, task-owned collection and model transports remain unimplemented.
+- Preserved historical findings after whole-recording deletion and segment release. New citations use current media availability; old citations remain immutable. Task briefings exclude unrelated monitor findings and retain the selected checkpoint's frozen coverage.
+- Added opt-in monitor-owned capture schedules through the existing civil scheduler, with separate full-window UTC-day and lifetime reservations that never refill. Processing pause leaves independent capture authority intact.
+- Added terminal station clusters, monitor inspection, recording metadata timelines and named finding navigation. Hostile terminal text is sanitized while original stored evidence remains unchanged.
+- Strengthened native task preflight before staging, including resource and parameter bounds; recognition decoding requests an operating-system CPU cap. Native network isolation, Linux delegated containment and the Windows suspended-spawn assignment window remain open.
+- Added per-crate exact-integer 80% coverage enforcement without source exclusions. Offline language scoring reproduces frozen calibration references; a 126-control local judge screen failed all seven tested language groups and establishes no language qualification.
+- Updated the roadmap, privacy and recovery requirements, interoperability research and qualification matrix. Paid processing remains unavailable, and cumulative external spend remains USD 0 of the authorized USD 20.
+
 ## 0.1.0-dev.20260930 (development prerelease, source only)
 
 Not a supported release and no roadmap stage exit. Catalog schema and local IPC are v39. Windows x86_64 has the test evidence; Linux passes the suite in a container but cannot yet run local models; macOS is untested.

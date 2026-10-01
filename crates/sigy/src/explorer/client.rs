@@ -5,7 +5,8 @@ use std::path::Path;
 use sigy_service::{
     Error,
     control::{
-        self, DirectoryOperation, DvrOperation, ListenView, Operation, RecordingOperation, Snapshot,
+        self, DirectoryOperation, DvrOperation, ListenView, MonitorOperation, MonitorPage,
+        Operation, RecordingOperation, Snapshot,
     },
     discovery::StationFilter,
     library::Library,
@@ -52,6 +53,59 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
     match effect {
         Effect::None | Effect::Detach => Ok(()),
         Effect::Reload => reload(directory, model).await,
+        Effect::MonitorList => {
+            apply_fetched(
+                directory,
+                model,
+                monitor_operation(MonitorOperation::List {}),
+                |model, snapshot| {
+                    if let Some(MonitorPage::List { ids }) = snapshot.monitor.as_deref() {
+                        model.monitors.load_ids(ids.clone());
+                    }
+                },
+            )
+            .await
+        }
+        Effect::MonitorDetail { id } => read_monitor(directory, model, id).await,
+        Effect::Finding { monitor, finding } => {
+            apply_fetched(
+                directory,
+                model,
+                finding_operation(monitor, finding),
+                |model, snapshot| {
+                    if let Some(MonitorPage::Finding { finding: page }) =
+                        snapshot.monitor.as_deref()
+                        && model.findings.load(monitor, finding, page)
+                    {
+                        model.note_message(
+                        "Stored citation read. Arrows scroll; o reads original recording metadata.",
+                    );
+                    } else {
+                        model.note_message("Unexpected finding page; previous citation kept.");
+                    }
+                },
+            )
+            .await
+        }
+        Effect::FindingOriginal { recording } => {
+            apply_fetched(
+                directory,
+                model,
+                original_operation(recording),
+                |model, snapshot| {
+                    if let Some(page) = &snapshot.recording_page
+                        && page.entries.len() == 1
+                        && page.entries[0].id == *recording
+                        && model.findings.load_original(&page.entries[0])
+                    {
+                        model.open_finding_recording(recording_from(&page.entries[0]));
+                    } else {
+                        model.note_message("Unexpected recording page; previous citation kept.");
+                    }
+                },
+            )
+            .await
+        }
         Effect::Search(query) => {
             let operation = search_operation(query);
             let generation = query.generation;
@@ -93,6 +147,10 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
         Effect::None | Effect::Detach => Vec::new(),
         Effect::Search(query) => vec![search_operation(query)],
         Effect::SetFavorite { id, favorite, .. } => vec![favorite_operation(id, *favorite)],
+        Effect::MonitorList => vec![monitor_operation(MonitorOperation::List {})],
+        Effect::MonitorDetail { id } => monitor_reads(id, model.now_ms()),
+        Effect::Finding { monitor, finding } => vec![finding_operation(monitor, finding)],
+        Effect::FindingOriginal { recording } => vec![original_operation(recording)],
         Effect::Reload => vec![
             Operation::Status {},
             radio_status(),
@@ -106,6 +164,89 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
             recording_operation(),
         ],
     }
+}
+
+fn monitor_operation(command: MonitorOperation) -> Operation {
+    Operation::Monitor { command }
+}
+
+fn finding_operation(monitor: &str, finding: &str) -> Operation {
+    monitor_operation(MonitorOperation::ShowFinding {
+        monitor: monitor.into(),
+        finding: finding.into(),
+    })
+}
+
+fn original_operation(recording: &str) -> Operation {
+    Operation::Record {
+        command: RecordingOperation::Show {
+            id: recording.into(),
+        },
+    }
+}
+
+fn monitor_reads(id: &str, now: i64) -> Vec<Operation> {
+    let to_ms = now.max(1);
+    let from_ms = to_ms.saturating_sub(86_400_000).max(0);
+    vec![
+        monitor_operation(MonitorOperation::Show {
+            id: id.to_owned(),
+            version: None,
+        }),
+        monitor_operation(MonitorOperation::Coverage {
+            id: id.to_owned(),
+            from_ms,
+            to_ms,
+        }),
+        monitor_operation(MonitorOperation::Matches {
+            id: id.to_owned(),
+            from_ms,
+            to_ms,
+        }),
+    ]
+}
+
+async fn read_monitor(directory: &Path, model: &mut Explorer, id: &str) -> Result<(), Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| Error::InvalidInput("system clock"))?;
+    let now = i64::try_from(now.as_millis()).map_err(|_| Error::InvalidInput("system clock"))?;
+    let mut monitor = None;
+    let mut coverage = None;
+    let mut matches = None;
+    for operation in monitor_reads(id, now) {
+        let (via_service, snapshot) = match fetch(directory, operation).await {
+            Ok(result) => result,
+            Err(error) => {
+                report(model, &error);
+                return Ok(());
+            }
+        };
+        model.note_link(link_from(via_service, &snapshot));
+        match snapshot.monitor.map(|page| *page) {
+            Some(MonitorPage::Monitor { monitor: page, .. }) => monitor = Some(page),
+            Some(MonitorPage::Coverage { coverage: page }) => coverage = Some(page),
+            Some(MonitorPage::Matches { matches: page }) => matches = Some(page),
+            _ => {
+                model.note_message(
+                    "monitor read returned an unexpected page; previous snapshot kept",
+                );
+                return Ok(());
+            }
+        }
+    }
+    if let (Some(monitor), Some(coverage), Some(matches)) = (monitor, coverage, matches) {
+        if model.monitors.load_detail(&monitor, &coverage, &matches) {
+            model.note_message(
+                "Monitor snapshot loaded. Arrows scroll; Esc returns. No work was admitted.",
+            );
+        } else {
+            model.note_message(
+                "monitor version changed during read; previous snapshot kept, Enter retries",
+            );
+        }
+    }
+    Ok(())
 }
 
 async fn reload(directory: &Path, model: &mut Explorer) -> Result<(), Error> {
@@ -325,10 +466,11 @@ fn quota_from(status: &DvrStatus) -> QuotaView {
 
 fn recording_from(record: &sigy_service::storage::dvr::Recording) -> RecordingLine {
     RecordingLine {
-        id: sanitize(&record.id, 64),
+        id: record.id.clone(),
         state: sanitize(&record.state, 32),
         storage_state: sanitize(&record.storage_state, 32),
         format: record.format.as_deref().map(|format| sanitize(format, 16)),
+        timeline: super::timeline::Timeline::from_recording(record),
     }
 }
 
@@ -396,7 +538,9 @@ fn recording_operation() -> Operation {
 mod tests {
     use super::{favorite_operation, operations_for, search_operation};
     use crate::explorer::state::{Effect, Explorer, Modes, SearchQuery};
-    use sigy_service::control::{DirectoryOperation, Operation, RecordingOperation};
+    use sigy_service::control::{
+        DirectoryOperation, DvrOperation, MonitorOperation, Operation, RecordingOperation,
+    };
 
     fn model() -> Explorer {
         Explorer::new(
@@ -418,25 +562,32 @@ mod tests {
             | Operation::Schedule { .. }
             | Operation::Analysis { .. }
             | Operation::Provider { .. }
-            | Operation::Monitor { .. } => true,
+            | Operation::SetBudget { .. }
+            | Operation::RegisterSource { .. }
+            | Operation::Playlist { .. }
+            | Operation::Task { .. } => true,
+            Operation::Monitor { command } => !matches!(
+                command,
+                MonitorOperation::List {}
+                    | MonitorOperation::Show { .. }
+                    | MonitorOperation::Coverage { .. }
+                    | MonitorOperation::Matches { .. }
+                    | MonitorOperation::ShowFinding { .. }
+            ),
             Operation::Record { command } => !matches!(
                 command,
                 RecordingOperation::List { .. } | RecordingOperation::Show { .. }
             ),
-            Operation::Radio { command } => matches!(
+            Operation::Radio { command } => !matches!(
                 command,
-                DirectoryOperation::Refresh { .. }
-                    | DirectoryOperation::Click { .. }
-                    | DirectoryOperation::SetPolicy { .. }
-                    | DirectoryOperation::ClearPolicy { .. }
+                DirectoryOperation::Status {}
+                    | DirectoryOperation::Search { .. }
+                    | DirectoryOperation::SetFavorite { .. }
             ),
+            Operation::Dvr { command } => !matches!(command, DvrOperation::Status {}),
             Operation::Status {}
-            | Operation::SetBudget { .. }
-            | Operation::RegisterSource { .. }
             | Operation::ListSources { .. }
             | Operation::ShowSource { .. }
-            | Operation::Playlist { .. }
-            | Operation::Dvr { .. }
             | Operation::Doctor {} => false,
         }
     }
@@ -461,6 +612,15 @@ mod tests {
             search,
             favorite,
             Effect::Reload,
+            Effect::MonitorList,
+            Effect::MonitorDetail { id: "news".into() },
+            Effect::Finding {
+                monitor: "news".into(),
+                finding: "one".into(),
+            },
+            Effect::FindingOriginal {
+                recording: "rec".into(),
+            },
         ] {
             for operation in operations_for(&effect, &explorer) {
                 assert!(!forbidden(&operation), "{operation:?}");
@@ -486,5 +646,48 @@ mod tests {
                 }
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn failed_finding_reads_preserve_citation_and_admit_nothing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        drop(sigy_service::library::Library::open(
+            directory.path(),
+            true,
+        )?);
+        let mut explorer = model();
+        let finding = crate::explorer::finding::fixture();
+        assert!(explorer.findings.load("world-news", "one", &finding));
+        for effect in [
+            Effect::Finding {
+                monitor: "missing".into(),
+                finding: "missing".into(),
+            },
+            Effect::FindingOriginal {
+                recording: "recording-one".into(),
+            },
+        ] {
+            super::perform(directory.path(), &mut explorer, &effect).await?;
+            assert!(
+                explorer
+                    .findings
+                    .lines(20, 132, 0)
+                    .join("\n")
+                    .contains("world-news / one")
+            );
+        }
+        let (_, status) = super::fetch(directory.path(), Operation::Status {}).await?;
+        assert_eq!(status.captures.active, 0);
+        assert_eq!(status.captures.scheduled, 0);
+        assert!(explorer.playback().is_none());
+        assert!(
+            explorer
+                .findings
+                .lines(20, 132, 0)
+                .join("\n")
+                .contains("Current media unread")
+        );
+        Ok(())
     }
 }

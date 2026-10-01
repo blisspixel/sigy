@@ -59,6 +59,7 @@ pub enum Language {
 }
 
 impl Outcome {
+    #[must_use]
     pub fn text(&self) -> Option<&str> {
         match self {
             Self::Recognized { text, .. } => Some(text),
@@ -116,6 +117,10 @@ pub struct Validated {
     pub profile_sha256: String,
 }
 
+/// Validate or score bounded offline artifacts.
+///
+/// # Errors
+/// Rejects invalid identities, references, partitions, text bounds or evidence.
 pub fn validate(
     selection: &Selection,
     partition: Partition,

@@ -8,6 +8,9 @@ use crate::{
     sources::{HttpSource, NetworkScope},
 };
 
+#[path = "task_execution.rs"]
+mod task_execution;
+
 fn term(language: &str, text: &str) -> MonitorTerm {
     MonitorTerm {
         language: language.into(),
@@ -32,6 +35,7 @@ fn spec() -> MonitorSpec {
         total_audio_seconds: 7200,
         recognition_profile: None,
         translation_profile: None,
+        capture: None,
     }
 }
 
@@ -290,6 +294,79 @@ fn reading_coverage_and_matches_writes_nothing() -> TestResult {
     store.monitor_coverage("fair", from, to)?;
     store.monitor_matches("fair", from, to)?;
     assert_eq!(count(&store)?, before);
+    Ok(())
+}
+
+#[test]
+fn task_checkpoints_preserve_cited_revisions_after_translation_correction_and_retention()
+-> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    let mut store = transcribed(&path)?;
+    let mut policy = spec();
+    policy.candidate_sources.clear();
+    policy.schedules.clear();
+    store.create_monitor("fair", &policy, 25)?;
+    let from: i64 = store.connection.query_row(
+        "SELECT starts_ms FROM capture_jobs WHERE id = 'one'",
+        [],
+        |row| row.get(0),
+    )?;
+    let to = from.checked_add(1).ok_or("capture clock")?;
+    drop(store);
+    let mut store = Store::open(&path)?;
+    let now = to.checked_add(100).ok_or("clock")?;
+    let scope = crate::task::TaskSpec {
+        goal: "Follow the world fair with original-script evidence.".into(),
+        monitor_id: "fair".into(),
+        monitor_version: 1,
+        monitor_actions: 0,
+        from_ms: from,
+        to_ms: to,
+    };
+    store.create_task("fair-task", &scope, now)?;
+    translate(&mut store, "mt-1", skipped(), 30)?;
+    let first = store
+        .checkpoint_task("fair-task", "first", 0, now + 1)
+        .map_err(|error| format!("first task observation: {error}"))?;
+    assert_eq!(
+        first.citations.len(),
+        1,
+        "repeated term hits cite one revision once"
+    );
+    assert_eq!(first.citations[0].translation_revision, Some(1));
+    assert_eq!(first.coverage.sources[0].untranslated_cues, 1);
+    assert!(first.coverage.schedules.is_empty());
+    translate(&mut store, "mt-2", translated(0, "A world fair"), 40)?;
+    let second = store
+        .checkpoint_task("fair-task", "second", 1, now + 2)
+        .map_err(|error| format!("second task observation: {error}"))?;
+    assert_eq!(second.citations.len(), 1);
+    assert_eq!(second.citations[0].translation_revision, Some(2));
+    assert_eq!(second.coverage.sources[0].translated_cues, 1);
+    assert_eq!(first.citations[0].transcript_revision, 1);
+    store.correct_transcript("pin", 1, 0, "Una feria local", now + 3)?;
+    let third = store
+        .checkpoint_task("fair-task", "third", 2, now + 4)
+        .map_err(|error| format!("corrected task observation: {error}"))?;
+    assert_eq!(third.citations[0].transcript_revision, 2);
+    assert_eq!(third.citations[0].translation_revision, None);
+    store.begin_delete("one", false)?;
+    store
+        .audit_tasks()
+        .map_err(|error| format!("task history audit: {error}"))?;
+    assert_eq!(store.task_checkpoint("fair-task", 1)?, first);
+    assert_eq!(store.task_checkpoint("fair-task", 2)?, second);
+    assert_eq!(
+        store.checkpoint_task("fair-task", "first", 0, now + 5)?,
+        first
+    );
+    drop(store);
+    let reopened = Store::open(&path).map_err(|error| format!("reopen task library: {error}"))?;
+    assert_eq!(reopened.task_checkpoint("fair-task", 1)?, first);
+    assert_eq!(reopened.task_checkpoint("fair-task", 2)?, second);
+    assert_eq!(reopened.task_checkpoint("fair-task", 3)?, third);
+    assert_eq!(reopened.task("fair-task")?.checkpoint, 3);
     Ok(())
 }
 

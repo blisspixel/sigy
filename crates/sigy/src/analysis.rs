@@ -487,7 +487,7 @@ fn render_translation_job(writer: &mut impl Write, job: &TranslationJob) -> io::
         job.amount_usd
     )?;
     if let Some(reason) = &job.reason {
-        writeln!(writer, "Reason {reason}.")?;
+        writeln!(writer, "Reason {}.", sanitize(reason, 512))?;
     }
     if job.state == "succeeded" {
         writeln!(
@@ -531,7 +531,9 @@ fn render_translation(writer: &mut impl Write, page: &TranslationPage) -> io::Re
         )?;
         match (&pair.english, &pair.reason) {
             (Some(english), _) => writeln!(writer, "    en: {}", sanitize(english, 4096))?,
-            (None, Some(reason)) => writeln!(writer, "    en: (untranslated: {reason})")?,
+            (None, Some(reason)) => {
+                writeln!(writer, "    en: (untranslated: {})", sanitize(reason, 512))?;
+            }
             (None, None) => writeln!(writer, "    en: (untranslated)")?,
         }
     }
@@ -585,7 +587,7 @@ fn render_recognition_job(writer: &mut impl Write, job: &LocalAsrJob) -> io::Res
         job.amount_usd
     )?;
     if let Some(reason) = &job.reason {
-        writeln!(writer, "Reason {reason}.")?;
+        writeln!(writer, "Reason {}.", sanitize(reason, 512))?;
     }
     if job.state == "succeeded" {
         writeln!(
@@ -716,7 +718,7 @@ pub fn render_job(
         job.amount_usd
     )?;
     if let Some(reason) = &job.reason {
-        writeln!(writer, "Reason {reason}.")?;
+        writeln!(writer, "Reason {}.", sanitize(reason, 512))?;
     }
     writeln!(writer, "No speech recognition or translation performed.")
 }
@@ -798,6 +800,10 @@ pub fn render(writer: &mut impl Write, page: &AnalysisPage, ink: Ink) -> io::Res
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "analysis_output_tests.rs"]
+mod output_tests;
 
 #[cfg(test)]
 mod tests {

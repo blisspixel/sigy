@@ -4,13 +4,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, Result,
-    recognition::{is_sha256, sha256_hex},
+    recognition::{
+        CHUNK_US, MAX_CHUNKS, MAX_WORKER_DEADLINE_MS, MAX_WORKER_MEMORY, MAX_WORKER_THREADS,
+        MIN_WORKER_DEADLINE_MS, MIN_WORKER_MEMORY, WHISPER_CPP_CLI, WHISPER_TEMPLATE,
+        block_language_valid, is_sha256, sha256_hex,
+    },
     storage::validate_key,
+    translation::{HY_MT2_PLAIN, LLAMA_CPP_COMPLETION, MAX_CUE_DEADLINE_MS, languages_valid},
 };
 
 pub(crate) const SPEC_VERSION: &str = "sigy-task-spec-v1";
 /// The decoder stage of a recognition task: one audio stream to 16 kHz mono PCM16.
 pub(crate) const DECODER_TEMPLATE: &str = "ffmpeg-s16le-mono-16k-v1";
+pub(crate) const RECOGNITION_OUTPUT_BYTES: u64 = 1024 * 1024;
+pub(crate) const TRANSLATION_OUTPUT_BYTES: u64 = 64 * 1024;
+pub(crate) const DECODER_MEMORY: u64 = 512 * 1024 * 1024;
+pub(crate) const DECODER_DEADLINE_MS: u64 = 60_000;
 const MAX_TOKEN_BYTES: usize = 256;
 const MAX_INLINE_BYTES: u64 = 4096;
 const MAX_INPUTS: usize = 256;
@@ -147,7 +156,7 @@ pub(crate) struct DecoderLimits {
 pub(crate) struct TaskLimits {
     pub processes: u32,
     pub memory_bytes: u64,
-    /// CPU rate in whole processors.
+    /// Requested CPU rate in whole processors; platform conversion can round it.
     pub cpu_rate: u32,
     /// Wall deadline of one recognizer run, or of one translated cue.
     pub wall_ms: u64,
@@ -238,6 +247,7 @@ impl TaskSpec {
             || !self.inputs.iter().all(input_valid)
             || !self.assets.iter().all(asset_valid)
             || !params_valid(&self.params)
+            || !execution_valid(self)
             || self.digest()? != self.spec_sha256
         {
             return Err(invalid());
@@ -294,11 +304,17 @@ fn recognition_params_valid(params: &RecognitionParams) -> bool {
         Some(slice) => slice > 0 && slice == duration,
     };
     params.start_us < params.end_us
-        && params.sample_rate > 0
-        && token(&params.decoder)
+        && duration <= CHUNK_US
+        && params.sample_rate == crate::recognizer::SAMPLE_RATE
+        && params.decoder == DECODER_TEMPLATE
+        && (1..=MAX_WORKER_THREADS).contains(&params.threads)
         && slice_matches
-        && params.file_offset_us.is_none_or(|offset| offset > 0)
-        && params.chunk_ordinal.is_none_or(|ordinal| ordinal > 0)
+        && params.file_offset_us.is_none_or(|offset| {
+            offset > 0 && offset <= params.start_us && offset.checked_add(duration).is_some()
+        })
+        && params.chunk_ordinal.is_none_or(|ordinal| {
+            ordinal > 0 && usize::try_from(ordinal).is_ok_and(|value| value < MAX_CHUNKS)
+        })
         && params.segment_end_us.is_none_or(|end| end > params.end_us)
 }
 
@@ -314,9 +330,58 @@ fn params_valid(params: &TaskParams) -> bool {
     match params {
         TaskParams::Recognition(params) => recognition_params_valid(params),
         TaskParams::Translation(params) => {
-            params.source_language.as_deref().is_none_or(token)
-                && token(&params.declared_languages)
-                && token(&params.target)
+            params
+                .source_language
+                .as_deref()
+                .is_none_or(block_language_valid)
+                && languages_valid(&params.declared_languages)
+                && params.target == "en"
+                && (1..=MAX_WORKER_THREADS).contains(&params.threads)
         }
     }
+}
+
+/// Only implemented templates can interpret a spec. Native threads and CPU quota
+/// carry the same profile bound; decoder work has its fixed one-processor template.
+fn execution_valid(spec: &TaskSpec) -> bool {
+    let limits = spec.limits;
+    if limits.processes != 1
+        || !(MIN_WORKER_MEMORY..=MAX_WORKER_MEMORY).contains(&limits.memory_bytes)
+    {
+        return false;
+    }
+    let (threads, deadline, output) = match &spec.params {
+        TaskParams::Recognition(params) => {
+            if spec.engine != WHISPER_CPP_CLI
+                || spec.template != WHISPER_TEMPLATE
+                || !limits.decoder.is_some_and(|decoder| {
+                    (1..=DECODER_MEMORY).contains(&decoder.memory_bytes)
+                        && (1..=DECODER_DEADLINE_MS).contains(&decoder.wall_ms)
+                })
+            {
+                return false;
+            }
+            (
+                params.threads,
+                MAX_WORKER_DEADLINE_MS,
+                RECOGNITION_OUTPUT_BYTES,
+            )
+        }
+        TaskParams::Translation(params) => {
+            if spec.engine != LLAMA_CPP_COMPLETION
+                || spec.template != HY_MT2_PLAIN
+                || limits.decoder.is_some()
+            {
+                return false;
+            }
+            (
+                params.threads,
+                MAX_CUE_DEADLINE_MS,
+                TRANSLATION_OUTPUT_BYTES,
+            )
+        }
+    };
+    limits.cpu_rate == threads
+        && (MIN_WORKER_DEADLINE_MS..=deadline).contains(&limits.wall_ms)
+        && (1..=output).contains(&limits.output_bytes)
 }

@@ -32,13 +32,14 @@ pub(crate) mod monitors;
 pub(crate) mod providers;
 pub(crate) mod schedules;
 pub mod sources;
+pub(crate) mod tasks;
 pub(crate) mod transcripts;
 pub(crate) mod translations;
 mod widen;
 #[cfg(test)]
 mod widen_tests;
 
-pub const SCHEMA_VERSION: u32 = 39;
+pub const SCHEMA_VERSION: u32 = 42;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -112,12 +113,15 @@ impl Store {
         store.audit_listens()?;
         store.audit_podcasts()?;
         store.audit_schedules()?;
+        store.audit_monitor_capture()?;
         store.audit_transcripts()?;
         store.audit_findings()?;
         store.audit_briefings()?;
         store.audit_language_evidence()?;
         store.audit_analysis_jobs()?;
         store.audit_providers()?;
+        store.audit_tasks()?;
+        store.audit_task_runs()?;
         Ok(store)
     }
 
@@ -278,6 +282,16 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=38).contains(&version) {
         briefings::migrate_039(transaction)?;
+    }
+    if (0..=39).contains(&version) {
+        transaction.execute_batch(include_str!("040-monitor-capture.sql"))?;
+    }
+    if (0..=40).contains(&version) {
+        transaction.execute_batch(include_str!("041-tasks.sql"))?;
+    }
+    if (0..=41).contains(&version) {
+        transaction.execute_batch(include_str!("042-task-runs.sql"))?;
+        transaction.execute_batch(include_str!("042-finding-retention.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

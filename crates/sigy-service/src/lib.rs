@@ -20,6 +20,7 @@ pub mod recordings;
 mod schedule;
 pub mod sources;
 pub mod storage;
+pub mod task;
 pub mod translation;
 
 pub use error::{Error, Result};

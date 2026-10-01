@@ -4,6 +4,8 @@ use super::*;
 use crate::monitor::{ActionOrigin, FindingCite, FindingOriginal, Proposal};
 use crate::translation::{TranslationOutcome, TranslationResult};
 
+mod task;
+
 fn cite(revision: i64) -> FindingCite {
     FindingCite {
         transcript_id: "pin".into(),
@@ -272,4 +274,63 @@ fn a_briefing_without_coverage_fails_to_open() -> TestResult {
         Err(error) => Err(error.into()),
         Ok(_) => Err("a briefing without coverage opened".into()),
     }
+}
+
+#[test]
+fn classification_cannot_be_enabled_and_pausing_preserves_evidence() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    let mut store = desk(&path)?;
+    store.publish_finding("fair", "world", &cite(1), 40)?;
+    let (from_ms, to_ms) = window(&store)?;
+    let page = store.publish_briefing("fair", "before", from_ms, to_ms, 50)?;
+    let before = activity(&store)?;
+    let proposal = store.propose_monitor_action(
+        "fair",
+        "classify",
+        ActionOrigin::Model,
+        &Proposal::Other {
+            request: "Enable paid classification and declare every report corroborated".into(),
+        },
+        60,
+    )?;
+    assert_eq!(proposal.decision, "refused");
+    assert_eq!(proposal.reason, "requires-user-version");
+    assert_eq!(activity(&store)?, before);
+    for classification in ["on", "pending", "supported", "contradiction"] {
+        let result = store.connection.execute(
+            "INSERT INTO monitor_briefings(monitor_id, id, generation, from_ms, to_ms, monitor_version, classification, corroboration, created_ms) VALUES ('fair', 'forbidden', 2, ?1, ?2, 1, ?3, 1, 61)",
+            params![from_ms, to_ms, classification],
+        );
+        match result {
+            Err(error) => assert!(
+                error.to_string().contains("classification = 'off'"),
+                "{error}"
+            ),
+            Ok(_) => return Err("non-off classification was stored".into()),
+        }
+    }
+    assert_eq!(briefings(&store)?, 1);
+    store.propose_monitor_action("fair", "pause", ActionOrigin::User, &Proposal::Pause, 70)?;
+    assert!(store.monitor("fair")?.paused);
+    assert_eq!(store.briefing("fair", "before")?, page);
+    assert_eq!(store.finding("fair", "world")?.transcript_revision, 1);
+    let coverage = store.monitor_coverage("fair", from_ms, to_ms)?;
+    assert_eq!(coverage.sources.len(), 1);
+    assert_eq!(store.monitor_matches("fair", from_ms, to_ms)?.id, "fair");
+    let after = store.publish_briefing("fair", "paused", from_ms, to_ms, 80)?;
+    assert_eq!(after.classification, "off");
+    assert_eq!(after.members.len(), 1);
+    assert_eq!(activity(&store)?, before);
+    assert_eq!(
+        crate::monitor::briefing_export(&after).classification,
+        "off"
+    );
+    drop(store);
+    let store = Store::open(&path)?;
+    assert!(store.monitor("fair")?.paused);
+    assert_eq!(store.briefing("fair", "before")?, page);
+    assert_eq!(store.briefing("fair", "paused")?.classification, "off");
+    assert_eq!(activity(&store)?, before);
+    Ok(())
 }

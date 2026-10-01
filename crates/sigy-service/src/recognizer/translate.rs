@@ -17,16 +17,14 @@ use crate::{
     Error, Result,
     execution::{
         self, AssetRef, AssetRole, Executor, InlineText, LocalProcessExecutor, LocalStage,
-        TaskInput, TaskKind, TaskLimits, TaskParams, TaskSpec, TranslationParams, hash_file,
-        runtime_manifest,
+        TRANSLATION_OUTPUT_BYTES, TaskInput, TaskKind, TaskLimits, TaskParams, TaskSpec,
+        TranslationParams, hash_file, runtime_manifest,
     },
     translation::{
         HY_MT2_PLAIN, LLAMA_CPP_COMPLETION, MAX_TRANSLATION_MODEL_BYTES, SourceCue, TranslationJob,
         TranslationOutcome, TranslationProfile, canonical_languages,
     },
 };
-
-const MAX_STDOUT_BYTES: u64 = 64 * 1024;
 
 /// Hash a local llama.cpp runtime directory and model into a translation profile.
 /// Reads only the named local files. Runs on the calling thread.
@@ -132,7 +130,7 @@ pub(crate) fn translation_spec(
             memory_bytes: profile.memory_bytes,
             cpu_rate: profile.threads,
             wall_ms: profile.cue_deadline_ms,
-            output_bytes: MAX_STDOUT_BYTES,
+            output_bytes: TRANSLATION_OUTPUT_BYTES,
             decoder: None,
         },
         spec_sha256: String::new(),

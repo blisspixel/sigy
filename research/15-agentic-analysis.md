@@ -1,6 +1,16 @@
 # Agentic analysis and insight generation
 
-Reviewed: 2026-09-20. Status: research supporting proposed application contracts. No agent framework was selected for the monitor loop. On 2026-09-22 the local `sigy mcp` server and Agent Plugins 1.0.0 package were added for existing commands. They do not implement the monitor loop below.
+Reviewed: 2026-09-30. Status: research supporting proposed application contracts. No agent framework was selected for the monitor loop. On 2026-09-22 the local `sigy mcp` server and Agent Plugins 1.0.0 package were added for existing commands. They do not implement the monitor loop below. The 2026-09-30 user clarification requires [durable task workflows](../docs/design/task-workflows.md), local planning with zero metered inference fees, optional configured providers and skills/plugin/MCP/A2A integration.
+
+## 2026-09-30 interoperability review
+
+The published [A2A 1.0 specification](https://a2a-protocol.org/v1.0.0/specification/) describes task status, result artifacts, discovery and delegated agent interaction. Its appendix distinguishes agent-to-agent tasks from MCP access to individual tools. This supports adapters around Sigy's canonical workflow state; it does not provide Sigy's permission checks, exact ledger, crash recovery or task competence. Version 1.0 was reviewed, not selected or implemented. A smaller direct local workflow remains the first alternative to full protocol integration; an external harness using the existing plugin is another integration path, with the current tool omissions recorded.
+
+[Ollama tool calling](https://docs.ollama.com/capabilities/tool-calling) describes a model requesting tools and a host executing calls and returning results in an agent loop. Qualify the actual model/runtime for the required tasks and destinations. Neither a local endpoint nor structured replies establish quality, offline operation or absence of metered routing.
+
+[OpenRouter tool calling](https://openrouter.ai/docs/guides/features/tool-calling) likewise requires application-side execution for user-defined tools. Its [provider-routing controls](https://openrouter.ai/docs/guides/routing/provider-selection) document parameter-support filters, fallback choices and data-policy preferences. Defaults can permit fallback or providers that retain inputs; a qualified Sigy route needs explicit allowed destinations, required capabilities, data handling and bounded liability. Filters are not independent proof of third-party privacy behavior. No provider request, price selection, model selection or paid reservation was made by this review.
+
+Before implementation, retain a versioned protocol/capability matrix and test interruption, duplicate delivery, malformed calls, unsupported capabilities, revoked delegation and provider failure against the same workflow. This review selects no agent framework or SDK dependency. Real end-to-end task competence, private diagnostics, native isolation and supported platforms remain open evidence gates.
 
 ## Current capabilities and evidence
 
@@ -58,4 +68,4 @@ Version prompts, tool schemas, taxonomies, model identities, and policies. Freez
 
 ## Near future
 
-Watch improved local speech and decision models, reliable structured tool interfaces, and portable interoperability standards. Prefer stable application contracts and replayable evidence over dependence on one agent framework. External agent access can begin with explicitly configured read-only search/report operations later; neither MCP nor external autonomy is required to deliver the first-release monitor.
+Watch improved local speech and decision models, reliable structured tool interfaces, and portable interoperability standards. Prefer stable application contracts and replayable evidence over dependence on one agent framework. Existing MCP commands provide limited external access today. The [first task increment](../docs/decisions/0066-durable-task-workflows.md) establishes durable scope and observations without a planner or delegated execution. Qualified local task execution is part of the confirmed direction; [D-35](../docs/planning/05-delivery-and-decisions.md#3-decision-register) resolves concrete adapter profiles and optional hosted/A2A release placement. The [privacy and recovery review](32-private-diagnostics-and-recovery.md) connects protocol work to data minimization and effect reconciliation. No external agent's autonomy substitutes for service-owned policy.

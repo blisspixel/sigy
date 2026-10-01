@@ -447,17 +447,22 @@ fn ffmpeg_clock(microseconds: u64) -> String {
     )
 }
 
+/// A one-thread decoder still needs a kernel CPU cap: its libraries can create
+/// other threads. Windows converts this quota to a rounded system CPU rate.
+pub(super) fn decoder_options(limits: DecoderLimits) -> ProcessGroupOptions {
+    ProcessGroupOptions::default()
+        .max_processes(1)
+        .max_memory(limits.memory_bytes)
+        .cpu_quota(1.0)
+}
+
 async fn decode(
     plan: &Plan<'_>,
     input: &Path,
     expected_samples: u64,
     signal: &mut watch::Receiver<bool>,
 ) -> Result<Stage<Vec<u8>>> {
-    let Some(group) = contained(
-        ProcessGroupOptions::default()
-            .max_processes(1)
-            .max_memory(plan.decoder_limits.memory_bytes),
-    ) else {
+    let Some(group) = contained(decoder_options(plan.decoder_limits)) else {
         return Ok(stop_with(LimitsUnavailable));
     };
     let Ok(file) = File::open(input) else {

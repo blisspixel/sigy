@@ -53,7 +53,8 @@ fn candidates(
     let mut statement = connection.prepare(
         "SELECT c.id, r.decoded_microseconds FROM capture_jobs c JOIN recordings r ON r.id = c.id
          WHERE c.source_revision IN (SELECT value FROM json_each(?2)) AND c.state = 'completed'
-           AND r.storage_state = 'retained' AND r.decoded_microseconds IS NOT NULL AND c.starts_ms >= ?3
+           AND r.storage_state = 'retained' AND r.decoded_microseconds IS NOT NULL
+           AND (c.starts_ms >= ?3 OR EXISTS (SELECT 1 FROM monitor_capture_admissions owned WHERE owned.occurrence_id = c.id AND owned.monitor_id = ?1))
            AND NOT EXISTS (SELECT 1 FROM monitor_steps s WHERE s.monitor_id = ?1 AND s.recording_id = c.id AND s.stage = 'recognition')
          ORDER BY c.starts_ms, c.id LIMIT ?4",
     )?;

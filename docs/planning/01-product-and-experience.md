@@ -2,6 +2,8 @@
 
 Status: proposed product specification. Confirmed scope is recorded in the [planning index](README.md).
 
+Updated: 2026-09-30.
+
 ## 1. Product purpose
 
 Sigy provides practical signals intelligence for everyday people: discover a source, listen or inspect it, collect useful material, and turn observations into understanding. Persistent monitoring lets a user follow a topic across sources without keeping an interface open.
@@ -27,6 +29,19 @@ A new capability should fit the same journey: choose a source or artifact, choos
 - Make experimentation reversible through replay, saved settings, clear reset behavior, and separate practice sessions.
 - Preserve equivalent CLI automation for experienced users. Friendly defaults and precise control should reinforce each other.
 - Validate common journeys with task-based newcomer and experienced-user walkthroughs, rendered interface inspection, and checks of whether the results and limits can be understood. Record feedback from people outside the design when available; do not claim it happened when it did not.
+
+### Professional utility and exploration
+
+The 2026-09-30 product clarification confirms a professional instrument and operations-desk direction with real practical utility. Everyday accessibility, fun and education belong to that direction. Personal journal presentation is not desired. Existing bookmarks, saved intervals, provenance and revision history remain functional tools for inspection and repeatable work.
+
+Useful journeys collect a bounded observation, inspect or decode it, compare results, revisit the original and produce an actionable artifact or report. Learning should explain the mechanism, assumptions and limitations of the actual operation. Synthetic and prerecorded exercises remain clearly identified and separate from live observations. Professional quality requires measured correctness, relevant resource and latency limits, recovery, useful controls and exportable evidence; presentation alone does not establish it.
+
+Two optional directions remain proposals:
+
+- **Status reports:** summarize actual active sources and jobs, captured and processed intervals, coverage gaps, observed changes, supported findings, failures, processing pace, backlog, storage and exact spending. Preserve each counter's time window and basis. An operational summary and a content briefing remain distinct, with access to their underlying evidence. Missing measurements stay unmeasured.
+- **Exploration achievements:** encourage useful completed tasks, such as protecting a retained interval, tracing a finding to its original, comparing transcript revisions, verifying a restored backup, or later decoding a labeled Morse exercise. Each completion needs an inspectable basis and the applicable source/profile context. Practice completion does not establish live decoding quality, expertise, language qualification or broader source coverage. Participation stays optional and grants no collection, network, spending or processing authority.
+
+These proposals add no first-release obligation, selected reward system, or implementation claim. Their value should be judged by whether they help users accomplish and understand substantive signal work.
 
 ## 2. First complete release
 

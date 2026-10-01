@@ -21,6 +21,7 @@ pub(crate) fn spec() -> MonitorSpec {
         total_audio_seconds: 7 * 6 * 3600,
         recognition_profile: None,
         translation_profile: None,
+        capture: None,
     }
 }
 

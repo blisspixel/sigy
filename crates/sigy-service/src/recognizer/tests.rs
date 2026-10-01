@@ -144,6 +144,40 @@ fn hostile_or_inconsistent_output_is_refused_whole() {
 }
 
 #[test]
+fn media_clock_and_cue_overflow_are_refused_but_representable_extremes_stay_valid() -> TestResult {
+    assert!(matches!(
+        parse(&json(""), &input(0, 1_000), u64::MAX),
+        Err("decoded audio range")
+    ));
+    assert!(matches!(
+        parse(&json(""), &input(u64::MAX - 1, u64::MAX), 1),
+        Err("decoded audio range")
+    ));
+    let pinned = input(u64::MAX - 1_000, u64::MAX);
+    assert!(matches!(
+        parse(&json(&segment(1, 2, "overflowing end")), &pinned, 16),
+        Err("offset range")
+    ));
+    assert!(matches!(
+        parse(&json(&segment(2, 3, "overflowing start")), &pinned, 16),
+        Err("offset range")
+    ));
+    assert!(matches!(
+        parse(
+            &json(&segment(i64::MAX - 1, i64::MAX, "offset product")),
+            &input(0, 1_000),
+            16
+        ),
+        Err("offset range")
+    ));
+    let valid = parse(&json(&segment(0, 1, "retained")), &pinned, 16).map_err(str::to_owned)?;
+    assert_eq!(valid.cues.len(), 1);
+    assert_eq!(valid.cues[0].start_us, u64::MAX - 1_000);
+    assert_eq!(valid.cues[0].end_us, u64::MAX);
+    Ok(())
+}
+
+#[test]
 fn cue_and_text_limits_are_enforced() {
     let pinned = input(0, 60_000_000);
     let many: Vec<String> = (0..=256)

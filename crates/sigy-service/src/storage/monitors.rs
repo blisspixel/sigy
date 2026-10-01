@@ -20,11 +20,12 @@ pub(crate) fn count_for_tests(store: &Store, sql: &str) -> Result<u32> {
     Ok(store.connection.query_row(sql, [], |row| row.get(0))?)
 }
 
-/// Undo migrations 032 and 033 so a test can build an older catalog from the current one.
+/// Remove monitor-dependent schema so a fixture can build a pre-v32 catalog.
+/// Historical migration fixtures share this dependency order as additions evolve.
 #[cfg(test)]
 pub(crate) fn revert_032_for_tests(connection: &Connection) -> Result<()> {
     connection.execute_batch(
-        "DROP TABLE IF EXISTS monitor_briefing_reasons; DROP TABLE IF EXISTS monitor_briefing_sources; DROP TABLE IF EXISTS monitor_briefing_schedules; DROP TABLE IF EXISTS monitor_briefing_coverage; DROP TABLE IF EXISTS monitor_briefing_members; DROP TABLE IF EXISTS monitor_briefings; DROP TABLE IF EXISTS monitor_findings; DROP TABLE monitor_steps; DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; PRAGMA user_version = 31;",
+        "DROP TABLE IF EXISTS task_run_events; DROP TABLE IF EXISTS task_run_intents; DROP TABLE IF EXISTS task_runs; DROP TABLE IF EXISTS task_checkpoints; DROP TABLE IF EXISTS tasks; DROP TABLE IF EXISTS monitor_capture_refusals; DROP TABLE IF EXISTS monitor_capture_days; DROP TABLE IF EXISTS monitor_capture_admissions; DROP TABLE IF EXISTS monitor_capture_rules; DROP TABLE IF EXISTS monitor_briefing_reasons; DROP TABLE IF EXISTS monitor_briefing_sources; DROP TABLE IF EXISTS monitor_briefing_schedules; DROP TABLE IF EXISTS monitor_briefing_coverage; DROP TABLE IF EXISTS monitor_briefing_members; DROP TABLE IF EXISTS monitor_briefings; DROP TABLE IF EXISTS monitor_findings; DROP TABLE monitor_steps; DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; PRAGMA user_version = 31;",
     )?;
     Ok(())
 }
@@ -42,6 +43,17 @@ fn parse_spec(json: &str) -> Result<MonitorSpec> {
     Ok(spec)
 }
 
+fn checked_spec(json: &str, digest: &str) -> Result<MonitorSpec> {
+    let spec = parse_spec(json)?;
+    // Hash the original compact JSON, including historical default-field omissions.
+    // Reserializing the typed value would change those immutable policy bytes.
+    let encoded = format!("[\"sigy-monitor-spec-v1\",{json}]");
+    if crate::recognition::sha256_hex(encoded.as_bytes()) != digest {
+        return Err(Error::StorageIntegrity);
+    }
+    Ok(spec)
+}
+
 fn latest_version(connection: &Connection, id: &str) -> Result<Option<MonitorVersion>> {
     let row: Option<(u32, String, String, i64)> = connection
         .query_row(
@@ -54,7 +66,7 @@ fn latest_version(connection: &Connection, id: &str) -> Result<Option<MonitorVer
         Ok(MonitorVersion {
             monitor_id: id.to_owned(),
             version,
-            spec: parse_spec(&json)?,
+            spec: checked_spec(&json, &spec_sha256)?,
             spec_sha256,
             created_ms,
         })
@@ -402,6 +414,7 @@ impl Store {
             active_sources: active_sources(&self.connection, &version)?,
             paused: paused(&self.connection, id)?,
             processing: self.monitor_processing(id, super::now_ms()?)?,
+            capture_usage: self.monitor_capture_usage(id, super::now_ms()?)?,
             version,
             actions,
         })
@@ -424,7 +437,7 @@ impl Store {
         Ok(MonitorVersion {
             monitor_id: id.to_owned(),
             version,
-            spec: parse_spec(&json)?,
+            spec: checked_spec(&json, &spec_sha256)?,
             spec_sha256,
             created_ms,
         })
@@ -457,6 +470,7 @@ impl Store {
     }
 }
 
+pub(crate) mod capture;
 pub(crate) mod coverage;
 mod steps;
 

@@ -4,6 +4,8 @@ use super::*;
 use crate::monitor::{ActionOrigin, FindingCite, FindingOriginal, Proposal};
 use crate::translation::{TranslationOutcome, TranslationResult};
 
+mod task;
+
 fn cite(original: FindingOriginal) -> FindingCite {
     FindingCite {
         transcript_id: "pin".into(),

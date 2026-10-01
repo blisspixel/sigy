@@ -14,6 +14,7 @@ It starts with internet radio and podcasts, which need nothing but a computer. T
 - **Keep what matters.** Record live streams and podcast episodes into a private library. Pause and rewind a running capture, schedule recordings in any time zone, and hold the parts you want to keep.
 - **Understand any language.** Most of the world's audio is not in English. Sigy is designed to transcribe speech in its original script, identify the language (including mixed and uncertain speech), and translate into English, with the original always beside the translation.
 - **Follow a topic.** Ask Sigy to watch a subject across sources, within limits you set. Findings cite the exact recording, transcript, and translation behind them, show where reports agree or conflict, and say when evidence is missing.
+- **Give the toolkit a task.** Planned durable workflows turn a bounded goal into collection, analysis and a cited result using qualified local models. Optional configured providers and agent integrations use the same service permissions and limits. Interrupted work retains its progress; the general task harness is not implemented yet.
 - **Tune the airwaves.** Planned hardware support turns a software-defined radio or a LoRa device into another source: an AM/FM dial, shortwave and CB scanning, spectrum and waterfall views, and Meshtastic packet inspection, all receive-only and recorded with the same evidence as a stream.
 - **Play and learn.** Morse practice, timing and packet puzzles, and a visual Enigma machine. Curiosity is reason enough.
 
@@ -23,6 +24,7 @@ It starts with internet radio and podcasts, which need nothing but a computer. T
 - **Show your work.** Original recordings, transcripts, translations, and interpretations are kept separate. You can trace any finding to its source and see gaps, expired audio, and uncertainty.
 - **Honest about limits.** Sigy says "unknown", "unsupported", or "not measured" rather than guessing. Language support is claimed only for languages that have passed measured tests.
 - **Always on, never in the way.** A background service owns recordings and monitoring. Closing the terminal does not stop a recording.
+- **Private and recoverable.** Private bounded local diagnostics, no automatic analytics or diagnostic uploads, and tested recovery are product requirements. Necessary task and evidence state is kept separately from ordinary logs. These goals are still being implemented and qualified.
 - **Correct, don't erase.** Fix a name, a language, or a transcript without losing history. Results that depend on the correction are marked for review.
 
 ## What works today
@@ -34,18 +36,19 @@ It starts with internet radio and podcasts, which need nothing but a computer. T
 | Recording | Segmented captures with gaps, finite and live HLS stations, pause/rewind playheads, holds, 14-day/50 GB retention |
 | Schedules | Once, daily, or weekly recordings in any IANA time zone, including daylight-saving edges |
 | Podcasts | Subscribe, refresh RSS, download and play episodes, fetch publisher transcripts and chapters |
-| Terminal explorer | List explorer with search, favorites, health, recordings, and playback |
-| Agents | An MCP server so an assistant can use the same operations inside your library |
-| Speech recognition | Early: transcribe a retained recording in its original script with your own local whisper.cpp model, on the CPU, fully offline. Measured on 32 reference clips across eight languages and tried on five live stations |
-| Translation | Early: translate recognized text into English with your own local llama.cpp model, cue by cue beside the original. Not yet quality-checked |
+| Terminal explorer | Search, favorites, health and playback; read-only monitor coverage, passages and named findings; recording timelines that distinguish available audio, released intervals, gaps and unpublished time |
+| Agents | An MCP server and packaged skill expose selected operations inside one library. General task orchestration, local planning transport, live paid transport and A2A remain planned |
+| Tasks | Early CLI slice: immutable monitor-bound goals and frozen evidence checkpoints. Explicit execution materializes bounded task-owned literal findings and an exact-membership briefing, with durable receipts and cancellation. General planning and task-owned collection remain planned |
+| Speech recognition | Early: transcribe a retained recording in its original script with your own local whisper.cpp model, on the CPU, fully offline. Measured on 32 reference clips across eight languages and tried on eight live stations. No language is qualified |
+| Translation | Early: translate recognized text into English with your own local llama.cpp model, cue by cue beside the original. A 32-clip calibration found critical meaning errors. A subsequent 126-control local judge screen failed its criteria in every tested language. No model or language is qualified |
 | Corrections | One cue's original script can be replaced by appending a revision. The previous revision stays readable. Times are copied and wording stays uncertain. Names, language spans, and automatic reprocessing are not included |
-| Globe and day/night map | Early: an orthographic globe or flat map in the terminal with offline coastlines, geometric night at an explicit time, and stations placed by directory coordinates |
-| Topic monitoring | Early: a monitor keeps your terms in any script, the stations to follow and daily and total audio caps. New recordings from those stations are transcribed and translated automatically within the caps, and every step is logged. Coverage is counted stage by stage, and term matches cite the exact cue, time and translation. Agents can read monitors and propose changes, which only apply when your version already allows them. A stored finding cites one translation, one original transcript revision, and a retained interval, or says the audio is expired or missing. Agents cannot publish a finding. A briefing states coverage first, freezes that coverage with the generation, counts a repeated report once, and leaves a different report unresolved. An export is a redacted snapshot and is not the catalog. Classification stays off. Agents cannot publish or export a briefing. Scheduling remains |
-| Visualizers | Planned for the first complete release |
+| Globe and day/night map | Early: an orthographic globe or flat map with offline coastlines, geometric night at an explicit time, and the current filtered station page. Crowded terminal cells show a count and preserve the selected station |
+| Topic monitoring | Early: a monitor keeps your terms in any script, the stations to follow and daily and total processing caps. Opt-in owned schedules capture within separate daily seconds, lifetime seconds and lifetime byte ceilings. New recordings are transcribed and translated automatically within processing caps. Coverage and literal matches cite the exact cue and revision. A stored finding cites original and English text plus a retained interval, or states expired or missing audio; the terminal can inspect that citation and navigate to recording metadata. A briefing freezes coverage, counts a repeated report once, and leaves a different report unresolved. Its export is a redacted snapshot. Classification stays off; agents cannot publish findings or briefings |
+| Visualizers | Recording metadata timelines work. Live waveform and frequency views remain planned |
 | Software-defined radio, LoRa and Meshtastic (receive-only) | Planned; source contracts for IQ samples and packets are designed, and devices will be tested with real hardware |
 | Morse, historical ciphers | Planned after the first complete release |
 
-Tested formats: WAV, MP3, AAC, FLAC, and Ogg Vorbis, decoded by a local FFmpeg 9.0.1. Linux passes the full test suite in a container; local recognition and translation there still need delegated process containment. macOS is untested. Neither is qualified yet.
+Tested formats: WAV, MP3, AAC, FLAC, and Ogg Vorbis, decoded by a local FFmpeg 9.0.1. An earlier Linux container run passed the ordinary test suite; local recognition and translation there still need delegated process containment. The current increment has been checked on Windows. macOS is untested. Neither Linux nor macOS is qualified yet.
 
 ## Preview
 
@@ -95,7 +98,9 @@ Update with `sigy update --check` and `sigy update`. Let recordings finish and s
 
 ## Now building
 
-Sigy can now transcribe a retained recording on your own machine, including one longer than a minute: a hash-pinned multilingual recognizer runs under strict process limits, each process hears at most 30 seconds, and a phrase that runs into that edge while audio remains waits for the next window, which starts at the phrase. The text keeps its original script and exact media time. Early English translation runs the same way, cue by cue beside the original, and monitors now drive both automatically within your caps. The next steps are fair scheduling with measured capacity, delegated containment so local models run on Linux, and reference-scored translation checks. The [roadmap](ROADMAP.md#whats-next) explains the order and the reasons, and the [language pipeline plan](docs/development/language-pipeline.md) defines how quality is measured.
+Sigy can transcribe retained recordings in bounded local windows, preserve original scripts and media time, and translate cue by cue into English. Explicit monitor-owned schedules feed processing through separate capture and processing caps. [Durable task scope and checkpoints](docs/decisions/0066-durable-task-workflows.md) preserve a finite observation request and its cited progress. [Finite evidence execution](docs/decisions/0067-task-evidence-execution.md) materializes a selected checkpoint into bounded task-owned findings and a briefing through the existing service tick. The next slice connects task-owned collection and processing with the same explicit delegation and recovery contract. Qualified local planning, passage retrieval, cited audio playback and verifiable reports extend that workflow.
+
+Language quality, measured host capacity, private diagnostics, recovery and native containment remain active gates. The [roadmap](ROADMAP.md#whats-next) explains the dependencies, the [task contract](docs/design/task-workflows.md) defines the proposed workflow, and the [language pipeline plan](docs/development/language-pipeline.md) defines how quality is measured. The design links to [agent interoperability research](research/15-agentic-analysis.md) and [privacy and recovery research](research/32-private-diagnostics-and-recovery.md); research and planned features are not support claims.
 
 ## Learn more
 

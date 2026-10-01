@@ -49,6 +49,11 @@ pub const TRANSCRIPT_PAGE_ITEMS: usize = 16;
 pub const WHISPER_CPP_CLI: &str = "whisper-cpp-cli-v1";
 pub(crate) const WHISPER_TEMPLATE: &str = "language=auto;translate=off;vad=on;gpu=off;processors=1";
 
+/// Bounded native block labels, including labels that have no qualified route.
+pub(crate) fn block_language_valid(code: &str) -> bool {
+    (2..=8).contains(&code.len()) && code.bytes().all(|byte| byte.is_ascii_lowercase())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LocalAsrRequest {
@@ -358,6 +363,7 @@ pub const MAX_VAD_BYTES: u64 = 64 * 1024 * 1024;
 pub const MIN_WORKER_MEMORY: u64 = 256 * 1024 * 1024;
 pub const MAX_WORKER_MEMORY: u64 = 64 * 1024 * 1024 * 1024;
 pub const MAX_WORKER_THREADS: u32 = 64;
+pub const MIN_WORKER_DEADLINE_MS: u64 = 1_000;
 pub const MAX_WORKER_DEADLINE_MS: u64 = 3_600_000;
 
 impl RecognitionProfile {
@@ -404,7 +410,7 @@ impl RecognitionProfile {
             || !(1..=MAX_VAD_BYTES).contains(&self.vad_bytes)
             || !(1..=MAX_WORKER_THREADS).contains(&self.threads)
             || !(MIN_WORKER_MEMORY..=MAX_WORKER_MEMORY).contains(&self.memory_bytes)
-            || !(1_000..=MAX_WORKER_DEADLINE_MS).contains(&self.deadline_ms)
+            || !(MIN_WORKER_DEADLINE_MS..=MAX_WORKER_DEADLINE_MS).contains(&self.deadline_ms)
         {
             return Err(invalid);
         }

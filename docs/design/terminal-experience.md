@@ -1,14 +1,16 @@
 # Terminal experience contract
 
-Updated: 2026-09-21. Status: the list explorer is implemented in [0016](../decisions/0016-list-explorer.md). The globe, map, captions, and visualizers in this contract are not. This refines [explorer and DVR](../planning/11-radio-explorer-and-dvr.md) using [current terminal research](../../research/22-modern-terminal-ux.md). Source, storage, and spending policy remain owned by the service.
+Updated: 2026-09-30. Status: the list explorer is implemented in [0016](../decisions/0016-list-explorer.md), the globe and flat map in [0044](../decisions/0044-terminal-globe.md) with [cell clusters](../decisions/0060-terminal-station-clusters.md), read-only monitors in [0061](../decisions/0061-classification-off-and-monitor-inspection.md), recording metadata timelines in [0062](../decisions/0062-terminal-recording-timeline.md), and named finding navigation in [0063](../decisions/0063-terminal-finding-navigation.md). Live captions, waveform and frequency views remain proposed. This refines [explorer and DVR](../planning/11-radio-explorer-and-dvr.md) using [current terminal research](../../research/22-modern-terminal-ux.md). Source, storage, and spending policy remain owned by the service.
 
 ## Product feel and hierarchy
 
 The interface is a listening and research desk: clear source identity, readable content, a useful geographic view, and dependable controls. Visual interest comes from the globe, real activity, maps, and timelines. Do not fabricate signal activity or obscure work beneath decorative effects.
 
+The 2026-09-30 clarification emphasizes a professional instrument and operations desk with substantive utility, enjoyable exploration and education. Personal journal presentation is not desired. Proposed status reports and optional task achievements must derive from actual operations and evidence; they remain unimplemented and do not qualify analysis quality or user expertise. Follow [professional utility and exploration](../planning/01-product-and-experience.md#professional-utility-and-exploration).
+
 Visual quality, modern interaction and enjoyment are product requirements from the first usable TUI. The interface should invite exploration and reward curiosity through responsive controls, expressive instruments and understandable discoveries. Visual polish belongs in each delivered workflow, including empty, loading, disconnected and error states.
 
-Use six workspaces: Explore, Live, Recordings, Monitors, Findings, and System. Keep the selected source and current playback visible across workspaces. A compact header reports service connection and important resource/cost state; detailed diagnostics belong in System. Avoid filling every panel with borders and abbreviations.
+The design groups six task workspaces: Explore, Live, Recordings, Monitors, Findings, and System. The current terminal exposes Globe as a seventh workspace. Keep the selected source and current playback visible across workspaces. A compact header reports service connection and important resource/cost state; detailed diagnostics belong in System. Avoid filling every panel with borders and abbreviations.
 
 Explore links one query and selection across list, globe, and flat map. Wide layouts show results beside source details or geography. Compact layouts use one focused pane with explicit navigation. At 80x24, search, source identity, primary actions, playback state, and help remain usable. Below that, reduce columns and previews before hiding controls. Very small dimensions must render a safe recovery prompt without panicking.
 

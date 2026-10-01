@@ -248,7 +248,8 @@ async fn play_file(
     } else {
         writeln!(
             stdout,
-            "Playing retained recording {id} to {}.",
+            "Playing retained recording {} to {}.",
+            clean(id),
             destination.as_str()
         )?;
         writeln!(
@@ -319,7 +320,8 @@ async fn play_segment(
     } else {
         writeln!(
             stdout,
-            "Playing segment {ordinal} of recording {id} to {}.",
+            "Playing segment {ordinal} of recording {} to {}.",
+            clean(id),
             destination.as_str()
         )?;
         writeln!(stdout, "Playhead {playhead_us} microseconds.")?;
@@ -399,20 +401,34 @@ async fn play_source(
         )?;
         writeln!(stdout)?;
     } else {
-        writeln!(stdout, "Listening to revision {revision} as {format}.")?;
+        writeln!(
+            stdout,
+            "Listening to revision {} as {}.",
+            clean(revision),
+            clean(format)
+        )?;
         writeln!(stdout, "Playhead {} microseconds.", report.playhead_us)?;
     }
     Ok(())
 }
 
 fn replay(id: &str, listen: &ListenView, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut stdout = std::io::stdout().lock();
+    render_replay(&mut stdout, id, listen, json)
+}
+
+fn render_replay(
+    stdout: &mut impl Write,
+    id: &str,
+    listen: &ListenView,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     if listen.state != "completed" {
         return Err(failure_text(listen).into());
     }
-    let mut stdout = std::io::stdout().lock();
     if json {
         serde_json::to_writer(
-            &mut stdout,
+            &mut *stdout,
             &serde_json::json!({
                 "id": id,
                 "revision": listen.source_revision,
@@ -425,8 +441,9 @@ fn replay(id: &str, listen: &ListenView, json: bool) -> Result<(), Box<dyn std::
     } else {
         writeln!(
             stdout,
-            "Listen {id} already completed for revision {}.",
-            listen.source_revision
+            "Listen {} already completed for revision {}.",
+            clean(id),
+            clean(&listen.source_revision)
         )?;
     }
     Ok(())
@@ -487,10 +504,12 @@ async fn decoder_path(directory: &Path) -> Result<String, Box<dyn std::error::Er
 }
 
 fn failure_text(listen: &ListenView) -> String {
-    listen
-        .failure
-        .clone()
-        .unwrap_or_else(|| format!("listen {}", listen.state))
+    clean(
+        &listen
+            .failure
+            .clone()
+            .unwrap_or_else(|| format!("listen {}", listen.state)),
+    )
 }
 
 fn write_snapshot(
@@ -498,8 +517,16 @@ fn write_snapshot(
     snapshot: &sigy_service::control::Snapshot,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = std::io::stdout().lock();
+    render_snapshot(&mut stdout, json, snapshot)
+}
+
+fn render_snapshot(
+    stdout: &mut impl Write,
+    json: bool,
+    snapshot: &sigy_service::control::Snapshot,
+) -> Result<(), Box<dyn std::error::Error>> {
     if json {
-        serde_json::to_writer(&mut stdout, snapshot)?;
+        serde_json::to_writer(&mut *stdout, snapshot)?;
         writeln!(stdout)?;
         return Ok(());
     }
@@ -509,10 +536,12 @@ fn write_snapshot(
     writeln!(
         stdout,
         "Listen {}: {} | revision {}",
-        listen.id, listen.state, listen.source_revision
+        clean(&listen.id),
+        clean(&listen.state),
+        clean(&listen.source_revision)
     )?;
     if let Some(failure) = &listen.failure {
-        writeln!(stdout, "Reason: {failure}")?;
+        writeln!(stdout, "Reason: {}", clean(failure))?;
     }
     Ok(())
 }
@@ -670,7 +699,7 @@ fn write_session_play(
             stdout,
             "Playing segment {} of playhead {} to {}.",
             report.ordinal,
-            report.session_id,
+            clean(report.session_id),
             report.destination.as_str()
         )?;
         writeln!(
@@ -690,14 +719,25 @@ async fn playback(
     let snapshot = view(directory, Operation::Playback { command }).await?;
     let session = snapshot.playback.ok_or("playback session is missing")?;
     let mut stdout = std::io::stdout().lock();
+    render_playback(&mut stdout, json, &session)
+}
+
+fn render_playback(
+    stdout: &mut impl Write,
+    json: bool,
+    session: &control::PlaybackView,
+) -> Result<(), Box<dyn std::error::Error>> {
     if json {
-        serde_json::to_writer(&mut stdout, &session)?;
+        serde_json::to_writer(&mut *stdout, session)?;
         writeln!(stdout)?;
     } else {
         writeln!(
             stdout,
             "Playhead {} on {} is {}. Position {} us.",
-            session.id, session.recording_id, session.state, session.playhead_us
+            clean(&session.id),
+            clean(&session.recording_id),
+            clean(&session.state),
+            session.playhead_us
         )?;
         if session.open_tail {
             writeln!(stdout, "Open tail: visible, not readable.")?;
@@ -709,6 +749,10 @@ async fn playback(
     Ok(())
 }
 
+fn clean(value: &str) -> String {
+    crate::explorer::text::sanitize(value, 1024)
+}
+
 async fn view(
     directory: &Path,
     operation: Operation,
@@ -717,5 +761,142 @@ async fn view(
         Ok(mut library) => Ok(control::apply_library(&mut library, operation)?),
         Err(sigy_service::Error::LibraryBusy) => Ok(control::request(directory, operation).await?),
         Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn snapshot() -> Result<control::Snapshot, serde_json::Error> {
+        serde_json::from_value(
+            serde_json::json!({"schema_version":39,"sqlite_version":"fixture",
+            "provider_dispatch_available":false,"budgets":[],"captures":{"dispatch_available":false,
+                "scheduled":0,"active":0,"interrupted":0,"terminal":0}}),
+        )
+    }
+
+    fn receipt() -> ListenView {
+        ListenView {
+            id: "listen\u{1b}[2J".into(),
+            source_revision: "أخبار\u{1b}[31m".into(),
+            state: "failed".into(),
+            started_ms: 0,
+            completed_ms: Some(1),
+            format: None,
+            failure: Some("unavailable\u{1b}]52;c;payload\u{7}\nforged".into()),
+            pipe_nonce: None,
+            newly_started: Some(false),
+        }
+    }
+
+    #[test]
+    fn listen_receipts_sanitize_plain_output_and_preserve_exact_json_evidence() -> TestResult {
+        let mut snapshot = snapshot()?;
+        assert!(render_snapshot(&mut Vec::new(), false, &snapshot).is_err());
+        snapshot.listen = Some(receipt());
+        let mut bytes = Vec::new();
+        render_snapshot(&mut bytes, false, &snapshot)?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.contains("Listen listen"));
+        assert!(text.contains(": failed | revision أخبار"));
+        assert!(text.contains("Reason: unavailable"));
+        assert_eq!(text.lines().count(), 2);
+        assert!(!text.chars().any(|ch| ch.is_control() && ch != '\n'));
+        bytes = Vec::new();
+        render_snapshot(&mut bytes, true, &snapshot)?;
+        let read: control::Snapshot = serde_json::from_slice(&bytes)?;
+        assert_eq!(read.listen.ok_or("receipt")?.failure, receipt().failure);
+        snapshot.listen.as_mut().ok_or("receipt")?.failure = None;
+        bytes = Vec::new();
+        render_snapshot(&mut bytes, false, &snapshot)?;
+        assert_eq!(String::from_utf8(bytes)?.lines().count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn replay_never_reports_success_for_failed_or_unknown_listen() -> TestResult {
+        let mut receipt = receipt();
+        for state in ["failed", "running", "interrupted", "future-state\u{1b}[2J"] {
+            receipt.state = state.into();
+            let mut bytes = Vec::new();
+            let error = render_replay(&mut bytes, &receipt.id, &receipt, false)
+                .err()
+                .ok_or("must fail")?;
+            assert!(bytes.is_empty());
+            assert!(!error.to_string().chars().any(char::is_control));
+        }
+        receipt.failure = None;
+        assert!(failure_text(&receipt).starts_with("listen future-state"));
+        assert!(!failure_text(&receipt).chars().any(char::is_control));
+        receipt.state = "completed".into();
+        let mut bytes = Vec::new();
+        render_replay(&mut bytes, &receipt.id, &receipt, false)?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.contains("already completed for revision أخبار"));
+        assert!(!text.chars().any(|ch| ch.is_control() && ch != '\n'));
+        bytes = Vec::new();
+        render_replay(&mut bytes, &receipt.id, &receipt, true)?;
+        let document: serde_json::Value = serde_json::from_slice(&bytes)?;
+        assert_eq!(document["replayed"], true);
+        assert_eq!(document["format"], serde_json::Value::Null);
+        assert_eq!(document["revision"], receipt.source_revision);
+        Ok(())
+    }
+
+    #[test]
+    fn playback_output_preserves_expiry_unreadable_tail_and_exact_media_clock() -> TestResult {
+        let mut session = control::PlaybackView {
+            id: "session\u{1b}[2J".into(),
+            recording_id: "أخبار\u{7}".into(),
+            state: "expired".into(),
+            playhead_us: 9_007_199_254_740_993,
+            live_us: None,
+            earliest_us: None,
+            open_tail: true,
+        };
+        let mut bytes = Vec::new();
+        render_playback(&mut bytes, false, &session)?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.contains("Position 9007199254740993 us"));
+        assert!(text.contains("Open tail: visible, not readable"));
+        assert!(text.contains("Paused position expired"));
+        assert!(!text.chars().any(|ch| ch.is_control() && ch != '\n'));
+        bytes = Vec::new();
+        render_playback(&mut bytes, true, &session)?;
+        let read: control::PlaybackView = serde_json::from_slice(&bytes)?;
+        assert_eq!(read.playhead_us, session.playhead_us);
+        assert_eq!(read.recording_id, session.recording_id);
+        session.state = "future-state\u{1b}[31m".into();
+        session.open_tail = false;
+        bytes = Vec::new();
+        render_playback(&mut bytes, false, &session)?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.contains("future-state"));
+        assert_eq!(text.lines().count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn segment_refusals_never_describe_gaps_or_unpublished_media_as_silence() {
+        use sigy_service::storage::dvr::GapCause;
+        let gap = recordings::Located::Gap {
+            cause: GapCause::CapturePause,
+        };
+        assert!(segment_refusal(&gap).contains("gap"));
+        assert_eq!(
+            segment_refusal(&recordings::Located::OpenTail { live_us: 100 }),
+            "open tail is not readable"
+        );
+        assert_eq!(
+            segment_refusal(&recordings::Located::Outside { live_us: 100 }),
+            "seek is outside the retained audio"
+        );
+        assert_eq!(
+            segment_refusal(&recordings::Located::Unpublished),
+            "recording has no verified retained media"
+        );
     }
 }

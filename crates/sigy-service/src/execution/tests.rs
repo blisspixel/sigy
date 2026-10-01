@@ -19,6 +19,9 @@ use crate::{
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
+#[path = "validation_tests.rs"]
+mod validation;
+
 fn job(id: &str) -> LocalAsrJob {
     LocalAsrJob {
         request: LocalAsrRequest {
@@ -454,6 +457,26 @@ fn heard_params(end_us: u64, segment_end_us: Option<u64>) -> RecognitionParams {
 
 fn whisper_json(segments: &str) -> String {
     format!(r#"{{"result":{{"language":"fr"}},"transcription":[{segments}]}}"#)
+}
+
+#[test]
+fn overflowing_media_clock_with_nonempty_pcm_returns_invalid_output() {
+    let cases = [
+        (u64::MAX - 1, vec![1_u8, 0], whisper_json("")),
+        (
+            u64::MAX - 1_000,
+            vec![0_u8; 32],
+            whisper_json(r#"{"offsets":{"from":1,"to":2},"text":"overflow"}"#),
+        ),
+    ];
+    for (start, pcm, json) in cases {
+        let mut params = heard_params(u64::MAX, None);
+        params.start_us = start;
+        assert_eq!(
+            super::asr::transcribed(&params, &pcm, json.as_bytes(), &"5".repeat(64)),
+            Err(LocalAsrFailure::InvalidOutput)
+        );
+    }
 }
 
 fn succeeded(

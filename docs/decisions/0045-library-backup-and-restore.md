@@ -1,6 +1,6 @@
 # Library backup and restore
 
-Date: 2026-09-24. Status: implemented and tested on Windows x86_64 at catalog v30. This is the first part of roadmap operation 38. The operation stays open until it is rerun against the release schema on a clean host and an interrupted migration is recovered from a backup.
+Date: 2026-09-24. Updated: 2026-09-30. Status: implemented and tested on Windows x86_64, initially at catalog v30. A [same-host v39 rehearsal](../../research/experiments/library-restore-v39.md) preserved all 15 pilot media objects through migration, backup, verification and restore. This is part of roadmap operation 38. The operation stays open until it is rerun against the release schema on a clean host and an interrupted migration is recovered from a backup.
 
 ## Decision
 

@@ -18,6 +18,9 @@ use sha2::{Digest, Sha256};
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
+#[path = "tests/task_tests.rs"]
+mod task_tests;
+
 fn actor(root: &Path, sender: &mpsc::Sender<Message>) -> Result<Actor> {
     let mut library = Library::open(root, true)?;
     let executable = std::env::current_exe()?;
@@ -81,6 +84,7 @@ fn actor(root: &Path, sender: &mpsc::Sender<Message>) -> Result<Actor> {
         playback: PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
         next_monitor_pass_ms: 0,
+        task_cursor: None,
     })
 }
 
@@ -397,6 +401,7 @@ fn monitor_spec(recognition: Option<&str>) -> crate::monitor::MonitorSpec {
         total_audio_seconds: 7200,
         recognition_profile: recognition.map(str::to_owned),
         translation_profile: None,
+        capture: None,
     }
 }
 

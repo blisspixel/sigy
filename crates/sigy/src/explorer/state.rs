@@ -23,8 +23,8 @@ impl Workspace {
             Self::Explore => "Explore",
             Self::Live => "Live",
             Self::Recordings => "Recordings",
-            Self::Monitors => "Monitors unavailable",
-            Self::Findings => "Findings unavailable",
+            Self::Monitors => "Monitors",
+            Self::Findings => "Findings",
             Self::Globe => "Globe",
             Self::System => "System",
         }
@@ -34,7 +34,13 @@ impl Workspace {
     pub const fn available(self) -> bool {
         matches!(
             self,
-            Self::Explore | Self::Live | Self::Recordings | Self::Globe | Self::System
+            Self::Explore
+                | Self::Live
+                | Self::Recordings
+                | Self::Monitors
+                | Self::Findings
+                | Self::Globe
+                | Self::System
         )
     }
 
@@ -156,6 +162,7 @@ pub struct RecordingLine {
     pub state: String,
     pub storage_state: String,
     pub format: Option<String>,
+    pub timeline: super::timeline::Timeline,
 }
 
 impl RecordingLine {
@@ -241,6 +248,17 @@ pub enum Effect {
         favorite: bool,
     },
     Reload,
+    MonitorList,
+    MonitorDetail {
+        id: String,
+    },
+    Finding {
+        monitor: String,
+        finding: String,
+    },
+    FindingOriginal {
+        recording: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -274,6 +292,7 @@ pub struct Explorer {
     now_ms: i64,
     directory: Option<DirectoryView>,
     recordings: Vec<RecordingLine>,
+    recording_selection: usize,
     captures_active: u64,
     quota: Option<QuotaView>,
     playback: Option<PlaybackView>,
@@ -293,6 +312,8 @@ pub struct Explorer {
     status: String,
     draw: Draw,
     globe: GlobeView,
+    pub monitors: super::monitor::Browser,
+    pub findings: super::finding::Browser,
 }
 
 /// What the Globe workspace shows. Changing it never contacts a station.
@@ -324,6 +345,7 @@ impl Explorer {
             now_ms,
             directory: None,
             recordings: Vec::new(),
+            recording_selection: 0,
             captures_active: 0,
             quota: None,
             playback: None,
@@ -347,6 +369,8 @@ impl Explorer {
                 center: (0.0, 20.0),
                 flat: false,
             },
+            monitors: super::monitor::Browser::default(),
+            findings: super::finding::Browser::default(),
         }
     }
 
@@ -438,6 +462,16 @@ impl Explorer {
     }
 
     #[must_use]
+    pub fn selected_recording(&self) -> Option<&RecordingLine> {
+        self.recordings.get(self.recording_selection)
+    }
+
+    #[must_use]
+    pub const fn recording_selection(&self) -> usize {
+        self.recording_selection
+    }
+
+    #[must_use]
     pub const fn captures_active(&self) -> u64 {
         self.captures_active
     }
@@ -522,6 +556,7 @@ impl Explorer {
 
     pub fn apply_desk(&mut self, desk: Desk) {
         let selected = self.selected().map(|row| row.id.clone());
+        let recording = self.selected_recording().map(|row| row.id.clone());
         self.search_generation = self.search_generation.saturating_add(1);
         self.applied_search = self.search_generation;
         self.pending_search = None;
@@ -541,6 +576,9 @@ impl Explorer {
         self.directory = desk.directory;
         self.quota = desk.quota;
         self.recordings = desk.recordings;
+        self.recording_selection = recording
+            .and_then(|id| self.recordings.iter().position(|record| record.id == id))
+            .unwrap_or(0);
         self.playback = desk.playback;
         self.rows = desk.stations;
         self.restore_selection(selected);
@@ -633,6 +671,11 @@ impl Explorer {
         if matches!(key, Key::Redraw) {
             return Effect::None;
         }
+        if self.workspace == Workspace::Findings
+            && let Some(effect) = self.findings.handle(&key)
+        {
+            return effect;
+        }
         if self.focus == Focus::Search {
             return self.edit_search(key);
         }
@@ -640,6 +683,14 @@ impl Explorer {
             && let Key::Char(character) = key
             && self.globe_key(character)
         {
+            return Effect::None;
+        }
+        if self.workspace == Workspace::Monitors
+            && let Some(effect) = self.monitor_key(&key)
+        {
+            return effect;
+        }
+        if self.workspace == Workspace::Recordings && self.recording_key(&key) {
             return Effect::None;
         }
         match key {
@@ -658,11 +709,11 @@ impl Explorer {
             }
             Key::Left => {
                 self.workspace = self.workspace.cycle(false);
-                Effect::None
+                self.workspace_effect()
             }
             Key::Right => {
                 self.workspace = self.workspace.cycle(true);
-                Effect::None
+                self.workspace_effect()
             }
             Key::Up => self.move_selection(-1),
             Key::Down => self.move_selection(1),
@@ -675,12 +726,65 @@ impl Explorer {
             Key::Char('r') => self.reload(),
             Key::Char(character @ '1'..='7') => {
                 self.workspace = workspace_from_digit(character);
-                Effect::None
+                self.workspace_effect()
             }
             Key::Paste(_) | Key::Char(_) | Key::Backspace | Key::Escape | Key::Redraw => {
                 Effect::None
             }
         }
+    }
+
+    fn workspace_effect(&self) -> Effect {
+        if self.workspace == Workspace::Monitors {
+            Effect::MonitorList
+        } else {
+            Effect::None
+        }
+    }
+
+    pub fn open_finding_recording(&mut self, record: RecordingLine) {
+        if let Some(index) = self.recordings.iter().position(|item| item.id == record.id) {
+            self.recordings[index] = record;
+            self.recording_selection = index;
+        } else {
+            self.recordings.insert(0, record);
+            self.recordings
+                .truncate(usize::try_from(PAGE_LIMIT).unwrap_or(16));
+            self.recording_selection = 0;
+        }
+        self.workspace = Workspace::Recordings;
+        self.focus = Focus::Results;
+        self.note_message("Cited recording metadata selected. No playback or processing started.");
+    }
+
+    fn recording_key(&mut self, key: &Key) -> bool {
+        match key {
+            Key::Up => self.recording_selection = self.recording_selection.saturating_sub(1),
+            Key::Down => {
+                self.recording_selection = self
+                    .recording_selection
+                    .saturating_add(1)
+                    .min(self.recordings.len().saturating_sub(1));
+            }
+            Key::Char('f' | 'v' | '/') => self
+                .note_message("Recording selection is read-only. r reloads the metadata snapshot."),
+            _ => return false,
+        }
+        true
+    }
+
+    fn monitor_key(&mut self, key: &Key) -> Option<Effect> {
+        match key {
+            Key::Up | Key::Down => self.monitors.move_selection(*key == Key::Down),
+            Key::Escape => self.monitors.back(),
+            Key::Enter => return Some(self.monitors.open()),
+            Key::Char('r') => return Some(self.monitors.reload()),
+            Key::Char('f' | 'v' | '/') => self.note_message(
+                "Monitor navigation is read-only. Enter reads coverage and passages.",
+            ),
+            _ => return None,
+        }
+        Some(Effect::None)
     }
 
     fn edit_search(&mut self, key: Key) -> Effect {
@@ -888,6 +992,7 @@ mod tests {
                 state: "running".into(),
                 storage_state: "reserved".into(),
                 format: None,
+                timeline: super::super::timeline::Timeline::default(),
             }],
         ));
         model
@@ -1003,15 +1108,69 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_workspaces_can_be_selected() {
+    fn recording_selection_is_separate_and_never_starts_work() {
         let mut model = loaded();
-        model.handle(Key::Char('4'));
+        let mut second = model.recordings()[0].clone();
+        second.id = "rec-2".into();
+        model.recordings.push(second);
+        assert_eq!(model.handle(Key::Char('3')), Effect::None);
+        assert_eq!(model.handle(Key::Down), Effect::None);
+        assert_eq!(
+            model.selected_recording().map(|record| record.id.as_str()),
+            Some("rec-2")
+        );
+        assert_eq!(
+            model.selected().map(|station| station.id.as_str()),
+            Some("station-a")
+        );
+        for key in [Key::Enter, Key::Char('f'), Key::Char('v'), Key::Char('/')] {
+            assert_eq!(model.handle(key), Effect::None);
+        }
+        assert_eq!(model.handle(Key::Char('q')), Effect::Detach);
+        assert_eq!(model.captures_active(), 1);
+    }
+
+    #[test]
+    fn monitor_and_pending_findings_workspaces_can_be_selected() {
+        let mut model = loaded();
+        assert_eq!(model.handle(Key::Char('4')), Effect::MonitorList);
         assert_eq!(model.workspace(), Workspace::Monitors);
-        assert!(!model.workspace().available());
+        assert!(model.workspace().available());
         model.handle(Key::Char('5'));
         assert_eq!(model.workspace(), Workspace::Findings);
         assert_eq!(model.handle(Key::Char('6')), Effect::None);
         assert_eq!(model.workspace(), Workspace::System);
+    }
+
+    #[test]
+    fn finding_original_navigation_keeps_full_identity_and_bounds_the_loaded_page() {
+        let mut model = loaded();
+        let mut record = model.recordings()[0].clone();
+        record.id = "exact-long-recording-id:".repeat(4);
+        model.open_finding_recording(record.clone());
+        assert_eq!(model.workspace(), Workspace::Recordings);
+        assert_eq!(
+            model.selected_recording().map(|item| &item.id),
+            Some(&record.id)
+        );
+        assert_eq!(
+            model.selected().map(|row| row.id.as_str()),
+            Some("station-a")
+        );
+        record.state = "completed".into();
+        model.open_finding_recording(record.clone());
+        assert_eq!(model.recordings.len(), 2);
+        assert_eq!(
+            model.selected_recording().map(|item| item.state.as_str()),
+            Some("completed")
+        );
+        for index in 0..50 {
+            record.id = format!("recording-{index}");
+            model.open_finding_recording(record.clone());
+        }
+        assert_eq!(model.recordings.len(), 16);
+        assert_eq!(model.captures_active(), 1);
+        assert!(model.playback().is_none());
     }
 
     #[test]

@@ -1436,6 +1436,16 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // The final retained file uses whole-recording deletion. Refuse before
+        // storing a receipt so its published byte history can never become zero.
+        let final_retained: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM recordings WHERE id = ?1 AND storage_state = 'retained' AND media_bytes <= ?2)",
+            params![release.id, release.byte_length],
+            |row| row.get(0),
+        )?;
+        if final_retained {
+            return Err(Error::RequestState);
+        }
         if tx.execute(
             "INSERT INTO recording_releases(recording_id, segment_ordinal, byte_length) VALUES (?1, ?2, ?3)",
             params![release.id, release.ordinal, release.byte_length],
@@ -1445,7 +1455,7 @@ impl Store {
         }
         if release.storage_state == "retained"
             && tx.execute(
-                "UPDATE recordings SET charged_bytes = charged_bytes - ?2, media_bytes = media_bytes - ?2 WHERE id = ?1 AND storage_state = 'retained' AND retention = 'temporary' AND charged_bytes >= ?2 AND media_bytes >= ?2",
+                "UPDATE recordings SET charged_bytes = charged_bytes - ?2, media_bytes = media_bytes - ?2 WHERE id = ?1 AND storage_state = 'retained' AND retention = 'temporary' AND charged_bytes >= ?2 AND media_bytes > ?2",
                 params![release.id, release.byte_length],
             )? != 1
         {

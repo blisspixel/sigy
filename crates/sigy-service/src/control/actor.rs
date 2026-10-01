@@ -27,6 +27,7 @@ mod listen;
 mod monitor;
 mod playlist;
 mod podcast;
+mod task;
 
 pub(super) enum Message {
     AnalysisFinished {
@@ -130,6 +131,8 @@ struct Actor {
     acquirer: HttpAcquirer,
     /// Earliest time of the next monitor pass.
     next_monitor_pass_ms: i64,
+    /// Last task visited by the bounded publication pass, not execution authority.
+    task_cursor: Option<String>,
 }
 
 impl Actor {
@@ -802,6 +805,7 @@ pub(super) fn spawn(
         playback: super::playback::PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
         next_monitor_pass_ms: 0,
+        task_cursor: None,
     };
     let thread = thread::Builder::new()
         .name("sigy-catalog".into())
@@ -812,6 +816,7 @@ pub(super) fn spawn(
             if actor.reconcile_schedules().is_err()
                 || actor.reconcile_directory().is_err()
                 || actor.schedule().is_err()
+                || actor.reconcile_tasks().is_err()
             {
                 stopped = true;
                 actor.stop();
@@ -900,7 +905,8 @@ fn dispatch(
             let failed = !*stopped
                 && (actor.reconcile_schedules().is_err()
                     || actor.reconcile_directory().is_err()
-                    || actor.reconcile_monitors().is_err());
+                    || actor.reconcile_monitors().is_err()
+                    || actor.reconcile_tasks().is_err());
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::Shutdown => {

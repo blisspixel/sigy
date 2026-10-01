@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "status": { "type": "string", "enum": ["acceptable", "critical", "abstained"] },
+    "source_quote": { "type": "string", "maxLength": 512 },
+    "reference_quote": { "type": "string", "maxLength": 512 },
+    "output_quote": { "type": "string", "maxLength": 512 },
+    "reason": { "type": "string", "maxLength": 512 }
+  },
+  "required": ["status", "source_quote", "reference_quote", "output_quote", "reason"]
+}

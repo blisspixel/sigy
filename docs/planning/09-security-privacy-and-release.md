@@ -1,6 +1,6 @@
 # Security, privacy, and release design
 
-Last updated: 2026-09-22. Status: proposed controls derived from the product's source, service, model, and extension boundaries. This is not a completed security assessment.
+Last updated: 2026-09-30. Status: proposed controls derived from the product's source, service, model, and extension boundaries. This is not a completed security assessment.
 
 ## 1. Properties to preserve
 
@@ -43,7 +43,9 @@ Radio audio, source metadata, transcripts, translations, music fingerprints/clip
 
 Record provider data-handling assumptions, configured options, and review date without promising behavior outside Sigy's control. Send only the selected material needed for the task. Disabling remote processing prevents new requests but cannot recall data already transmitted.
 
-No telemetry or diagnostic upload is enabled implicitly by this design. Local diagnostics should report health with bounded retention and redact secrets. User exports can deliberately contain source material; support bundles have a separate minimal manifest.
+The 2026-09-30 clarification requires private, bounded local product diagnostics. No analytics, automatic crash upload or diagnostic phone-home is part of the product. Logs report necessary operation state and redacted failures; they do not duplicate full prompts, hidden reasoning, transcripts, raw observations, credentials or sensitive URL components. Necessary task and evidence content remains protected application data. Debug payload capture needs explicit local selection and bounded retention. Diagnostic growth cannot consume capture reserves. User exports can deliberately contain selected source material; support bundles have a separate minimal manifest, local inspection and explicit sharing. These requirements do not turn authorized source acquisition or configured provider processing into telemetry. Follow [task workflow privacy](../design/task-workflows.md#privacy-and-diagnostics).
+
+The dated [private diagnostics and recovery review](../../research/32-private-diagnostics-and-recovery.md) connects this contract to primary-source logging, SQLite and HTTP evidence. Its proposed matrix checks payload canaries, event bounds, local access, actual diagnostic egress and crash recovery. Typed diagnostic fields must exclude raw error/request objects at the producing boundary; redaction after unrestricted serialization is insufficient. Diagnostic loss must not prevent recovery, while missing durable policy or accounting state must fail closed. Retained task data, backups and diagnostic records have separate purposes and expiration rules. Logical deletion and hashing do not establish forensic erasure or anonymity.
 
 Publicly accessible reception and unrestricted redistribution are different questions. Store source/usage provenance and evaluate directory, stream, model, dataset, and dependency terms for the actual distribution and export features. This is a release-design task, not a blanket claim about every source's permissions.
 
@@ -76,5 +78,7 @@ Offline installers, model imports, and dependency bundles must receive equivalen
 Before first release, define supported platforms/dependency versions, advisory monitoring, release and revocation procedures. [SECURITY.md](../../SECURITY.md) describes the current vulnerability-reporting route and its limitations. Public source availability does not establish supported releases, isolation, certification, or operational readiness.
 
 Test recovery onto a clean machine using documented artifacts. Include migration failures, full disk, unavailable secret stores, stale update metadata, and a failed model upgrade. Verify that restoring an old library cannot silently resume stale paid requests or old schedules.
+
+Apply the [recovery research gates](../../research/32-private-diagnostics-and-recovery.md#practical-next-evidence) to new durable task boundaries. Persist effect identities before dispatch and reconcile service jobs and receipts before retrying. Preserve WAL and current synchronization settings, verify actual configuration, and distinguish process death from OS crash and physical power loss. Checkpoint growth, media publication and backup manifests need evidence alongside catalog consistency. Existing offline backup and same-host restore measurements do not establish clean-host, final-schema or physical power-loss qualification.
 
 First-release acceptance requires network-boundary, local-control, destination, redaction, update/recovery, and dependency checks. Later third-party plugins and modern cryptography require their own focused qualification before enabling those claims. All controls remain independent of the selected application language.

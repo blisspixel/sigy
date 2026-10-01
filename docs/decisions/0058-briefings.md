@@ -1,6 +1,6 @@
 # Briefings
 
-Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v38. This is the local exit of roadmap operation 33: one generation over stored findings, with coverage stated first, one repetition group counted once, and conflict left unresolved. Classification stays off. Frozen coverage, a redacted export, and a classifier remain. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited. Operations 34 and 35 remain. Amended 2026-09-30 by [frozen briefing coverage](0059-frozen-briefing-coverage.md): coverage on a stored briefing is the snapshot frozen at publish. `monitor coverage` still reads live. This briefing command does not by itself write the export. Catalog schema and local IPC are now v39. Operation 35 remains.
+Date: 2026-09-29. Status: implemented and tested on Windows x86_64. Catalog schema and local IPC are v38. This is the local exit of roadmap operation 33: one generation over stored findings, with coverage stated first, one repetition group counted once, and conflict left unresolved. Classification stays off. Frozen coverage, a redacted export, and a classifier remain. No language is qualified. Stage 5 stays open because operations 23, 24, 25, and 28 are still partial. Operation 28 is not exited. Operations 34 and 35 remain. Amended 2026-09-30 by [frozen briefing coverage](0059-frozen-briefing-coverage.md): coverage on a stored briefing is the snapshot frozen at publish. `monitor coverage` still reads live. This briefing command does not by itself write the export. Catalog schema and local IPC are now v39. The subsequent [classification-off increment](0061-classification-off-and-monitor-inspection.md) supplies operation 35 local evidence.
 
 ## Decision
 
@@ -54,4 +54,4 @@ On 2026-09-29, `cargo verify` passed 530 tests, with 15 native-media tests ignor
 - The fixture is one local Spanish cue family. It is not a public-station run.
 - A recognition phrase stored through a window end can still clip a word. This command does not reopen that recognition.
 - Linux delegated-cgroup containment and the suspended-spawn assignment window remain deferred. The window stays open.
-- Stage 5 is not exited. Operations 23, 24, 25, and 28 remain partial. Operation 28 is not exited. Operation 35 has not started.
+- Stage 5 is not exited. Operations 23, 24, 25, and 28 remain partial. Operation 28 is not exited. The subsequent [classification-off increment](0061-classification-off-and-monitor-inspection.md) supplies operation 35's local evidence; stage 6 remains open.

@@ -61,3 +61,46 @@ fn mcp_stdio_reads_one_library_and_rejects_another_directory() -> TestResult {
     }
     Ok(())
 }
+
+#[test]
+fn task_publication_and_cancellation_remain_outside_mcp_authority() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sigy"))
+        .arg("--data-dir")
+        .arg(directory.path())
+        .arg("mcp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let mut stdin = child.stdin.take().ok_or("stdin")?;
+    let stdout = child.stdout.take().ok_or("stdout")?;
+    for (id, name) in [(1, "task_execute"), (2, "task_cancel"), (3, "task_create")] {
+        serde_json::to_writer(
+            &mut stdin,
+            &serde_json::json!({"jsonrpc":"2.0", "id":id, "method":"tools/call", "params":{"name":name,"arguments":{"id":"private-task-canary", "shell":"arbitrary", "paid_allowance":"20"}}}),
+        )?;
+        stdin.write_all(b"\n")?;
+    }
+    stdin.flush()?;
+    drop(stdin);
+    let replies = BufReader::new(stdout)
+        .lines()
+        .collect::<Result<Vec<_>, _>>()?;
+    let status = child.wait()?;
+    assert!(status.success());
+    assert_eq!(replies.len(), 3);
+    for reply in replies {
+        let value: serde_json::Value = serde_json::from_str(&reply)?;
+        assert_eq!(value["result"]["isError"], true);
+        assert!(
+            value["result"]["content"][0]["text"]
+                .as_str()
+                .ok_or("error text")?
+                .contains("unknown tool")
+        );
+        assert!(!reply.contains("private-task-canary"));
+    }
+    assert!(!directory.path().join("catalog.sqlite").exists());
+    Ok(())
+}

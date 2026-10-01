@@ -12,14 +12,12 @@ use super::{Store, active_sources, latest_version};
 use crate::{
     Error, Result,
     monitor::{
-        MATCH_PAGE, MAX_WINDOW_CAPTURES, MonitorCoverage, MonitorMatches, PassageMatch,
-        ScheduleCoverage, SourceCoverage, check_window, searches_english, term_matches,
+        MATCH_PAGE, MAX_SCANNED_TRANSCRIPTS, MAX_WINDOW_CAPTURES, MonitorCoverage, MonitorMatches,
+        PassageMatch, ScheduleCoverage, SourceCoverage, check_window, searches_english,
+        term_matches,
     },
     storage::validate_key,
 };
-
-/// Most transcripts one match request reads.
-const MAX_SCANNED_TRANSCRIPTS: u32 = 512;
 
 struct Capture {
     id: String,
@@ -330,9 +328,16 @@ pub(crate) fn coverage_at(
         .iter()
         .map(|source| source_coverage(connection, source, from_ms, to_ms))
         .collect::<Result<Vec<_>>>()?;
-    let schedules = version
-        .spec
-        .schedules
+    let mut schedule_ids: std::collections::BTreeSet<String> =
+        version.spec.schedules.iter().cloned().collect();
+    let mut statement = connection.prepare(
+        "SELECT rule_id FROM monitor_capture_rules WHERE monitor_id = ?1 ORDER BY rule_id",
+    )?;
+    let owned = statement
+        .query_map([id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    schedule_ids.extend(owned);
+    let schedules = schedule_ids
         .iter()
         .map(|schedule| schedule_coverage(connection, schedule, from_ms, to_ms))
         .collect::<Result<Vec<_>>>()?;

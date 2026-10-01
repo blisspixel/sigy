@@ -1,6 +1,6 @@
 # Complete CLI, terminal explorer, and radio DVR
 
-Last updated: 2026-09-21. Status: the list explorer is implemented over the existing CLI operations. The globe, map, continuous DVR, and the rest of this terminal experience remain planned; see [progress](../development/progress.md).
+Last updated: 2026-09-30. Status: the list explorer, globe and flat map, monitor inspection, named finding navigation, recording metadata timeline, and segmented recording/playheads have local implementations. Live captions, audio sample visualizers and the complete terminal workflow remain open; see [progress](../development/progress.md). The contract below describes the intended complete experience.
 
 ## 1. Experience
 

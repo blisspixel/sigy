@@ -2049,9 +2049,10 @@ fn running_capture_seals_ordered_segments_on_one_socket() -> TestResult {
         success(directory.path(), &["dvr", "status"])?["dvr"]["reserved_bytes"],
         64 * 1024 * 1024
     );
-    let second = wait_segments(directory.path(), 2)?;
+    let (second, stalled_clients) = wait_segments_with_stalled_clients(directory.path(), 2)?;
     assert_eq!(second["state"], "running");
     assert_eq!(server.hits(), 1);
+    assert!(!stalled_clients.is_empty());
     let intervals = second["intervals"].as_array().ok_or("intervals")?;
     assert_eq!(intervals[0]["ordinal"], 0);
     assert_eq!(intervals[1]["ordinal"], 1);
@@ -2061,6 +2062,7 @@ fn running_capture_seals_ordered_segments_on_one_socket() -> TestResult {
         intervals[0]["decoded_end_us"]
     );
     let checked = play_two_segments_without_stopping_capture(directory.path(), intervals);
+    drop(stalled_clients);
     server.release_tail();
     checked?;
     server.finish()?;
@@ -2240,4 +2242,70 @@ fn wait_segments(
         }
         thread::sleep(Duration::from_millis(50));
     }
+}
+
+type StalledClients = Vec<Box<dyn Write>>;
+
+/// A fresh partial header is held throughout each second of the later seal wait.
+/// Old handlers may reach the existing five-second deadline; none gets a mutation.
+fn wait_segments_with_stalled_clients(
+    directory: &std::path::Path,
+    count: usize,
+) -> Result<(serde_json::Value, StalledClients), Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut clients = Vec::new();
+    let mut next_client = Instant::now();
+    loop {
+        if Instant::now() >= next_client && clients.len() < 20 {
+            let mut client = partial_control_client(directory)?;
+            client.write_all(&[0])?;
+            clients.push(client);
+            next_client = Instant::now() + Duration::from_secs(1);
+        }
+        let response = success(directory, &["record", "show", "segments"])?;
+        let record = &response["recording_page"]["entries"][0];
+        let intervals = record["intervals"].as_array().map_or(0, Vec::len);
+        if intervals >= count && record["state"] == "running" {
+            return Ok((record.clone(), clients));
+        }
+        assert_ne!(record["state"], "failed", "{record}");
+        assert!(
+            Instant::now() < deadline,
+            "stalled-client seal deadline: {record}"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(windows)]
+fn partial_control_client(
+    directory: &std::path::Path,
+) -> Result<Box<dyn Write>, Box<dyn std::error::Error>> {
+    let endpoint: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.join("service.json"))?)?;
+    let nonce = endpoint["nonce"].as_str().ok_or("endpoint nonce")?;
+    let pipe = format!(r"\\.\pipe\sigy-{nonce}");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&pipe)
+        {
+            Ok(file) => return Ok(Box::new(file)),
+            Err(error) if error.raw_os_error() == Some(231) && Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn partial_control_client(
+    directory: &std::path::Path,
+) -> Result<Box<dyn Write>, Box<dyn std::error::Error>> {
+    Ok(Box::new(std::os::unix::net::UnixStream::connect(
+        directory.join("control.sock"),
+    )?))
 }

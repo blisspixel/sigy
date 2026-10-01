@@ -257,10 +257,11 @@ fn schema_28_applies_to_a_v27_catalog_and_rolls_back_on_failure() -> TestResult 
     store.set_budget_limit("global", "2".parse()?)?;
     store.reserve("kept", "model-v1", "0.5".parse()?, &[])?;
     drop(store);
-    let downgrade = "DROP TABLE IF EXISTS monitor_briefing_reasons; DROP TABLE IF EXISTS monitor_briefing_sources; DROP TABLE IF EXISTS monitor_briefing_schedules; DROP TABLE IF EXISTS monitor_briefing_coverage; DROP TABLE IF EXISTS monitor_briefing_members; DROP TABLE IF EXISTS monitor_briefings; DROP TABLE IF EXISTS monitor_findings; DROP TABLE monitor_steps; DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; DROP TABLE translation_cues; DROP TABLE translations; DROP TABLE translation_jobs; DROP TABLE translation_profiles; DROP TABLE provider_attempts; DROP TABLE provider_price_snapshots; DROP TABLE provider_route_pairs; DROP TABLE provider_routes; PRAGMA user_version = 27;";
+    let downgrade = "DROP TABLE translation_cues; DROP TABLE translations; DROP TABLE translation_jobs; DROP TABLE translation_profiles; DROP TABLE provider_attempts; DROP TABLE provider_price_snapshots; DROP TABLE provider_route_pairs; DROP TABLE provider_routes; PRAGMA user_version = 27;";
     let mut connection = rusqlite::Connection::open(&path)?;
     crate::storage::job_pool::revert_031_for_tests(&mut connection)?;
     crate::storage::widen::revert_030_for_tests(&mut connection)?;
+    crate::storage::monitors::revert_032_for_tests(&connection)?;
     connection.execute_batch(downgrade)?;
     // A conflicting object makes the migration fail part way through.
     connection.execute_batch("CREATE TABLE provider_attempts(x INTEGER);")?;

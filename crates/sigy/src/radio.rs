@@ -279,8 +279,8 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
             writeln!(
                 writer,
                 "Refresh {}: {} | accepted {} | skipped {} | started {}",
-                refresh.id,
-                ink.tint(tone_for_state(&refresh.state), &refresh.state),
+                clean(&refresh.id),
+                ink.tint(tone_for_state(&refresh.state), &clean(&refresh.state)),
                 refresh.accepted,
                 refresh.skipped,
                 age(refresh.started_ms)
@@ -289,7 +289,7 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
                 writeln!(
                     writer,
                     "{}",
-                    ink.tint(Tone::Fail, &format!("Reason: {failure}"))
+                    ink.tint(Tone::Fail, &format!("Reason: {}", clean(failure)))
                 )?;
             }
         }
@@ -298,16 +298,16 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
         writeln!(
             writer,
             "Click {}: {} | station {} | acknowledged {}",
-            click.id,
-            ink.tint(tone_for_state(&click.state), &click.state),
-            click.station_id,
+            clean(&click.id),
+            ink.tint(tone_for_state(&click.state), &clean(&click.state)),
+            clean(&click.station_id),
             if click.acknowledged { "yes" } else { "no" }
         )?;
         if let Some(failure) = &click.failure {
             writeln!(
                 writer,
                 "{}",
-                ink.tint(Tone::Fail, &format!("Reason: {failure}"))
+                ink.tint(Tone::Fail, &format!("Reason: {}", clean(failure)))
             )?;
         }
     }
@@ -346,7 +346,7 @@ fn write_policies(
         writeln!(
             writer,
             "{}: every {hours} h | revision {} | {}",
-            policy.id,
+            clean(&policy.id),
             policy.revision,
             ink.tint(Tone::Warn, &next_due(policy.next_due_ms))
         )?;
@@ -354,8 +354,8 @@ fn write_policies(
             writeln!(
                 writer,
                 "  Last attempt {}: {}.",
-                refresh.id,
-                ink.tint(tone_for_state(&refresh.state), &refresh.state)
+                clean(&refresh.id),
+                ink.tint(tone_for_state(&refresh.state), &clean(&refresh.state))
             )?;
         }
     }
@@ -395,8 +395,8 @@ fn write_stations(
         writeln!(
             writer,
             "{}: {}{favorite} | {} | {} | bitrate {} | directory languages: {}",
-            station.id,
-            station.name,
+            clean(&station.id),
+            clean(&station.name),
             known(&station.country),
             known(&station.codec),
             if station.bitrate_kbps == 0 {
@@ -411,12 +411,12 @@ fn write_stations(
             "  Tags: {} | observed {} | origin {}",
             known(&station.tags.join(", ")),
             age(station.observed_ms),
-            station.stream_origin
+            clean(&station.stream_origin)
         )?;
         if station.hls {
             writeln!(
                 writer,
-                "  HLS stream: current recording adapter does not support this format."
+                "  HLS stream: register a source revision, then use record hls. Use --live for a live media playlist; master variants require explicit acceptance."
             )?;
         }
     }
@@ -427,13 +427,26 @@ fn write_stations(
         )?;
     }
     if let Some(after) = &page.next_after {
-        writeln!(writer, "Continue with the same filters and --after {after}")?;
+        writeln!(
+            writer,
+            "Continue with the same filters and --after {}",
+            clean(after)
+        )?;
     }
     Ok(())
 }
 
-fn known(value: &str) -> &str {
-    if value.is_empty() { "unknown" } else { value }
+fn known(value: &str) -> String {
+    let text = clean(value);
+    if text.is_empty() {
+        "unknown".into()
+    } else {
+        text
+    }
+}
+
+fn clean(value: &str) -> String {
+    crate::explorer::text::sanitize(value, 1024)
 }
 
 fn age(observed_ms: i64) -> String {
@@ -457,5 +470,171 @@ fn age(observed_ms: i64) -> String {
         format!("{}h ago", seconds / 3600)
     } else {
         format!("{}d ago", seconds / 86_400)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sigy_service::{
+        control::{PolicyDisposition, StationPage},
+        discovery::Station,
+        storage::discovery::{DirectoryStatus, RefreshStatus},
+    };
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn snapshot() -> Result<Snapshot, serde_json::Error> {
+        serde_json::from_value(
+            serde_json::json!({"schema_version":39,"sqlite_version":"fixture",
+            "provider_dispatch_available":false,"budgets":[],"captures":{"dispatch_available":false,
+                "scheduled":0,"active":0,"interrupted":0,"terminal":0}}),
+        )
+    }
+
+    fn refresh() -> RefreshStatus {
+        RefreshStatus {
+            id: "refresh\u{1b}[2J".into(),
+            request: RefreshRequest {
+                filter: StationFilter::default(),
+                limit: 1,
+                offset: 0,
+                mirror: None,
+                network: NetworkScope::PublicInternet {},
+            },
+            state: "failed\u{7}".into(),
+            started_ms: -1,
+            completed_ms: Some(0),
+            accepted: 1,
+            skipped: 2,
+            mirror_origin: None,
+            failure: Some("unavailable\u{1b}]52;c;payload\u{7}\nforged".into()),
+        }
+    }
+
+    #[test]
+    fn station_output_sanitizes_observations_and_points_hls_to_explicit_recording() -> TestResult {
+        let station: Station =
+            serde_json::from_value(serde_json::json!({"provider":"radio_browser",
+            "id":"station\u{1b}[2J","name":"أخبار\u{1b}]52;c;payload\u{7}","country":"",
+            "state":"", "languages":["français\r\nforged","Diné bizaad"], "language_codes":[],
+            "tags":["news\u{1b}[31m"], "codec":"", "bitrate_kbps":0,"hls":true,"last_check_ok":null,
+            "latitude":null,"longitude":null,"stream_origin":"https://radio.invalid\u{7}",
+            "observed_ms":-1,"refresh_id":"refresh"}))?;
+        let mut page = StationPage {
+            favorite_ids: vec![station.id.clone()],
+            entries: vec![station],
+            next_after: Some("station\u{1b}[2J".into()),
+        };
+        let mut bytes = Vec::new();
+        write_stations(&mut bytes, &page, Ink::stdout(true))?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.contains("أخبار"));
+        assert!(text.contains("français"));
+        assert!(text.contains("Diné bizaad"));
+        assert!(text.contains("[favorite] | unknown | unknown | bitrate unknown"));
+        assert!(text.contains("record hls"));
+        assert!(text.contains("--live"));
+        assert!(text.contains("master variants require explicit acceptance"));
+        assert!(!text.contains("does not support this format"));
+        assert!(!text.chars().any(|ch| ch.is_control() && ch != '\n'));
+        assert_eq!(text.lines().count(), 4);
+        assert!(page.entries[0].name.contains('\u{1b}'));
+        page.entries[0].bitrate_kbps = 128;
+        page.entries[0].hls = false;
+        page.favorite_ids.clear();
+        bytes = Vec::new();
+        write_stations(&mut bytes, &page, Ink::stdout(true))?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.contains("128 kbps"));
+        assert!(!text.contains("HLS stream"));
+        assert!(!text.contains("[favorite]"));
+        page.entries.clear();
+        bytes = Vec::new();
+        write_stations(&mut bytes, &page, Ink::stdout(true))?;
+        assert!(String::from_utf8(bytes)?.contains("No cached matches"));
+        Ok(())
+    }
+
+    #[test]
+    fn refresh_click_and_policy_evidence_stay_bounded_and_terminal_safe() -> TestResult {
+        let mut view = snapshot()?;
+        view.directory = Some(DirectoryStatus {
+            cached_stations: 1,
+            favorite_stations: 1,
+            maximum_stations: 10_000,
+            oldest_observed_ms: Some(0),
+            newest_observed_ms: Some(0),
+            stale_stations: 1,
+            latest_refresh: Some(refresh()),
+        });
+        view.directory_click = Some(sigy_service::storage::ClickStatus {
+            id: "click\u{1b}[2J".into(),
+            station_id: "station\u{7}".into(),
+            state: "future-state\u{1b}[31m".into(),
+            started_ms: 0,
+            completed_ms: None,
+            mirror_origin: None,
+            acknowledged: false,
+            failure: Some("denied\nforged".into()),
+        });
+        view.directory_policy = Some(serde_json::from_value(serde_json::json!({
+            "policies":[{"id":"policy\u{1b}[2J", "interval_ms":3_600_000,"revision":2,
+                "updated_ms":0,"next_due_ms":0,"request":refresh().request,"last_refresh":refresh()}],
+            "disposition":"created","listed":true
+        }))?);
+        let mut bytes = Vec::new();
+        render(&mut bytes, &view, Ink::stdout(true))?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.contains("Partial observations, not the complete world catalog"));
+        assert!(text.contains("Favorites and unseen stations stay"));
+        assert!(text.contains("accepted 1 | skipped 2"));
+        assert!(text.contains("acknowledged no"));
+        assert!(text.contains("every 1 h | revision 2 | due"));
+        assert!(text.contains("Last attempt refresh"));
+        assert!(!text.chars().any(|ch| ch.is_control() && ch != '\n'));
+        let directory = view.directory.as_mut().ok_or("directory")?;
+        directory.stale_stations = 0;
+        directory.latest_refresh = None;
+        view.directory_refresh = Some(refresh());
+        view.directory_click.as_mut().ok_or("click")?.acknowledged = true;
+        let page = view.directory_policy.as_mut().ok_or("policy")?;
+        page.policies.clear();
+        for disposition in [
+            None,
+            Some(PolicyDisposition::Revised),
+            Some(PolicyDisposition::Unchanged),
+        ] {
+            page.disposition = disposition;
+            write_policies(&mut Vec::new(), page, Ink::stdout(true))?;
+        }
+        bytes = Vec::new();
+        render(&mut bytes, &view, Ink::stdout(true))?;
+        assert!(String::from_utf8(bytes)?.contains("acknowledged yes"));
+        Ok(())
+    }
+
+    #[test]
+    fn metadata_clock_and_empty_labels_are_truthful() -> TestResult {
+        let now = i64::try_from(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)?
+                .as_millis(),
+        )?;
+        assert_eq!(known("\u{7}"), "unknown");
+        assert_eq!(next_due(-1), "due");
+        assert!(next_due(now + 120_000).starts_with("due in "));
+        assert!(next_due(now + 7_200_000).ends_with('h'));
+        assert_eq!(age(-1), "unknown age (clock mismatch)");
+        assert_eq!(age(i64::MAX), "unknown age (clock mismatch)");
+        for (duration, suffix) in [
+            (0, "s ago"),
+            (120_000, "m ago"),
+            (7_200_000, "h ago"),
+            (172_800_000, "d ago"),
+        ] {
+            assert!(age(now - duration).ends_with(suffix));
+        }
+        Ok(())
     }
 }

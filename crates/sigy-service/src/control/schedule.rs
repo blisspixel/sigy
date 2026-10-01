@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::{Operation, Snapshot};
 use crate::{
     Error, Result,
+    monitor::{MonitorCaptureAdmission, MonitorScheduleOwner},
     schedule::{parse_clock, parse_weekday, weekday_name},
     storage::{
         Store,
@@ -31,6 +32,8 @@ pub enum ScheduleOperation {
         maximum_bytes: u64,
         #[serde(default)]
         analysis_profile: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        monitor_owner: Option<MonitorScheduleOwner>,
     },
     Revise {
         id: String,
@@ -81,6 +84,8 @@ pub struct ScheduleRuleView {
     pub duration_seconds: i64,
     pub maximum_bytes: i64,
     pub revision: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor_owner: Option<MonitorScheduleOwner>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +102,8 @@ pub struct ScheduleOccurrenceView {
     pub duration_seconds: i64,
     pub maximum_bytes: i64,
     pub recording_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_admission: Option<MonitorCaptureAdmission>,
 }
 
 pub(super) fn apply(store: &mut Store, operation: ScheduleOperation) -> Result<Snapshot> {
@@ -112,6 +119,7 @@ pub(super) fn apply(store: &mut Store, operation: ScheduleOperation) -> Result<S
             seconds,
             maximum_bytes,
             analysis_profile,
+            monitor_owner,
         } => {
             reject_analysis(analysis_profile.as_deref())?;
             let draft = draft(DraftInput {
@@ -125,7 +133,11 @@ pub(super) fn apply(store: &mut Store, operation: ScheduleOperation) -> Result<S
                 seconds,
                 maximum_bytes,
             })?;
-            let saved = crate::storage::schedules::create_schedule(store, &draft)?;
+            let saved = if let Some(owner) = monitor_owner {
+                store.create_monitor_schedule_at(&draft, &owner, crate::storage::now_ms()?)?
+            } else {
+                crate::storage::schedules::create_schedule(store, &draft)?
+            };
             page_from_saved(saved)?
         }
         ScheduleOperation::Revise {
@@ -309,6 +321,7 @@ fn rule_view(rule: ScheduleRule) -> Result<ScheduleRuleView> {
         duration_seconds: rule.duration_seconds,
         maximum_bytes: rule.maximum_bytes,
         revision: rule.revision,
+        monitor_owner: rule.monitor_owner,
     })
 }
 
@@ -325,6 +338,7 @@ fn occurrence_view(occurrence: ScheduleOccurrence) -> ScheduleOccurrenceView {
         duration_seconds: occurrence.duration_seconds,
         maximum_bytes: occurrence.maximum_bytes,
         recording_id: occurrence.recording_id,
+        capture_admission: occurrence.capture_admission,
     }
 }
 
@@ -366,6 +380,7 @@ mod tests {
                     seconds: 60,
                     maximum_bytes: 1024,
                     analysis_profile: Some("transcript".into()),
+                    monitor_owner: None,
                 },
             },
         );

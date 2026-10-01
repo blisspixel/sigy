@@ -12,6 +12,7 @@ use super::{
 };
 use crate::{
     Error, Result,
+    monitor::{MonitorCaptureAdmission, MonitorScheduleOwner},
     schedule::{
         self, Cadence, Clock, MAX_OCCURRENCES, MAX_SCHEDULES, Slot, Timing, add_days, civil_today,
         is_weekday, parse_date, resolve,
@@ -34,6 +35,7 @@ pub struct ScheduleRule {
     pub revision: i64,
     pub created_ms: i64,
     pub updated_ms: i64,
+    pub monitor_owner: Option<MonitorScheduleOwner>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +57,7 @@ pub struct ScheduleOccurrence {
     pub miss_reason: Option<String>,
     pub recording_id: Option<String>,
     pub created_ms: i64,
+    pub capture_admission: Option<MonitorCaptureAdmission>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,12 +105,30 @@ impl Store {
         draft: &ScheduleDraft,
         now_ms: i64,
     ) -> Result<ScheduleSaved> {
+        self.create_schedule_owned_at(draft, None, now_ms)
+    }
+
+    pub(crate) fn create_monitor_schedule_at(
+        &mut self,
+        draft: &ScheduleDraft,
+        owner: &MonitorScheduleOwner,
+        now_ms: i64,
+    ) -> Result<ScheduleSaved> {
+        self.create_schedule_owned_at(draft, Some(owner), now_ms)
+    }
+
+    fn create_schedule_owned_at(
+        &mut self,
+        draft: &ScheduleDraft,
+        owner: Option<&MonitorScheduleOwner>,
+        now_ms: i64,
+    ) -> Result<ScheduleSaved> {
         let prepared = prepare(draft)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(existing) = read_rule(&tx, &prepared.id)? {
-            if !same_rule(&existing, &prepared) {
+            if !same_rule(&existing, &prepared) || existing.monitor_owner.as_ref() != owner {
                 return Err(Error::IdempotencyConflict);
             }
             let saved = saved(&tx, &prepared.id, false)?;
@@ -144,6 +165,9 @@ impl Store {
                 now_ms,
             ],
         )?;
+        if let Some(owner) = owner {
+            super::monitors::capture::attach(&tx, &prepared, owner)?;
+        }
         let rule = read_rule(&tx, &prepared.id)?.ok_or(Error::StorageIntegrity)?;
         materialize(&tx, &rule, now_ms)?;
         let saved = saved(&tx, &prepared.id, true)?;
@@ -441,6 +465,9 @@ fn admit_occurrence(
     occurrence: &ScheduleOccurrence,
     now_ms: i64,
 ) -> Result<Option<ScheduleLaunch>> {
+    if !super::monitors::capture::check(tx, rule, occurrence, now_ms)? {
+        return Ok(None);
+    }
     let start_ms = occurrence.start_ms.ok_or(Error::StorageIntegrity)?;
     let end_ms = occurrence.end_ms.ok_or(Error::StorageIntegrity)?;
     let seconds =
@@ -468,6 +495,7 @@ fn admit_occurrence(
     if changed != 1 {
         return Err(Error::StorageIntegrity);
     }
+    super::monitors::capture::reserve(tx, rule, occurrence, now_ms)?;
     let remaining_ms = u64::try_from(end_ms - now_ms).map_err(|_| Error::StorageIntegrity)?;
     Ok(Some(ScheduleLaunch {
         job,
@@ -694,7 +722,7 @@ fn saved(tx: &rusqlite::Connection, id: &str, newly_created: bool) -> Result<Sch
 }
 
 fn read_rule(connection: &rusqlite::Connection, id: &str) -> Result<Option<ScheduleRule>> {
-    connection
+    let mut rule: Option<ScheduleRule> = connection
         .query_row(
             "SELECT source_revision, zone, recurrence, civil_date, weekday, hour, minute, second, duration_seconds, maximum_bytes, revision, created_ms, updated_ms FROM schedule_rules WHERE id = ?1",
             [id],
@@ -714,11 +742,16 @@ fn read_rule(connection: &rusqlite::Connection, id: &str) -> Result<Option<Sched
                     revision: row.get(10)?,
                     created_ms: row.get(11)?,
                     updated_ms: row.get(12)?,
+                    monitor_owner: None,
                 })
             },
         )
         .optional()
-        .map_err(Error::from)
+        .map_err(Error::from)?;
+    if let Some(rule) = &mut rule {
+        rule.monitor_owner = super::monitors::capture::owner(connection, id)?;
+    }
+    Ok(rule)
 }
 
 fn read_occurrences(
@@ -737,7 +770,7 @@ fn read_occurrences(
 }
 
 fn read_occurrence(connection: &rusqlite::Connection, id: &str) -> Result<ScheduleOccurrence> {
-    connection
+    let mut occurrence = connection
         .query_row(
             "SELECT rule_id, rule_revision, civil_date, hour, minute, second, start_ms, end_ms, offset_seconds, transition_ms, duration_seconds, maximum_bytes, state, miss_reason, recording_id, created_ms FROM schedule_occurrences WHERE id = ?1",
             [id],
@@ -760,10 +793,13 @@ fn read_occurrence(connection: &rusqlite::Connection, id: &str) -> Result<Schedu
                     miss_reason: row.get(13)?,
                     recording_id: row.get(14)?,
                     created_ms: row.get(15)?,
+                    capture_admission: None,
                 })
             },
         )
-        .map_err(Error::from)
+        .map_err(Error::from)?;
+    occurrence.capture_admission = super::monitors::capture::admission(connection, id)?;
+    Ok(occurrence)
 }
 
 fn validate_rule_id(id: &str) -> Result<()> {
