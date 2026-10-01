@@ -41,6 +41,8 @@ This folder records primary-source findings, measured experiments, design implic
 
 ## Evidence discipline
 
+The [atomic monitor admission validation](experiments/monitor-processing-2026-10-01.md) checks job and usage rollback, historical replay, shared jobs and current authority before dispatch. Its scope excludes whole-pin rollback, model quality and general task execution.
+
 The [v41 task validation](experiments/task-scope-2026-09-30.md) connects the agentic and privacy/recovery research to implemented scope storage, frozen observations, restart and backup/restore fixtures. It establishes no planner or model qualification.
 
 The [v42 execution validation](experiments/task-execution-2026-09-30.md) extends that evidence with explicit selected-checkpoint publication, exact briefing membership, atomic receipts, cancellation, revocation and retained finding history. It remains narrower than task-owned collection, general planning and professional recovery qualification.

@@ -1,6 +1,6 @@
 //! Translation profiles, jobs and immutable English revisions of one transcript revision.
 
-use rusqlite::{OptionalExtension, Row, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use super::{
     Store,
@@ -181,22 +181,12 @@ impl Store {
             }
             return Ok((job, false));
         }
-        if now < 0 {
-            return Err(Error::InvalidInput("clock range"));
-        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if !has_text(&tx, request)? {
-            return Err(Error::Analysis("transcript-has-no-recognized-text"));
-        }
-        job_pool::check_open_bound(&tx, Family::Translation)?;
-        tx.execute(
-            "INSERT INTO translation_jobs(id, generation, transcript_id, transcript_revision, profile, profile_sha256, state, created_ms, lineage) VALUES (?1, 1, ?2, ?3, ?4, ?5, 'queued', ?6, ?2)",
-            params![request.id, request.transcript_id, request.transcript_revision, request.profile, request.profile_sha256, now],
-        )?;
+        let created = enqueue_translation_in(&tx, request, now)?;
         tx.commit()?;
-        Ok((self.translation_job(&request.id)?, true))
+        Ok((self.translation_job(&request.id)?, created))
     }
 
     /// Start one queued translation under this owner, reading its cues and the stored
@@ -472,6 +462,41 @@ fn has_text(connection: &rusqlite::Connection, request: &TranslationRequest) -> 
         params![request.transcript_id, request.transcript_revision],
         |row| row.get(0),
     )?)
+}
+
+/// Canonical translation admission inside a caller-owned catalog transaction.
+pub(in crate::storage) fn enqueue_translation_in(
+    connection: &Connection,
+    request: &TranslationRequest,
+    now: i64,
+) -> Result<bool> {
+    request.validate()?;
+    let existing = connection
+        .query_row(
+            &format!("SELECT {JOB_COLUMNS} FROM translation_jobs WHERE id = ?1"),
+            [&request.id],
+            job_row,
+        )
+        .optional()?;
+    if let Some(job) = existing {
+        return if job.request == *request {
+            Ok(false)
+        } else {
+            Err(Error::IdempotencyConflict)
+        };
+    }
+    if now < 0 {
+        return Err(Error::InvalidInput("clock range"));
+    }
+    if !has_text(connection, request)? {
+        return Err(Error::Analysis("transcript-has-no-recognized-text"));
+    }
+    job_pool::check_open_bound(connection, Family::Translation)?;
+    connection.execute(
+        "INSERT INTO translation_jobs(id, generation, transcript_id, transcript_revision, profile, profile_sha256, state, created_ms, lineage) VALUES (?1, 1, ?2, ?3, ?4, ?5, 'queued', ?6, ?2)",
+        params![request.id, request.transcript_id, request.transcript_revision, request.profile, request.profile_sha256, now],
+    )?;
+    Ok(true)
 }
 
 fn source_cues(

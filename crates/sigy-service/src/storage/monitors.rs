@@ -474,7 +474,7 @@ pub(crate) mod capture;
 pub(crate) mod coverage;
 mod steps;
 
-pub(crate) use steps::StepRecord;
+pub(crate) use steps::{MonitorJobAdmission, MonitorJobScope, StepRecord};
 
 #[cfg(test)]
 mod tests;

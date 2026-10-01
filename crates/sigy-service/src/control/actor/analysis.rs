@@ -21,7 +21,7 @@ use crate::{
         job_pool::{JobKind, PoolCaps},
         now_ms,
     },
-    translation::{TranslationOutcome, TranslationWork},
+    translation::{TranslationOutcome, TranslationRequest, TranslationWork},
 };
 
 /// Claims attempted for one kind in one scheduling pass. Each failed claim ends a job,
@@ -147,6 +147,11 @@ pub(crate) struct TranscribeRequest {
     pub revision: i64,
     pub profile: String,
     pub parent_revision: Option<i64>,
+}
+
+pub(super) struct Prepared<T> {
+    pub request: T,
+    pub replay: bool,
 }
 
 impl Actor {
@@ -344,14 +349,32 @@ impl Actor {
     }
 
     pub(super) fn start_recognition(&mut self, request: TranscribeRequest) -> Result<()> {
+        let prepared = self.prepare_recognition(request)?;
+        if prepared.replay {
+            return Ok(());
+        }
+        self.library
+            .store_mut()
+            .enqueue_local_asr(&prepared.request, now_ms()?)?;
+        self.schedule()
+    }
+
+    pub(super) fn prepare_recognition(
+        &self,
+        request: TranscribeRequest,
+    ) -> Result<Prepared<LocalAsrRequest>> {
         let store = self.library.store();
         let profile = store.recognition_profile(&request.profile)?;
+        let existing = match store.local_asr_job(&request.id) {
+            Ok(job) => Some(job),
+            Err(Error::NotFound) => None,
+            Err(error) => return Err(error),
+        };
         let parent_revision = match request.parent_revision {
             Some(parent) => parent,
-            None => match store.local_asr_job(&request.id) {
-                Ok(job) => job.request.parent_revision,
-                Err(Error::NotFound) => store.latest_transcript_revision(&request.input)?,
-                Err(error) => return Err(error),
+            None => match &existing {
+                Some(job) => job.request.parent_revision,
+                None => store.latest_transcript_revision(&request.input)?,
             },
         };
         let request = LocalAsrRequest {
@@ -362,19 +385,22 @@ impl Actor {
             profile_sha256: profile.profile_sha256.clone(),
             parent_revision,
         };
-        if let Ok(job) = store.local_asr_job(&request.id) {
+        if let Some(job) = existing {
             // Replay returns history. It never selects a new model or reconnects.
             return if job.request == request {
-                Ok(())
+                Ok(Prepared {
+                    request,
+                    replay: true,
+                })
             } else {
                 Err(Error::IdempotencyConflict)
             };
         }
         self.decoder()?;
-        self.library
-            .store_mut()
-            .enqueue_local_asr(&request, now_ms()?)?;
-        self.schedule()
+        Ok(Prepared {
+            request,
+            replay: false,
+        })
     }
 
     fn launch_recognition(&mut self, id: &str) -> Result<bool> {
@@ -484,15 +510,35 @@ impl Actor {
         transcript_revision: Option<i64>,
         profile: &str,
     ) -> Result<()> {
-        use crate::translation::TranslationRequest;
+        let prepared = self.prepare_translation(id, input, transcript_revision, profile)?;
+        if prepared.replay {
+            return Ok(());
+        }
+        self.library
+            .store_mut()
+            .enqueue_translation(&prepared.request, now_ms()?)?;
+        self.schedule()
+    }
+
+    pub(super) fn prepare_translation(
+        &self,
+        id: &str,
+        input: &str,
+        transcript_revision: Option<i64>,
+        profile: &str,
+    ) -> Result<Prepared<TranslationRequest>> {
         let store = self.library.store();
         let profile = store.translation_profile(profile)?;
+        let existing = match store.translation_job(id) {
+            Ok(job) => Some(job),
+            Err(Error::NotFound) => None,
+            Err(error) => return Err(error),
+        };
         let transcript_revision = match transcript_revision {
             Some(revision) => revision,
-            None => match store.translation_job(id) {
-                Ok(job) => job.request.transcript_revision,
-                Err(Error::NotFound) => store.latest_transcript_revision(input)?,
-                Err(error) => return Err(error),
+            None => match &existing {
+                Some(job) => job.request.transcript_revision,
+                None => store.latest_transcript_revision(input)?,
             },
         };
         let request = TranslationRequest {
@@ -502,18 +548,21 @@ impl Actor {
             profile: profile.id.clone(),
             profile_sha256: profile.profile_sha256.clone(),
         };
-        if let Ok(job) = store.translation_job(id) {
+        if let Some(job) = existing {
             // Replay returns history and never runs the translator again.
             return if job.request == request {
-                Ok(())
+                Ok(Prepared {
+                    request,
+                    replay: true,
+                })
             } else {
                 Err(Error::IdempotencyConflict)
             };
         }
-        self.library
-            .store_mut()
-            .enqueue_translation(&request, now_ms()?)?;
-        self.schedule()
+        Ok(Prepared {
+            request,
+            replay: false,
+        })
     }
 
     fn launch_translation(&mut self, id: &str) -> Result<bool> {

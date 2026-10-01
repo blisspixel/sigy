@@ -1,4 +1,4 @@
-use rusqlite::{OptionalExtension, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use super::super::job_pool::{self, Family};
 use super::{Error, LocalAsrJob, Result, Store, find_job, validate_key};
@@ -14,25 +14,38 @@ impl Store {
         request: &LocalAsrRequest,
         now: i64,
     ) -> Result<(LocalAsrJob, bool)> {
+        let prepared = self.prepare_local_asr_job(request, now)?;
+        if prepared.is_none() {
+            return Ok((self.local_asr_job(&request.id)?, false));
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let created = Self::enqueue_local_asr_in(&tx, request, prepared.as_ref(), now)?;
+        tx.commit()?;
+        Ok((self.local_asr_job(&request.id)?, created))
+    }
+
+    /// Prepare retained input through the canonical validator, without admitting work.
+    pub(in crate::storage) fn prepare_local_asr_job(
+        &self,
+        request: &LocalAsrRequest,
+        now: i64,
+    ) -> Result<Option<LocalAsrWork>> {
         request.validate()?;
         if let Some(job) = find_job(&self.connection, &request.id)? {
             if job.request != *request {
                 return Err(Error::IdempotencyConflict);
             }
-            return Ok((job, false));
+            return Ok(None);
         }
         if now < 0 {
             return Err(Error::InvalidInput("clock range"));
         }
         let input = self.local_asr_input(request)?;
         let bytes = input.byte_length()?;
-        let files = i64::try_from(input.segments.len()).map_err(|_| Error::StorageIntegrity)?;
         let manifest_sha256 = manifest(&input)?;
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        job_pool::check_open_bound(&tx, Family::Analysis)?;
-        let work = LocalAsrWork {
+        Ok(Some(LocalAsrWork {
             job: LocalAsrJob {
                 request: request.clone(),
                 generation: 1,
@@ -48,19 +61,7 @@ impl Store {
                 started_ms: None,
             },
             input,
-        };
-        if !current_input(&tx, &work)? {
-            return Err(Error::Analysis("input-no-longer-current"));
-        }
-        if latest_parent(&tx, &request.analysis_id)? != request.parent_revision {
-            return Err(Error::Analysis("transcript-parent-conflict"));
-        }
-        tx.execute(
-            "INSERT INTO analysis_jobs(id, generation, analysis_id, analysis_revision, recording_id, profile, kind, profile_sha256, expected_parent_revision, state, expected_bytes, expected_files, manifest_sha256, amount_micros, created_ms, lineage) VALUES (?1, 1, ?2, ?3, ?4, ?5, 'local_asr', ?6, ?7, 'queued', ?8, ?11, ?9, 0, ?10, ?2)",
-            params![request.id, request.analysis_id, request.analysis_revision, work.input.recording_id, request.profile, request.profile_sha256, request.parent_revision, sql_integer(bytes)?, work.job.manifest_sha256, now, files],
-        )?;
-        tx.commit()?;
-        Ok((self.local_asr_job(&request.id)?, true))
+        }))
     }
 
     /// Start one queued recognition under this owner. The input and transcript parent are
@@ -176,6 +177,46 @@ impl Store {
             self.connection.execute("UPDATE analysis_jobs SET state = 'cancelling' WHERE id = ?1 AND generation = ?2 AND state = 'running'", params![id, generation])?;
         }
         self.local_asr_job(id)
+    }
+}
+
+impl Store {
+    /// Canonical recognition admission inside a caller-owned catalog transaction.
+    pub(in crate::storage) fn enqueue_local_asr_in(
+        connection: &Connection,
+        request: &LocalAsrRequest,
+        prepared: Option<&LocalAsrWork>,
+        now: i64,
+    ) -> Result<bool> {
+        request.validate()?;
+        if let Some(job) = find_job(connection, &request.id)? {
+            return if job.request == *request {
+                Ok(false)
+            } else {
+                Err(Error::IdempotencyConflict)
+            };
+        }
+        if now < 0 {
+            return Err(Error::InvalidInput("clock range"));
+        }
+        let work = prepared.ok_or(Error::StorageIntegrity)?;
+        if work.job.request != *request || work.job.created_ms != now {
+            return Err(Error::StorageIntegrity);
+        }
+        job_pool::check_open_bound(connection, Family::Analysis)?;
+        if !current_input(connection, work)? {
+            return Err(Error::Analysis("input-no-longer-current"));
+        }
+        if latest_parent(connection, &request.analysis_id)? != request.parent_revision {
+            return Err(Error::Analysis("transcript-parent-conflict"));
+        }
+        let files =
+            i64::try_from(work.input.segments.len()).map_err(|_| Error::StorageIntegrity)?;
+        connection.execute(
+        "INSERT INTO analysis_jobs(id, generation, analysis_id, analysis_revision, recording_id, profile, kind, profile_sha256, expected_parent_revision, state, expected_bytes, expected_files, manifest_sha256, amount_micros, created_ms, lineage) VALUES (?1, 1, ?2, ?3, ?4, ?5, 'local_asr', ?6, ?7, 'queued', ?8, ?11, ?9, 0, ?10, ?2)",
+        params![request.id, request.analysis_id, request.analysis_revision, work.input.recording_id, request.profile, request.profile_sha256, request.parent_revision, sql_integer(work.input.byte_length()?)?, work.job.manifest_sha256, now, files],
+    )?;
+        Ok(true)
     }
 }
 

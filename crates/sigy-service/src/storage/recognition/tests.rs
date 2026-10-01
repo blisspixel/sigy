@@ -1804,6 +1804,7 @@ fn an_unmeasured_monitor_does_not_jump_the_queue() -> TestResult {
     Ok(())
 }
 
+mod atomic_monitors;
 mod corrections;
 
 mod translation {

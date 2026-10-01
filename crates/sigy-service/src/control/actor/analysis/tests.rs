@@ -18,6 +18,8 @@ use sha2::{Digest, Sha256};
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
+#[path = "tests/monitor_admission_tests.rs"]
+mod monitor_admission_tests;
 #[path = "tests/task_tests.rs"]
 mod task_tests;
 

@@ -38,6 +38,8 @@ pub struct Recognized {
 pub struct Facts {
     pub monitor_id: String,
     pub version: u32,
+    /// Complete stored action prefix inspected with these facts, including refusals.
+    pub action_count: u32,
     pub paused: bool,
     pub daily_cap_us: u64,
     pub total_cap_us: u64,

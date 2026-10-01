@@ -13,6 +13,7 @@ fn facts() -> Facts {
     Facts {
         monitor_id: "dam".into(),
         version: 1,
+        action_count: 0,
         paused: false,
         daily_cap_us: 30 * MINUTE,
         total_cap_us: 100 * MINUTE,

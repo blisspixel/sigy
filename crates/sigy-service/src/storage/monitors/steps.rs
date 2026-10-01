@@ -15,6 +15,9 @@ use crate::{
 /// Most candidates or finished recognitions read for one monitor in one pass.
 const FACT_ROWS: u32 = 16;
 
+mod atomic;
+pub(crate) use atomic::{MonitorJobAdmission, MonitorJobScope};
+
 /// One step to record. Queued steps carry the pin and job they queued.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StepRecord<'a> {
@@ -115,6 +118,11 @@ impl Store {
         Ok(Facts {
             monitor_id: id.to_owned(),
             version: version.version,
+            action_count: self.connection.query_row(
+                "SELECT count(*) FROM monitor_actions WHERE monitor_id = ?1",
+                [id],
+                |row| row.get(0),
+            )?,
             paused: paused(&self.connection, id)?,
             daily_cap_us: u64::from(spec.daily_audio_seconds) * 1_000_000,
             total_cap_us: spec.total_audio_seconds * 1_000_000,
@@ -127,52 +135,23 @@ impl Store {
         })
     }
 
-    /// Record one step. A replay of an identical step is a no-op; the caps are rechecked
-    /// by the catalog.
+    /// Record one refusal. Queued work is admitted only by the atomic stage methods.
     /// # Errors
     /// Refuses a step that would exceed a cap, a stale policy version or a changed replay.
-    pub(crate) fn record_monitor_step(&mut self, step: &StepRecord<'_>, now_ms: i64) -> Result<()> {
-        let (decision, reason, analysis_id, job_id) = match step.outcome {
-            Ok((analysis_id, job_id)) => ("queued", None, Some(analysis_id), Some(job_id)),
-            Err(reason) => ("skipped", Some(reason), None, None),
-        };
-        let audio = i64::try_from(step.audio_us).map_err(|_| Error::InvalidInput("audio"))?;
-        let existing: Option<(String, Option<String>, Option<String>)> = self
-            .connection
-            .query_row(
-                "SELECT decision, reason, job_id FROM monitor_steps WHERE monitor_id = ?1 AND recording_id = ?2 AND stage = ?3",
-                params![step.monitor_id, step.recording_id, step.stage],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .optional()?;
-        if let Some(existing) = existing {
-            return if existing
-                == (
-                    decision.to_owned(),
-                    reason.map(str::to_owned),
-                    job_id.map(str::to_owned),
-                ) {
-                Ok(())
-            } else {
-                Err(Error::IdempotencyConflict)
-            };
+    pub(crate) fn record_monitor_skip(&mut self, step: &StepRecord<'_>, now_ms: i64) -> Result<()> {
+        if step.outcome.is_ok() {
+            return Err(Error::InvalidInput(
+                "queued monitor step requires atomic admission",
+            ));
         }
-        self.connection.execute(
-            "INSERT INTO monitor_steps(monitor_id, recording_id, stage, policy_version, decision, reason, analysis_id, job_id, audio_us, charged_day, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![
-                step.monitor_id,
-                step.recording_id,
-                step.stage,
-                step.policy_version,
-                decision,
-                reason,
-                analysis_id,
-                job_id,
-                audio,
-                today(now_ms),
-                now_ms
-            ],
-        )?;
+        write_step(&self.connection, step, now_ms)?;
+        Ok(())
+    }
+
+    /// Historical fixtures may stage queued rows directly; production cannot.
+    #[cfg(test)]
+    pub(crate) fn record_monitor_step(&mut self, step: &StepRecord<'_>, now: i64) -> Result<()> {
+        write_step(&self.connection, step, now)?;
         Ok(())
     }
 
@@ -201,4 +180,62 @@ impl Store {
             skipped,
         })
     }
+}
+
+type StepReplay = (
+    u32,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i64,
+);
+
+fn step_exists(connection: &Connection, step: &StepRecord<'_>) -> Result<bool> {
+    validate_key(step.monitor_id, "monitor ID")?;
+    validate_key(step.recording_id, "monitor recording ID")?;
+    let audio = i64::try_from(step.audio_us).map_err(|_| Error::InvalidInput("audio"))?;
+    let (decision, reason, analysis, job) = match step.outcome {
+        Ok((analysis, job)) => ("queued", None, Some(analysis), Some(job)),
+        Err(reason) => ("skipped", Some(reason), None, None),
+    };
+    let existing: Option<StepReplay> = connection.query_row(
+        "SELECT policy_version, decision, reason, analysis_id, job_id, audio_us FROM monitor_steps WHERE monitor_id = ?1 AND recording_id = ?2 AND stage = ?3",
+        params![step.monitor_id, step.recording_id, step.stage], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+    ).optional()?;
+    match existing {
+        None => Ok(false),
+        Some(row)
+            if row
+                == (
+                    step.policy_version,
+                    decision.into(),
+                    reason.map(str::to_owned),
+                    analysis.map(str::to_owned),
+                    job.map(str::to_owned),
+                    audio,
+                ) =>
+        {
+            Ok(true)
+        }
+        Some(_) => Err(Error::IdempotencyConflict),
+    }
+}
+
+fn write_step(connection: &Connection, step: &StepRecord<'_>, now: i64) -> Result<bool> {
+    if step_exists(connection, step)? {
+        return Ok(false);
+    }
+    if now < 0 {
+        return Err(Error::InvalidInput("monitor step clock"));
+    }
+    let (decision, reason, analysis, job) = match step.outcome {
+        Ok((analysis, job)) => ("queued", None, Some(analysis), Some(job)),
+        Err(reason) => ("skipped", Some(reason), None, None),
+    };
+    connection.execute(
+        "INSERT INTO monitor_steps(monitor_id, recording_id, stage, policy_version, decision, reason, analysis_id, job_id, audio_us, charged_day, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![step.monitor_id, step.recording_id, step.stage, step.policy_version, decision, reason, analysis, job, i64::try_from(step.audio_us).map_err(|_| Error::InvalidInput("audio"))?, today(now), now],
+    )?;
+    Ok(true)
 }

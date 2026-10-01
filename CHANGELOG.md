@@ -4,6 +4,17 @@
 
 Nothing yet.
 
+## 0.1.0-dev.20261001 (development prerelease, source only)
+
+Catalog schema and local IPC remain v42. This checkpoint has no supported release profile or roadmap stage exit. No prebuilt application binary or model is distributed. Verification evidence and remaining gates are recorded in [active work](docs/development/progress.md).
+
+- Commit canonical recognition or translation admission with its immutable monitor receipt and exact usage charge in one transaction, before worker scheduling. Reuse the existing enqueue validators and durable job pool.
+- Recheck current policy, complete action count, pause, followed sources, profile identity and stored audio duration at fresh admission. Temporary clock, policy and capacity holds create no permanent skipped outcome. Translation requires the monitor's exact recognition result.
+- Preserve exact historical replay and shared jobs, with separate caps for each monitor. Replaying a request starts no worker and never charges a new UTC day. A failed second-monitor attachment leaves the existing job and first monitor's charge intact.
+- Exercise job, step and deferred commit failures, reopen, daily and lifetime bounds, queue pressure and post-commit scheduling. Metadata-only analysis pins remain separate and may persist after processing refusal.
+- Describe processing status as admitted audio and historical admission counts. Completed, failed and cancelled work remains charged; the counters are not live queue depth or successful processing.
+- Update the roadmap and research-linked admission contract. Task-owned collection, general local planning, language qualification and platform containment remain open. Cumulative external spend remains USD 0 of the authorized USD 20.
+
 ## 0.1.0-dev.20260930.1 (development prerelease, source only)
 
 Catalog schema and local IPC are v42. This checkpoint has no supported release profile or roadmap stage exit. No prebuilt application binary or model is distributed. Verification evidence and remaining platform, language, capacity and containment gates are recorded in [active work](docs/development/progress.md).

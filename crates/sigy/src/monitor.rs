@@ -689,7 +689,7 @@ fn render_processing(writer: &mut impl Write, view: &MonitorView) -> io::Result<
     }
     writeln!(
         writer,
-        "Processed audio: {} today (UTC), {} in total | {} recognitions and {} translations queued",
+        "Admitted audio: {} today (UTC), {} in total | {} recognition admissions, {} translation admissions",
         audio(processing.used_today_us),
         audio(processing.used_total_us),
         processing.recognition_queued,
