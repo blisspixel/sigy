@@ -28,7 +28,7 @@ These commands build `main` from source; [installation details](docs/install.md)
 
 - **Explore world radio.** Search stations by name, country, language or tag, save favorites, browse a globe or map, and listen to radio or podcast episodes.
 - **Keep a useful record.** Capture streams in the background, schedule recordings across time zones, and retain selected intervals. Recording timelines distinguish audio, gaps and expired material.
-- **Read across languages.** Run local recognition and translation on retained audio, keep original scripts beside English text, and correct a transcript without erasing its history.
+- **Read across languages.** Run local recognition and translation on retained audio, keep original scripts beside English text, search both across your library, and correct a transcript without erasing its history.
 - **Follow a topic with evidence.** Set source and resource bounds for monitoring. Explicit finite tasks can collect up to two recordings and publish cited findings and a briefing. Selected operations are also available through the [agent plugin](docs/decisions/0021-agent-plugin.md).
 
 ## Get started
