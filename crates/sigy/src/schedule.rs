@@ -214,6 +214,10 @@ pub fn render(writer: &mut impl Write, page: &SchedulePage) -> io::Result<()> {
             )?;
         }
     }
+    write_footer(writer, page)
+}
+
+fn write_footer(writer: &mut impl Write, page: &SchedulePage) -> io::Result<()> {
     if let Some(created) = page.newly_created {
         writeln!(
             writer,
@@ -225,8 +229,18 @@ pub fn render(writer: &mut impl Write, page: &SchedulePage) -> io::Result<()> {
             }
         )?;
     }
+    if page.rules.is_empty() && page.occurrences.is_empty() && page.newly_created.is_none() {
+        writeln!(
+            writer,
+            "No schedule rules on this page. Create one with schedule create."
+        )?;
+    }
     if let Some(after) = &page.next_after {
-        writeln!(writer, "Next page after {}", clean(after))?;
+        writeln!(
+            writer,
+            "Continue with schedule list --after {}",
+            clean(after)
+        )?;
     }
     Ok(())
 }
@@ -401,6 +415,18 @@ mod tests {
             page.rules[0].recurrence = recurrence.into();
             render(&mut Vec::new(), &page)?;
         }
+        assert!(text.contains("Continue with schedule list --after morning"));
+        assert!(!text.contains("No schedule rules"));
+        page.rules.clear();
+        page.occurrences.clear();
+        page.newly_created = None;
+        page.next_after = None;
+        bytes = Vec::new();
+        render(&mut bytes, &page)?;
+        assert_eq!(
+            String::from_utf8(bytes)?,
+            "No schedule rules on this page. Create one with schedule create.\n"
+        );
         Ok(())
     }
 }

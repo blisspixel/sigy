@@ -210,6 +210,18 @@ async fn refresh_radio(directory: &Path) -> Result<Snapshot> {
     }
 }
 
+/// A canonical Windows path carries a verbatim prefix that people do not type.
+fn display_path(path: &Path) -> String {
+    let text = path.display().to_string();
+    if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{share}");
+    }
+    match text.strip_prefix(r"\\?\") {
+        Some(local) => local.to_owned(),
+        None => text,
+    }
+}
+
 fn render(
     stdout: &mut impl Write,
     report: &InitReport,
@@ -226,7 +238,7 @@ fn render(
     writeln!(
         stdout,
         "Library ready: {}",
-        crate::explorer::text::sanitize(&report.library.display().to_string(), 1024)
+        crate::explorer::text::sanitize(&display_path(&report.library), 1024)
     )?;
     let command = if explicit {
         writeln!(
@@ -344,6 +356,20 @@ mod tests {
         resolve_directory(&mut repeated)?;
         assert_eq!(repeated.data_dir, Some(PathBuf::from("b")));
         Ok(())
+    }
+
+    #[test]
+    fn displayed_library_paths_omit_the_windows_verbatim_prefix() {
+        for (canonical, shown) in [
+            (
+                r"\\?\C:\Users\me\.sigy\library",
+                r"C:\Users\me\.sigy\library",
+            ),
+            (r"\\?\UNC\server\share\library", r"\\server\share\library"),
+            ("/home/me/.sigy/library", "/home/me/.sigy/library"),
+        ] {
+            assert_eq!(super::display_path(&PathBuf::from(canonical)), shown);
+        }
     }
 
     #[test]

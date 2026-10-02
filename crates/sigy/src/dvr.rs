@@ -1,3 +1,4 @@
+use crate::explorer::text::bytes_label;
 use crate::style::{Ink, Tone, tone_for_state};
 use clap::Subcommand;
 use sigy_service::{
@@ -230,8 +231,12 @@ impl RecordCommand {
 pub fn render_policy(writer: &mut impl Write, policy: &DvrStatus, ink: Ink) -> io::Result<()> {
     writeln!(
         writer,
-        "DVR: {} bytes used/reserved of {} bytes. {} bytes available.",
-        policy.charged_bytes, policy.quota_bytes, policy.available_bytes
+        "DVR: {} used or reserved of {} ({} of {} bytes). {} available.",
+        bytes_label(policy.charged_bytes),
+        bytes_label(policy.quota_bytes),
+        policy.charged_bytes,
+        policy.quota_bytes,
+        bytes_label(policy.available_bytes)
     )?;
     writeln!(
         writer,
@@ -244,12 +249,15 @@ pub fn render_policy(writer: &mut impl Write, policy: &DvrStatus, ink: Ink) -> i
     )?;
     writeln!(
         writer,
-        "Free-space floor: {} bytes. Decoder: {}.",
-        policy.minimum_free_bytes,
+        "Free-space floor: {}. Decoder: {}.",
+        bytes_label(policy.minimum_free_bytes),
         if policy.decoder.is_some() {
             ink.tint(Tone::Ok, "configured")
         } else {
-            ink.tint(Tone::Warn, "not configured; use dvr configure")
+            format!(
+                "{}. Set it with dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG",
+                ink.tint(Tone::Warn, "not configured")
+            )
         }
     )
 }
@@ -592,8 +600,9 @@ mod tests {
         let mut bytes = Vec::new();
         render_policy(&mut bytes, &policy, Ink::stdout(true))?;
         let text = String::from_utf8(bytes)?;
-        assert!(text.contains("17 bytes used/reserved of 9007199254740993 bytes"));
-        assert!(text.contains("not configured; use dvr configure"));
+        assert!(text.contains("DVR: 17 B used or reserved of 9.0 PB (17 of 9007199254740993 bytes). 9.0 PB available."), "{text}");
+        assert!(text.contains("Free-space floor: 256 B."), "{text}");
+        assert!(text.contains("not configured. Set it with dvr configure --decoder"));
         assert!(text.contains("Kept and archived recordings are protected"));
         policy.decoder = Some("private-decoder-path".into());
         bytes = Vec::new();

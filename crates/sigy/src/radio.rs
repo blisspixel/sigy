@@ -266,7 +266,7 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
         if status.cached_stations == 0 || status.stale_stations > 0 {
             writeln!(
                 writer,
-                "Cache needs a newer page. Favorites and unseen stations stay. Next: radio refresh NEW_ID --limit 100"
+                "Cache needs a newer page. Favorites and unseen stations stay. Next: sigy radio refresh NEW_ID --limit 100, with a new ID for each fetch"
             )?;
         } else if let Some(newest) = status.newest_observed_ms {
             writeln!(writer, "Newest directory observation: {}.", age(newest))?;
@@ -423,7 +423,7 @@ fn write_stations(
     if page.entries.is_empty() {
         writeln!(
             writer,
-            "No cached matches. Check your filters, save favorites with radio favorite, or fetch observations with radio refresh."
+            "No cached matches. Check your filters, or fetch another directory page with sigy radio refresh NEW_ID. Language and tag filters match whole directory labels, ignoring case."
         )?;
     }
     if let Some(after) = &page.next_after {

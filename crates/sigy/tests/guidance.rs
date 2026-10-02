@@ -69,6 +69,21 @@ fn offline_mistakes_explain_what_happened_and_what_to_run() -> TestResult {
             "{arguments:?}: {stderr}"
         );
     }
+    let (healthy, doctor, error) = run(&library, &["doctor"])?;
+    assert!(healthy, "{error}");
+    assert!(doctor.contains("Service: not running."), "{doctor}");
+    assert!(
+        doctor
+            .contains("Next: sigy dvr configure --decoder PATH_TO_FFMPEG with the same --data-dir"),
+        "{doctor}"
+    );
+    assert!(
+        doctor.contains("Next: sigy radio refresh NEW_ID --limit 100"),
+        "{doctor}"
+    );
+    let (initialized, setup, error) = run(&library, &["init", "--no-start"])?;
+    assert!(initialized, "{error}");
+    assert!(!setup.contains(r"\\?\"), "{setup}");
     // Guidance never starts the service or changes the library.
     let (checked, status, error) = run(&library, &["--json", "library", "status"])?;
     assert!(checked, "{error}");

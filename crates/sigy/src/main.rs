@@ -313,7 +313,7 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         serde_json::to_writer(&mut stdout, &view)?;
         writeln!(stdout)?;
     } else if let Some(report) = &view.doctor {
-        render_doctor(&mut stdout, report, ink)?;
+        render_doctor(&mut stdout, &view, report, cli.explicit_data_dir, ink)?;
     } else if let Some(policy) = view.dvr {
         dvr::render_policy(&mut stdout, &policy, ink)?;
     } else if let Some(page) = view.recording_page {
@@ -380,7 +380,9 @@ fn write_document(
 
 fn render_doctor(
     stdout: &mut impl Write,
+    view: &Snapshot,
     report: &sigy_service::control::DoctorReport,
+    explicit_data_dir: bool,
     ink: style::Ink,
 ) -> io::Result<()> {
     let blocked = report
@@ -397,6 +399,28 @@ fn render_doctor(
         stdout,
         "Doctor: {attention} attention, {blocked} blocked. No network request was made."
     )?;
+    let same = if explicit_data_dir {
+        " with the same --data-dir"
+    } else {
+        ""
+    };
+    match &view.service {
+        Some(service) => writeln!(
+            stdout,
+            "Service: process {} is {}.",
+            service.process_id,
+            if service.stopping {
+                ink.tint(style::Tone::Warn, "stopping")
+            } else {
+                ink.tint(style::Tone::Ok, "running")
+            }
+        )?,
+        None => writeln!(
+            stdout,
+            "Service: {}. Refresh, recording and processing need `sigy service start`{same}.",
+            ink.tint(style::Tone::Warn, "not running")
+        )?,
+    }
     for check in &report.checks {
         let (state, tone) = match check.state {
             sigy_service::control::DoctorState::Ok => ("ok", style::Tone::Ok),
@@ -411,7 +435,7 @@ fn render_doctor(
             check.detail
         )?;
         if let Some(command) = &check.command {
-            writeln!(stdout, "  Next: {command}")?;
+            writeln!(stdout, "  Next: sigy {command}{same}")?;
         }
     }
     Ok(())

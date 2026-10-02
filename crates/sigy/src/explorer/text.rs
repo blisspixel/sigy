@@ -44,9 +44,42 @@ pub fn known(value: &str) -> &str {
     if value.is_empty() { "unknown" } else { value }
 }
 
+/// Decimal size for people, rounded down to one decimal place. The quota is set in GB.
+#[must_use]
+pub fn bytes_label(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["kB", "MB", "GB", "TB", "PB", "EB"];
+    if bytes < 1_000 {
+        return format!("{bytes} B");
+    }
+    let mut scale: u64 = 1_000;
+    let mut unit = 0;
+    while unit + 1 < UNITS.len() && bytes / scale >= 1_000 {
+        scale = scale.saturating_mul(1_000);
+        unit += 1;
+    }
+    let tenths = u128::from(bytes) * 10 / u128::from(scale);
+    format!("{}.{} {}", tenths / 10, tenths % 10, UNITS[unit])
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{age_label, sanitize};
+    use super::{age_label, bytes_label, sanitize};
+
+    #[test]
+    fn byte_labels_round_down_in_decimal_units() {
+        for (bytes, label) in [
+            (0, "0 B"),
+            (999, "999 B"),
+            (1_000, "1.0 kB"),
+            (268_435_456, "268.4 MB"),
+            (49_999_999_999, "49.9 GB"),
+            (50_000_000_000, "50.0 GB"),
+            (9_007_199_254_740_993, "9.0 PB"),
+            (u64::MAX, "18.4 EB"),
+        ] {
+            assert_eq!(bytes_label(bytes), label);
+        }
+    }
 
     #[test]
     fn sanitize_drops_terminal_controls_and_limits_length() {
