@@ -6,7 +6,7 @@ use sigy_service::{
 };
 use std::{
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Subcommand)]
@@ -48,15 +48,30 @@ impl DvrCommand {
                         .checked_mul(1024 * 1024)
                         .ok_or("free-space floor is too large")?,
                     retention_days: *retention_days,
-                    decoder: decoder
-                        .canonicalize()?
-                        .to_str()
-                        .ok_or("decoder path is not valid Unicode")?
-                        .into(),
+                    decoder: decoder_path(decoder)?,
                 },
             },
         })
     }
+}
+
+/// Resolves the user's decoder argument. Sigy never searches `PATH` for it.
+fn decoder_path(decoder: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let shown = clean(&decoder.display().to_string());
+    let resolved = decoder.canonicalize().map_err(|error| {
+        let problem = if error.kind() == io::ErrorKind::NotFound {
+            "does not exist".to_owned()
+        } else {
+            format!("cannot be read ({error})")
+        };
+        format!(
+            "decoder {shown} {problem}. Pass the absolute path of an installed ffmpeg executable; `where ffmpeg` on Windows or `command -v ffmpeg` elsewhere prints it"
+        )
+    })?;
+    Ok(resolved
+        .to_str()
+        .ok_or("decoder path is not valid Unicode")?
+        .into())
 }
 
 #[derive(Debug, Subcommand)]
@@ -391,7 +406,21 @@ mod tests {
                 .is_err()
             );
         }
-        assert!(operation(&["sigy", "dvr", "configure", "--decoder", "absent-decoder"]).is_err());
+        let absent = operation(&["sigy", "dvr", "configure", "--decoder", "absent-decoder"])
+            .err()
+            .ok_or("an absent decoder must be refused")?
+            .to_string();
+        assert!(
+            absent.contains("decoder absent-decoder does not exist"),
+            "{absent}"
+        );
+        assert!(absent.contains("absolute path"), "{absent}");
+        let hostile = operation(&["sigy", "dvr", "configure", "--decoder", "ffmpeg\u{1b}[2J"])
+            .err()
+            .ok_or("a hostile decoder name must be refused")?
+            .to_string();
+        assert!(hostile.contains("decoder ffmpeg[2J"), "{hostile}");
+        assert!(!hostile.contains('\u{1b}'));
         assert_eq!(operation(&["sigy", "dvr", "status"])?["action"], "status");
         assert_eq!(operation(&["sigy", "dvr", "prune"])?["action"], "prune");
         Ok(())

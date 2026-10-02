@@ -19,6 +19,8 @@ use sigy_service::{
 
 use crate::{Cli, Command, LibraryCommand, service};
 
+mod guidance;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const RADIO_REQUEST: &str = "sigy-init-radio-v1";
 const RADIO_WAIT: Duration = Duration::from_secs(15);
@@ -96,7 +98,7 @@ pub fn actionable_error(
     if missing_catalog || missing_directory {
         return "library has not been initialized; run `sigy init` with the same --data-dir if supplied".into();
     }
-    error
+    guidance::explain(cli, error)
 }
 
 fn default_directory(home: Option<OsString>) -> Result<PathBuf> {
