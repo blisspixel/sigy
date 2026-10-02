@@ -35,16 +35,17 @@ mod update;
     name = "sigy",
     bin_name = "sigy",
     version,
-    about = "Local-first signals discovery and analysis"
+    about = "Local-first signals discovery and analysis",
+    after_help = init::GET_STARTED
 )]
 struct Cli {
     /// Library directory. Defaults to ~/.sigy/library; MCP requires an explicit directory.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, display_order = 900)]
     data_dir: Option<PathBuf>,
     #[arg(skip)]
     explicit_data_dir: bool,
     /// Emit a structured JSON response for automation.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, display_order = 901)]
     json: bool,
     #[command(subcommand)]
     command: Command,
@@ -67,7 +68,7 @@ enum Command {
         #[command(subcommand)]
         command: dvr::RecordCommand,
     },
-    /// Schedule one source by civil time. No analysis profile can be attached.
+    /// Record one source on a once, daily, or weekly civil-time schedule.
     Schedule {
         #[command(subcommand)]
         command: schedule::ScheduleCommand,

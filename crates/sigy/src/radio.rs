@@ -14,16 +14,16 @@ use std::{
 #[derive(Debug, Clone, Args)]
 pub struct Filters {
     /// Station name substring. Local search uses Unicode lowercase matching.
-    #[arg(long, default_value = "")]
+    #[arg(long, default_value = "", hide_default_value = true)]
     name: String,
     /// Two-letter country code, independent of spoken language.
-    #[arg(long, default_value = "")]
+    #[arg(long, default_value = "", hide_default_value = true)]
     country: String,
-    /// Exact directory language label, for example french. Not detected speech.
-    #[arg(long, default_value = "")]
+    /// Whole directory language label, for example french. Not detected speech.
+    #[arg(long, default_value = "", hide_default_value = true)]
     language: String,
-    /// Exact directory tag, for example news.
-    #[arg(long, default_value = "")]
+    /// Whole directory tag, for example news.
+    #[arg(long, default_value = "", hide_default_value = true)]
     tag: String,
     /// Keep only entries whose most recent directory check succeeded.
     #[arg(long)]
@@ -46,13 +46,15 @@ impl Filters {
 pub enum RadioCommand {
     /// Refresh one bounded directory page in the background. Never contacts station streams.
     Refresh {
-        /// Unique request ID. Exact replay never sends another request.
+        /// New request ID, for example news-001. Reusing an ID never sends another request.
         id: String,
         #[command(flatten)]
         filters: Filters,
-        #[arg(long, default_value_t = 100)]
+        /// Stations to request, 1 to 500.
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..=500))]
         limit: u32,
-        #[arg(long, default_value_t = 0)]
+        /// Directory rows to skip before this page, 0 to 100000.
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=100_000))]
         offset: u32,
         /// Explicit mirror origin. Omit to discover public Radio Browser mirrors.
         #[arg(long)]
@@ -62,7 +64,10 @@ pub enum RadioCommand {
         pin_address: Option<IpAddr>,
     },
     /// Inspect one refresh request and its accepted/skipped counts.
-    RefreshStatus { id: String },
+    RefreshStatus {
+        /// The ID given to radio refresh.
+        id: String,
+    },
     /// Inspect local cache size and the most recent refresh.
     Status,
     /// Search cached stations without making network requests.
@@ -72,17 +77,28 @@ pub enum RadioCommand {
         /// Only stations explicitly saved as favorites. Combines with all other filters.
         #[arg(long)]
         favorites: bool,
-        #[arg(long, default_value_t = 16)]
+        /// Stations per page, 1 to 16.
+        #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u32).range(1..=16))]
         limit: u32,
+        /// Continue after this station ID, as printed at the end of the previous page.
         #[arg(long)]
         after: Option<String>,
     },
     /// Inspect cached station metadata. Does not tune or record.
-    Show { id: String },
+    Show {
+        /// Station UUID from radio search.
+        id: String,
+    },
     /// Save a cached station as a favorite without tuning or recording.
-    Favorite { id: String },
+    Favorite {
+        /// Station UUID from radio search.
+        id: String,
+    },
     /// Remove a favorite without deleting the station, source or recordings.
-    Unfavorite { id: String },
+    Unfavorite {
+        /// Station UUID from radio search.
+        id: String,
+    },
     /// Report one directory click. This does not play, record, or vote.
     Click {
         /// Unique request ID. Reuse does not send the click again.
@@ -98,10 +114,15 @@ pub enum RadioCommand {
         pin_address: Option<IpAddr>,
     },
     /// Inspect one click request. The provider stream URL is not shown.
-    ClickStatus { id: String },
+    ClickStatus {
+        /// The ID given to radio click.
+        id: String,
+    },
     /// Register a selected station as an immutable public-internet source revision.
     Add {
+        /// Station UUID from radio search.
         id: String,
+        /// New source revision key, for example station:v1. Record it with record start --source.
         #[arg(long)]
         revision: String,
         /// Redirect scope: deny, same-origin, or public (at most three hops).
@@ -119,12 +140,15 @@ pub enum RadioCommand {
 pub enum PolicyCommand {
     /// Store one bounded page and an interval of 1 to 168 hours. This does not fetch.
     Set {
+        /// Policy name. Saving the same name again revises it.
         id: String,
         #[command(flatten)]
         filters: Filters,
-        #[arg(long, default_value_t = 100)]
+        /// Stations to request per attempt, 1 to 500.
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..=500))]
         limit: u32,
-        #[arg(long, default_value_t = 0)]
+        /// Directory rows to skip before this page, 0 to 100000.
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=100_000))]
         offset: u32,
         /// Explicit mirror origin. Omit to discover public Radio Browser mirrors when the slot is due.
         #[arg(long)]
@@ -137,9 +161,15 @@ pub enum PolicyCommand {
         every_hours: i64,
     },
     /// Show one saved policy, or every saved policy when the id is omitted.
-    Show { id: Option<String> },
+    Show {
+        /// Policy name. Omit to list every saved policy.
+        id: Option<String>,
+    },
     /// Remove a saved policy. Cached stations, favorites, and refresh history stay.
-    Clear { id: String },
+    Clear {
+        /// Policy name.
+        id: String,
+    },
 }
 
 impl RadioCommand {
@@ -612,6 +642,29 @@ mod tests {
         render(&mut bytes, &view, Ink::stdout(true))?;
         assert!(String::from_utf8(bytes)?.contains("acknowledged yes"));
         Ok(())
+    }
+
+    #[test]
+    fn page_bounds_are_refused_by_the_parser_before_any_request() {
+        use clap::Parser;
+        let parse = |words: &[&str]| crate::Cli::try_parse_from(words);
+        assert!(parse(&["sigy", "radio", "search", "--limit", "16"]).is_ok());
+        for words in [
+            &["sigy", "radio", "search", "--limit", "0"][..],
+            &["sigy", "radio", "search", "--limit", "17"],
+            &["sigy", "radio", "refresh", "a", "--limit", "501"],
+            &["sigy", "radio", "refresh", "a", "--offset", "100001"],
+            &["sigy", "radio", "policy", "set", "a", "--limit", "0"],
+        ] {
+            let error = parse(words).err().map(|error| error.to_string());
+            assert!(
+                error
+                    .as_deref()
+                    .is_some_and(|text| text.contains("is not in")),
+                "{words:?}: {error:?}"
+            );
+        }
+        assert!(parse(&["sigy", "radio", "refresh", "a", "--limit", "500"]).is_ok());
     }
 
     #[test]

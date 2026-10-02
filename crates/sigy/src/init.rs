@@ -22,6 +22,15 @@ use crate::{Cli, Command, LibraryCommand, service};
 mod guidance;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+/// The first steps shown after the top-level command list.
+pub const GET_STARTED: &str = "Get started:
+  sigy init --radio  Create your library, start its service and load one station page
+  sigy tui           Open the explorer. Quitting leaves the service running
+  sigy doctor        Check local setup without using the network
+
+Commands use ~/.sigy/library unless you pass --data-dir PATH.
+Guide: https://github.com/blisspixel/sigy/blob/main/docs/usage.md";
 const RADIO_REQUEST: &str = "sigy-init-radio-v1";
 const RADIO_WAIT: Duration = Duration::from_secs(15);
 

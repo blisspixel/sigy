@@ -6,7 +6,9 @@ use std::io::{self, Write};
 pub enum ScheduleCommand {
     /// Bind one source to a civil clock. Only the next occurrence is materialized.
     Create {
+        /// New rule name, for example morning.
         id: String,
+        /// Registered source revision, from source list or radio add.
         #[arg(long)]
         source: String,
         /// IANA time zone, for example `America/New_York`.
@@ -24,8 +26,10 @@ pub enum ScheduleCommand {
         /// Civil time for `--weekly`.
         #[arg(long)]
         at: Option<String>,
+        /// Recording duration in seconds, at most 15 minutes.
         #[arg(long, default_value_t = 60)]
         seconds: u64,
+        /// Byte ceiling in MiB, at most 256 MiB.
         #[arg(long, default_value_t = 64)]
         max_mib: u64,
         /// Create a new rule owned by this monitor's explicit capture policy.
@@ -37,31 +41,44 @@ pub enum ScheduleCommand {
     },
     /// Change future occurrences. An admitted plan stays as it was.
     Revise {
+        /// Existing rule name.
         id: String,
+        /// IANA time zone, for example `America/New_York`.
         #[arg(long)]
         zone: String,
+        /// One civil instant, `YYYY-MM-DDTHH:MM:SS`, with no offset.
         #[arg(long)]
         once: Option<String>,
+        /// Daily civil time, `HH:MM:SS`.
         #[arg(long)]
         daily: Option<String>,
+        /// Weekday name for a weekly rule. Pair it with `--at`.
         #[arg(long)]
         weekly: Option<String>,
+        /// Civil time for `--weekly`.
         #[arg(long)]
         at: Option<String>,
+        /// Recording duration in seconds, at most 15 minutes.
         #[arg(long, default_value_t = 60)]
         seconds: u64,
+        /// Byte ceiling in MiB, at most 256 MiB.
         #[arg(long, default_value_t = 64)]
         max_mib: u64,
     },
     /// List schedule rules. This does not start a recording.
     List {
+        /// Continue after this rule name, as printed at the end of the previous page.
         #[arg(long)]
         after: Option<String>,
-        #[arg(long, default_value_t = 16)]
+        /// Rules per page, 1 to 64.
+        #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u32).range(1..=64))]
         limit: u32,
     },
     /// Show one rule and the occurrences already materialized.
-    Show { id: String },
+    Show {
+        /// Rule name.
+        id: String,
+    },
 }
 
 impl ScheduleCommand {

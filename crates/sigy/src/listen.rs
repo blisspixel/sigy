@@ -11,9 +11,10 @@ use sigy_service::{
 pub enum ListenCommand {
     /// Play one retained recording locally. This does not contact the source or stop capture.
     File {
+        /// Recording ID from record list.
         id: String,
         /// `null` discards samples. `system` uses a local output device when the decoder has one.
-        #[arg(long, default_value = "system")]
+        #[arg(long, default_value = "system", value_parser = ["system", "null"])]
         destination: String,
         /// Start offset in microseconds, inside the published duration.
         #[arg(long, default_value_t = 0)]
@@ -21,27 +22,36 @@ pub enum ListenCommand {
     },
     /// Listen to one direct audio revision. An episode enclosure has no live edge.
     Source {
+        /// New listen ID. Reusing it does not open the source again.
         id: String,
         /// Immutable `http_audio` revision. This command does not accept a URL.
         #[arg(long)]
         revision: String,
         /// `null` discards samples. `system` uses a local output device when the decoder has one.
-        #[arg(long, default_value = "system")]
+        #[arg(long, default_value = "system", value_parser = ["system", "null"])]
         destination: String,
     },
     /// Attach a playhead to one capture. This does not start or stop capture.
     Attach {
+        /// Playhead name you choose, used by the other playhead commands.
         session: String,
         /// Recording id. Not a source URL.
         #[arg(long)]
         recording: String,
     },
     /// Pause this playhead. The capture worker keeps running.
-    Pause { session: String },
+    Pause {
+        /// Playhead name from listen attach.
+        session: String,
+    },
     /// Park at the end of the newest published segment. The open tail is not read.
-    Live { session: String },
+    Live {
+        /// Playhead name from listen attach.
+        session: String,
+    },
     /// Move this playhead inside one published segment. This does not signal capture.
     Seek {
+        /// Playhead name from listen attach.
         session: String,
         /// Timeline offset in microseconds.
         #[arg(long)]
@@ -49,19 +59,32 @@ pub enum ListenCommand {
     },
     /// Play this playhead's published segment, then drop the playhead.
     Play {
+        /// Playhead name from listen attach.
         session: String,
         /// `null` discards samples. `system` uses a local output device when the decoder has one.
-        #[arg(long, default_value = "system")]
+        #[arg(long, default_value = "system", value_parser = ["system", "null"])]
         destination: String,
     },
     /// Drop this playhead. The capture continues.
-    Detach { session: String },
+    Detach {
+        /// Playhead name from listen attach.
+        session: String,
+    },
     /// Show one playhead. No source URL or media path is included.
-    Session { session: String },
+    Session {
+        /// Playhead name from listen attach.
+        session: String,
+    },
     /// End one listen. This does not stop a recording.
-    Stop { id: String },
+    Stop {
+        /// Listen ID from listen source.
+        id: String,
+    },
     /// Show one listen receipt. No source URL is included.
-    Status { id: String },
+    Status {
+        /// Listen ID from listen source.
+        id: String,
+    },
 }
 
 /// # Errors

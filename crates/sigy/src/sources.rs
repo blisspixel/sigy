@@ -7,6 +7,7 @@ use clap::Subcommand;
 use sigy_service::{
     control::{Operation, PlaylistOperation, PlaylistView, SourcePage},
     sources::{CandidateKind, NetworkScope, RedirectPolicy},
+    storage::sources::MAX_SOURCE_PAGE,
 };
 
 #[derive(Subcommand)]
@@ -15,8 +16,10 @@ pub enum SourceCommand {
     Add {
         /// Unique revision key, for example station:v1. Reuse cannot change it.
         revision_id: String,
+        /// Display name for this revision.
         #[arg(long)]
         name: String,
+        /// HTTP or HTTPS audio address. Do not put access credentials in it.
         #[arg(long)]
         url: String,
         /// Explicitly pin this revision to one public, private or loopback IP.
@@ -28,13 +31,18 @@ pub enum SourceCommand {
     },
     /// List a bounded page of registered revisions, with URL paths omitted.
     List {
+        /// Continue after this revision key, as printed at the end of the previous page.
         #[arg(long)]
         after: Option<String>,
-        #[arg(long, default_value_t = 16)]
+        /// Revisions per page, 1 to 32.
+        #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u32).range(1..=i64::from(MAX_SOURCE_PAGE)))]
         limit: u32,
     },
     /// Inspect a revision's origin and network grant. URL paths are omitted.
-    Show { revision_id: String },
+    Show {
+        /// Source revision key.
+        revision_id: String,
+    },
     /// Resolve one playlist document or accept one stored entry.
     Playlist {
         #[command(subcommand)]
@@ -54,9 +62,13 @@ pub enum PlaylistCommand {
         revision: String,
     },
     /// Inspect a playlist request. Paths and queries are omitted.
-    Status { id: String },
+    Status {
+        /// The ID given to playlist resolve.
+        id: String,
+    },
     /// Register one resolved entry as an audio revision. Performs no network I/O.
     Accept {
+        /// The ID given to playlist resolve.
         id: String,
         /// Zero-based index in the resolved list.
         #[arg(long)]

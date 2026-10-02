@@ -8,6 +8,7 @@ use clap::Subcommand;
 use sigy_service::{
     control::{Operation, PodcastFeedView, PodcastIdentityKind, PodcastOperation, PodcastPage},
     sources::{NetworkScope, RedirectPolicy},
+    storage::podcasts::MAX_PODCAST_PAGE,
 };
 
 #[derive(Subcommand)]
@@ -16,6 +17,7 @@ pub enum PodcastCommand {
     Subscribe {
         /// Subscription key. Reuse cannot change the URL, scope, pin, or redirects.
         id: String,
+        /// RSS 2.0 feed address. Do not put access credentials in it.
         #[arg(long)]
         url: String,
         /// Explicitly pin this subscription to one public, private, or loopback IP.
@@ -26,16 +28,24 @@ pub enum PodcastCommand {
         redirects: RedirectPolicy,
     },
     /// Stop future polls. The subscription and every other record stay in place.
-    Unsubscribe { id: String },
+    Unsubscribe {
+        /// Subscription key.
+        id: String,
+    },
     /// List a bounded page of subscriptions, with feed paths omitted.
     List {
+        /// Continue after this subscription key, as printed at the end of the previous page.
         #[arg(long)]
         after: Option<String>,
-        #[arg(long, default_value_t = 16)]
+        /// Subscriptions per page, 1 to 32.
+        #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u32).range(1..=i64::from(MAX_PODCAST_PAGE)))]
         limit: u32,
     },
     /// Inspect one subscription's origin and network grant. Feed paths are omitted.
-    Show { id: String },
+    Show {
+        /// Subscription key.
+        id: String,
+    },
     /// Refresh one RSS 2.0 document. Does not download enclosures, transcripts, or chapters.
     Refresh {
         /// Subscription to refresh. A stopped subscription is not polled.
@@ -45,22 +55,30 @@ pub enum PodcastCommand {
         id: String,
     },
     /// Inspect one feed refresh. Paths and queries are omitted.
-    RefreshStatus { id: String },
+    RefreshStatus {
+        /// The --id given to podcast refresh.
+        id: String,
+    },
     /// List stored episodes without contacting the feed. URLs are omitted.
     Episodes {
+        /// Subscription key.
         subscription: String,
+        /// Continue after this episode ID, as printed at the end of the previous page.
         #[arg(long)]
         after: Option<String>,
-        #[arg(long, default_value_t = 16)]
+        /// Episodes per page, 1 to 32.
+        #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u32).range(1..=32))]
         limit: u32,
     },
     /// Fetch one stored transcript or chapter document. Does not change the recording quota.
     Text {
+        /// Subscription key.
         subscription: String,
+        /// Episode ID from podcast episodes.
         #[arg(long)]
         episode: String,
         /// `transcript` or `chapters`.
-        #[arg(long)]
+        #[arg(long, value_parser = ["transcript", "chapters"])]
         kind: String,
         /// Zero-based index among that episode's stored assets of this kind.
         #[arg(long)]
@@ -70,7 +88,10 @@ pub enum PodcastCommand {
         id: String,
     },
     /// Show one fetched publisher document. Cue times are not media time.
-    TextShow { id: String },
+    TextShow {
+        /// The --id given to podcast text.
+        id: String,
+    },
     /// Download one enclosure. Reserves 512 MiB and 30 minutes before connecting.
     Download {
         /// Subscription that stored the episode.

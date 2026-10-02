@@ -14,15 +14,18 @@ use std::{
 pub enum DvrCommand {
     /// Show the rolling storage policy and reserved/retained bytes.
     Status,
-    /// Set the storage policy and an installed `FFmpeg` decoder. No downloads.
+    /// Set the storage policy and an installed ffmpeg decoder. No downloads.
     Configure {
+        /// Managed media quota in decimal gigabytes.
         #[arg(long, default_value_t = 50)]
         quota_gb: u64,
+        /// Days a temporary recording is kept before it can expire.
         #[arg(long, default_value_t = 14)]
         retention_days: u32,
+        /// Free disk space to leave untouched, in MiB.
         #[arg(long, default_value_t = 256)]
         minimum_free_mib: u64,
-        /// Absolute path to a trusted local ffmpeg executable.
+        /// Absolute path to a trusted local ffmpeg executable. PATH is not searched.
         #[arg(long)]
         decoder: PathBuf,
     },
@@ -79,13 +82,18 @@ fn decoder_path(decoder: &Path) -> Result<String, Box<dyn std::error::Error>> {
 pub enum RecordCommand {
     /// Record one HLS media playlist through the service. Master playlists fail.
     Hls {
+        /// New recording ID. Repeating the same request reconciles it instead of recording twice.
         id: String,
+        /// Registered source revision, from source list or radio add.
         #[arg(long)]
         source: String,
+        /// Planned duration in seconds. A radio attempt is at most 15 minutes.
         #[arg(long, default_value_t = 60)]
         seconds: u64,
+        /// Byte ceiling in MiB. A radio attempt is at most 256 MiB.
         #[arg(long, default_value_t = 64)]
         max_mib: u64,
+        /// temporary, kept or archived.
         #[arg(long, default_value = "temporary")]
         retention: Retention,
         /// Reload a live playlist until the time or byte ceiling. A skipped sequence,
@@ -95,13 +103,18 @@ pub enum RecordCommand {
     },
     /// Start one finite recording owned by the service. Reuse the ID to reconcile.
     Start {
+        /// New recording ID. Repeating the same request reconciles it instead of recording twice.
         id: String,
+        /// Registered source revision, from source list or radio add.
         #[arg(long)]
         source: String,
+        /// Planned duration in seconds. A radio attempt is at most 15 minutes.
         #[arg(long, default_value_t = 60)]
         seconds: u64,
+        /// Byte ceiling in MiB. A radio attempt is at most 256 MiB.
         #[arg(long, default_value_t = 64)]
         max_mib: u64,
+        /// temporary, kept or archived.
         #[arg(long, default_value = "temporary")]
         retention: Retention,
         /// Request interleaved ICY metadata. Off by default. Titles are observations, not audio.
@@ -109,41 +122,75 @@ pub enum RecordCommand {
         icy: bool,
     },
     /// Finish the received portion of a running recording and validate it.
-    Stop { id: String },
+    Stop {
+        /// Recording ID.
+        id: String,
+    },
     /// Stop receiving. The uncovered plan is a gap, not a silence file.
-    Pause { id: String },
+    Pause {
+        /// Recording ID.
+        id: String,
+    },
     /// List recordings, including failed, interrupted, and deleted history.
     List {
+        /// Continue after this recording ID, as printed at the end of the previous page.
         #[arg(long)]
         after: Option<String>,
-        #[arg(long, default_value_t = 16)]
+        /// Recordings per page, 1 to 64.
+        #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u32).range(1..=64))]
         limit: u32,
     },
     /// Inspect one recording, including history after the file is deleted.
-    Show { id: String },
+    Show {
+        /// Recording ID.
+        id: String,
+    },
     /// Print the verified recording's local path for a media player.
-    Path { id: String },
+    Path {
+        /// Recording ID.
+        id: String,
+    },
     /// Export a versioned JSON sidecar snapshot to stdout, without URL paths or keys.
-    Metadata { id: String },
+    Metadata {
+        /// Recording ID.
+        id: String,
+    },
     /// Protect a recording from automatic expiration and eviction.
-    Keep { id: String },
+    Keep {
+        /// Recording ID.
+        id: String,
+    },
     /// Mark protected long-term retention in this library. This is not a backup.
-    Archive { id: String },
+    Archive {
+        /// Recording ID.
+        id: String,
+    },
     /// Return media to the rolling age and capacity policy.
-    Temporary { id: String },
+    Temporary {
+        /// Recording ID.
+        id: String,
+    },
     /// Acknowledge completed external processing; temporary media becomes reclaimable.
     Processed {
+        /// Recording ID.
         id: String,
+        /// Your own identifier for the finished processing. It is stored, not verified.
         #[arg(long)]
         receipt: String,
     },
     /// Explicitly remove inactive media, including kept/archived media. Keep its history.
-    Delete { id: String },
+    Delete {
+        /// Recording ID.
+        id: String,
+    },
     /// Protect every published segment the range intersects. The open tail stays temporary.
     Hold {
+        /// Recording ID.
         id: String,
+        /// Range start in microseconds on the recording's media clock.
         #[arg(long)]
         start_us: u64,
+        /// Range end in microseconds on the recording's media clock, after the start.
         #[arg(long)]
         end_us: u64,
     },
