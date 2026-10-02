@@ -2,7 +2,11 @@
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use super::{Store, validate_key};
+use super::{
+    Store,
+    cue_media::{CueMedia, classify},
+    validate_key,
+};
 use crate::{
     Error, Result,
     monitor::{FindingCite, FindingOriginal, FindingPage},
@@ -28,11 +32,7 @@ struct Facts {
     recording_id: String,
     start_us: i64,
     end_us: i64,
-    storage_state: String,
-    sha_matches: bool,
-    covered: bool,
-    gapped: bool,
-    released_segment: Option<i64>,
+    media: CueMedia,
 }
 
 enum Truth {
@@ -212,34 +212,18 @@ fn load_facts(connection: &Connection, cite: &FindingCite) -> Result<Facts> {
     if !translation_exists(connection, cite)? || !translation_cue_exists(connection, cite)? {
         return Err(Error::NotFound);
     }
-    let (storage_state, sha_matches) = recording(connection, &transcript)?;
+    let media = classify(
+        connection,
+        &transcript.recording_id,
+        &transcript.media_sha256,
+        cue.start_us,
+        cue.end_us,
+    )?;
     Ok(Facts {
         recording_id: transcript.recording_id.clone(),
         start_us: cue.start_us,
         end_us: cue.end_us,
-        storage_state,
-        sha_matches,
-        covered: flag(
-            connection,
-            "SELECT EXISTS(SELECT 1 FROM recording_intervals WHERE recording_id = ?1 AND decoded_start_us <= ?2 AND decoded_end_us >= ?3)",
-            &transcript.recording_id,
-            cue.start_us,
-            cue.end_us,
-        )?,
-        gapped: flag(
-            connection,
-            "SELECT EXISTS(SELECT 1 FROM recording_gaps WHERE recording_id = ?1 AND start_us < ?3 AND end_us > ?2)",
-            &transcript.recording_id,
-            cue.start_us,
-            cue.end_us,
-        )?,
-        released_segment: connection
-            .query_row(
-                "SELECT i.ordinal FROM recording_intervals i JOIN recording_releases x ON x.recording_id = i.recording_id AND x.segment_ordinal = i.ordinal WHERE i.recording_id = ?1 AND i.decoded_start_us <= ?2 AND i.decoded_end_us >= ?3 ORDER BY i.ordinal LIMIT 1",
-                params![transcript.recording_id, cue.start_us, cue.end_us],
-                |row| row.get(0),
-            )
-            .optional()?,
+        media,
     })
 }
 
@@ -305,33 +289,13 @@ fn translation_cue_exists(connection: &Connection, cite: &FindingCite) -> Result
     )?)
 }
 
-fn recording(connection: &Connection, transcript: &TranscriptRow) -> Result<(String, bool)> {
-    connection
-        .query_row(
-            "SELECT storage_state, sha256 IS NOT NULL AND sha256 = ?2 FROM recordings WHERE id = ?1",
-            params![transcript.recording_id, transcript.media_sha256],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?
-        .ok_or(Error::StorageIntegrity)
-}
-
-fn flag(connection: &Connection, sql: &str, recording: &str, start: i64, end: i64) -> Result<bool> {
-    Ok(connection.query_row(sql, params![recording, start, end], |row| row.get(0))?)
-}
-
 fn media_truth(facts: &Facts) -> Truth {
-    let expired = matches!(facts.storage_state.as_str(), "deleting" | "deleted");
-    if expired || facts.released_segment.is_some() {
-        return Truth::Expired;
+    match facts.media {
+        CueMedia::Retained => Truth::Retained,
+        CueMedia::Released | CueMedia::Expired => Truth::Expired,
+        CueMedia::Missing => Truth::Missing,
+        CueMedia::Unavailable => Truth::Unavailable,
     }
-    if facts.storage_state == "retained" && facts.sha_matches && facts.covered && !facts.gapped {
-        return Truth::Retained;
-    }
-    if !facts.covered || facts.gapped {
-        return Truth::Missing;
-    }
-    Truth::Unavailable
 }
 
 fn accept(requested: FindingOriginal, truth: Truth) -> Result<()> {

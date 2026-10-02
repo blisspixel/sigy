@@ -773,6 +773,14 @@ const TOOLS: &[Tool] = &[
         timeout: SHORT,
     },
     Tool {
+        name: "analysis_search",
+        description: "Find a literal term in stored original-script cues and English translations across this library, matching as written and ignoring letter case only, like monitor_matches. Each hit cites source, recording, transcript and translation revisions, cue and media time, says whether those revisions are current or stale, and whether the audio is retained, released, expired or missing. Reads only: no job, finding, briefing or network request. Bounded by limit, scan_rows and deadline_ms; a stopped page returns a cursor for after. Machine output, unreviewed; a hit is a place to check, not a finding.",
+        hints: HINT_QUERY,
+        words: &["analysis", "search"],
+        slots: SEARCH,
+        timeout: SHORT,
+    },
+    Tool {
         name: "monitor_list",
         description: "List monitor ids. Monitors are created and revised only by the user through the CLI.",
         hints: HINT_QUERY,
@@ -882,6 +890,68 @@ const WINDOW: &[Slot] = &[
         0,
         4_102_444_800_000,
         "Exact window end (exclusive) in Unix milliseconds; requires from_ms.",
+    ),
+];
+
+const SEARCH: &[Slot] = &[
+    text(
+        "term",
+        "--term",
+        true,
+        "Literal term, at most 200 characters, in any script.",
+    ),
+    text(
+        "in",
+        "--in",
+        false,
+        "original, english or both. Defaults to both.",
+    ),
+    flag(
+        "history",
+        "--history",
+        "Also search older transcript and translation revisions; each hit says whether it is stale.",
+    ),
+    text("source", "--source", false, "Only this source revision."),
+    count(
+        "from_ms",
+        "--from-ms",
+        0,
+        4_102_444_800_000,
+        "Earliest capture start in Unix milliseconds; requires to_ms.",
+    ),
+    count(
+        "to_ms",
+        "--to-ms",
+        0,
+        4_102_444_800_000,
+        "Capture start before this time in Unix milliseconds; requires from_ms.",
+    ),
+    text(
+        "language",
+        "--language",
+        false,
+        "Only cues a stored language label overlaps, such as fr or fr-CA. Labels are unevaluated evidence.",
+    ),
+    count("limit", "--limit", 1, 64, "Most hits. Defaults to 16."),
+    count(
+        "scan_rows",
+        "--scan-rows",
+        2,
+        200_000,
+        "Most catalog rows read. Defaults to 20000.",
+    ),
+    count(
+        "deadline_ms",
+        "--deadline-ms",
+        10,
+        2_000,
+        "Wall-time bound in milliseconds. Defaults to 1000.",
+    ),
+    text(
+        "after",
+        "--after",
+        false,
+        "Cursor from the previous page, with the same term and options.",
     ),
 ];
 
@@ -1141,3 +1211,52 @@ const RECORD_START: &[Slot] = &[
         "Request ICY titles. They are observations and are not written into the audio.",
     ),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_search_is_read_only_and_keeps_the_term_an_option_value() -> Result<(), String> {
+        let tool = TOOLS
+            .iter()
+            .find(|tool| tool.name == "analysis_search")
+            .ok_or("analysis_search")?;
+        let schema = tool_schema(tool);
+        if schema["annotations"]["readOnlyHint"] != true
+            || schema["annotations"]["openWorldHint"] != false
+            || schema["inputSchema"]["required"] != json!(["term"])
+        {
+            return Err(schema.to_string());
+        }
+        let arguments = json!({"term": "--data-dir=elsewhere", "history": true, "limit": 3});
+        let args = argv(tool, arguments.as_object().ok_or("object")?)?;
+        if args
+            != [
+                "analysis",
+                "search",
+                "--term",
+                "--data-dir=elsewhere",
+                "--history",
+                "--limit",
+                "3",
+            ]
+        {
+            return Err(format!("{args:?}"));
+        }
+        for refused in [
+            json!({}),
+            json!({"term": "x", "data_dir": "elsewhere"}),
+            json!({"term": "x", "limit": 65}),
+            json!({"term": "x", "scan_rows": 1}),
+            json!({"term": "x", "deadline_ms": 2_001}),
+            json!({"term": "line
+break"}),
+        ] {
+            if argv(tool, refused.as_object().ok_or("object")?).is_ok() {
+                return Err(refused.to_string());
+            }
+        }
+        Ok(())
+    }
+}

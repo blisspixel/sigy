@@ -1,4 +1,5 @@
 use super::{Operation, Snapshot};
+use crate::archive::{ArchivePage, ArchiveQuery};
 use crate::recognition::{LocalAsrJob, RecognitionProfile, TranscriptCuePage};
 use crate::translation::{TranslationJob, TranslationPage, TranslationProfile};
 use crate::{
@@ -99,6 +100,11 @@ pub enum AnalysisOperation {
         id: String,
         generation: u32,
     },
+    /// Find a literal term in stored original-script cues and English translations.
+    /// Reads only: no job, finding, briefing, ledger event or network request.
+    Search {
+        query: ArchiveQuery,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +180,9 @@ pub enum RecognitionView {
     },
     Translation {
         page: TranslationPage,
+    },
+    Search {
+        page: Box<ArchivePage>,
     },
 }
 
@@ -298,6 +307,7 @@ pub(super) fn apply(store: &mut Store, command: AnalysisOperation) -> Result<Sna
             return translation_profile(store, command, now);
         }
         AnalysisOperation::Languages { command } => return languages(store, command),
+        AnalysisOperation::Search { query } => return search(store, query),
         AnalysisOperation::Job { id } => {
             let mut snapshot = super::snapshot(store)?;
             if store.analysis_job_kind(&id)?.is_none()
@@ -342,6 +352,15 @@ fn transcript(
     };
     let mut snapshot = super::snapshot(store)?;
     snapshot.recognition = Some(Box::new(view));
+    Ok(snapshot)
+}
+
+fn search(store: &Store, query: ArchiveQuery) -> Result<Snapshot> {
+    let page = store.archive_search(query)?;
+    let mut snapshot = super::snapshot(store)?;
+    snapshot.recognition = Some(Box::new(RecognitionView::Search {
+        page: Box::new(page),
+    }));
     Ok(snapshot)
 }
 

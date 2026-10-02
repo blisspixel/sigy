@@ -10,6 +10,8 @@ use sigy_service::translation::{TranslationJob, TranslationPage, TranslationProf
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+mod search;
+
 #[derive(Debug, Subcommand)]
 pub enum AnalysisCommand {
     /// Verify retained bytes in a supervised local job. Does not recognize speech.
@@ -124,6 +126,9 @@ pub enum AnalysisCommand {
         #[command(subcommand)]
         command: TranslationProfileCommand,
     },
+    /// Find a literal term in stored original-script cues and English translations across
+    /// the library. Reads only: no job, finding, network request or spending.
+    Search(search::SearchArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -306,6 +311,7 @@ impl AnalysisCommand {
             Self::TranslationProfile { command } => AnalysisOperation::TranslationProfile {
                 command: command.operation()?,
             },
+            Self::Search(args) => args.operation()?,
         }
         .into())
     }
@@ -441,6 +447,7 @@ pub fn render_recognition(writer: &mut impl Write, view: &RecognitionView) -> io
         }
         RecognitionView::TranslationJob { job } => render_translation_job(writer, job),
         RecognitionView::Translation { page } => render_translation(writer, page),
+        RecognitionView::Search { page } => search::render(writer, page),
     }
 }
 

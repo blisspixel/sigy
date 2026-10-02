@@ -2,6 +2,7 @@
 
 pub use sigy_core as domain;
 
+pub mod archive;
 pub mod backup;
 pub mod control;
 pub mod discovery;
