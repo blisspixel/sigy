@@ -66,6 +66,54 @@ fn loaded(directory: &Path, digest: &str) -> Result<(Manifest, Vec<Item>, BTreeM
     Ok((manifest, items, receipts(directory)?))
 }
 
+/// Outcome, cost, token and serving-provider totals of one plan's receipts.
+#[must_use]
+pub fn dispatch_summary(manifest: &Manifest, receipts: &BTreeMap<u32, Receipt>) -> Value {
+    let mut outcomes: BTreeMap<&str, u32> = BTreeMap::new();
+    let mut providers: BTreeMap<String, u32> = BTreeMap::new();
+    let mut finishes: BTreeMap<String, u32> = BTreeMap::new();
+    let mut routing: BTreeMap<String, u32> = BTreeMap::new();
+    let (mut micro, mut prompt, mut completion, mut reasoning) = (0_u64, 0_u64, 0_u64, 0_u64);
+    let (mut largest_prompt, mut largest_completion, mut breaches) = (0_u64, 0_u64, 0_u32);
+    for receipt in receipts.values() {
+        *outcomes.entry(receipt.outcome.as_str()).or_default() += 1;
+        breaches += u32::from(receipt.breach.is_some());
+        let Some(settlement) = &receipt.settlement else {
+            continue;
+        };
+        micro += settlement.micro;
+        *providers.entry(settlement.provider.clone()).or_default() += 1;
+        *finishes
+            .entry(
+                settlement
+                    .finish_reason
+                    .clone()
+                    .unwrap_or_else(|| "unreported".into()),
+            )
+            .or_default() += 1;
+        if let Some(summary) = &settlement.routing {
+            let pipeline = summary.split("; pipeline=").nth(1).unwrap_or("[]");
+            *routing.entry(pipeline.to_owned()).or_default() += 1;
+        }
+        prompt += settlement.usage.prompt.unwrap_or(0);
+        completion += settlement.usage.completion.unwrap_or(0);
+        reasoning += settlement.usage.reasoning.unwrap_or(0);
+        largest_prompt = largest_prompt.max(settlement.usage.prompt.unwrap_or(0));
+        largest_completion = largest_completion.max(settlement.usage.completion.unwrap_or(0));
+    }
+    json!({
+        "planned": manifest.requests.len(),
+        "outcomes": outcomes,
+        "settled_usd": crate::money::usd(micro),
+        "sum_reservation_usd": crate::money::usd(manifest.sum_reservation_micro),
+        "breaches": breaches,
+        "providers": providers,
+        "finish_reasons": finishes,
+        "pipelines": routing,
+        "tokens": {"prompt": prompt, "completion": completion, "reasoning": reasoning, "largest_prompt": largest_prompt, "largest_completion": largest_completion},
+    })
+}
+
 fn write_json(path: &Path, value: &impl Serialize) -> Result<String> {
     let bytes = serde_json::to_vec_pretty(value)?;
     files::write_new(path, &bytes)?;
@@ -132,6 +180,7 @@ pub fn controls(
         "judgments_sha256": judgments_sha256,
         "report_sha256": report_sha256,
         "by_language": languages,
+        "dispatch": dispatch_summary(&manifest, &receipts),
     }))
 }
 
@@ -191,9 +240,12 @@ pub fn outputs(directory: &Path, digest: &str) -> Result<Value> {
         "critical_items": critical,
     });
     let report_sha256 = write_json(&directory.join("output-judgments.json"), &report)?;
-    Ok(
-        json!({"report_sha256": report_sha256, "by_run": report["by_run"], "abstention_reasons": report["abstention_reasons"]}),
-    )
+    Ok(json!({
+        "report_sha256": report_sha256,
+        "by_run": report["by_run"],
+        "abstention_reasons": report["abstention_reasons"],
+        "dispatch": dispatch_summary(&manifest, &receipts),
+    }))
 }
 
 fn text_outcome(receipt: Option<&Receipt>) -> std::result::Result<String, &'static str> {
@@ -314,13 +366,15 @@ pub fn translations(
     });
     let bytes = serde_json::to_vec_pretty(&envelope)?;
     files::write_new(&directory.join("candidates.json"), &bytes)?;
-    score_translation_envelope(
+    let mut summary = score_translation_envelope(
         selection,
         references,
         references_sha256,
         &bytes,
         &directory.join("translation-score.json"),
-    )
+    )?;
+    summary["dispatch"] = dispatch_summary(&manifest, &receipts);
+    Ok(summary)
 }
 
 /// Recognition references for all 32 calibration clips, from the paired
@@ -441,14 +495,16 @@ pub fn recognition(
         "normalization_id": NORMALIZATION_ID, "profile_sha256": digest, "declared_tuning_partition": "calibration",
         "records": records,
     });
-    score_recognition(
+    let mut summary = score_recognition(
         selection,
         references_bytes,
         references_sha256,
         &envelope,
         directory,
         "recognition",
-    )
+    )?;
+    summary["dispatch"] = dispatch_summary(&manifest, &receipts);
+    Ok(summary)
 }
 
 /// Score the recorded local recognizer outputs of the 32-clip calibration.
@@ -583,6 +639,43 @@ mod tests {
         assert!(
             matches!(judge_outcome(&item, None), JudgmentOutcome::Abstained { reason } if reason == "unattempted-or-batch-stopped")
         );
+    }
+
+    #[test]
+    fn dispatch_summary_totals_costs_tokens_and_providers() -> Result<()> {
+        let route = fixtures::route();
+        let (endpoints, catalog) = (fixtures::endpoints(), fixtures::catalog());
+        let directory = crate::ledger::tests::scratch("summary")?.join("plan");
+        let (manifest, _) = crate::plan::write(
+            &crate::plan::Inputs {
+                task: crate::plan::Task::Translate,
+                route: &route,
+                catalog: &catalog,
+                endpoints: &endpoints,
+                digests: BTreeMap::new(),
+                instruction: "fixture",
+            },
+            vec![fixtures::draft("a", false), fixtures::draft("b", false)],
+            &directory,
+        )?;
+        let mut settled = receipt("settled", Some("text"), Some("stop"));
+        if let Some(settlement) = settled.settlement.as_mut() {
+            settlement.usage.prompt = Some(10);
+            settlement.usage.completion = Some(4);
+            settlement.routing = Some("selected=Fixture; attempt=1; pipeline=[]".into());
+        }
+        settled.breach = Some("fixture".into());
+        let mut uncertain = receipt("uncertain", None, None);
+        uncertain.index = 1;
+        let summary = dispatch_summary(&manifest, &BTreeMap::from([(0, settled), (1, uncertain)]));
+        assert_eq!(summary["outcomes"]["settled"], 1);
+        assert_eq!(summary["outcomes"]["uncertain"], 1);
+        assert_eq!(summary["providers"]["Fixture"], 1);
+        assert_eq!(summary["pipelines"]["[]"], 1);
+        assert_eq!(summary["tokens"]["prompt"], 10);
+        assert_eq!(summary["breaches"], 1);
+        assert_eq!(summary["settled_usd"], "0.000001");
+        Ok(())
     }
 
     #[test]
