@@ -7,6 +7,10 @@ use sigy_service::{
     recordings::{self, PlaybackDestination},
 };
 
+/// Playback needs the user's own decoder; Sigy never downloads one.
+const NO_DECODER: &str =
+    "no decoder is configured. Set one with `sigy dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG`";
+
 #[derive(Debug, Subcommand)]
 pub enum ListenCommand {
     /// Play one retained recording locally. This does not contact the source or stop capture.
@@ -212,7 +216,7 @@ async fn play_file(
     let decoder = policy
         .dvr
         .and_then(|status| status.decoder)
-        .ok_or("decoder is not configured; use dvr configure")?;
+        .ok_or(NO_DECODER)?;
     let shown = view(
         directory,
         Operation::Record {
@@ -523,7 +527,7 @@ async fn decoder_path(directory: &Path) -> Result<String, Box<dyn std::error::Er
     policy
         .dvr
         .and_then(|status| status.decoder)
-        .ok_or_else(|| "decoder is not configured; use dvr configure".into())
+        .ok_or_else(|| NO_DECODER.into())
 }
 
 fn failure_text(listen: &ListenView) -> String {

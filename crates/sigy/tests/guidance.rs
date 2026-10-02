@@ -58,6 +58,10 @@ fn offline_mistakes_explain_what_happened_and_what_to_run() -> TestResult {
             &["dvr", "configure", "--decoder", "ffmpeg"],
             "decoder ffmpeg does not exist",
         ),
+        (
+            &["listen", "file", "evening", "--destination", "null"],
+            "`sigy dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG`",
+        ),
     ] {
         let (succeeded, stdout, stderr) = run(&library, arguments)?;
         assert!(!succeeded, "{arguments:?}: {stdout}");

@@ -39,7 +39,7 @@ pub fn explain(cli: &Cli, error: Failure) -> Failure {
         ),
         Kind::Busy => busy(&cli.command, same),
         Kind::StationId => format!(
-            "that is not a station ID. Station IDs are directory UUIDs, the first field of each `sigy radio search`{same} result"
+            "that is not a station ID. Station IDs are directory UUIDs; `sigy radio search`{same} prints one at the start of each result"
         ),
     };
     message.into()
@@ -79,13 +79,9 @@ fn no_service(command: &Command, same: &str) -> String {
             command: ServiceCommand::Stop
         }
     ) {
-        return format!(
-            "no service is running for this library, so nothing was stopped. `sigy service status`{same} checks it again"
-        );
+        return "no service is running for this library, so nothing was stopped".into();
     }
-    format!(
-        "no service is running for this library. Start it with `sigy service start`{same}; `sigy init`{same} also starts it"
-    )
+    format!("no service is running for this library. Start it with `sigy service start`{same}")
 }
 
 fn busy(command: &Command, same: &str) -> String {
@@ -362,8 +358,18 @@ mod tests {
         assert!(status.starts_with("no service is running"), "{status}");
         assert!(status.contains("`sigy service start`"));
         let stop = message(&["sigy", "--data-dir", "lib", "service", "stop"], missing())?;
-        assert!(stop.contains("nothing was stopped"), "{stop}");
-        assert!(stop.contains("with the same --data-dir"), "{stop}");
+        assert_eq!(
+            stop,
+            "no service is running for this library, so nothing was stopped"
+        );
+        let explicit = message(
+            &["sigy", "--data-dir", "lib", "service", "status"],
+            missing(),
+        )?;
+        assert!(
+            explicit.ends_with("`sigy service start` with the same --data-dir"),
+            "{explicit}"
+        );
         let other = message(&["sigy", "record", "list"], missing())?;
         assert!(other.starts_with("filesystem operation failed"), "{other}");
         let required = message(
