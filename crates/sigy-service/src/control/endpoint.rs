@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Error, Result,
     library::{control_directory, reject_link},
+    local_stream::LocalStream,
 };
 
 const RECORD: &str = "service.json";
@@ -129,13 +130,13 @@ impl Endpoint {
         Ok(options.create_tokio()?)
     }
 
-    pub async fn connect(&self, directory: &Path) -> Result<Stream> {
-        let stream = Stream::connect(socket_name(&self.nonce, directory)?).await?;
+    pub async fn connect(&self, directory: &Path) -> Result<LocalStream> {
+        let stream = LocalStream::new(Stream::connect(socket_name(&self.nonce, directory)?).await?);
         #[cfg(windows)]
-        if stream.peer_creds()?.pid() != Some(self.process_id) {
+        if stream.get().peer_creds()?.pid() != Some(self.process_id) {
             return Err(Error::Protocol("service process identity mismatch"));
         }
-        verify_peer(&stream)?;
+        verify_peer(stream.get())?;
         Ok(stream)
     }
 }

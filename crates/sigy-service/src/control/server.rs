@@ -1,6 +1,6 @@
-use std::{future::Future, path::Path};
+use std::{future::Future, path::Path, time::Duration};
 
-use interprocess::local_socket::tokio::{Stream, prelude::*};
+use interprocess::local_socket::tokio::prelude::*;
 use tokio::{
     sync::{mpsc, oneshot, watch},
     task::JoinSet,
@@ -14,13 +14,22 @@ use super::{
     endpoint::{self, Endpoint},
     frame,
 };
-use crate::{Error, Result, library::Library};
+use crate::{Error, Result, library::Library, local_stream::LocalStream};
 
 /// Serves until a stop operation or caller shutdown signal. Client exit does
 /// not own this lifetime. Library ownership remains held through final cleanup.
 /// # Errors
 /// Returns endpoint, recovery, listener, or catalog-thread errors.
-pub async fn run(mut library: Library, shutdown: impl Future<Output = ()>) -> Result<()> {
+pub async fn run(library: Library, shutdown: impl Future<Output = ()>) -> Result<()> {
+    serve(library, shutdown, REQUEST_TIMEOUT).await
+}
+
+/// `deadline` bounds each whole client exchange, including the wait for its close.
+async fn serve(
+    mut library: Library,
+    shutdown: impl Future<Output = ()>,
+    deadline: Duration,
+) -> Result<()> {
     // The actor may fail. Retain ownership until endpoint cleanup even if its
     // catalog connection has already unwound.
     let _ownership = library.hold_ownership();
@@ -64,11 +73,13 @@ pub async fn run(mut library: Library, shutdown: impl Future<Output = ()>) -> Re
             accepted = listener.accept(), if clients.len() < MAX_CLIENTS => {
                 match accepted {
                     Ok(stream) => {
+                        let stream = LocalStream::new(stream);
                         let catalog = catalog.clone();
                         clients.spawn(async move {
                             // Per-client faults are isolated. An accepted operation
                             // remains owned by the catalog even after this deadline.
-                            let _ = timeout(REQUEST_TIMEOUT, handle(stream, catalog)).await;
+                            // Expiry drops the stream here, with no detached owner.
+                            let _ = timeout(deadline, handle(stream, catalog)).await;
                         });
                     },
                     Err(error) => break Err(error.into()),
@@ -89,8 +100,8 @@ pub async fn run(mut library: Library, shutdown: impl Future<Output = ()>) -> Re
     result
 }
 
-async fn handle(mut stream: Stream, catalog: mpsc::Sender<Message>) -> Result<()> {
-    endpoint::verify_peer(&stream)?;
+async fn handle(mut stream: LocalStream, catalog: mpsc::Sender<Message>) -> Result<()> {
+    endpoint::verify_peer(stream.get())?;
     let request: Request = frame::read(&mut stream, MAX_REQUEST_BYTES).await?;
     let response = if request.version == PROTOCOL_VERSION {
         let (reply, response) = oneshot::channel();
@@ -111,7 +122,10 @@ async fn handle(mut stream: Stream, catalog: mpsc::Sender<Message>) -> Result<()
             }),
         }
     };
-    frame::write(&mut stream, &response, MAX_RESPONSE_BYTES).await
+    frame::write(&mut stream, &response, MAX_RESPONSE_BYTES).await?;
+    // Close after the client has read the response and closed its end, within
+    // the caller's deadline. Older clients also close after their response.
+    stream.peer_closed().await
 }
 
 /// Sends one bounded local request. No mutation is retried automatically.
@@ -120,25 +134,32 @@ async fn handle(mut stream: Stream, catalog: mpsc::Sender<Message>) -> Result<()
 pub async fn request(directory: &Path, operation: Operation) -> Result<Snapshot> {
     let directory = endpoint::directory(directory)?;
     let endpoint = Endpoint::load(&directory)?;
-    timeout(REQUEST_TIMEOUT, async {
-        let mut stream = endpoint.connect(&directory).await?;
-        frame::write(&mut stream, &Request::new(operation), MAX_REQUEST_BYTES).await?;
-        let response: Response = frame::read(&mut stream, MAX_RESPONSE_BYTES).await?;
-        if response.version != PROTOCOL_VERSION {
-            return Err(Error::Protocol("unsupported service protocol version"));
-        }
-        response
-            .result
-            .map_err(|failure| Error::Remote(failure.message))
-    })
-    .await
-    .map_err(|_| Error::Timeout)?
+    // Expiry or cancellation drops the stream inside this future.
+    timeout(REQUEST_TIMEOUT, exchange(&endpoint, &directory, operation))
+        .await
+        .map_err(|_| Error::Timeout)?
+}
+
+async fn exchange(endpoint: &Endpoint, directory: &Path, operation: Operation) -> Result<Snapshot> {
+    let mut stream = endpoint.connect(directory).await?;
+    frame::write(&mut stream, &Request::new(operation), MAX_REQUEST_BYTES).await?;
+    let response: Response = frame::read(&mut stream, MAX_RESPONSE_BYTES).await?;
+    // The service responds only after reading the whole request, so nothing
+    // remains to deliver. Closing now also ends the service's wait.
+    drop(stream);
+    if response.version != PROTOCOL_VERSION {
+        return Err(Error::Protocol("unsupported service protocol version"));
+    }
+    response
+        .result
+        .map_err(|failure| Error::Remote(failure.message))
 }
 
 #[cfg(test)]
-mod tests {
-    use std::time::Duration;
+mod exchange_tests;
 
+#[cfg(test)]
+mod tests {
     use tokio::io::AsyncWriteExt;
 
     use super::*;

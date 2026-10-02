@@ -7,7 +7,7 @@ use interprocess::local_socket::{
     tokio::{Listener, Stream, prelude::*},
 };
 
-use crate::{Error, Result, library::control_directory};
+use crate::{Error, Result, library::control_directory, local_stream::LocalStream};
 
 pub(crate) struct ListenPipe {
     nonce: String,
@@ -21,14 +21,16 @@ impl ListenPipe {
         &self.nonce
     }
 
+    /// Dropping the returned writer leaves accepted bytes readable by the
+    /// client and starts no detached cleanup owner.
     /// # Errors
     /// Returns a stop, timeout, transport, or peer-check error. The pipe file is removed.
     pub(crate) async fn accept(
         &self,
         stop: &mut tokio::sync::watch::Receiver<bool>,
-    ) -> Result<Stream> {
-        let stream = wait_for_client(&self.listener, stop).await?;
-        verify_listen_peer(&stream)?;
+    ) -> Result<LocalStream> {
+        let stream = LocalStream::new(wait_for_client(&self.listener, stop).await?);
+        verify_listen_peer(stream.get())?;
         Ok(stream)
     }
 }
@@ -60,13 +62,13 @@ pub(crate) fn bind_listen_pipe(directory: &Path) -> Result<ListenPipe> {
 
 /// # Errors
 /// Rejects a nonce that is not the 32-character hex form created by this process.
-pub(crate) async fn connect_listen_pipe(directory: &Path, nonce: &str) -> Result<Stream> {
+pub(crate) async fn connect_listen_pipe(directory: &Path, nonce: &str) -> Result<LocalStream> {
     if !valid_listen_nonce(nonce) {
         return Err(Error::InvalidInput("listen pipe"));
     }
     let directory = control_directory(directory)?;
-    let stream = Stream::connect(pipe_name(&directory, nonce)?).await?;
-    verify_listen_peer(&stream)?;
+    let stream = LocalStream::new(Stream::connect(pipe_name(&directory, nonce)?).await?);
+    verify_listen_peer(stream.get())?;
     Ok(stream)
 }
 
@@ -176,4 +178,61 @@ fn verify_listen_peer(stream: &Stream) -> Result<()> {
     #[cfg(windows)]
     let _ = stream.peer_creds()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::library::Library;
+
+    type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_dropped_listen_writer_delivers_its_tail_then_end_of_stream() -> TestResult {
+        let temporary = tempfile::tempdir()?;
+        let library = Library::open(temporary.path(), true)?;
+        let pipe = bind_listen_pipe(library.directory())?;
+        let (_running, mut stop) = tokio::sync::watch::channel(false);
+        let (writer, reader) = tokio::join!(
+            pipe.accept(&mut stop),
+            connect_listen_pipe(library.directory(), pipe.nonce())
+        );
+        let mut reader = reader?;
+        // Larger than a pipe buffer: the last native write is still pending
+        // when the writer is dropped, as at the end of a listen transfer.
+        let payload: Vec<u8> = (0..(3 * 1024 * 1024 + 5))
+            .map(|index: u32| u8::try_from(index % 241).unwrap_or(0))
+            .collect();
+        let received =
+            crate::local_stream::tests::deliver_then_drop(writer?, &mut reader, payload.clone())
+                .await?;
+        assert_eq!(received.len(), payload.len());
+        assert!(received == payload, "listen bytes differ from the payload");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn listen_pipe_refuses_foreign_nonces_and_a_prior_stop() -> TestResult {
+        let temporary = tempfile::tempdir()?;
+        let library = Library::open(temporary.path(), true)?;
+        for nonce in [
+            "",
+            "ABCDEF0123456789ABCDEF0123456789",
+            "0123456789abcdef0123456789abcdeg",
+        ] {
+            assert!(matches!(
+                connect_listen_pipe(library.directory(), nonce).await,
+                Err(Error::InvalidInput("listen pipe"))
+            ));
+        }
+        let pipe = bind_listen_pipe(library.directory())?;
+        assert!(valid_listen_nonce(pipe.nonce()));
+        let (stopping, mut stop) = tokio::sync::watch::channel(false);
+        stopping.send(true)?;
+        assert!(matches!(
+            pipe.accept(&mut stop).await,
+            Err(Error::Acquisition("listen stopped"))
+        ));
+        Ok(())
+    }
 }

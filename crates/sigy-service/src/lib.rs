@@ -10,6 +10,7 @@ mod execution;
 mod fairness;
 pub mod languages;
 pub mod library;
+mod local_stream;
 pub mod monitor;
 mod podcast;
 pub(crate) mod processing;
