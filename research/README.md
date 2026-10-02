@@ -43,6 +43,8 @@ This folder records primary-source findings, measured experiments, design implic
 
 ## Evidence discipline
 
+The [finite task processing validation](experiments/task-processing-2026-10-02.md) checks durable job interests, atomic task admission, shared-job charges, cancellation, restart and an interrupted-versus-uninterrupted comparison through literal evidence. Synthetic and stand-in outputs establish no language quality.
+
 The [finite task collection validation](experiments/task-collection-2026-10-01.md) checks scoped once schedules, exact recording provenance, cancellation and recovery on the shared scheduler. [Primary-source research](33-task-collection-and-scoped-effects.md) explains transaction fences and why independent processing interests must precede task-owned processing.
 
 The [atomic monitor admission validation](experiments/monitor-processing-2026-10-01.md) checks job and usage rollback, historical replay, shared jobs and current authority before dispatch. Its scope excludes whole-pin rollback, model quality and general task execution.

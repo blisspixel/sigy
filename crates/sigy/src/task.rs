@@ -1,4 +1,5 @@
-//! Finite monitor-bound tasks, frozen observations and explicit publication or collection grants.
+//! Finite monitor-bound tasks, frozen observations, explicit publication, collection and
+//! processing grants, and read-only collection-to-evidence reconciliation.
 
 use std::io::{self, Write};
 
@@ -10,6 +11,7 @@ use sigy_service::{
 };
 
 mod collection;
+mod evidence;
 mod execution;
 mod processing;
 
@@ -143,6 +145,8 @@ pub enum TaskCommand {
         #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
         expected_generation: u32,
     },
+    /// Reconcile collected recordings through task processing to literal citations.
+    Evidence { id: String },
 }
 
 impl TaskCommand {
@@ -237,6 +241,7 @@ impl TaskCommand {
                 request_id: request_id.clone(),
                 expected_generation: *expected_generation,
             },
+            Self::Evidence { id } => TaskOperation::Evidence { id: id.clone() },
         };
         Ok(Operation::Task { command })
     }
@@ -265,6 +270,7 @@ pub fn render(writer: &mut impl Write, page: &TaskPage) -> io::Result<()> {
         TaskPage::Execution { run } => execution::render(writer, run.as_deref()),
         TaskPage::Collection { collection } => collection::render(writer, collection.as_deref()),
         TaskPage::Processing { processing } => processing::render(writer, processing.as_deref()),
+        TaskPage::Evidence { evidence } => evidence::render(writer, evidence.as_deref()),
     }
 }
 
@@ -647,6 +653,9 @@ mod tests {
         }
         assert!(
             matches!(parse(&["sigy", "processing", "water"])?, Operation::Task { command: TaskOperation::Processing { id } } if id == "water")
+        );
+        assert!(
+            matches!(parse(&["sigy", "evidence", "water"])?, Operation::Task { command: TaskOperation::Evidence { id } } if id == "water")
         );
         assert!(matches!(
             parse(&[

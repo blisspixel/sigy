@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 Commands use `~/.sigy/library` by default: `%USERPROFILE%\.sigy\library` on Windows, `$HOME/.sigy/library` on Unix. `--data-dir PATH` selects another library and works before or after a subcommand. Use a private directory outside the checkout. MCP requires an explicit `--data-dir`; help, version, updates and backup verification or restore do not need a library. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v43 and local IPC is v43. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v44 and local IPC is v44. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Quick start
 
@@ -392,6 +392,14 @@ Replace the example's profiles with existing local profiles from `analysis profi
 The running service then processes only the grant's exact collected recordings, after the client exits. When a recording completes and is retained, the service pins it and admits one canonical recognition job. When that job publishes text, it admits translation of that exact transcript revision. Each admission commits the job, the task's immutable receipt, its job interest and its audio charge together before any worker starts. A job another monitor, task or direct request already admitted with the same input and profile is shared, not duplicated; each authority charges its own allowance once. A failed, missed or expired recording, a recording longer than the remaining allowance, a failed recognition and a transcript without text are recorded once as refusals. The allowance never refills after failure, restart or cancellation.
 
 `task processing` shows the grant, its receipts, the audio charged, each job's current state and how many authorities share it. `cancel-processing` has its own generation. It stops future task admissions only; admitted jobs and direct or monitor interests continue. Any new monitor version or action holds future task processing as it holds collection. A grant stamped later than the service clock holds until time catches up. Finished jobs are not language quality or semantic task success. No task mutation is exposed through MCP. See [task-owned processing](decisions/0072-task-owned-processing.md).
+
+### Task evidence
+
+```text
+sigy --data-dir PATH_TO_LIBRARY task evidence evening-water
+```
+
+`task evidence` reconciles the collection grant through task processing to literal evidence, read-only. Each collected entry shows its schedule state, exact recording, recorded audio, uncovered time (planned but not recorded) and unprocessed time (recorded but without task recognition coverage), the task's recognition and translation receipts with live job states, the transcript revision the task's own recognition published and the translation of that revision. Citations are literal matches of the frozen monitor version's terms in those exact revisions; a later correction is not substituted. The outcome is `pending` while collection or processing can still advance, `cited` when every planned entry was recorded, recognized and translated and at least one passage matched, `no_literal_match` when coverage and processing are complete without a match, and `partial` otherwise, with reasons such as `capture-missed`, `uncovered-time`, `processing-not-granted`, `recognition-failed`, `no-recognized-text`, `translation-skipped` or `untranslated-cues`. Literal citations are not semantic support, and wording, language and translation quality remain unmeasured. To publish findings and a briefing, use `task checkpoint` and `task execute`; a checkpoint observes the monitor's broader window and newest revisions.
 
 ## Listening
 

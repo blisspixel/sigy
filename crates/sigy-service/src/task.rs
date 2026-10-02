@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Error, Result, monitor::MonitorCoverage};
 
 pub mod collection;
+pub mod evidence;
 pub mod processing;
 pub mod run;
 

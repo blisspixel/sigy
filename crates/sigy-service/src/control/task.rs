@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Snapshot, snapshot};
 use crate::task::collection::{TaskCollectionSpec, TaskCollectionView};
+use crate::task::evidence::TaskEvidenceView;
 use crate::task::processing::{TaskProcessingSpec, TaskProcessingView};
 use crate::task::run::{TaskRunSpec, TaskRunView};
 use crate::{
@@ -80,6 +81,10 @@ pub enum TaskOperation {
         request_id: String,
         expected_generation: u32,
     },
+    /// Reconcile collection through task processing to literal evidence. Read-only.
+    Evidence {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +109,9 @@ pub enum TaskPage {
     },
     Processing {
         processing: Option<Box<TaskProcessingView>>,
+    },
+    Evidence {
+        evidence: Option<Box<TaskEvidenceView>>,
     },
 }
 
@@ -140,6 +148,12 @@ pub(super) fn apply(store: &mut Store, command: TaskOperation) -> Result<Snapsho
         TaskOperation::ShowCheckpoint { id, ordinal } => TaskPage::Checkpoint {
             checkpoint: Box::new(store.task_checkpoint(&id, ordinal)?),
         },
+        TaskOperation::Evidence { id } => {
+            store.task(&id)?;
+            TaskPage::Evidence {
+                evidence: store.task_evidence(&id)?.map(Box::new),
+            }
+        }
         grant => grant_page(store, grant, now)?,
     };
     let mut view = snapshot(store)?;
@@ -241,7 +255,8 @@ fn grant_page(store: &mut Store, command: TaskOperation, now: i64) -> Result<Tas
         | TaskOperation::Show { .. }
         | TaskOperation::List { .. }
         | TaskOperation::Checkpoint { .. }
-        | TaskOperation::ShowCheckpoint { .. } => {
+        | TaskOperation::ShowCheckpoint { .. }
+        | TaskOperation::Evidence { .. } => {
             return Err(crate::Error::InvalidInput("task operation"));
         }
     })
@@ -634,6 +649,20 @@ mod tests {
             grant_page(&mut store, TaskOperation::Show { id: "task".into() }, now),
             Err(crate::Error::InvalidInput("task operation"))
         ));
+        let evidence = apply(&mut store, TaskOperation::Evidence { id: "task".into() })?;
+        assert!(
+            matches!(evidence.task.as_deref(), Some(TaskPage::Evidence { evidence: Some(view) }) if view.outcome == crate::task::evidence::TaskOutcome::Pending && view.citations.is_empty() && view.entries[0].pending)
+        );
+        assert_eq!(evidence.captures.active, before.captures.active);
+        assert!(
+            apply(
+                &mut store,
+                TaskOperation::Evidence {
+                    id: "absent".into()
+                }
+            )
+            .is_err()
+        );
         let encoded = serde_json::to_value(Request::new(Operation::Task { command: request }))?;
         for field in ["paid_allowance", "shell", "job"] {
             let mut hostile = encoded.clone();

@@ -458,6 +458,7 @@ fn contained_recognition_publishes_bounded_text_and_fails_closed_on_faults() -> 
     speech_and_replay(directory.path())?;
     translation_phase(directory.path(), files.path())?;
     monitor_owned_capture(directory.path())?;
+    task_owned_processing(directory.path())?;
     faults(directory.path(), &assets)?;
     queue_in_order(directory.path())?;
     cancel_and_kill(directory.path(), &mut service)
@@ -684,6 +685,141 @@ fn monitor_owned_capture(directory: &Path) -> TestResult {
         monitor["monitor"]["monitor"]["version"]["spec"]
             .get("capture")
             .is_none()
+    );
+    Ok(())
+}
+
+/// A WAV body of whole seconds at 16 kHz, 8-bit mono, as `tone` with a longer data chunk.
+fn long_tone(seconds: u32) -> Vec<u8> {
+    let samples = 16_000 * seconds;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + samples).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&16_000_u32.to_le_bytes());
+    bytes.extend_from_slice(&16_000_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&8_u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&samples.to_le_bytes());
+    bytes.extend((0..samples).map(|index| if (index / 16) % 2 == 0 { 100 } else { 156 }));
+    bytes
+}
+
+fn wait_task_evidence(
+    directory: &Path,
+    task: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let page = success(directory, &["task", "evidence", task])?;
+        let evidence = page["task"]["evidence"].clone();
+        if evidence["outcome"] != "pending" {
+            return Ok(evidence);
+        }
+        assert!(Instant::now() < deadline, "task evidence deadline: {page}");
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Two loopback sources and a monitor that may capture them but names no recognition
+/// profile, so no authority other than the task holds their processing jobs.
+fn task_sources(directory: &Path, urls: [&str; 2]) -> TestResult {
+    for (id, url) in ["task-a:v1", "task-b:v1"].into_iter().zip(urls) {
+        let source = ["source", "add", id, "--name", "Task fixture", "--url", url];
+        let mut args = source.to_vec();
+        args.extend(["--pin-address", "127.0.0.1"]);
+        success(directory, &args)?;
+    }
+    let mut monitor = vec![
+        "monitor",
+        "create",
+        "task-monitor",
+        "--name",
+        "Task fixture",
+    ];
+    monitor.extend(["--goal", "Follow French news", "--term", "fr:bonjour"]);
+    monitor.extend(["--source", "task-a:v1", "--source", "task-b:v1"]);
+    monitor.extend(["--daily-minutes", "1", "--total-hours", "1"]);
+    monitor.extend(["--capture-daily-minutes", "1", "--capture-total-hours", "1"]);
+    monitor.extend(["--capture-total-mib", "2"]);
+    success(directory, &monitor)?;
+    Ok(())
+}
+
+/// Scope, a three-second collection from each source and a finite processing grant.
+fn task_grants(directory: &Path, start: i64) -> TestResult {
+    let (from, to, at) = (
+        (start - 60_000).to_string(),
+        (start + 600_000).to_string(),
+        start.to_string(),
+    );
+    let mut task = vec!["task", "create", "native-task", "--goal", "Follow bonjour"];
+    task.extend(["--monitor", "task-monitor", "--monitor-version", "1"]);
+    task.extend(["--monitor-actions", "0", "--from-ms", &from, "--to-ms", &to]);
+    success(directory, &task)?;
+    let mut collect = vec!["task", "collect", "native-task", "collect"];
+    collect.extend(["--source", "task-a:v1", "--source", "task-b:v1"]);
+    collect.extend([
+        "--start-ms",
+        &at,
+        "--seconds",
+        "3",
+        "--max-bytes",
+        "1048576",
+    ]);
+    collect.extend(["--expected-generation", "0"]);
+    success(directory, &collect)?;
+    let mut process = vec!["task", "process", "native-task", "process"];
+    process.extend([
+        "--recognition-profile",
+        "speech",
+        "--translation-profile",
+        "mt-echo",
+    ]);
+    process.extend(["--max-audio-seconds", "20", "--expected-generation", "0"]);
+    let granted = success(directory, &process)?;
+    assert_eq!(granted["task"]["processing"]["generation"], 1, "{granted}");
+    Ok(())
+}
+
+/// A finite task collects two loopback recordings and the service processes exactly those
+/// under the task grant after the granting client exits.
+fn task_owned_processing(directory: &Path) -> TestResult {
+    let (first_url, first_server) = serve_once(long_tone(4))?;
+    let (second_url, second_server) = serve_once(long_tone(4))?;
+    task_sources(directory, [&first_url, &second_url])?;
+    let now = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?;
+    task_grants(directory, (now / 1000 + 8) * 1000)?;
+    let evidence = wait_task_evidence(directory, "native-task")?;
+    first_server.join().map_err(|_| "server panicked")??;
+    second_server.join().map_err(|_| "server panicked")??;
+    assert_eq!(evidence["outcome"], "cited", "{evidence}");
+    assert_eq!(evidence["uncovered_us"], 0, "{evidence}");
+    assert_eq!(evidence["unprocessed_us"], 0, "{evidence}");
+    assert_eq!(evidence["citations"].as_array().map(Vec::len), Some(2));
+    let processing = success(directory, &["task", "processing", "native-task"])?;
+    let processing = &processing["task"]["processing"];
+    assert_eq!(processing["charged_audio_us"], 8_000_000, "{processing}");
+    let steps = processing["steps"].as_array().ok_or("steps")?;
+    assert_eq!(steps.len(), 4, "{processing}");
+    for step in steps {
+        assert_eq!(step["decision"], "queued", "{processing}");
+        assert_eq!(step["job_state"], "succeeded", "{processing}");
+        assert_eq!(step["sharing"]["tasks"], 1);
+        assert_eq!(step["sharing"]["monitors"], 0);
+    }
+    let monitor = success(directory, &["monitor", "show", "task-monitor"])?;
+    assert_eq!(
+        monitor["monitor"]["monitor"]["processing"]["recognition_queued"],
+        0
     );
     Ok(())
 }
