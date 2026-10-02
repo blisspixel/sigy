@@ -292,6 +292,22 @@ sigy --data-dir PATH_TO_LIBRARY analysis translation pin-001
 
 Sigy does not download a translator or model. `analysis translation-profile add` hashes a local [llama.cpp](https://github.com/ggml-org/llama.cpp) runtime directory with `llama-completion` and a GGUF model. `--languages` lists the source languages the model declares; a transcript whose recognized language is not listed stays untranslated with the reason `unsupported-language`, and English stays untranslated as `source-english`. `analysis translate` requires a running service, translates each cue of one recognized transcript revision in its own bounded local process, and makes no paid request. `analysis translation` shows the original and English side by side. The English is unreviewed machine translation and can be wrong; the original is the evidence. A translation that follows an older transcript revision stays readable and is labeled stale. `analysis correct` does not translate. An explicit `analysis translate` of the corrected revision is a separate local request and makes no paid request. See [local translation worker](decisions/0041-local-translation-worker.md).
 
+### Archive search
+
+```text
+sigy --data-dir PATH_TO_LIBRARY analysis search --term presa
+sigy --data-dir PATH_TO_LIBRARY analysis search --term "سد" --in original --source radio:v1
+sigy --data-dir PATH_TO_LIBRARY analysis search --term dam --in english --history --limit 32
+sigy --data-dir PATH_TO_LIBRARY analysis search --term barrage --language fr --from-ms 1790000000000 --to-ms 1790086400000
+sigy --data-dir PATH_TO_LIBRARY analysis search --term presa --after pin-001/2/0/5
+```
+
+`analysis search` finds a literal term in stored original-script cues and English translations across the whole library. It compares text the way `monitor matches` does: as written, ignoring letter case only, with no stemming, transliteration, accent folding or Unicode normalization. `--in` chooses `original`, `english` or `both`. By default it reads the newest text revision of each transcript, including your corrections, and that revision's newest translation; `--history` also reads older revisions and translations, and each hit says whether it is current or stale. `--source`, the capture-start window `--from-ms`/`--to-ms`, and `--language` narrow the search; a language filter uses stored language labels, which are unevaluated evidence, and `fr` also accepts `fr-CA`.
+
+Each hit shows the recording, capture time, transcript and translation revisions, cue and media time, the original script with the English below it, and whether the audio is retained, released, expired, missing or unavailable. That audio state comes from catalog metadata; the file is not opened. Text whose audio expired stays searchable. A hit is a place to check, not a finding, and the search starts no job, stores nothing and makes no network request.
+
+A search returns at most `--limit` hits (1 to 64, default 16), reads at most `--scan-rows` catalog rows (2 to 200,000, default 20,000) and stops at `--deadline-ms` (10 to 2,000, default 1,000). Rows are read in transcript ID order, not time order. When a page stops early it says why and prints a cursor; repeat the same term and options with `--after` to continue. Pages are not a snapshot: changes between requests are visible. `--json` prints the exact page. `analysis_search` is the same read-only search through `sigy mcp`. See [archive passage search](decisions/0075-archive-passage-search.md).
+
 Older `local-unmeasured` rows stay readable as legacy placeholders with no recognized speech. See [local transcripts](decisions/0032-local-transcripts.md).
 
 `analysis languages` inspects stored evidence without running detection. `list` returns up to 16 evidence tracks for the exact pin revision; continue with `--after EVIDENCE_ID` when shown. `show` returns up to 16 spans from the exact evidence revision; continue with `--after ORDINAL`. Observation, processing outcome, and route capability remain separate. Empty legacy transcripts have no language observations, and no production detector publishes evidence yet. There is no command to manufacture evidence. See [language evidence](decisions/0033-language-evidence.md).
@@ -407,7 +423,7 @@ The same page has coordinates for two stations. The globe uses those directory p
 
 ## Agents
 
-`sigy mcp` speaks MCP 2026-07-28 on stdio. The portable package is `agent-plugin/`, in the Agent Plugins 1.0.0 layout. The server library is the `--data-dir` from startup. A tool cannot point at another directory, change a budget, or run a shell command. Analysis tools let an agent queue local recognition and translation with profiles you configured, then read the results; no tool adds a profile or a paid provider. Monitor tools read monitors, coverage and matches and record proposals as `model`; no tool creates or revises a monitor. See [agent plugin](decisions/0021-agent-plugin.md).
+`sigy mcp` speaks MCP 2026-07-28 on stdio. The portable package is `agent-plugin/`, in the Agent Plugins 1.0.0 layout. The server library is the `--data-dir` from startup. A tool cannot point at another directory, change a budget, or run a shell command. Analysis tools let an agent queue local recognition and translation with profiles you configured, then read the results; no tool adds a profile or a paid provider. `analysis_search` reads stored text across the library with the same bounds as `analysis search` and publishes nothing. Monitor tools read monitors, coverage and matches and record proposals as `model`; no tool creates or revises a monitor. See [agent plugin](decisions/0021-agent-plugin.md).
 
 ## Verification
 

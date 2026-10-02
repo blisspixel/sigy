@@ -121,17 +121,29 @@ fn scope(query: &ArchiveQuery) -> String {
     parts.join(", ")
 }
 
+fn counted(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
 /// Print one page. Stored text is sanitized; the page itself is not changed.
 pub fn render(writer: &mut impl Write, page: &ArchivePage) -> io::Result<()> {
     let query = &page.query;
     writeln!(
         writer,
-        "Archive search for \"{}\" in {} | {} hits | {} transcript revisions and {} rows read.",
+        "Archive search for \"{}\" in {} | {} | {} and {} read.",
         sanitize(&query.term, 200),
         scope(query),
-        page.hits.len(),
-        page.transcripts_scanned,
-        page.rows_scanned
+        counted(page.hits.len(), "hit", "hits"),
+        counted(
+            usize::try_from(page.transcripts_scanned).unwrap_or(usize::MAX),
+            "transcript revision",
+            "transcript revisions"
+        ),
+        counted(
+            usize::try_from(page.rows_scanned).unwrap_or(usize::MAX),
+            "row",
+            "rows"
+        )
     )?;
     writeln!(
         writer,
@@ -352,6 +364,9 @@ mod tests {
             "Language labels: ar[1m from evidence lid-1 revision 1 on transcript revision 1, unevaluated; more not shown."
         ));
         assert!(text.contains("language label ar"));
+        assert!(text.contains("| 1 hit | 3 transcript revisions and 40 rows read."));
+        assert_eq!(counted(0, "hit", "hits"), "0 hits");
+        assert_eq!(counted(1, "row", "rows"), "1 row");
         assert!(text.contains(
             "More hits exist beyond the limit of 16. Continue with the same term and options and --after one/1/0/3"
         ));
