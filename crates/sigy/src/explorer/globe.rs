@@ -556,7 +556,8 @@ mod tests {
                 maximum_stations: 10_000,
                 favorite_stations: 2,
                 refresh: None,
-            }
+            },
+            None
         ));
         assert_eq!(model.handle(Key::Char('7')), Effect::None);
         assert_eq!(model.handle(Key::Char('m')), Effect::None);
@@ -622,7 +623,8 @@ mod tests {
         assert!(model.apply_search(
             query.generation,
             vec![row("first", 0.0, 0.0), row("second", 0.01, 0.01), missing,],
-            directory.clone()
+            directory.clone(),
+            None
         ));
         let clusters = station_clusters(
             model.rows(),
@@ -639,7 +641,12 @@ mod tests {
         assert_eq!(clusters.len(), 1);
         assert_eq!(clusters[0].count, 2);
         assert_eq!(clusters[0].symbol(), "@");
-        assert!(!model.apply_search(query.generation, vec![row("stale", 90.0, 0.0)], directory));
+        assert!(!model.apply_search(
+            query.generation,
+            vec![row("stale", 90.0, 0.0)],
+            directory,
+            None
+        ));
         assert_eq!(model.rows().len(), 3);
         assert_eq!(model.selected().map(|r| r.id.as_str()), Some("first"));
     }
@@ -672,7 +679,8 @@ mod tests {
                 maximum_stations: 10_000,
                 favorite_stations: 4,
                 refresh: None,
-            }
+            },
+            None
         ));
         assert_eq!(model.handle(Key::Char('7')), Effect::None);
         assert_eq!(model.handle(Key::Char('m')), Effect::None);

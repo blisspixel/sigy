@@ -44,15 +44,40 @@ impl Workspace {
         )
     }
 
+    /// The number key that selects this workspace. The tab bar uses the same order.
+    #[must_use]
+    pub const fn digit(self) -> char {
+        match self {
+            Self::Explore => '1',
+            Self::Live => '2',
+            Self::Recordings => '3',
+            Self::Monitors => '4',
+            Self::Findings => '5',
+            Self::System => '6',
+            Self::Globe => '7',
+        }
+    }
+
+    /// Every workspace in number-key order.
+    pub const ALL: [Self; 7] = [
+        Self::Explore,
+        Self::Live,
+        Self::Recordings,
+        Self::Monitors,
+        Self::Findings,
+        Self::System,
+        Self::Globe,
+    ];
+
     const fn cycle(self, forward: bool) -> Self {
         match (self, forward) {
             (Self::Explore, true) | (Self::Recordings, false) => Self::Live,
             (Self::Live, true) | (Self::Monitors, false) => Self::Recordings,
             (Self::Recordings, true) | (Self::Findings, false) => Self::Monitors,
-            (Self::Monitors, true) | (Self::Globe, false) => Self::Findings,
-            (Self::Findings, true) | (Self::System, false) => Self::Globe,
-            (Self::Globe, true) | (Self::Explore, false) => Self::System,
-            (Self::System, true) | (Self::Live, false) => Self::Explore,
+            (Self::Monitors, true) | (Self::System, false) => Self::Findings,
+            (Self::Findings, true) | (Self::Globe, false) => Self::System,
+            (Self::System, true) | (Self::Explore, false) => Self::Globe,
+            (Self::Globe, true) | (Self::Live, false) => Self::Explore,
         }
     }
 }
@@ -224,9 +249,19 @@ pub struct Desk {
     pub dispatch_available: bool,
     pub directory: Option<DirectoryView>,
     pub stations: Vec<StationRow>,
+    /// Cursor for the station page after this one, when the cache has more matches.
+    pub next_after: Option<String>,
     pub quota: Option<QuotaView>,
     pub recordings: Vec<RecordingLine>,
     pub playback: Option<PlaybackView>,
+}
+
+/// How a submitted station search moves through pages once its response applies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PageMove {
+    First,
+    Next(String),
+    Previous,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -287,6 +322,12 @@ pub struct Explorer {
     favorites_only: bool,
     rows: Vec<StationRow>,
     selection: usize,
+    /// Cursor that produced the current station page; `None` is the first page.
+    page_cursor: Option<String>,
+    /// Cursors of earlier pages, so `p` can return without a second index.
+    page_history: Vec<Option<String>>,
+    next_after: Option<String>,
+    pending_page: Option<PageMove>,
     link: Link,
     snapshot_ms: Option<i64>,
     now_ms: i64,
@@ -340,6 +381,10 @@ impl Explorer {
             favorites_only: false,
             rows: Vec::new(),
             selection: 0,
+            page_cursor: None,
+            page_history: Vec::new(),
+            next_after: None,
+            pending_page: None,
             link: Link::Disconnected,
             snapshot_ms: None,
             now_ms,
@@ -439,6 +484,23 @@ impl Explorer {
     #[must_use]
     pub const fn selection(&self) -> usize {
         self.selection
+    }
+
+    /// One-based number of the station page on screen.
+    #[must_use]
+    pub const fn page_number(&self) -> usize {
+        self.page_history.len().saturating_add(1)
+    }
+
+    #[must_use]
+    pub const fn has_next_page(&self) -> bool {
+        self.next_after.is_some()
+    }
+
+    /// Cursor that reproduces the current station page on reload.
+    #[must_use]
+    pub fn page_cursor(&self) -> Option<&str> {
+        self.page_cursor.as_deref()
     }
 
     #[must_use]
@@ -560,7 +622,9 @@ impl Explorer {
         self.search_generation = self.search_generation.saturating_add(1);
         self.applied_search = self.search_generation;
         self.pending_search = None;
+        self.pending_page = None;
         self.pending_favorite = None;
+        self.next_after = desk.next_after;
         self.link = desk.link;
         self.snapshot_ms = Some(desk.observed_ms);
         self.now_ms = desk.observed_ms;
@@ -589,9 +653,12 @@ impl Explorer {
         self.link = Link::Disconnected;
         self.now_ms = now_ms;
         self.pending_search = None;
+        self.pending_page = None;
         self.pending_favorite = None;
         self.status = sanitize(
-            &format!("disconnected: {reason}. Last snapshot kept. Capture was not stopped."),
+            &format!(
+                "Disconnected: {reason}. Last snapshot kept. Capture was not stopped. r reconnects."
+            ),
             160,
         );
         self.draw = Draw::Needed;
@@ -613,6 +680,7 @@ impl Explorer {
         generation: u64,
         rows: Vec<StationRow>,
         directory: DirectoryView,
+        next_after: Option<String>,
     ) -> bool {
         if self.pending_search != Some(generation) || generation < self.applied_search {
             return false;
@@ -622,7 +690,23 @@ impl Explorer {
         self.applied_search = generation;
         self.directory = Some(directory);
         self.rows = rows;
-        self.restore_selection(selected);
+        self.next_after = next_after;
+        match self.pending_page.take() {
+            Some(PageMove::Next(after)) => {
+                let previous = self.page_cursor.replace(after);
+                self.page_history.push(previous);
+                self.selection = 0;
+            }
+            Some(PageMove::Previous) => {
+                self.page_cursor = self.page_history.pop().flatten();
+                self.selection = 0;
+            }
+            Some(PageMove::First) | None => {
+                self.page_cursor = None;
+                self.page_history.clear();
+                self.restore_selection(selected);
+            }
+        }
         self.snapshot_ms = Some(self.now_ms);
         self.draw = Draw::Needed;
         true
@@ -724,6 +808,7 @@ impl Explorer {
             Key::Char('v') => self.toggle_favorite_filter(),
             Key::Char('f') => self.toggle_favorite(),
             Key::Char('r') => self.reload(),
+            Key::Char(direction @ ('n' | 'p')) => self.turn_page(direction == 'n'),
             Key::Char(character @ '1'..='7') => {
                 self.workspace = workspace_from_digit(character);
                 self.workspace_effect()
@@ -797,7 +882,7 @@ impl Explorer {
                 self.focus = Focus::Workspaces;
                 Effect::None
             }
-            Key::Enter => self.submit_search(None),
+            Key::Enter => self.submit_search(PageMove::First),
             Key::Backspace => {
                 self.query.pop();
                 Effect::None
@@ -836,20 +921,21 @@ impl Explorer {
 
     fn toggle_favorite_filter(&mut self) -> Effect {
         if matches!(self.link, Link::Disconnected) {
-            self.status = "disconnected; favorites filter was not submitted".into();
+            self.status =
+                "Disconnected; the favorites filter was not submitted. r reconnects.".into();
             return Effect::None;
         }
         self.favorites_only = !self.favorites_only;
-        self.submit_search(None)
+        self.submit_search(PageMove::First)
     }
 
     fn toggle_favorite(&mut self) -> Effect {
         if matches!(self.link, Link::Disconnected) {
-            self.status = "disconnected; favorite was not submitted".into();
+            self.status = "Disconnected; the favorite was not submitted. r reconnects.".into();
             return Effect::None;
         }
         let Some(row) = self.selected() else {
-            self.status = "no station selected".into();
+            self.status = "No station is selected.".into();
             return Effect::None;
         };
         let id = row.id.clone();
@@ -857,7 +943,7 @@ impl Explorer {
         self.favorite_generation = self.favorite_generation.saturating_add(1);
         let generation = self.favorite_generation;
         self.pending_favorite = Some(generation);
-        self.status = "favorite requested".into();
+        self.status = "Favorite requested.".into();
         Effect::SetFavorite {
             generation,
             id,
@@ -867,19 +953,45 @@ impl Explorer {
 
     fn reload(&mut self) -> Effect {
         if matches!(self.link, Link::Disconnected) && self.snapshot_ms.is_none() {
-            self.status = "disconnected; reload needs a catalog or a running service".into();
+            self.status = "Disconnected. Reload needs the library or a running service.".into();
         }
         Effect::Reload
     }
 
-    fn submit_search(&mut self, after: Option<String>) -> Effect {
-        if matches!(self.link, Link::Disconnected) {
-            self.status = "disconnected; search was not submitted".into();
+    /// `n` and `p` move through cached station pages with the existing search cursor.
+    fn turn_page(&mut self, forward: bool) -> Effect {
+        if !matches!(self.workspace, Workspace::Explore | Workspace::Globe) {
+            self.status = "n and p turn station pages in Explore (1) and Globe (7).".into();
             return Effect::None;
         }
+        if forward {
+            let Some(after) = self.next_after.clone() else {
+                self.status = "This is the last cached page for this search.".into();
+                return Effect::None;
+            };
+            self.submit_search(PageMove::Next(after))
+        } else if self.page_history.is_empty() {
+            self.status = "This is the first page.".into();
+            Effect::None
+        } else {
+            self.submit_search(PageMove::Previous)
+        }
+    }
+
+    fn submit_search(&mut self, movement: PageMove) -> Effect {
+        if matches!(self.link, Link::Disconnected) {
+            self.status = "Disconnected; the search was not submitted. r reconnects.".into();
+            return Effect::None;
+        }
+        let after = match &movement {
+            PageMove::First => None,
+            PageMove::Next(after) => Some(after.clone()),
+            PageMove::Previous => self.page_history.last().cloned().flatten(),
+        };
         self.search_generation = self.search_generation.saturating_add(1);
         let generation = self.search_generation;
         self.pending_search = Some(generation);
+        self.pending_page = Some(movement);
         Effect::Search(SearchQuery {
             generation,
             name: self.query.clone(),
@@ -898,7 +1010,7 @@ impl Explorer {
                 self.selection = index;
             } else {
                 self.selection = self.selection.min(self.rows.len() - 1);
-                self.status = "selected station left this page".into();
+                self.status = "The selected station is not on this page.".into();
             }
         }
     }
@@ -972,6 +1084,7 @@ mod tests {
                 refresh: None,
             }),
             stations,
+            next_after: None,
             quota: Some(QuotaView {
                 quota: 50,
                 charged: 5,
@@ -1055,6 +1168,7 @@ mod tests {
                 favorite_stations: 1,
                 refresh: None,
             },
+            None,
         ));
         assert!(!model.apply_search(
             older.generation,
@@ -1065,7 +1179,9 @@ mod tests {
                 favorite_stations: 9,
                 refresh: None,
             },
+            Some("station-a".into()),
         ));
+        assert!(!model.has_next_page());
         assert_eq!(model.rows()[0].name, "Beta");
         assert_eq!(model.directory().map(|item| item.cached_stations), Some(2));
 
@@ -1083,6 +1199,100 @@ mod tests {
         assert!(!model.rows().iter().any(|item| item.favorite));
         assert!(model.apply_favorite(generation, &id, true, None));
         assert!(model.selected().is_some_and(|item| item.favorite));
+    }
+
+    fn page(model: &mut Explorer, effect: Effect, rows: &[&str], next: Option<&str>) -> bool {
+        let Effect::Search(query) = effect else {
+            return false;
+        };
+        model.apply_search(
+            query.generation,
+            rows.iter().map(|id| row(id, id)).collect(),
+            DirectoryView {
+                cached_stations: 40,
+                maximum_stations: 10_000,
+                favorite_stations: 0,
+                refresh: None,
+            },
+            next.map(str::to_owned),
+        )
+    }
+
+    #[test]
+    fn pages_turn_with_the_search_cursor_and_return_without_new_state() {
+        let mut model = loaded();
+        assert_eq!(model.handle(Key::Char('p')), Effect::None);
+        assert!(model.status().contains("first page"));
+        assert_eq!(model.handle(Key::Char('n')), Effect::None);
+        assert!(model.status().contains("last cached page"));
+        let first = model.handle(Key::Char('v'));
+        assert!(page(&mut model, first, &["a", "b"], Some("b")));
+        assert_eq!(model.page_number(), 1);
+        model.handle(Key::Down);
+        let Effect::Search(query) = model.handle(Key::Char('n')) else {
+            panic!("n requests the next page");
+        };
+        assert_eq!(query.after.as_deref(), Some("b"));
+        assert!(query.favorites_only);
+        assert!(page(
+            &mut model,
+            Effect::Search(query),
+            &["c", "d"],
+            Some("d")
+        ));
+        assert_eq!(model.page_number(), 2);
+        assert_eq!(model.selection(), 0);
+        assert_eq!(model.page_cursor(), Some("b"));
+        let next = model.handle(Key::Char('n'));
+        assert!(page(&mut model, next, &["e"], None));
+        assert_eq!(model.page_number(), 3);
+        assert!(!model.has_next_page());
+        let Effect::Search(back) = model.handle(Key::Char('p')) else {
+            panic!("p requests the previous page");
+        };
+        assert_eq!(back.after.as_deref(), Some("b"));
+        assert!(page(
+            &mut model,
+            Effect::Search(back),
+            &["c", "d"],
+            Some("d")
+        ));
+        assert_eq!(model.page_number(), 2);
+        let Effect::Search(start) = model.handle(Key::Char('p')) else {
+            panic!("p returns to the first page");
+        };
+        assert_eq!(start.after, None);
+        // A stale page response cannot move the cursor.
+        let newer = model.handle(Key::Char('v'));
+        assert!(!page(&mut model, Effect::Search(start), &["x"], None));
+        assert_eq!(model.page_number(), 2);
+        assert!(page(&mut model, newer, &["a"], None));
+        assert_eq!(model.page_number(), 1);
+        assert_eq!(model.page_cursor(), None);
+        // Paging is a station read: it is refused outside Explore and Globe and starts no work.
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Char('n')), Effect::None);
+        assert!(model.status().contains("Explore (1) and Globe (7)"));
+        assert_eq!(model.captures_active(), 1);
+        assert!(model.playback().is_none());
+    }
+
+    #[test]
+    fn tab_order_and_number_keys_agree() {
+        let mut model = loaded();
+        for workspace in Workspace::ALL {
+            model.handle(Key::Char(workspace.digit()));
+            assert_eq!(model.workspace(), workspace);
+        }
+        model.handle(Key::Char('1'));
+        for expected in Workspace::ALL.into_iter().skip(1) {
+            model.handle(Key::Right);
+            assert_eq!(model.workspace(), expected);
+        }
+        model.handle(Key::Right);
+        assert_eq!(model.workspace(), Workspace::Explore);
+        model.handle(Key::Left);
+        assert_eq!(model.workspace(), Workspace::Globe);
     }
 
     #[test]

@@ -61,7 +61,7 @@ fn run_loop(
 
 fn frame_has_labels(text: &str) -> bool {
     text.contains("Search:")
-        && text.contains("Selected source:")
+        && text.contains("Selected station:")
         && text.contains("Playback:")
         && text.contains("Help:")
 }
@@ -75,8 +75,9 @@ fn write_inspect(path: &Path, size: (u16, u16), model: &Explorer, text: &str) ->
         "reduced_motion": model.modes().reduced_motion,
         "linear": model.modes().linear,
         "monochrome": model.modes().monochrome,
+        "animation_frames": model.animation_frames(),
         "has_search": text.contains("Search:"),
-        "has_identity": text.contains("Selected source:"),
+        "has_identity": text.contains("Selected station:"),
         "has_playback": text.contains("Playback:"),
         "has_help": text.contains("Help:"),
     });

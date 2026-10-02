@@ -31,7 +31,7 @@ pub fn run(
         .build()?;
     let now = now_ms()?;
     let mut model = Explorer::new(presentation, now);
-    let desk = runtime.block_on(client::load_desk(data_dir, "", false, now))?;
+    let desk = runtime.block_on(client::load_desk(data_dir, "", false, None, now))?;
     model.apply_desk(desk);
     terminal::drive(&runtime, data_dir, &mut model, inspect)
 }

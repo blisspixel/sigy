@@ -25,13 +25,14 @@ pub async fn load_desk(
     directory: &Path,
     name: &str,
     favorites_only: bool,
+    after: Option<&str>,
     observed_ms: i64,
 ) -> Result<Desk, Error> {
     let query = SearchQuery {
         generation: 0,
         name: name.to_owned(),
         favorites_only,
-        after: None,
+        after: after.map(str::to_owned),
     };
     let (via_status, status) = fetch(directory, Operation::Status {}).await?;
     let (via_radio, radio) = fetch(directory, radio_status()).await?;
@@ -111,13 +112,13 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
             let generation = query.generation;
             apply_fetched(directory, model, operation, |model, snapshot| {
                 let Some(page) = snapshot.station_page.as_ref() else {
-                    model.note_message("search returned no page");
+                    model.note_message("The search returned no page; the previous list is kept.");
                     return;
                 };
                 let rows = rows_from(page);
                 let directory_view = directory_from(snapshot);
-                if !model.apply_search(generation, rows, directory_view) {
-                    model.note_message("stale search ignored");
+                if !model.apply_search(generation, rows, directory_view, page.next_after.clone()) {
+                    model.note_message("An older search answered late and was ignored.");
                 }
             })
             .await
@@ -134,7 +135,7 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
             apply_fetched(directory, model, operation, move |model, snapshot| {
                 let directory_view = snapshot.directory.as_ref().map(directory_status);
                 if !model.apply_favorite(generation, &id, favorite, directory_view) {
-                    model.note_message("stale favorite ignored");
+                    model.note_message("An older favorite request answered late and was ignored.");
                 }
             })
             .await
@@ -158,7 +159,7 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
                 generation: 0,
                 name: model.query().to_owned(),
                 favorites_only: model.favorites_only(),
-                after: None,
+                after: model.page_cursor().map(str::to_owned),
             }),
             quota_operation(),
             recording_operation(),
@@ -229,7 +230,7 @@ async fn read_monitor(directory: &Path, model: &mut Explorer, id: &str) -> Resul
             Some(MonitorPage::Matches { matches: page }) => matches = Some(page),
             _ => {
                 model.note_message(
-                    "monitor read returned an unexpected page; previous snapshot kept",
+                    "The monitor read returned an unexpected page; previous snapshot kept.",
                 );
                 return Ok(());
             }
@@ -242,7 +243,7 @@ async fn read_monitor(directory: &Path, model: &mut Explorer, id: &str) -> Resul
             );
         } else {
             model.note_message(
-                "monitor version changed during read; previous snapshot kept, Enter retries",
+                "The monitor version changed during the read; previous snapshot kept. Enter retries.",
             );
         }
     }
@@ -254,6 +255,7 @@ async fn reload(directory: &Path, model: &mut Explorer) -> Result<(), Error> {
         directory,
         model.query(),
         model.favorites_only(),
+        model.page_cursor(),
         model.now_ms(),
     )
     .await
@@ -325,6 +327,10 @@ fn assemble(
         .as_ref()
         .map(rows_from)
         .unwrap_or_default();
+    let next_after = search
+        .station_page
+        .as_ref()
+        .and_then(|page| page.next_after.clone());
     Desk {
         link: link_from(via_service, records)
             .service()
@@ -362,6 +368,7 @@ fn assemble(
             .map(directory_status)
             .or_else(|| search.directory.as_ref().map(directory_status)),
         stations,
+        next_after,
         quota: quota.dvr.as_ref().map(quota_from),
         recordings: records
             .recording_page

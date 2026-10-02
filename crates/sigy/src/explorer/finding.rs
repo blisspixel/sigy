@@ -23,6 +23,8 @@ pub struct Browser {
 }
 
 impl Browser {
+    /// The lookup text. The screen draws it through `lines`, which keeps its tail visible.
+    #[cfg(test)]
     pub fn query(&self) -> &str {
         &self.query
     }
