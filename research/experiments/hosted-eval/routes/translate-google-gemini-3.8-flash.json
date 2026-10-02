@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "label": "translate-google-gemini-3.8-flash",
+  "model": "google/gemini-3.8-flash",
+  "vendor": "google",
+  "endpoints_sha256": "9c47f6dca47e57ec337cdaae08e2276c45ad341cb1309bc93991aee0a7abefa8",
+  "only": ["google-vertex"],
+  "zdr": true,
+  "max_tokens": 2048,
+  "max_tokens_includes_reasoning": true,
+  "reasoning": {"effort": "low"},
+  "temperature_zero": false
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "label": "judge-anthropic-claude-sonnet-5.5",
+  "model": "anthropic/claude-sonnet-5.5",
+  "vendor": "anthropic",
+  "endpoints_sha256": "d071d847c1bf6542bb7ffd3380a8e853fe57ed4e2061eacb502bb36a94ee8940",
+  "only": ["google-vertex", "amazon-bedrock"],
+  "zdr": true,
+  "max_tokens": 3072,
+  "max_tokens_includes_reasoning": true,
+  "reasoning": {"effort": "low"},
+  "temperature_zero": false
+}

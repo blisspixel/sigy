@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "label": "judge-google-gemini-3.1-pro-preview",
+  "model": "google/gemini-3.1-pro-preview",
+  "vendor": "google",
+  "endpoints_sha256": "40f1b7e2333c4766d2689523e66d478de4e1adcae9f8715d23dab967a1741123",
+  "only": ["google-vertex"],
+  "zdr": true,
+  "max_tokens": 3072,
+  "max_tokens_includes_reasoning": true,
+  "reasoning": {"effort": "low"},
+  "temperature_zero": false
+}

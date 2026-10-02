@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "label": "translate-mistralai-mistral-medium-3-5",
+  "model": "mistralai/mistral-medium-3-5",
+  "vendor": "mistralai",
+  "endpoints_sha256": "e263ca16bee6977396b43cfbf9e68de8aaa35e95bd7fa37ae8e9d8dd9fcf9702",
+  "only": ["mistral"],
+  "zdr": true,
+  "max_tokens": 1024,
+  "max_tokens_includes_reasoning": true,
+  "reasoning": {"effort": "none"},
+  "temperature_zero": true
+}

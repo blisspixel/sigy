@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "label": "recognize-openai-gpt-audio-mini",
+  "model": "openai/gpt-audio-mini",
+  "vendor": "openai",
+  "endpoints_sha256": "40e8b0dc2d9c10e9d71ad4b3b930093f5b70e7dcac1b7e0cddd2c6ad0655e119",
+  "only": ["openai"],
+  "zdr": false,
+  "max_tokens": 1024,
+  "max_tokens_includes_reasoning": true,
+  "reasoning": null,
+  "temperature_zero": true
+}

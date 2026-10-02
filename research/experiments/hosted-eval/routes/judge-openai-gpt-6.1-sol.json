@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "label": "judge-openai-gpt-6.1-sol",
+  "model": "openai/gpt-6.1-sol",
+  "vendor": "openai",
+  "endpoints_sha256": "e3a8fec37dc19d4e404313edd2ee5f4595b2d76aab4dc523f6d6c6c97cedd731",
+  "only": ["azure"],
+  "zdr": true,
+  "max_tokens": 3072,
+  "max_tokens_includes_reasoning": true,
+  "reasoning": {"effort": "low"},
+  "temperature_zero": false
+}
