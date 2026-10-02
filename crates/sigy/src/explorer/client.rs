@@ -655,6 +655,42 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn reload_reads_the_page_on_screen_with_the_existing_cursor() {
+        use crate::explorer::state::{DirectoryView, Key, Link};
+        let mut explorer = model();
+        explorer.note_link(Link::LocalCatalog);
+        let directory = DirectoryView {
+            cached_stations: 40,
+            maximum_stations: 10_000,
+            favorite_stations: 0,
+            refresh: None,
+        };
+        for after in [None, Some("cursor-1")] {
+            let Effect::Search(query) = explorer.handle(if after.is_none() {
+                Key::Char('v')
+            } else {
+                Key::Char('n')
+            }) else {
+                panic!("a page request is a search");
+            };
+            assert!(explorer.apply_search(
+                query.generation,
+                Vec::new(),
+                directory.clone(),
+                Some("cursor-1".into())
+            ));
+        }
+        let reload = operations_for(&Effect::Reload, &explorer);
+        assert!(reload.iter().any(|operation| matches!(
+            operation,
+            Operation::Radio {
+                command: DirectoryOperation::Search { after: Some(after), favorites_only: true, .. }
+            } if after == "cursor-1"
+        )));
+        assert!(reload.iter().all(|operation| !forbidden(operation)));
+    }
+
     #[tokio::test]
     async fn failed_finding_reads_preserve_citation_and_admit_nothing()
     -> Result<(), Box<dyn std::error::Error>> {

@@ -657,7 +657,7 @@ impl Explorer {
         self.pending_favorite = None;
         self.status = sanitize(
             &format!(
-                "Disconnected: {reason}. Last snapshot kept. Capture was not stopped. r reconnects."
+                "Disconnected. Capture was not stopped. Last snapshot kept. r reconnects. Cause: {reason}."
             ),
             160,
         );

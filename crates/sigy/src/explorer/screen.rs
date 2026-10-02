@@ -743,20 +743,24 @@ fn linear_station_lines(
     height: usize,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![plain(title)];
-    let window = height.saturating_sub(1).max(1);
+    // Two lines per station keep every label whole at 80 columns.
+    let window = (height.saturating_sub(1) / 2).max(1);
     let start = visible_start(model.selection(), model.rows().len(), window);
     for (offset, row) in model.rows().iter().enumerate().skip(start).take(window) {
         lines.push(plain(&format!(
-            "{} {}{} | directory health {} | directory languages {}",
+            "{} {}{}",
             if offset == model.selection() {
                 ">"
             } else {
                 " "
             },
-            clip(&row.name, name_cells),
+            clip(&row.name, name_cells.saturating_add(36)),
             if row.favorite { " favorite" } else { "" },
+        )));
+        lines.push(plain(&format!(
+            "    directory health {} | directory languages {}",
             row.directory_health.label(),
-            known(&sanitize(&row.directory_languages, 60))
+            clip(known(&row.directory_languages), 30)
         )));
     }
     lines
@@ -1332,10 +1336,9 @@ mod tests {
         assert!(playback < help);
         assert!(!colored);
         assert_eq!(linear.animation_frames(), 0);
+        assert!(text.contains("> KTNN 東京 favorite\n"), "{text}");
         assert!(
-            text.contains(
-                "> KTNN 東京 favorite | directory health succeeded | directory languages navajo"
-            ),
+            text.contains("    directory health succeeded | directory languages navajo"),
             "{text}"
         );
         assert!(text.contains("Stations, page 1"), "{text}");
