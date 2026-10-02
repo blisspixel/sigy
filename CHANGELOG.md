@@ -4,6 +4,14 @@
 
 Nothing yet.
 
+## 0.1.0-dev.20261001.2 (development prerelease, source only)
+
+Documentation and diagnostic checkpoint over the verified task-collection implementation. Catalog schema and local IPC remain v43. This checkpoint establishes no supported release or roadmap stage exit and distributes no binaries or models.
+
+- Preserve and analyze two existing Windows client heap-corruption dumps, including an earlier ordinary build. Correct the previous statement that no actionable dump was available.
+- Record 37 bounded debugger fixture passes, one deliberate storage-guard interruption, symbol and debugger limitations, and the distinction between a detection stack and a proven cause.
+- Prioritize the unresolved shutdown defect for the next session. Set aside the unverified transport draft; publish no speculative repair or acceptance waiver. Cumulative external spend remains USD 0.
+
 ## 0.1.0-dev.20261001.1 (development prerelease, source only)
 
 Catalog schema and local IPC advance to v43. Stop an older service before replacing its binary. This increment does not establish a roadmap stage exit or supported release.

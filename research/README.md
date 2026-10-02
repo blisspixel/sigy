@@ -39,6 +39,7 @@ This folder records primary-source findings, measured experiments, design implic
 | Job queues, execution isolation, containers, clusters, serverless GPU and hosted providers for scaling | [31. Scaling and execution](31-scaling-and-execution.md) |
 | Private local diagnostics, effect reconciliation, SQLite durability, corruption and restore qualification | [32. Private diagnostics and durable recovery](32-private-diagnostics-and-recovery.md) |
 | Finite task collection, transaction fences, exact ownership and shared processing authority | [33. Task collection and scoped effects](33-task-collection-and-scoped-effects.md) |
+| Windows client shutdown, preserved crash stacks, bounded reproduction and transport lifetime limits | [34. Windows control shutdown](34-windows-control-shutdown.md) |
 
 ## Evidence discipline
 

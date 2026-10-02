@@ -12,6 +12,8 @@ The 2026-09-30 clarification makes [durable task workflows](docs/design/task-wor
 
 ## What's next
 
+The next session first addresses the [Windows control-client heap failure](research/34-windows-control-shutdown.md). Existing dumps establish recurrence in ordinary and instrumented builds, but not its cause. The bounded investigation is stopped for the night; the unverified transport draft is set aside. Resume with origin-focused evidence before shipping a repair or extending task execution.
+
 The first complete release joins collection, recognition, translation, the live queue, monitoring and a durable task workflow. Qualified language profiles, capacity, privacy and recovery remain release gates throughout. Task scope and checkpoints exist, and explicit finite evidence publication extends them with durable effect receipts and cancellation. Atomic monitor job admission and exact usage charging precede the current finite task-owned collection increment. Task-owned processing and effect reconciliation follow, before measured general local planning. Independent research and qualification continue alongside those increments. Status as of 2026-10-01:
 
 | Order | Work | State and why |
