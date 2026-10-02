@@ -139,8 +139,10 @@ as the [frozen local screen](../local-mt/judge-capability-2026-09-30.md). The us
 message is the local raw template's text without the local model's turn tokens:
 the rubric, a blank line, `DATA JSON:` and the blinded control. The schema is
 sent as a strict JSON-schema response format, the hosted analogue of the local
-grammar-constrained decoding. Replies pass through the unchanged local parser
-(source SHA-256 `f9a447588242ddde883f3ebb49fa6274a0def6f4544a935fe31eddd6e454a8e4`):
+grammar-constrained decoding. Replies pass through the unchanged local parser,
+compiled as a byte-identical copy (SHA-256
+`f9a447588242ddde883f3ebb49fa6274a0def6f4544a935fe31eddd6e454a8e4`) that a
+test compares with the runner's file:
 the trimmed reply must be exactly one JSON object with the five fields,
 critical answers need unique literal quotes, and acceptable or abstained
 answers need empty quotes. Any other reply, and any unattempted, ambiguous or
@@ -169,7 +171,65 @@ These use no network and no paid request.
 
 ## Results
 
-Dispatch status is recorded below as each batch runs.
+Not dispatched. No `OPENROUTER_API_KEY` was present in the process or user
+environment at any check between 06:57 and 09:00 Pacific time, nor between 12:02
+and 12:47 after the stream resumed. No key status was read and no paid or
+unpaid request was sent to a generation endpoint. The runtime ledger holds only
+its cap and the five allocations: settled USD 0, outstanding liability USD 0,
+no reservation, no uncertainty and no breach. The only network traffic was the
+free, unauthenticated catalog, endpoint, ZDR and provider listings above, and
+the documentation reads cited in this record.
+
+No judge has been calibrated, so no existing local translation has been scored
+by a hosted judge, and the hosted translation and recognition comparisons have
+no results. The local baselines above are unchanged.
+
+## Dispatch procedure
+
+When the key is set, run in this order with the same binary, reconciling
+between batches. Each step appends to the same ledger; nothing is resent.
+
+1. `key LEDGER` records the key's limit, remaining credit and usage.
+2. Run the five text probes in batch `probe` and the two recognition probes in
+   batch `recognize`, then `collect-outputs` on the judge probes. A probe that
+   is refused for a request parameter blocks that route; the frozen control
+   plans are not changed after seeing control replies.
+3. Run the three control plans in batch `judge-controls`, then
+   `collect-controls` for each. Only a judge that passes every language under
+   the frozen criteria proceeds.
+4. Write `plan-outputs` for each passing judge over the four recorded local
+   envelopes (110 translated items), run them in batch `judge-outputs` in order
+   of measured per-request cost, and `collect-outputs`.
+5. Run the four translation plans in batch `translate`, `collect-translations`
+   for each, then judge each translator's outputs with a passing judge from a
+   different vendor in the same batch.
+6. Run the Swahili and Hindi recognition plans, then the other six languages,
+   in batch `recognize`, and `collect-recognition`. Compare with the turbo
+   baseline above.
+7. `reconcile LEDGER`, `key LEDGER` and `status LEDGER`; record settled spend,
+   outstanding liability and the key usage change here.
+
+## Verification receipts
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --check`, warnings-denied all-target Clippy, offline locked build | Pass |
+| `cargo test --offline --locked -- --test-threads=2` | 40 passed |
+| `cargo audit --no-fetch --file Cargo.lock` | 168 dependencies, 1,279 advisories, none reported |
+| Coverage over tests and offline CLI runs on real inputs | 4062 of 4186 owned lines, 97.03%, through the shared `verify-coverage-report` gate |
+| Root `cargo verify` on this branch | Pass: 751 tests, 16 native fixtures ignored, 312 dependencies audited against 1,280 advisories |
+
+The coverage report is `.agents/hosted-eval-coverage-final.json` (SHA-256
+`bdb90faa6b1430f1e9690602d578c564599e088ab88c21de4bcc555e4dd4e927`). It was
+collected with `cargo llvm-cov --no-report --no-cfg-coverage
+--no-cfg-coverage-nightly` for the tests, `cargo llvm-cov run --no-report` with
+the same overrides for every CLI invocation (planning, collection, rescoring and
+ledger commands on fresh directories), and `cargo llvm-cov report --json
+--include-build-script --no-default-ignore-filename-regex`, with no source
+exclusions. The private `cargo verify` log SHA-256 is
+`2d145076f9788b7284e30bec6d55c2babaaeae4d78b7198166867992ca9bbdbe`. Coverage
+and fixtures are execution evidence, not semantic correctness, and no live
+provider contract has been exercised.
 
 ## Limitations
 

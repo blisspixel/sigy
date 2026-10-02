@@ -15,8 +15,11 @@ holds manifests, liabilities, results and limitations.
   rates with more than 18 fractional digits round up by one attodollar.
 - The frozen FLEURS selection, reference validation, chrF++, CER/WER and the
   judge-control scorer from the [offline scorer](../language-scorer/README.md).
-- The unchanged reply parser of the [frozen local judge screen](../local-mt/judge-runner/README.md),
-  compiled from the same `response.rs` file, and its rubric and output schema.
+- The unchanged reply parser of the [frozen local judge screen](../local-mt/judge-runner/README.md)
+  as a byte-identical copy (SHA-256
+  `f9a447588242ddde883f3ebb49fa6274a0def6f4544a935fe31eddd6e454a8e4` with LF
+  endings; a test compares it with the runner's file), and the runner's rubric
+  and output schema, included directly.
 - BLEU is not in the frozen scorer. `src/bleu.rs` ports the 13a corpus BLEU of
   the disposable study scorer and reproduces the published sacrebleu test values
   and every historical BLEU value of the [translation calibration](../local-mt/calibration-32-translation.md).

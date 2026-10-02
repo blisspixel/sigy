@@ -13,7 +13,7 @@ mod money;
 mod outcome;
 mod plan;
 mod pricing;
-#[path = "../../local-mt/judge-runner/src/response.rs"]
+/// A byte-identical copy of the frozen local judge parser; a test pins it.
 mod response;
 mod run;
 
@@ -549,6 +549,13 @@ mod tests {
 
     fn os(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn judge_parser_is_the_frozen_local_parser_byte_for_byte() {
+        let frozen = include_bytes!("../../local-mt/judge-runner/src/response.rs");
+        let copy = include_bytes!("response.rs");
+        assert_eq!(sha256(copy), sha256(frozen));
     }
 
     #[tokio::test]
