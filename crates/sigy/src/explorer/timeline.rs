@@ -83,10 +83,12 @@ impl Timeline {
         if self.truncated {
             return "Timeline unavailable: metadata result limit reached.".into();
         }
+        let extent = self.extent_us();
         format!(
-            "Clock: [0, {})us; planned {}us. Metadata snapshot.",
-            self.extent_us(),
-            self.planned_us
+            "Clock: [0, {extent})us, {}; planned {}us, {}.",
+            duration_label(extent),
+            self.planned_us,
+            duration_label(self.planned_us)
         )
     }
 
@@ -149,9 +151,38 @@ fn overlap(start: u64, end: u64, other_start: u64, other_end: u64) -> u64 {
     end.min(other_end).saturating_sub(start.max(other_start))
 }
 
+/// Readable media duration beside the exact microseconds. Integer arithmetic, rounded down.
+fn duration_label(us: u64) -> String {
+    let seconds = us / 1_000_000;
+    if seconds < 60 {
+        let tenths = us / 100_000;
+        return format!("{}.{} s", tenths / 10, tenths % 10);
+    }
+    let minutes = seconds / 60;
+    if minutes < 60 {
+        return format!("{minutes} min {} s", seconds % 60);
+    }
+    format!("{} h {} min", minutes / 60, minutes % 60)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durations_read_in_people_units_and_round_down() {
+        for (us, label) in [
+            (0, "0.0 s"),
+            (1_999_999, "1.9 s"),
+            (59_999_999, "59.9 s"),
+            (60_000_000, "1 min 0 s"),
+            (3_599_000_000, "59 min 59 s"),
+            (3_660_000_000, "1 h 1 min"),
+        ] {
+            assert_eq!(duration_label(us), label);
+        }
+        assert!(duration_label(u64::MAX).ends_with(" min"));
+    }
 
     pub(crate) fn fixture() -> Timeline {
         Timeline {
@@ -210,7 +241,7 @@ mod tests {
         assert!(
             timeline
                 .axis()
-                .contains("[0, 8000000)us; planned 1000000us")
+                .contains("[0, 8000000)us, 8.0 s; planned 1000000us, 1.0 s.")
         );
         assert_eq!(timeline.cells(4), "!#x!");
     }
