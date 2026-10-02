@@ -4,12 +4,24 @@ Updated: 2026-10-01. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-01 first-use polish
+
+The user requested a shorter README, better early interface previews, one-line source installation and simpler setup. [First-use setup](../decisions/0070-first-use-setup.md) adds `sigy init`, a default per-user library and an explicit first-page `--radio` option. `--no-start` prepares storage only. Existing budgets, retention and policy remain intact; MCP retains explicit library selection. Schema and IPC remain v43. This increment does not address the tracked Windows shutdown failure or exit a release stage.
+
+The README shows the current map after its two introductory paragraphs. Linked usage documentation adds list, globe and radio-help previews. Geographic and list images render current production drawing with one retained real 16-station page, including its eight-day age, two directory-coordinate records and idle playback. No station data or outcomes were invented. These are interface renders, without an operating-system pixel capture or terminal-latency claim. The private capture receipt records the original input, production module and output hashes; its owned service exited. Capture work made no new network request or paid inference.
+
+Sixteen isolated installer harness cases pass on the documented one-liners and unchanged source scripts: six cases each under Windows PowerShell and Git for Windows shell, plus failed PowerShell fetch, successful shell fetch, failed shell fetch even when it returns a payload, and child exit-status propagation. These are fixture checks, not native macOS or Linux install qualification. Local product gates and exact-commit hosted CI are recorded when complete. Cumulative external spend remains USD 0 of USD 20.
+
+Six focused setup units and nine process fixtures cover home isolation, original-script paths, explicit selection, repeat setup, held ownership and retry, paid/DVR preservation, offline setup, argument conflicts, MCP selection and home-independent backup recovery. Historical completed, failed and interrupted first-page requests replay through live local IPC without a new admission. Review also preserves service shutdown when catalog paths disappear and buffers JSON before writing unsupported paths; the Unix-only non-Unicode path regression was not executed on Windows. The first full gate caught a dispatcher line limit; setup now has a small dispatch wrapper. The next caught early setup preflight masking an invalid task scope; path selection now performs no filesystem preflight, and actual missing-library errors receive contextual guidance. Independent backup errors retain their own cause, covered by a new regression. No lint suppression or acceptance waiver was added.
+
+The repaired tree passes `cargo verify`: 751 test executions, 16 native fixtures ignored, formatting, warnings-denied Clippy, build, native-source hashes and an audit of 312 dependencies against 1,279 advisories. Its private log SHA-256 is `4b9a47d461830d8463097e02fc95fd80eed995d3ca7db8bc60d3494ab569fe46`. One actual first-use check against a public Radio Browser mirror completed in 3,202 ms, accepted 69 records and skipped 31. Repeating setup preserved the same service PID, request start and completed history. Search and local doctor read the result; the service was stopped and its exit checked. This was one directory observation, without station playback, recording, inference or platform qualification. Current coverage passes below. Exact-commit hosted CI is required before source-only publication; its final receipt belongs in release metadata.
+
 ## Snapshot
 
 | Item | Current value |
 | --- | --- |
 | Catalog schema / local IPC | v43 / v43 |
-| Verification | `cargo verify`: 736 test executions passed, 16 native-media tests ignored, formatting, warnings-denied Clippy, build, native-source hashes, and a fresh `cargo audit` of 312 crates against 1,279 advisories. `cargo verify-coverage` passed every crate's 80% gate and all 16 native fixtures in 98.62 seconds on FFmpeg 9.0.1, including task collection with scoped cancellation and retained-media backup/restore. Historical native and instrumented-client failures remain tracked below |
+| Verification | `cargo verify`: 751 test executions passed, 16 native-media tests ignored, formatting, warnings-denied Clippy, build, native-source hashes, and a fresh `cargo audit` of 312 crates against 1,279 advisories. `cargo verify-coverage` passed every crate's 80% gate and all 16 native fixtures in 97.16 seconds on FFmpeg 9.0.1, including task collection with scoped cancellation and retained-media backup/restore. Setup, ownership and retry fixtures and one real directory observation also pass. Historical native and instrumented-client failures remain tracked below |
 | Host | Windows 11 x86_64, Ryzen 7 7840U, about 64 GiB RAM, Radeon 780M. Two build jobs, two test threads, one media-test thread |
 | Other platforms | Earlier Linux x86_64 run (Debian 12 container, Rust 1.98.1, WSL2 kernel 6.18): `cargo verify` passed; `cargo verify-media` passed 14 of 15 on FFmpeg 5.1.9, and the native recognizer fixture failed closed with `limits-unavailable` (see open gates). This increment was verified on Windows. macOS and small always-on hosts are untested. Nothing is qualified |
 | Public source | `main` on [blisspixel/sigy](https://github.com/blisspixel/sigy); [source-only development prereleases](https://github.com/blisspixel/sigy/releases); none is a supported release |
@@ -18,13 +30,13 @@ This record holds current state only. The detailed narrative from 2026-09-20 to 
 
 | Workspace crate | Covered / executable lines | Line coverage |
 | --- | --- | --- |
-| `sigy` | 15,373 / 17,704 | 86.83% |
+| `sigy` | 15,969 / 18,356 | 86.99% |
 | `sigy-core` | 1,436 / 1,521 | 94.41% |
-| `sigy-service` | 43,293 / 46,662 | 92.77% |
+| `sigy-service` | 43,296 / 46,662 | 92.78% |
 | `sigy-test-recognizer` | 257 / 283 | 90.81% |
 | `sigy-xtask` | 1,130 / 1,215 | 93.00% |
 
-The final JSON receipt is `target/coverage-reports/workspace-9004-1790898460824751900.json`, SHA-256 `00e4217d182ac3716e5a20920b52e3209b683fb8c92b56671fd0053e1ef2ed43`. Command logs, inspected frames and private rehearsal receipts remain under ignored `.agents/`. Earlier increments' receipts remain preserved: `target/coverage-reports/workspace-24656-1790864071544543400.json`, SHA-256 `d82bc6e08fb57978517976bc2c876e12bbdc6b80b4f7cbe3ed41b1114981270a`; `workspace-25728-1790824872577135400.json`, SHA-256 `b0fc1fde6ab2ce5a8c92d79cc70730cc335b428dec6b6df6fd93d45ce204bd29`; `workspace-4632-1790812369080694300.json`, SHA-256 `bc8cae7549a2c3ffb59895aa7fb8dd6300901a1cffbac6d5e02b208a2d8ac584`; `workspace-18956-1790803076139721300.json`, SHA-256 `bf41d14f3ce31ce0ff0b6d4ba40c11ecdcf8414f0b12f044bc9cc11b0af51613`, and `workspace-5432-1790788826513566200.json`, SHA-256 `31837329e77dab0e2c07dcb683b9dc1efca8589d2c521820df5fe6767ad66cd9`.
+The final JSON receipt is `target/coverage-reports/workspace-8988-1790913883987511700.json`, SHA-256 `0a5b9de3c03bbb01b304edc8a65c4f8139c5814b17af2f76ee91238e5df76472`. Command logs, inspected frames and private rehearsal receipts remain under ignored `.agents/`. Earlier increments' receipts remain preserved: `target/coverage-reports/workspace-9004-1790898460824751900.json`, SHA-256 `00e4217d182ac3716e5a20920b52e3209b683fb8c92b56671fd0053e1ef2ed43`; `workspace-24656-1790864071544543400.json`, SHA-256 `d82bc6e08fb57978517976bc2c876e12bbdc6b80b4f7cbe3ed41b1114981270a`; `workspace-25728-1790824872577135400.json`, SHA-256 `b0fc1fde6ab2ce5a8c92d79cc70730cc335b428dec6b6df6fd93d45ce204bd29`; `workspace-4632-1790812369080694300.json`, SHA-256 `bc8cae7549a2c3ffb59895aa7fb8dd6300901a1cffbac6d5e02b208a2d8ac584`; `workspace-18956-1790803076139721300.json`, SHA-256 `bf41d14f3ce31ce0ff0b6d4ba40c11ecdcf8414f0b12f044bc9cc11b0af51613`, and `workspace-5432-1790788826513566200.json`, SHA-256 `31837329e77dab0e2c07dcb683b9dc1efca8589d2c521820df5fe6767ad66cd9`.
 
 ## Operations
 

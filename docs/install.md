@@ -16,14 +16,16 @@ Review the [PowerShell installer](../scripts/install.ps1) or [shell installer](.
 Windows PowerShell:
 
 ```powershell
-& { $ErrorActionPreference = 'Stop'; iex (Invoke-RestMethod -Uri https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.ps1) }
+irm https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.ps1 -ErrorAction Stop | iex
 ```
 
 macOS or Linux:
 
 ```sh
-sh -c 'f=$(mktemp) || exit; curl --proto "=https" --tlsv1.2 -fsS https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.sh -o "$f" && sh "$f"; s=$?; rm -f "$f"; exit "$s"'
+sh -c 's=$(curl --proto =https --tlsv1.2 -fsS https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.sh) && sh -c "$s"'
 ```
+
+Each command downloads the complete installer before executing it and stops on a failed download. The shell command also preserves the installer's exit status. Review the linked scripts to inspect what will run.
 
 After installation, open a new shell and run `sigy --version`. On Windows, type `sigy`; PowerShell resolves the installed `sigy.exe` through `PATH`. If the command is not found, add `$HOME/.cargo/bin` to `PATH`. On Windows the equivalent directory is `$env:USERPROFILE\.cargo\bin`. A failed fetch or build should be resolved before first use; a printed installer message alone is not a version check.
 
@@ -43,33 +45,33 @@ The build embeds the checkout's commit only when its working tree is clean. Inst
 
 ## First use
 
-Pick a private library path outside the repository. On Windows:
-
-```powershell
-$library = Join-Path $env:USERPROFILE '.sigy\library'
-sigy --data-dir $library library init
-sigy --data-dir $library doctor
-sigy --data-dir $library service start
-sigy --data-dir $library service status
-sigy --data-dir $library radio refresh first-page --limit 100
-sigy --data-dir $library radio refresh-status first-page
-```
-
-Repeat `refresh-status` until it reports completion, then open the explorer:
-
-```powershell
-sigy --data-dir $library tui
-```
-
-On macOS or Linux, set `library="$HOME/.sigy/library"` and use `sigy --data-dir "$library"` with the same subcommands. The initial library has paid processing disabled. `doctor` checks local state without contacting a station or changing the catalog. The refresh fetches one bounded directory page; it does not contact station streams. Use a fresh request ID for another refresh. Quitting the explorer leaves the service running. Stop it explicitly with `sigy --data-dir PATH service stop`.
-
-Before recording, configure the absolute path of a trusted FFmpeg executable. For example, replace the placeholder below with its actual installed path:
+Two commands prepare your library and open the explorer:
 
 ```text
-sigy --data-dir PATH dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG --quota-gb 50 --retention-days 14
+sigy init --radio
+sigy tui
 ```
 
-This command sets the default 50 GB and 14-day managed-media limits explicitly. Sigy checks the decoder when recording. `--destination null` is the tested playback path; system audio output depends on the installed FFmpeg build. Follow the [command reference](usage.md) for source registration, bounded recording, retained-file playback, podcast feeds, and the current command limits.
+`init` creates the per-user library, starts the background service and prints the next steps. `--radio` explicitly requests one page of up to 100 stations from Radio Browser. It waits up to 15 seconds for the refresh; if it is still running, follow the printed status command before expecting stations in the explorer. A failed or interrupted refresh is reported as an error. Repeating setup preserves the library and reuses this first-use request without fetching twice. To request a fresh page later, use `sigy radio refresh NEW_ID --limit 100`.
+
+The default library is `%USERPROFILE%\.sigy\library` on Windows and `$HOME/.sigy/library` on macOS or Linux. You no longer need to repeat a path for this library. For a different location, pass `--data-dir` to each command:
+
+```text
+sigy init --data-dir "PATH_TO_PRIVATE_LIBRARY" --radio
+sigy tui --data-dir "PATH_TO_PRIVATE_LIBRARY"
+```
+
+Replace the placeholder with your path and keep quotes around paths containing spaces. For setup without a directory fetch, run `sigy init`. For local storage only, run `sigy init --no-start`; it never starts a service and cannot be combined with `--radio`. Starting a service on an existing library can resume its previously authorized schedules, processing and directory-refresh policies. Initialization preserves budgets, profiles, recordings and retention settings. A new library starts with paid processing disabled.
+
+`sigy doctor` is a local preflight. Quitting the explorer leaves the service running; stop it explicitly with `sigy service stop`. These commands use the default library unless you pass `--data-dir`. The original `library init` and individual service commands remain available for automation.
+
+Before recording, configure the absolute path of a trusted FFmpeg executable. Replace the placeholder below with its actual installed path:
+
+```text
+sigy dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG --quota-gb 50 --retention-days 14
+```
+
+This sets the default 50 GB and 14-day managed-media limits explicitly. Sigy checks the decoder when recording and does not download it during setup. `--destination null` is the tested playback path; system audio output depends on the installed FFmpeg build. Follow the [command reference](usage.md) for listening, bounded recording, podcasts and monitoring. The [setup contract](decisions/0070-first-use-setup.md) describes defaults and retry behavior.
 
 ## Updating
 

@@ -15,6 +15,7 @@ mod analysis;
 mod backup;
 mod dvr;
 mod explorer;
+mod init;
 mod languages;
 mod listen;
 mod mcp;
@@ -37,9 +38,11 @@ mod update;
     about = "Local-first signals discovery and analysis"
 )]
 struct Cli {
-    /// Library directory. Required except for `update`, help, and version.
-    #[arg(long)]
+    /// Library directory. Defaults to ~/.sigy/library; MCP requires an explicit directory.
+    #[arg(long, global = true)]
     data_dir: Option<PathBuf>,
+    #[arg(skip)]
+    explicit_data_dir: bool,
     /// Emit a structured JSON response for automation.
     #[arg(long, global = true)]
     json: bool,
@@ -49,6 +52,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Prepare your private library and start its background service. No directory fetch by default.
+    Init {
+        #[command(flatten)]
+        options: init::InitOptions,
+    },
     /// Discover internet stations and search the local directory cache.
     Radio {
         #[command(subcommand)]
@@ -247,6 +255,15 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
 }
 
 async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    match &cli.command {
+        Command::Init { options } => {
+            init::execute(library_dir(cli)?, options, cli.json, cli.explicit_data_dir).await
+        }
+        _ => run_library(cli).await,
+    }
+}
+
+async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if let Command::Library { command } = &cli.command
         && let Some(result) = backup::execute(cli, command)
     {
@@ -453,8 +470,9 @@ fn render_status(stdout: &mut impl Write, view: &Snapshot, ink: style::Ink) -> i
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        init::resolve_directory(&mut cli)?;
         if let Command::Update { check } = cli.command {
             return update::run(check, cli.json);
         }
@@ -486,6 +504,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            let error = init::actionable_error(&cli, error);
             if error
                 .downcast_ref::<io::Error>()
                 .is_some_and(|e| e.kind() == io::ErrorKind::BrokenPipe)

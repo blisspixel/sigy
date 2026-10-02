@@ -4,6 +4,14 @@
 
 Nothing yet.
 
+## 0.1.0-dev.20261001.3 (development prerelease, source only)
+
+First-use and documentation checkpoint. Catalog schema and local IPC remain v43. This checkpoint establishes no supported release or roadmap stage exit and distributes no binaries or models. The Windows shutdown failure remains tracked separately.
+
+- Simplify first use with `sigy init`, a default per-user library, optional explicit first-page radio discovery and an offline setup option. Existing budgets, policies and recordings are preserved; MCP still requires an explicit library.
+- Lead the README with a current interface render and concise product description. Link detailed capabilities and setup instructions, and provide one-line source installers with failed-download checks.
+- Preserve task validation before library access and retain meaningful errors for independent backup operations. Add focused setup, retry, ownership and recovery fixtures. One real directory refresh and exact setup replay complete without recording or paid inference. Cumulative external spend remains USD 0.
+
 ## 0.1.0-dev.20261001.2 (development prerelease, source only)
 
 Documentation and diagnostic checkpoint over the verified task-collection implementation. Catalog schema and local IPC remain v43. This checkpoint establishes no supported release or roadmap stage exit and distributes no binaries or models.

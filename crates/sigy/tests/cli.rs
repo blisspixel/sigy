@@ -4,18 +4,32 @@ mod common;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
-fn update_help_works_without_a_library_and_other_commands_need_one() -> TestResult {
-    let help = common::output(Command::new(env!("CARGO_BIN_EXE_sigy")).args(["update", "--help"]))?;
+fn update_help_needs_no_home_and_missing_default_guides_initialization() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let home = directory.path().join("isolated user home");
+    std::fs::create_dir(&home)?;
+    let help = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .env_remove("USERPROFILE")
+            .env_remove("HOME")
+            .args(["update", "--help"]),
+    )?;
     assert!(
         help.status.success(),
         "{}",
         String::from_utf8_lossy(&help.stderr)
     );
-    let missing =
-        common::output(Command::new(env!("CARGO_BIN_EXE_sigy")).args(["library", "status"]))?;
+    let missing = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .env("USERPROFILE", &home)
+            .env("HOME", &home)
+            .current_dir(directory.path())
+            .args(["library", "status"]),
+    )?;
     assert!(!missing.status.success());
     let error = String::from_utf8_lossy(&missing.stderr);
-    assert!(error.contains("data-dir"), "{error}");
+    assert!(error.contains("sigy init"), "{error}");
+    assert!(!home.join(".sigy").exists());
     Ok(())
 }
 

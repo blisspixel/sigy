@@ -2,9 +2,20 @@
 
 This is the command reference for the current checkout. Examples use `sigy` after [installation](install.md). From the repository without installing, put `cargo run --locked -p sigy --` in front of the same arguments. Planning documents describe later behavior. A command is current only when it appears here or in `sigy --help`.
 
-`--data-dir` is required except for `sigy update`, help, and version. Use a private directory outside the checkout. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
+Commands use `~/.sigy/library` by default: `%USERPROFILE%\.sigy\library` on Windows, `$HOME/.sigy/library` on Unix. `--data-dir PATH` selects another library and works before or after a subcommand. Use a private directory outside the checkout. MCP requires an explicit `--data-dir`; help, version, updates and backup verification or restore do not need a library. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
 Catalog schema is v43 and local IPC is v43. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+
+## Quick start
+
+```text
+sigy init --radio
+sigy tui
+```
+
+`init` creates or reopens the library, preserves existing configuration and starts or reconnects to its service. A new library has paid processing disabled. `--radio` explicitly fetches one page of at most 100 stations; it starts no station playback, recording or inference. Setup waits up to 15 seconds for that refresh, then reports its actual state and the follow-up command. Repeating setup reuses the `sigy-init-radio-v1` request without another fetch. Use `radio refresh NEW_ID` when you want a new page.
+
+`sigy init` omits the directory fetch. `sigy init --no-start` only prepares local storage and never starts a service; `--no-start` conflicts with `--radio`. Starting an existing library can resume its already authorized schedules, processing and refresh policies; setup does not reset them or their spending limits. Other commands never initialize a missing library implicitly. See [first use](install.md#first-use).
 
 ## Update
 
@@ -70,6 +81,8 @@ Registration stores the configuration and does not contact the station. Reusing 
 See [source authority and transport](decisions/0004-source-authority-and-http.md).
 
 ## Radio directory
+
+![Current radio command help](images/cli.png)
 
 Start the service, then request one directory page:
 
@@ -369,6 +382,10 @@ The service fetches the bytes. This client decodes a private local pipe and does
 
 ## List explorer
 
+![Current station list rendered from a real cached directory page](images/explorer-list.png)
+
+These interface renders use the current application and one retained 16-station directory page. The cache age and idle playback remain visible; they are not a live station survey.
+
 ```text
 sigy --data-dir PATH_TO_LIBRARY tui
 sigy --data-dir PATH_TO_LIBRARY tui --reduced-motion --monochrome
@@ -383,6 +400,10 @@ Press `4` for Monitors. The arrows select a saved monitor and Enter reads its cu
 Press `3` for the recording timeline. Arrows select a recording from the loaded page; `r` reloads the metadata snapshot. The bar distinguishes published audio marked available in the catalog (`#`), unavailable published intervals (`x`), gaps (`!`), unpublished time (`.`) and cells containing more than one state (`+`). The clock extent and planned duration remain separate. The open tail is unpublished, and a gap is not audio. If the metadata limit is reached, the axis and bar are unavailable and counts are partial. Selecting or viewing the recording starts no playback or capture and grants no retention. This is a metadata view, without waveform or live samples. See [terminal recording timeline](decisions/0062-terminal-recording-timeline.md).
 
 Press `7` for the Globe workspace: an orthographic globe, or with `m` a flat world map, drawn from bundled public-domain Natural Earth coastlines, with geometric night (the sun more than 90 degrees from the zenith) at the explicit UTC instant shown in its header. `h`, `l`, `j` and `k` rotate by 15 degrees, and `c` centers on the selected station. Stations on the current filtered page are placed by their directory coordinates, which say where a directory believes a stream is located, not where its speakers or subjects are; the header counts how many stations on the page have coordinates. Stations sharing a terminal cell show a count from `2` to `9`, or `+` for ten or more. The selected station uses `@` even in a shared cell. Every station stays selectable in the result list. Rotating or changing the map contacts nothing. See [the list explorer](decisions/0016-list-explorer.md), [terminal globe](decisions/0044-terminal-globe.md), and [terminal station clusters](decisions/0060-terminal-station-clusters.md).
+
+![Current globe rendered with the selected station](images/globe.png)
+
+The same page has coordinates for two stations. The globe uses those directory positions and offline coastlines; its night layer is geometric.
 
 ## Agents
 
