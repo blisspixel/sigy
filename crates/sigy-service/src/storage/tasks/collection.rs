@@ -217,12 +217,13 @@ impl Store {
     }
 }
 
-fn current_scope(connection: &Connection, task: &crate::task::TaskSpec) -> Result<bool> {
+pub(super) fn current_scope(connection: &Connection, task: &crate::task::TaskSpec) -> Result<bool> {
     Ok(connection.query_row("SELECT (SELECT max(version) FROM monitor_versions WHERE monitor_id = ?1) = ?2 AND (SELECT count(*) FROM monitor_actions WHERE monitor_id = ?1) = ?3", params![task.monitor_id, task.monitor_version, task.monitor_actions], |row| row.get(0))?)
 }
 
-fn latest_task_ms(connection: &Connection, id: &str) -> Result<i64> {
-    Ok(connection.query_row("SELECT max(moment) FROM (SELECT created_ms AS moment FROM tasks WHERE id = ?1 UNION ALL SELECT observed_ms FROM task_checkpoints WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_runs WHERE task_id = ?1 UNION ALL SELECT recorded_ms FROM task_run_events WHERE task_id = ?1 UNION ALL SELECT admitted_ms FROM task_collection_admissions WHERE task_id = ?1)", [id], |row| row.get(0))?)
+/// The latest committed task receipt. A fresh task effect must not precede it.
+pub(super) fn latest_task_ms(connection: &Connection, id: &str) -> Result<i64> {
+    Ok(connection.query_row("SELECT max(moment) FROM (SELECT created_ms AS moment FROM tasks WHERE id = ?1 UNION ALL SELECT observed_ms FROM task_checkpoints WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_runs WHERE task_id = ?1 UNION ALL SELECT recorded_ms FROM task_run_events WHERE task_id = ?1 UNION ALL SELECT admitted_ms FROM task_collection_admissions WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_processing WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_processing_steps WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_processing_cancellations WHERE task_id = ?1)", [id], |row| row.get(0))?)
 }
 
 fn admission_mask(connection: &Connection, id: &str) -> Result<u32> {
@@ -235,6 +236,7 @@ fn admission_mask(connection: &Connection, id: &str) -> Result<u32> {
 
 #[cfg(test)]
 pub(in crate::storage) fn remove_collection_schema(store: &Store) -> Result<()> {
+    super::processing::remove_processing_schema(store)?;
     store.connection.execute_batch("DROP TRIGGER task_collection_schedule_no_update; DROP TRIGGER task_collection_schedule_no_delete; DROP TABLE task_collection_admissions; DROP TABLE task_collection_cancellations; DROP TABLE task_collection_rules; DROP TABLE task_collections; ALTER TABLE schedule_rules DROP COLUMN task_owned")?;
     Ok(())
 }

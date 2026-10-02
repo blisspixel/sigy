@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Snapshot, snapshot};
 use crate::task::collection::{TaskCollectionSpec, TaskCollectionView};
+use crate::task::processing::{TaskProcessingSpec, TaskProcessingView};
 use crate::task::run::{TaskRunSpec, TaskRunView};
 use crate::{
     Result,
@@ -64,6 +65,21 @@ pub enum TaskOperation {
         request_id: String,
         expected_generation: u32,
     },
+    /// Grant finite local processing of this task's exact collected recordings.
+    Process {
+        id: String,
+        request_id: String,
+        spec: Box<TaskProcessingSpec>,
+        expected_generation: u32,
+    },
+    Processing {
+        id: String,
+    },
+    CancelProcessing {
+        id: String,
+        request_id: String,
+        expected_generation: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,6 +101,9 @@ pub enum TaskPage {
     },
     Collection {
         collection: Option<Box<TaskCollectionView>>,
+    },
+    Processing {
+        processing: Option<Box<TaskProcessingView>>,
     },
 }
 
@@ -121,6 +140,16 @@ pub(super) fn apply(store: &mut Store, command: TaskOperation) -> Result<Snapsho
         TaskOperation::ShowCheckpoint { id, ordinal } => TaskPage::Checkpoint {
             checkpoint: Box::new(store.task_checkpoint(&id, ordinal)?),
         },
+        grant => grant_page(store, grant, now)?,
+    };
+    let mut view = snapshot(store)?;
+    view.task = Some(Box::new(page));
+    Ok(view)
+}
+
+/// Explicit finite delegations: publication, collection and processing grants.
+fn grant_page(store: &mut Store, command: TaskOperation, now: i64) -> Result<TaskPage> {
+    Ok(match command {
         TaskOperation::Execute {
             id,
             request_id,
@@ -175,10 +204,47 @@ pub(super) fn apply(store: &mut Store, command: TaskOperation) -> Result<Snapsho
                 collection: store.task_collection(&id)?.map(Box::new),
             }
         }
-    };
-    let mut view = snapshot(store)?;
-    view.task = Some(Box::new(page));
-    Ok(view)
+        TaskOperation::Process {
+            id,
+            request_id,
+            spec,
+            expected_generation,
+        } => TaskPage::Processing {
+            processing: Some(Box::new(store.start_task_processing(
+                &id,
+                &request_id,
+                &spec,
+                expected_generation,
+                now,
+            )?)),
+        },
+        TaskOperation::Processing { id } => {
+            store.task(&id)?;
+            TaskPage::Processing {
+                processing: store.task_processing(&id)?.map(Box::new),
+            }
+        }
+        TaskOperation::CancelProcessing {
+            id,
+            request_id,
+            expected_generation,
+        } => TaskPage::Processing {
+            processing: Some(Box::new(store.cancel_task_processing(
+                &id,
+                &request_id,
+                expected_generation,
+                now,
+            )?)),
+        },
+        // Scope and observation requests are answered by `apply` and grant nothing here.
+        TaskOperation::Create { .. }
+        | TaskOperation::Show { .. }
+        | TaskOperation::List { .. }
+        | TaskOperation::Checkpoint { .. }
+        | TaskOperation::ShowCheckpoint { .. } => {
+            return Err(crate::Error::InvalidInput("task operation"));
+        }
+    })
 }
 
 #[cfg(test)]
@@ -465,6 +531,115 @@ mod tests {
         let mut hostile = encoded;
         hostile["operation"]["command"]["spec"]["paid_allowance"] = serde_json::json!("20");
         assert!(serde_json::from_value::<Request>(hostile).is_err());
+        Ok(())
+    }
+
+    fn profile() -> Result<crate::recognition::RecognitionProfile> {
+        let root = std::env::temp_dir();
+        let mut profile = crate::recognition::RecognitionProfile {
+            id: "asr".into(),
+            engine: crate::recognition::WHISPER_CPP_CLI.into(),
+            runtime_dir: root.join("sigy-absent-runtime").display().to_string(),
+            executable: "whisper-cli.exe".into(),
+            runtime_sha256: "1".repeat(64),
+            runtime_files: 3,
+            runtime_bytes: 300,
+            model_path: root.join("sigy-absent-model.bin").display().to_string(),
+            model_sha256: "2".repeat(64),
+            model_bytes: 1000,
+            vad_path: root.join("sigy-absent-vad.bin").display().to_string(),
+            vad_sha256: "3".repeat(64),
+            vad_bytes: 10,
+            threads: 2,
+            memory_bytes: 1 << 30,
+            deadline_ms: 60_000,
+            profile_sha256: String::new(),
+        };
+        profile.profile_sha256 = profile.identity()?;
+        Ok(profile)
+    }
+
+    #[test]
+    fn processing_control_replays_finite_grant_and_cancellation_without_dispatch() -> Result<()> {
+        use crate::task::{collection::TaskCaptureSpec, processing::TaskProcessingSpec};
+        let root = tempfile::tempdir()?;
+        let mut store = Store::open(&root.path().join("catalog.sqlite"))?;
+        let now = crate::storage::now_ms()?;
+        let base = fixture(&mut store)?;
+        store.add_recognition_profile(&profile()?, now - 3000)?;
+        store.create_task(
+            "task",
+            &TaskSpec {
+                from_ms: now - 1000,
+                to_ms: now + 60_000,
+                ..base
+            },
+            now - 2000,
+        )?;
+        let request = TaskOperation::Process {
+            id: "task".into(),
+            request_id: "process".into(),
+            spec: Box::new(TaskProcessingSpec {
+                recognition_profile: "asr".into(),
+                translation_profile: None,
+                maximum_audio_seconds: 30,
+            }),
+            expected_generation: 0,
+        };
+        assert!(apply(&mut store, request.clone()).is_err());
+        store.start_task_collection(
+            "task",
+            "collect",
+            &TaskCollectionSpec {
+                captures: vec![TaskCaptureSpec {
+                    source_revision: "source".into(),
+                    start_ms: (now / 1000 + 5) * 1000,
+                    duration_seconds: 10,
+                    maximum_bytes: 1024,
+                }],
+            },
+            0,
+            now - 1000,
+        )?;
+        let before = apply(&mut store, TaskOperation::Processing { id: "task".into() })?;
+        assert_eq!(
+            before.task.as_deref(),
+            Some(&TaskPage::Processing { processing: None })
+        );
+        let admitted = apply(&mut store, request.clone())?;
+        assert_eq!(admitted.task, apply(&mut store, request.clone())?.task);
+        assert!(
+            matches!(admitted.task.as_deref(), Some(TaskPage::Processing { processing: Some(view) }) if view.generation == 1 && view.steps.is_empty() && view.paid_allowance_usd == "0.000000")
+        );
+        let cancel = TaskOperation::CancelProcessing {
+            id: "task".into(),
+            request_id: "stop".into(),
+            expected_generation: 1,
+        };
+        let cancelled = apply(&mut store, cancel.clone())?;
+        assert_eq!(cancelled.task, apply(&mut store, cancel)?.task);
+        assert!(
+            matches!(cancelled.task.as_deref(), Some(TaskPage::Processing { processing: Some(view) }) if view.generation == 2 && view.cancelled)
+        );
+        assert_eq!(
+            cancelled.task,
+            apply(&mut store, TaskOperation::Processing { id: "task".into() })?.task
+        );
+        assert_eq!(
+            serde_json::to_value(cancelled.budgets)?,
+            serde_json::to_value(before.budgets)?
+        );
+        assert_eq!(cancelled.captures.active, before.captures.active);
+        assert!(matches!(
+            grant_page(&mut store, TaskOperation::Show { id: "task".into() }, now),
+            Err(crate::Error::InvalidInput("task operation"))
+        ));
+        let encoded = serde_json::to_value(Request::new(Operation::Task { command: request }))?;
+        for field in ["paid_allowance", "shell", "job"] {
+            let mut hostile = encoded.clone();
+            hostile["operation"]["command"]["spec"][field] = serde_json::json!("20");
+            assert!(serde_json::from_value::<Request>(hostile).is_err());
+        }
         Ok(())
     }
 }

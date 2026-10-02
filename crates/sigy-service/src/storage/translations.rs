@@ -185,6 +185,15 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let created = enqueue_translation_in(&tx, request, now)?;
+        if created {
+            super::interests::record(
+                &tx,
+                "translation",
+                &request.id,
+                super::interests::Authority::Direct,
+                now,
+            )?;
+        }
         tx.commit()?;
         Ok((self.translation_job(&request.id)?, created))
     }

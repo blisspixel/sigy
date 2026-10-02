@@ -22,6 +22,15 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let created = Self::enqueue_local_asr_in(&tx, request, prepared.as_ref(), now)?;
+        if created {
+            super::super::interests::record(
+                &tx,
+                "recognition",
+                &request.id,
+                super::super::interests::Authority::Direct,
+                now,
+            )?;
+        }
         tx.commit()?;
         Ok((self.local_asr_job(&request.id)?, created))
     }

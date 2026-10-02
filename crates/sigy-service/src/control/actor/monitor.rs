@@ -161,7 +161,8 @@ impl Actor {
     }
 
     /// Publish metadata for a shared pin and prepare the immutable recognition request.
-    fn recognize(
+    /// Monitors and tasks derive the same canonical identities and so share one job.
+    pub(super) fn recognize(
         &mut self,
         recording_id: &str,
         profile: &str,
@@ -188,7 +189,7 @@ impl Actor {
             .request)
     }
 
-    fn translate(
+    pub(super) fn translate(
         &self,
         analysis_id: &str,
         transcript_revision: i64,

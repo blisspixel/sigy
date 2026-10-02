@@ -237,5 +237,15 @@ fn write_step(connection: &Connection, step: &StepRecord<'_>, now: i64) -> Resul
         "INSERT INTO monitor_steps(monitor_id, recording_id, stage, policy_version, decision, reason, analysis_id, job_id, audio_us, charged_day, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![step.monitor_id, step.recording_id, step.stage, step.policy_version, decision, reason, analysis, job, i64::try_from(step.audio_us).map_err(|_| Error::InvalidInput("audio"))?, today(now), now],
     )?;
+    if let Some(job) = job {
+        // The monitor's interest commits with its receipt and charge, never separately.
+        crate::storage::interests::record(
+            connection,
+            step.stage,
+            job,
+            crate::storage::interests::Authority::Monitor(step.monitor_id),
+            now,
+        )?;
+    }
     Ok(true)
 }

@@ -11,6 +11,7 @@ use sigy_service::{
 
 mod collection;
 mod execution;
+mod processing;
 
 use crate::explorer::text::sanitize;
 
@@ -123,6 +124,25 @@ pub enum TaskCommand {
         #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
         expected_generation: u32,
     },
+    /// Grant finite local recognition and translation of this task's collected recordings.
+    Process {
+        id: String,
+        request_id: String,
+        #[command(flatten)]
+        bounds: processing::ProcessingArgs,
+        /// Zero before processing admission. Exact replay uses the original value.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(0..=0))]
+        expected_generation: u32,
+    },
+    /// Read this task's processing receipts, charges and shared job states.
+    Processing { id: String },
+    /// Stop future task processing admissions. Admitted jobs and other interests continue.
+    CancelProcessing {
+        id: String,
+        request_id: String,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        expected_generation: u32,
+    },
 }
 
 impl TaskCommand {
@@ -196,6 +216,27 @@ impl TaskCommand {
                 request_id: request_id.clone(),
                 expected_generation: *expected_generation,
             },
+            Self::Process {
+                id,
+                request_id,
+                bounds,
+                expected_generation,
+            } => TaskOperation::Process {
+                id: id.clone(),
+                request_id: request_id.clone(),
+                spec: Box::new(bounds.spec()?),
+                expected_generation: *expected_generation,
+            },
+            Self::Processing { id } => TaskOperation::Processing { id: id.clone() },
+            Self::CancelProcessing {
+                id,
+                request_id,
+                expected_generation,
+            } => TaskOperation::CancelProcessing {
+                id: id.clone(),
+                request_id: request_id.clone(),
+                expected_generation: *expected_generation,
+            },
         };
         Ok(Operation::Task { command })
     }
@@ -223,6 +264,7 @@ pub fn render(writer: &mut impl Write, page: &TaskPage) -> io::Result<()> {
         TaskPage::Checkpoint { checkpoint } => render_checkpoint(writer, checkpoint),
         TaskPage::Execution { run } => execution::render(writer, run.as_deref()),
         TaskPage::Collection { collection } => collection::render(writer, collection.as_deref()),
+        TaskPage::Processing { processing } => processing::render(writer, processing.as_deref()),
     }
 }
 
@@ -561,6 +603,71 @@ mod tests {
             parse(&[
                 "sigy",
                 "cancel-collection",
+                "water",
+                "stop",
+                "--expected-generation",
+                "0"
+            ])
+            .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn processing_requires_explicit_profiles_and_a_finite_allowance()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let args = [
+            "sigy",
+            "process",
+            "water",
+            "grant",
+            "--recognition-profile",
+            "asr",
+            "--max-audio-seconds",
+            "60",
+            "--expected-generation",
+            "0",
+        ];
+        assert!(matches!(
+            parse(&args)?,
+            Operation::Task {
+                command: TaskOperation::Process { ref id, ref spec, expected_generation: 0, .. }
+            } if id == "water" && spec.recognition_profile == "asr" && spec.translation_profile.is_none() && spec.maximum_audio_seconds == 60
+        ));
+        let mut translated = args.to_vec();
+        translated.extend(["--translation-profile", "mt"]);
+        assert!(matches!(
+            parse(&translated)?,
+            Operation::Task { command: TaskOperation::Process { ref spec, .. } } if spec.translation_profile.as_deref() == Some("mt")
+        ));
+        for (index, value) in [(5, "../asr"), (7, "0"), (7, "1801"), (9, "1")] {
+            let mut invalid = args;
+            invalid[index] = value;
+            assert!(parse(&invalid).is_err(), "{invalid:?}");
+        }
+        assert!(
+            matches!(parse(&["sigy", "processing", "water"])?, Operation::Task { command: TaskOperation::Processing { id } } if id == "water")
+        );
+        assert!(matches!(
+            parse(&[
+                "sigy",
+                "cancel-processing",
+                "water",
+                "stop",
+                "--expected-generation",
+                "1"
+            ])?,
+            Operation::Task {
+                command: TaskOperation::CancelProcessing {
+                    expected_generation: 1,
+                    ..
+                }
+            }
+        ));
+        assert!(
+            parse(&[
+                "sigy",
+                "cancel-processing",
                 "water",
                 "stop",
                 "--expected-generation",

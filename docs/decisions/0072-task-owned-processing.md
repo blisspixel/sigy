@@ -1,0 +1,35 @@
+# Task-owned processing
+
+Date: 2026-10-02. Status: implemented and tested locally on Windows with storage, actor, control and CLI fixtures. This extends [task-owned collection](0069-task-owned-collection.md) with finite task processing, and applies the [atomic monitor processing](0068-atomic-monitor-processing.md) admission pattern to tasks. Verification outcomes are recorded in the [validation record](../../research/experiments/task-processing-2026-10-02.md). No roadmap stage exit, language quality or general planning is established.
+
+## Decision
+
+Canonical recognition and translation jobs gain durable interests. Each interest names the job family and identity, the authority (`direct`, `monitor` or `task`), the owner identity for monitors and tasks, its origin and its time. A direct admission writes its interest in the transaction that creates the job. A monitor admission writes its interest with its immutable step and audio charge. A task admission writes its interest with its immutable task receipt and its audio charge. Triggers refuse an interest without its canonical job or authority receipt, and reopen audits refuse any queued monitor or task receipt without its interest and any recognition or translation job without at least one interest. Interests are history; they grant no cancellation right over shared work.
+
+An explicit processing grant binds one task with an existing collection grant to named local recognition and optional translation profiles, their stored hashes, the collection grant digest, the task scope digest and one lifetime recognition audio allowance of 1 to 1,800 seconds. Paid allowance is zero. One task receives one processing grant in its lifetime. Exact replay returns history; a changed request conflicts.
+
+Processing follows only the grant's exact collected recordings: each task receipt is keyed by the collection entry and must name the recording that entry admitted. A completed, retained recording with decoded audio is pinned through the shared metadata path and admitted as one canonical recognition job whose identity derives from the recording and profile hash, so a monitor following the same source with the same profile shares the same job. When the task's own recognition job succeeds with text, translation of exactly the transcript revision that job published is admitted. A later correction or an independent recognition does not become the task's lineage.
+
+## Admission and charges
+
+Recognition admission commits the canonical job (or attaches to an exact existing job), the immutable task receipt, the task interest and the decoded-audio charge in one immediate transaction before scheduling. Translation commits its job, receipt and interest with a zero-audio receipt. Inside the transaction the service rechecks the grant digest, cancellation, the frozen monitor version and complete action prefix, a nondecreasing task clock, the collected recording identity, the granted profile identity and hash, the stored decoded audio and the remaining lifetime allowance. Triggers enforce the same recording, profile, decoded-audio, lineage and allowance bindings. A fault before commit leaves no job, receipt, interest or charge; only a newly committed job requests scheduling.
+
+Each authority charges its own allowance once. A task charge does not consume a monitor cap, and a monitor charge does not consume the task allowance. A shared job is never duplicated. The task allowance never refills after failure, restart or cancellation. A recording that cannot fit the remaining allowance is refused once with `task-audio-allowance`.
+
+Expected permanent outcomes are immutable refusal receipts: `recording-failed`, `recording-interrupted`, `recording-cancelled`, `recording-not-retained`, `no-decoded-audio` and `task-audio-allowance` for recognition; `recognition-<state>`, `no-transcript`, `no-text` and `no-translation-profile` for translation. Canonical refusals such as `recognition-input-limit` are recorded as reported. A full queue, an active native worker, a changed scope, a cancelled grant, a regressed clock and an unavailable profile hold admission without a receipt.
+
+## Service tick, cancellation and recovery
+
+The existing schedule tick runs a bounded task processing pass at most every five seconds, before task publication. It visits at most four uncancelled grants with an admitted but unsettled collection entry, in identifier order with a rotating cursor that carries no authority, and takes at most four steps per task. A pure planner derives the next step from durable receipts, so a repeated pass, client exit or service restart cannot duplicate an admission. Recognition steps wait while no decoder is configured.
+
+Processing cancellation has its own generation and immutable hashed receipt that freezes the exact set of committed task receipts. It fences future task admissions. Admitted jobs continue under the existing job pool, and direct or monitor interests in shared jobs keep their authority. Collection cancellation does not cancel processing of already collected recordings. A new monitor version or any new action, including pause, changes the frozen task scope and holds future task processing as it holds collection. A receipt time later than the service clock holds the task until the clock catches up.
+
+## Persistence and trust
+
+Catalog schema and local IPC advance together to v44. Stop an older service before replacing its binary. Migration 044 creates the interest and processing tables and derives interests for existing jobs: one `migrated` monitor interest per queued monitor step and one `migrated` direct interest per recognition or translation job that no queued monitor step references. Earlier catalogs did not store a direct receipt for a job a monitor later attached to, so that historical direct interest is not reconstructed. The migration runs in the open transaction; a failure leaves v43 unchanged. The existing verified backup and restore path carries the new rows.
+
+The CLI and local service expose the grant, inspection and cancellation. MCP gains no task mutation. Models, transcript text, network content and skills cannot create processing authority, select profiles or raise allowances. No scheduler, worker pool, ledger, runtime or dependency is added.
+
+## Remaining work
+
+Literal evidence reconciliation, a general local planner, hosted planning transport, A2A, language quality, sustained capacity, native network isolation, clean-host recovery and physical power-loss qualification remain open. Interest-aware cancellation of shared jobs is not implemented: cancelling a task never cancels an admitted job.

@@ -476,6 +476,8 @@ pub(crate) fn revert_031_for_tests(connection: &mut Connection) -> Result<()> {
     }
     let tx = connection.transaction()?;
     tx.pragma_update(None, "defer_foreign_keys", true)?;
+    // Later triggers name these tables; remove them before the tables are rebuilt.
+    tx.execute_batch(super::tasks::processing::REVERT_044_FOR_TESTS)?;
     tx.execute_batch(
         "DROP TABLE job_attempts;
          DROP INDEX analysis_one_per_lineage; DROP INDEX translation_one_per_lineage;

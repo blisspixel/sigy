@@ -377,7 +377,21 @@ One task receives one lifetime collection grant, starting at generation 1. Exact
 
 `cancel-collection` has its own generation, separate from publication cancellation. It stops future admissions and preserves already admitted recordings, reservations and independently authorized work. Any new monitor version or action, including a refused proposal or processing-pause action, changes the task's frozen scope and holds its future collection. Already admitted captures continue; independent monitor-owned schedules retain their existing pause behavior. Task-owned schedule rules cannot be revised through ordinary schedule commands.
 
-Collection starts no task-owned recognition, translation or planning model. A monitor may process a recording under its separately saved policy. Existing checkpoints still observe that monitor's broader window rather than just task-owned captures. Use recording inspection to assess published media, gaps and retention. See [task-owned collection](decisions/0069-task-owned-collection.md) for authority, recovery and remaining work.
+Collection alone starts no task-owned recognition, translation or planning model; `task process` grants that separately. A monitor may process a recording under its separately saved policy. Existing checkpoints still observe that monitor's broader window rather than just task-owned captures. Use recording inspection to assess published media, gaps and retention. See [task-owned collection](decisions/0069-task-owned-collection.md) for authority, recovery and remaining work.
+
+### Finite task processing
+
+```text
+sigy --data-dir PATH_TO_LIBRARY task process evening-water process-1 --recognition-profile turbo-q5-cpu --translation-profile hy-mt2-cpu --max-audio-seconds 120 --expected-generation 0
+sigy --data-dir PATH_TO_LIBRARY task processing evening-water
+sigy --data-dir PATH_TO_LIBRARY task cancel-processing evening-water stop-processing-1 --expected-generation 1
+```
+
+Replace the example's profiles with existing local profiles from `analysis profile list` and `analysis translation-profile list`. `task process` needs an existing collection grant and a current task scope. It binds the named profiles and their stored hashes, and one lifetime recognition audio allowance of 1 to 1,800 seconds across the task's collected recordings. Omit `--translation-profile` to recognize without translating. Paid allowance is zero. One task receives one processing grant, starting at generation 1; exact replay changes nothing and a changed request conflicts.
+
+The running service then processes only the grant's exact collected recordings, after the client exits. When a recording completes and is retained, the service pins it and admits one canonical recognition job. When that job publishes text, it admits translation of that exact transcript revision. Each admission commits the job, the task's immutable receipt, its job interest and its audio charge together before any worker starts. A job another monitor, task or direct request already admitted with the same input and profile is shared, not duplicated; each authority charges its own allowance once. A failed, missed or expired recording, a recording longer than the remaining allowance, a failed recognition and a transcript without text are recorded once as refusals. The allowance never refills after failure, restart or cancellation.
+
+`task processing` shows the grant, its receipts, the audio charged, each job's current state and how many authorities share it. `cancel-processing` has its own generation. It stops future task admissions only; admitted jobs and direct or monitor interests continue. Any new monitor version or action holds future task processing as it holds collection. A grant stamped later than the service clock holds until time catches up. Finished jobs are not language quality or semantic task success. No task mutation is exposed through MCP. See [task-owned processing](decisions/0072-task-owned-processing.md).
 
 ## Listening
 

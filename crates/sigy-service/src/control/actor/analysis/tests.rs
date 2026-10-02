@@ -89,6 +89,7 @@ fn actor(root: &Path, sender: &mpsc::Sender<Message>) -> Result<Actor> {
         acquirer: HttpAcquirer::default(),
         next_monitor_pass_ms: 0,
         task_cursor: None,
+        task_processing: super::super::task::ProcessingPass::default(),
     })
 }
 

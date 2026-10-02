@@ -133,6 +133,8 @@ struct Actor {
     next_monitor_pass_ms: i64,
     /// Last task visited by the bounded publication pass, not execution authority.
     task_cursor: Option<String>,
+    /// Bounded task processing pass position and interval, not execution authority.
+    task_processing: task::ProcessingPass,
 }
 
 impl Actor {
@@ -841,6 +843,7 @@ pub(super) fn spawn(
         acquirer: HttpAcquirer::default(),
         next_monitor_pass_ms: 0,
         task_cursor: None,
+        task_processing: task::ProcessingPass::default(),
     };
     let thread = thread::Builder::new()
         .name("sigy-catalog".into())

@@ -29,6 +29,7 @@ mod cue_media;
 mod deadline;
 pub(crate) mod directory_policy;
 pub(crate) mod findings;
+pub(crate) mod interests;
 pub(crate) mod job_pool;
 pub(crate) mod monitors;
 pub(crate) mod providers;
@@ -41,7 +42,7 @@ mod widen;
 #[cfg(test)]
 mod widen_tests;
 
-pub const SCHEMA_VERSION: u32 = 43;
+pub const SCHEMA_VERSION: u32 = 44;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -125,6 +126,8 @@ impl Store {
         store.audit_tasks()?;
         store.audit_task_runs()?;
         store.audit_task_collections()?;
+        store.audit_job_interests()?;
+        store.audit_task_processing()?;
         Ok(store)
     }
 
@@ -298,6 +301,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=42).contains(&version) {
         transaction.execute_batch(include_str!("043-task-collection.sql"))?;
+    }
+    if (0..=43).contains(&version) {
+        transaction.execute_batch(include_str!("044-task-processing.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

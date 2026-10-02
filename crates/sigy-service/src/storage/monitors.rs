@@ -24,6 +24,7 @@ pub(crate) fn count_for_tests(store: &Store, sql: &str) -> Result<u32> {
 /// Historical migration fixtures share this dependency order as additions evolve.
 #[cfg(test)]
 pub(crate) fn revert_032_for_tests(connection: &Connection) -> Result<()> {
+    connection.execute_batch(super::tasks::processing::REVERT_044_FOR_TESTS)?;
     connection.execute_batch(
         "DROP TRIGGER IF EXISTS task_collection_schedule_no_update; DROP TRIGGER IF EXISTS task_collection_schedule_no_delete; DROP TABLE IF EXISTS task_collection_admissions; DROP TABLE IF EXISTS task_collection_cancellations; DROP TABLE IF EXISTS task_collection_rules; DROP TABLE IF EXISTS task_collections; ALTER TABLE schedule_rules DROP COLUMN task_owned; DROP TABLE IF EXISTS task_run_events; DROP TABLE IF EXISTS task_run_intents; DROP TABLE IF EXISTS task_runs; DROP TABLE IF EXISTS task_checkpoints; DROP TABLE IF EXISTS tasks; DROP TABLE IF EXISTS monitor_capture_refusals; DROP TABLE IF EXISTS monitor_capture_days; DROP TABLE IF EXISTS monitor_capture_admissions; DROP TABLE IF EXISTS monitor_capture_rules; DROP TABLE IF EXISTS monitor_briefing_reasons; DROP TABLE IF EXISTS monitor_briefing_sources; DROP TABLE IF EXISTS monitor_briefing_schedules; DROP TABLE IF EXISTS monitor_briefing_coverage; DROP TABLE IF EXISTS monitor_briefing_members; DROP TABLE IF EXISTS monitor_briefings; DROP TABLE IF EXISTS monitor_findings; DROP TABLE monitor_steps; DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; PRAGMA user_version = 31;",
     )?;

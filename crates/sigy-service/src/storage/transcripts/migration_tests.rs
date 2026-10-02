@@ -266,11 +266,13 @@ fn current(path: &Path) -> Result<Store> {
     Ok(store)
 }
 
-/// Queue one fixture job and claim it, as the pool does, or leave no row at all.
+/// Queue one direct fixture job with its interest and claim it, as the pool does, or leave
+/// no row at all.
 fn admit_fixture(connection: &Connection, job: &str, parent: i64) -> rusqlite::Result<usize> {
     connection.execute_batch("SAVEPOINT admit_fixture")?;
     let admitted = connection
         .execute("INSERT INTO analysis_jobs(id, generation, analysis_id, analysis_revision, recording_id, profile, kind, profile_sha256, expected_parent_revision, state, expected_bytes, expected_files, manifest_sha256, amount_micros, created_ms, lineage) VALUES (?1, 1, 'pin', 1, 'one', 'fixture-profile', 'local_asr', ?2, ?3, 'queued', 100, 1, ?4, 0, 20, 'pin')", params![job, "b".repeat(64), parent, "c".repeat(64)])
+        .and_then(|_| connection.execute("INSERT INTO job_interests(family, job_id, authority, owner_id, origin, created_ms) VALUES ('recognition', ?1, 'direct', '', 'admitted', 20)", [job]))
         .and_then(|_| connection.execute("UPDATE analysis_jobs SET state = 'running', lease_owner = 'local-test', lease_expires_ms = 20, started_ms = 20 WHERE id = ?1", [job]));
     match admitted {
         Ok(rows) => {
