@@ -1,6 +1,6 @@
 # Archive passage search
 
-Date: 2026-10-02. Status: implemented and tested on Windows x86_64. This is the first bounded increment of roadmap operation 46: literal passage retrieval over stored original-script cues and their English translations across the whole library. Exact retained cue playback, revision comparison, dependency inspection, deliberately requested recomputation and report bundles remain separate increments. Catalog schema is unchanged. Local IPC gains one read request; the protocol version is assigned when this increment is integrated. No language is qualified and no stage exit is established.
+Date: 2026-10-02. Status: implemented and tested on Windows x86_64. This is the first bounded increment of roadmap operation 46: literal passage retrieval over stored original-script cues and their English translations across the whole library. Exact retained cue playback, revision comparison, dependency inspection, deliberately requested recomputation and report bundles remain separate increments. Catalog schema is unchanged. Local IPC gains one read request and advances to v44; the catalog schema stays v43. No language is qualified and no stage exit is established.
 
 ## Decision
 
