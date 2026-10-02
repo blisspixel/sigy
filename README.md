@@ -42,7 +42,7 @@ sigy tui
 
 Sigy uses `~/.sigy/library` by default. Use `sigy init` for setup without a directory fetch, or `sigy init --no-start` to prepare storage without starting a service. See [first use](docs/install.md#first-use) for custom libraries and recording setup, and the [usage guide](docs/usage.md) for full commands.
 
-Your library and local processing stay on your machine by default. Paid model dispatch and general task orchestration are not implemented. The [progress record](docs/development/progress.md#tracked-intermittent-test-issues) keeps current limitations visible, including an unresolved Windows client shutdown failure.
+Your library and local processing stay on your machine by default. Paid model dispatch and general task orchestration are not implemented. The [progress record](docs/development/progress.md#tracked-intermittent-test-issues) keeps current limitations visible, including a Windows client shutdown failure that has a structural repair but no proven cause.
 
 ## Learn more
 

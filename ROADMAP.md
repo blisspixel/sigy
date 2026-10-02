@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-10-01
+Last updated: 2026-10-02
 
 This roadmap is organized by evidence and exit criteria. It does not assign speculative completion dates. Implementation has begun on the Rust foundation; the complete release remains ahead. [Current evidence and active work](docs/development/progress.md) distinguish completed slices from these planned stages.
 
@@ -14,7 +14,7 @@ The 2026-09-30 clarification makes [durable task workflows](docs/design/task-wor
 
 The 2026-10-01 first-use followup adds [bounded setup](docs/decisions/0070-first-use-setup.md), a default per-user library and a shorter [installation journey](docs/install.md#first-use), alongside refreshed README interface renders. This usability increment preserves existing policy and does not advance a language, platform or task-execution gate.
 
-The next session first addresses the [Windows control-client heap failure](research/34-windows-control-shutdown.md). Existing dumps establish recurrence in ordinary and instrumented builds, but not its cause. The bounded investigation is stopped for the night; the unverified transport draft is set aside. Resume with origin-focused evidence before shipping a repair or extending task execution.
+The [Windows control-client heap failure](research/34-windows-control-shutdown.md) is reproduced and has a [structural repair](docs/decisions/0071-local-stream-close.md) with clean repeated runs; its cause remains unproven and it stays tracked. On 2026-10-02 the user asked for parallel progress across task-owned processing, hosted evaluation within a USD 20 allocation, accelerated recognition, Linux containment, archive passage search and CLI/TUI polish. Each stream is integrated only after its own verification, and [active work](docs/development/progress.md) records what landed.
 
 The first complete release joins collection, recognition, translation, the live queue, monitoring and a durable task workflow. Qualified language profiles, capacity, privacy and recovery remain release gates throughout. Task scope and checkpoints exist, and explicit finite evidence publication extends them with durable effect receipts and cancellation. Atomic monitor job admission and exact usage charging precede the current finite task-owned collection increment. Task-owned processing and effect reconciliation follow, before measured general local planning. Independent research and qualification continue alongside those increments. Status as of 2026-10-01:
 
