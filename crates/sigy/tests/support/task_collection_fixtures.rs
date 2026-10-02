@@ -325,7 +325,17 @@ fn settled_collection_and_independent_work(
         assert!(Instant::now() < deadline, "future window deadline");
         thread::sleep(Duration::from_millis(30));
     }
-    let future = collection(root, "future-task")?;
+    // The service marks the elapsed occurrence missed on a later schedule tick, which a
+    // loaded host can delay. Compare the settled state rather than a racing snapshot.
+    let future = loop {
+        let page = collection(root, "future-task")?;
+        if page["captures"][0]["state"] == "missed" {
+            break page;
+        }
+        assert_eq!(page["captures"][0]["state"], "waiting", "{page}");
+        assert!(Instant::now() < deadline, "future miss deadline: {page}");
+        thread::sleep(Duration::from_millis(30));
+    };
     assert_eq!(future["cancelled"], true);
     assert!(future["captures"][0]["recording_id"].is_null());
     assert_eq!(
