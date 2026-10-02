@@ -75,7 +75,7 @@ Measured on 2026-10-02 on one AMD Ryzen 7 7840U host (8 cores, 16 threads) while
 
 These timings are contention-affected observations on one host, not a capacity claim. The deadline stops show the bound working under load.
 
-Integrated workspace verification outcomes belong in [active work](../development/progress.md).
+On 2026-10-02, on the stream branch rebased onto the integrated shutdown repair, `cargo verify` passed 769 workspace tests and 15 xtask tests, with 17 ignored (16 native-media tests and the measurement), warnings-denied Clippy, a locked build, and `cargo audit` of 312 crate dependencies against 1,280 advisories. Recording, playback, HTTP acquisition and native workers are unchanged, so `cargo verify-media` was not rerun. This is one Windows host, not a platform matrix. Integrated outcomes belong in [active work](../development/progress.md).
 
 ## Limitations
 
