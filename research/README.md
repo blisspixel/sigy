@@ -1,6 +1,6 @@
 # Research index
 
-Research baseline: **September 20, 2026**. Latest evidence update: **September 30, 2026**. Individual notes retain their review dates.
+Research baseline: **September 20, 2026**. Latest evidence update: **October 1, 2026**. Individual notes retain their review dates.
 
 This folder records primary-source findings, measured experiments, design implications, competing approaches, and unanswered questions. It supports the [intent](../INTENT.md) and [design documents](../docs/README.md). Each note distinguishes completed measurements from proposed work and technology selection.
 
@@ -38,8 +38,11 @@ This folder records primary-source findings, measured experiments, design implic
 | Native ASR/translation candidates, iGPU comparison, automated quality evidence, and bounded remote validation | [30. Retained-recording language evaluation](30-language-pipeline-evaluation.md) |
 | Job queues, execution isolation, containers, clusters, serverless GPU and hosted providers for scaling | [31. Scaling and execution](31-scaling-and-execution.md) |
 | Private local diagnostics, effect reconciliation, SQLite durability, corruption and restore qualification | [32. Private diagnostics and durable recovery](32-private-diagnostics-and-recovery.md) |
+| Finite task collection, transaction fences, exact ownership and shared processing authority | [33. Task collection and scoped effects](33-task-collection-and-scoped-effects.md) |
 
 ## Evidence discipline
+
+The [finite task collection validation](experiments/task-collection-2026-10-01.md) checks scoped once schedules, exact recording provenance, cancellation and recovery on the shared scheduler. [Primary-source research](33-task-collection-and-scoped-effects.md) explains transaction fences and why independent processing interests must precede task-owned processing.
 
 The [atomic monitor admission validation](experiments/monitor-processing-2026-10-01.md) checks job and usage rollback, historical replay, shared jobs and current authority before dispatch. Its scope excludes whole-pin rollback, model quality and general task execution.
 

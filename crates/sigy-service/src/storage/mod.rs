@@ -39,7 +39,7 @@ mod widen;
 #[cfg(test)]
 mod widen_tests;
 
-pub const SCHEMA_VERSION: u32 = 42;
+pub const SCHEMA_VERSION: u32 = 43;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -122,6 +122,7 @@ impl Store {
         store.audit_providers()?;
         store.audit_tasks()?;
         store.audit_task_runs()?;
+        store.audit_task_collections()?;
         Ok(store)
     }
 
@@ -292,6 +293,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     if (0..=41).contains(&version) {
         transaction.execute_batch(include_str!("042-task-runs.sql"))?;
         transaction.execute_batch(include_str!("042-finding-retention.sql"))?;
+    }
+    if (0..=42).contains(&version) {
+        transaction.execute_batch(include_str!("043-task-collection.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

@@ -4,6 +4,16 @@
 
 Nothing yet.
 
+## 0.1.0-dev.20261001.1 (development prerelease, source only)
+
+Catalog schema and local IPC advance to v43. Stop an older service before replacing its binary. This increment does not establish a roadmap stage exit or supported release.
+
+- Add explicit task-owned collection: one lifetime zero-USD grant creates up to two new finite UTC once schedules, bound to the task's inspected monitor version, complete action prefix and exact source revisions.
+- Commit the grant and all new rules together. Fence actual capture admission inside the shared DVR reservation transaction, preserving full planned UTC-day and lifetime seconds and worst-case bytes without refunds or refill.
+- Add separate collection inspection and cancellation. Status follows only owned occurrence and recording identities; cancellation stops future admissions and preserves admitted captures and independent work. Ordinary schedule inspection identifies task ownership and refuses rule revision.
+- Harden replay, clock regression, cancellation ordering, corrupted scope and orphan ownership. Reopen and verified restore preserve the original grant, recording provenance and conservative reservations.
+- Add parser, status, transaction, migration, recovery and native loopback checks. Task-owned processing interests, collection-to-evidence reconciliation, general planning and language/platform qualification remain open. Cumulative external spend remains USD 0 of the authorized USD 20.
+
 ## 0.1.0-dev.20261001 (development prerelease, source only)
 
 Catalog schema and local IPC remain v42. This checkpoint has no supported release profile or roadmap stage exit. No prebuilt application binary or model is distributed. Verification evidence and remaining gates are recorded in [active work](docs/development/progress.md).

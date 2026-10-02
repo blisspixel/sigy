@@ -11,6 +11,7 @@ use crate::{
 
 mod audit;
 mod checkpoint;
+pub(crate) mod collection;
 mod run;
 #[cfg(test)]
 mod tests;

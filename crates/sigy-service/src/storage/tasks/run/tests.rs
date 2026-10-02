@@ -335,6 +335,7 @@ fn v41_migration_preserves_scopes_and_conflicting_ddl_rolls_back() -> TestResult
     let mut store = fixture(&path)?;
     store.create_task("task", &scope(), 2)?;
     let before = store.task("task")?;
+    crate::storage::tasks::collection::remove_collection_schema(&store)?;
     store
         .connection
         .execute_batch(include_str!("../../037-findings.sql"))?;
@@ -342,6 +343,7 @@ fn v41_migration_preserves_scopes_and_conflicting_ddl_rolls_back() -> TestResult
     drop(store);
     let reopened = Store::open(&path)?;
     assert_eq!(reopened.task("task")?, before);
+    crate::storage::tasks::collection::remove_collection_schema(&reopened)?;
     reopened.connection.execute_batch("DROP TABLE task_run_events; DROP TABLE task_run_intents; DROP TABLE task_runs; CREATE TABLE task_run_events(conflict INTEGER); PRAGMA user_version = 41")?;
     drop(reopened);
     assert!(Store::open(&path).is_err());

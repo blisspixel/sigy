@@ -498,24 +498,59 @@ impl Actor {
     fn reconcile_schedules(&mut self) -> Result<()> {
         let now = crate::storage::now_ms()?;
         let admit = self.decoder().is_ok();
-        let mut batch = self
+        let batch = self
             .library
             .store_mut()
             .reconcile_schedules_at(now, admit)?;
-        if batch.quota_exhausted && admit {
+        let quota_exhausted = batch.quota_exhausted;
+        self.spawn_schedule_launches(batch.launches)?;
+        if quota_exhausted && admit {
             self.reclaim(crate::sources::http::MAXIMUM_BODY_BYTES)?;
             let retry = self.library.store_mut().reconcile_schedules_at(now, true)?;
-            batch.launches.extend(retry.launches);
-        }
-        for launch in batch.launches {
-            if let Err(error) = self.spawn_scheduled(&launch) {
-                let _ = self
-                    .library
-                    .store_mut()
-                    .fail_recording(&launch.job.version, &error);
-            }
+            self.spawn_schedule_launches(retry.launches)?;
         }
         Ok(())
+    }
+
+    fn spawn_schedule_launches(&mut self, launches: Vec<ScheduleLaunch>) -> Result<()> {
+        let mut failure = None;
+        for launch in launches {
+            if let Err(error) = self.spawn_scheduled(&launch)
+                && let Err(settlement) = self.settle_schedule_failure(&launch, &error)
+                && failure.is_none()
+            {
+                failure = Some(settlement);
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
+    fn settle_schedule_failure(&mut self, launch: &ScheduleLaunch, error: &Error) -> Result<()> {
+        let expected = &launch.job.version;
+        let store = self.library.store_mut();
+        let current = store.capture(expected.id())?.ok_or(Error::NotFound)?;
+        if current.version == *expected {
+            return store.fail_recording(expected, error);
+        }
+        if current.state == sigy_core::capture::CaptureState::Failed
+            && current.plan == launch.job.plan
+            && current.version.generation() == expected.generation()
+            && expected.revision().checked_add(1) == Some(current.version.revision())
+        {
+            let history = store.capture_history(expected.id(), Some(expected.revision()), 1)?;
+            if history.first().is_some_and(|receipt| {
+                receipt.event == Some(sigy_core::capture::CaptureEvent::Fail)
+                    && receipt.previous_state == Some(launch.job.state)
+                    && receipt.state == current.state
+                    && receipt.generation == expected.generation()
+                    && receipt.revision == current.version.revision()
+                    && receipt.recorded_ms == current.updated_ms
+                    && receipt.reason == "acquisition_or_decode_failed"
+            }) {
+                return Ok(());
+            }
+        }
+        Err(Error::StaleCapture)
     }
 
     /// A local due check. It fetches only when a saved directory slot is due.

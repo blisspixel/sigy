@@ -169,6 +169,12 @@ pub fn render(writer: &mut impl Write, page: &SchedulePage) -> io::Result<()> {
                 owner.version
             )?;
         }
+        if rule.task_owned {
+            writeln!(
+                writer,
+                "  Task-owned finite rule. Revision is refused; inspect task collection for its grant and recording state."
+            )?;
+        }
     }
     for occurrence in &page.occurrences {
         let outcome = occurrence
@@ -371,6 +377,8 @@ mod tests {
         assert!(text.contains("9007199254740993 bytes revision 2"));
         assert!(text.contains("spring-forward start none end none offset none recording none"));
         assert!(text.contains("No analysis profile is attached"));
+        assert!(!text.contains("Task-owned finite rule"));
+        page.rules[0].task_owned = true;
         page.rules[0].recurrence = "once".into();
         page.rules[0].id = "أخبار\u{1b}[2J\u{7}".into();
         page.occurrences[0].miss_reason = None;
@@ -387,6 +395,7 @@ mod tests {
         assert!(text.contains("once unknown"));
         assert!(text.contains("start 123 end 456 offset -18000 recording retained"));
         assert!(text.contains("Schedule unchanged"));
+        assert!(text.contains("Task-owned finite rule. Revision is refused"));
         assert!(!text.chars().any(|ch| ch.is_control() && ch != '\n'));
         for recurrence in ["daily", "future-cadence"] {
             page.rules[0].recurrence = recurrence.into();

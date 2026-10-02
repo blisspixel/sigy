@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result, monitor::MonitorCoverage};
 
+pub mod collection;
 pub mod run;
 
 pub const MAX_TASKS: u32 = 256;

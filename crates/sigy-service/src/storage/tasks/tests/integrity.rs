@@ -93,6 +93,7 @@ fn v40_migration_preserves_prior_policy_and_rolls_back_conflicting_ddl() -> Test
     let path = root.path().join("catalog");
     let store = fixture(&path)?;
     let policy = store.monitor_version("world", 1)?;
+    crate::storage::tasks::collection::remove_collection_schema(&store)?;
     store
         .connection
         .execute_batch("DROP TABLE task_run_events; DROP TABLE task_run_intents; DROP TABLE task_runs; DROP TABLE task_checkpoints; DROP TABLE tasks; PRAGMA user_version = 40")?;
@@ -106,6 +107,7 @@ fn v40_migration_preserves_prior_policy_and_rolls_back_conflicting_ddl() -> Test
     );
     let conflict_path = root.path().join("conflict");
     let conflict = fixture(&conflict_path)?;
+    crate::storage::tasks::collection::remove_collection_schema(&conflict)?;
     conflict.connection.execute_batch("DROP TABLE task_run_events; DROP TABLE task_run_intents; DROP TABLE task_runs; DROP TABLE task_checkpoints; DROP TABLE tasks; CREATE TABLE tasks(conflict INTEGER); PRAGMA user_version = 40")?;
     drop(conflict);
     assert!(Store::open(&conflict_path).is_err());

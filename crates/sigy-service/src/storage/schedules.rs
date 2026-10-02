@@ -36,6 +36,7 @@ pub struct ScheduleRule {
     pub created_ms: i64,
     pub updated_ms: i64,
     pub monitor_owner: Option<MonitorScheduleOwner>,
+    pub task_owned: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,52 +128,9 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(existing) = read_rule(&tx, &prepared.id)? {
-            if !same_rule(&existing, &prepared) || existing.monitor_owner.as_ref() != owner {
-                return Err(Error::IdempotencyConflict);
-            }
-            let saved = saved(&tx, &prepared.id, false)?;
-            tx.commit()?;
-            return Ok(saved);
-        }
-        let count: i64 =
-            tx.query_row("SELECT count(*) FROM schedule_rules", [], |row| row.get(0))?;
-        if count >= MAX_SCHEDULES {
-            return Err(Error::CaptureCapacity);
-        }
-        let source_exists: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM source_revisions WHERE id = ?1)",
-            [&prepared.source_revision],
-            |row| row.get(0),
-        )?;
-        if !source_exists {
-            return Err(Error::NotFound);
-        }
-        tx.execute(
-            "INSERT INTO schedule_rules(id, source_revision, zone, recurrence, civil_date, weekday, hour, minute, second, duration_seconds, maximum_bytes, revision, created_ms, updated_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?12)",
-            params![
-                prepared.id,
-                prepared.source_revision,
-                prepared.zone,
-                prepared.recurrence,
-                prepared.civil_date,
-                prepared.weekday,
-                prepared.hour,
-                prepared.minute,
-                prepared.second,
-                prepared.duration_seconds,
-                prepared.maximum_bytes,
-                now_ms,
-            ],
-        )?;
-        if let Some(owner) = owner {
-            super::monitors::capture::attach(&tx, &prepared, owner)?;
-        }
-        let rule = read_rule(&tx, &prepared.id)?.ok_or(Error::StorageIntegrity)?;
-        materialize(&tx, &rule, now_ms)?;
-        let saved = saved(&tx, &prepared.id, true)?;
+        let result = create_schedule_in(&tx, &prepared, owner, now_ms)?;
         tx.commit()?;
-        Ok(saved)
+        Ok(result)
     }
 
     /// Change future slots. An admitted occurrence keeps the plan it already has.
@@ -188,6 +146,9 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let existing = read_rule(&tx, &prepared.id)?.ok_or(Error::NotFound)?;
+        if super::tasks::collection::owns_rule(&tx, &prepared.id)? {
+            return Err(Error::InvalidInput("task collection schedule is immutable"));
+        }
         if existing.source_revision != prepared.source_revision {
             return Err(Error::InvalidInput("schedule source revision"));
         }
@@ -275,17 +236,21 @@ impl Store {
     ) -> Result<ScheduleReconcile> {
         let mut statement = self
             .connection
-            .prepare("SELECT id FROM schedule_rules ORDER BY id")?;
+            .prepare("SELECT id FROM schedule_rules ORDER BY id LIMIT ?1")?;
         let ids = statement
-            .query_map([], |row| row.get::<_, String>(0))?
+            .query_map([MAX_SCHEDULES + 1], |row| row.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         drop(statement);
+        if i64::try_from(ids.len()).map_err(|_| Error::StorageIntegrity)? > MAX_SCHEDULES {
+            return Err(Error::StorageIntegrity);
+        }
+        let mut transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut launches = Vec::new();
         let mut quota_exhausted = false;
         for id in ids {
-            let tx = self
-                .connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = transaction.savepoint()?;
             match reconcile_rule(&tx, &id, now_ms, admit) {
                 Ok(launch) => {
                     tx.commit()?;
@@ -294,12 +259,14 @@ impl Store {
                     }
                 }
                 Err(Error::StorageQuota) => {
+                    tx.finish()?;
                     quota_exhausted = true;
                     break;
                 }
                 Err(error) => return Err(error),
             }
         }
+        transaction.commit()?;
         Ok(ScheduleReconcile {
             launches,
             quota_exhausted,
@@ -309,6 +276,12 @@ impl Store {
     /// # Errors
     /// Returns a storage error when a rule or occurrence breaks its contract.
     pub(crate) fn audit_schedules(&self) -> Result<()> {
+        let count: i64 =
+            self.connection
+                .query_row("SELECT count(*) FROM schedule_rules", [], |row| row.get(0))?;
+        if count > MAX_SCHEDULES {
+            return Err(Error::StorageIntegrity);
+        }
         let analysis: i64 = self.connection.query_row(
             "SELECT count(*) FROM pragma_table_info('schedule_rules') WHERE name LIKE '%analysis%' OR name LIKE '%profile%'",
             [],
@@ -345,6 +318,60 @@ pub fn create_schedule(store: &mut Store, draft: &ScheduleDraft) -> Result<Sched
 /// Returns the same errors as [`Store::revise_schedule_at`].
 pub fn revise_schedule(store: &mut Store, draft: &ScheduleDraft) -> Result<ScheduleSaved> {
     store.revise_schedule_at(draft, now_ms()?)
+}
+
+pub(crate) fn create_schedule_in(
+    connection: &rusqlite::Connection,
+    draft: &ScheduleDraft,
+    owner: Option<&MonitorScheduleOwner>,
+    now_ms: i64,
+) -> Result<ScheduleSaved> {
+    if let Some(existing) = read_rule(connection, &draft.id)? {
+        if !same_rule(&existing, draft) || existing.monitor_owner.as_ref() != owner {
+            return Err(Error::IdempotencyConflict);
+        }
+        let saved = saved(connection, &draft.id, false)?;
+
+        return Ok(saved);
+    }
+    let count: i64 =
+        connection.query_row("SELECT count(*) FROM schedule_rules", [], |row| row.get(0))?;
+    if count >= MAX_SCHEDULES {
+        return Err(Error::CaptureCapacity);
+    }
+    let source_exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM source_revisions WHERE id = ?1)",
+        [&draft.source_revision],
+        |row| row.get(0),
+    )?;
+    if !source_exists {
+        return Err(Error::NotFound);
+    }
+    connection.execute(
+            "INSERT INTO schedule_rules(id, source_revision, zone, recurrence, civil_date, weekday, hour, minute, second, duration_seconds, maximum_bytes, revision, created_ms, updated_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?12)",
+            params![
+                draft.id,
+                draft.source_revision,
+                draft.zone,
+                draft.recurrence,
+                draft.civil_date,
+                draft.weekday,
+                draft.hour,
+                draft.minute,
+                draft.second,
+                draft.duration_seconds,
+                draft.maximum_bytes,
+                now_ms,
+            ],
+        )?;
+    if let Some(owner) = owner {
+        super::monitors::capture::attach(connection, draft, owner)?;
+    }
+    let rule = read_rule(connection, &draft.id)?.ok_or(Error::StorageIntegrity)?;
+    materialize(connection, &rule, now_ms)?;
+    let saved = saved(connection, &draft.id, true)?;
+
+    Ok(saved)
 }
 
 fn prepare(draft: &ScheduleDraft) -> Result<ScheduleDraft> {
@@ -400,7 +427,7 @@ fn prepare(draft: &ScheduleDraft) -> Result<ScheduleDraft> {
     })
 }
 
-fn same_rule(existing: &ScheduleRule, draft: &ScheduleDraft) -> bool {
+pub(crate) fn same_rule(existing: &ScheduleRule, draft: &ScheduleDraft) -> bool {
     existing.source_revision == draft.source_revision
         && existing.zone == draft.zone
         && existing.recurrence == draft.recurrence
@@ -465,6 +492,9 @@ fn admit_occurrence(
     occurrence: &ScheduleOccurrence,
     now_ms: i64,
 ) -> Result<Option<ScheduleLaunch>> {
+    if !super::tasks::collection::check(tx, rule, occurrence, now_ms)? {
+        return Ok(None);
+    }
     if !super::monitors::capture::check(tx, rule, occurrence, now_ms)? {
         return Ok(None);
     }
@@ -496,6 +526,7 @@ fn admit_occurrence(
         return Err(Error::StorageIntegrity);
     }
     super::monitors::capture::reserve(tx, rule, occurrence, now_ms)?;
+    super::tasks::collection::reserve(tx, rule, occurrence, now_ms)?;
     let remaining_ms = u64::try_from(end_ms - now_ms).map_err(|_| Error::StorageIntegrity)?;
     Ok(Some(ScheduleLaunch {
         job,
@@ -724,7 +755,7 @@ fn saved(tx: &rusqlite::Connection, id: &str, newly_created: bool) -> Result<Sch
 fn read_rule(connection: &rusqlite::Connection, id: &str) -> Result<Option<ScheduleRule>> {
     let mut rule: Option<ScheduleRule> = connection
         .query_row(
-            "SELECT source_revision, zone, recurrence, civil_date, weekday, hour, minute, second, duration_seconds, maximum_bytes, revision, created_ms, updated_ms FROM schedule_rules WHERE id = ?1",
+            "SELECT source_revision, zone, recurrence, civil_date, weekday, hour, minute, second, duration_seconds, maximum_bytes, revision, created_ms, updated_ms, task_owned FROM schedule_rules WHERE id = ?1",
             [id],
             |row| {
                 Ok(ScheduleRule {
@@ -743,6 +774,7 @@ fn read_rule(connection: &rusqlite::Connection, id: &str) -> Result<Option<Sched
                     created_ms: row.get(11)?,
                     updated_ms: row.get(12)?,
                     monitor_owner: None,
+                    task_owned: row.get(13)?,
                 })
             },
         )

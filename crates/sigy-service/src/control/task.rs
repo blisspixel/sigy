@@ -1,8 +1,9 @@
-//! Task observations and explicit publication delegation share the canonical catalog actor.
+//! Task observations and explicit publication or collection grants share the catalog actor.
 
 use serde::{Deserialize, Serialize};
 
 use super::{Snapshot, snapshot};
+use crate::task::collection::{TaskCollectionSpec, TaskCollectionView};
 use crate::task::run::{TaskRunSpec, TaskRunView};
 use crate::{
     Result,
@@ -48,6 +49,21 @@ pub enum TaskOperation {
         request_id: String,
         expected_generation: u32,
     },
+    /// Grant one finite collection using new task-owned once schedules.
+    Collect {
+        id: String,
+        request_id: String,
+        spec: Box<TaskCollectionSpec>,
+        expected_generation: u32,
+    },
+    Collection {
+        id: String,
+    },
+    CancelCollection {
+        id: String,
+        request_id: String,
+        expected_generation: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +82,9 @@ pub enum TaskPage {
     },
     Execution {
         run: Option<Box<TaskRunView>>,
+    },
+    Collection {
+        collection: Option<Box<TaskCollectionView>>,
     },
 }
 
@@ -129,6 +148,33 @@ pub(super) fn apply(store: &mut Store, command: TaskOperation) -> Result<Snapsho
                 run: store.task_run(&id)?.map(Box::new),
             }
         }
+        TaskOperation::Collect {
+            id,
+            request_id,
+            spec,
+            expected_generation,
+        } => {
+            store.start_task_collection(&id, &request_id, &spec, expected_generation, now)?;
+            TaskPage::Collection {
+                collection: store.task_collection(&id)?.map(Box::new),
+            }
+        }
+        TaskOperation::Collection { id } => {
+            store.task(&id)?;
+            TaskPage::Collection {
+                collection: store.task_collection(&id)?.map(Box::new),
+            }
+        }
+        TaskOperation::CancelCollection {
+            id,
+            request_id,
+            expected_generation,
+        } => {
+            store.cancel_task_collection(&id, &request_id, expected_generation, now)?;
+            TaskPage::Collection {
+                collection: store.task_collection(&id)?.map(Box::new),
+            }
+        }
     };
     let mut view = snapshot(store)?;
     view.task = Some(Box::new(page));
@@ -169,7 +215,11 @@ mod tests {
                 total_audio_seconds: 60,
                 recognition_profile: None,
                 translation_profile: None,
-                capture: None,
+                capture: Some(crate::monitor::MonitorCaptureBounds {
+                    daily_seconds: 60,
+                    total_seconds: 60,
+                    total_bytes: 2048,
+                }),
             },
             1,
         )?;
@@ -345,6 +395,76 @@ mod tests {
         }))?;
         value["operation"]["command"]["spec"]["paid_allowance"] = serde_json::json!("20");
         assert!(serde_json::from_value::<Request>(value).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn collection_control_replays_finite_grant_and_cancellation_without_dispatch() -> Result<()> {
+        use crate::task::collection::TaskCaptureSpec;
+        let root = tempfile::tempdir()?;
+        let mut store = Store::open(&root.path().join("catalog.sqlite"))?;
+        let now = crate::storage::now_ms()?;
+        let base = fixture(&mut store)?;
+        let spec = TaskSpec {
+            from_ms: now - 1000,
+            to_ms: now + 60_000,
+            ..base
+        };
+        apply(
+            &mut store,
+            TaskOperation::Create {
+                id: "task".into(),
+                spec: Box::new(spec),
+            },
+        )?;
+        let before = apply(&mut store, TaskOperation::Collection { id: "task".into() })?;
+        assert_eq!(
+            before.task.as_deref(),
+            Some(&TaskPage::Collection { collection: None })
+        );
+        let request = TaskOperation::Collect {
+            id: "task".into(),
+            request_id: "grant".into(),
+            spec: Box::new(TaskCollectionSpec {
+                captures: vec![TaskCaptureSpec {
+                    source_revision: "source".into(),
+                    start_ms: (now / 1000 + 5) * 1000,
+                    duration_seconds: 10,
+                    maximum_bytes: 1024,
+                }],
+            }),
+            expected_generation: 0,
+        };
+        let admitted = apply(&mut store, request.clone())?;
+        let replay = apply(&mut store, request.clone())?;
+        assert_eq!(admitted.task, replay.task);
+        assert!(
+            matches!(admitted.task.as_deref(), Some(TaskPage::Collection { collection: Some(view) }) if view.generation == 1 && view.captures.len() == 1 && view.captures[0].recording_id.is_none())
+        );
+        let cancel = TaskOperation::CancelCollection {
+            id: "task".into(),
+            request_id: "stop".into(),
+            expected_generation: 1,
+        };
+        let cancelled = apply(&mut store, cancel.clone())?;
+        assert_eq!(cancelled.task, apply(&mut store, cancel)?.task);
+        assert!(
+            matches!(cancelled.task.as_deref(), Some(TaskPage::Collection { collection: Some(view) }) if view.generation == 2 && view.cancelled && view.hold_reason.as_deref() == Some("cancelled"))
+        );
+        assert_eq!(cancelled.task, apply(&mut store, request.clone())?.task);
+        assert_eq!(cancelled.captures.active, before.captures.active);
+        assert_eq!(
+            serde_json::to_value(cancelled.budgets)?,
+            serde_json::to_value(before.budgets)?
+        );
+        assert!(store.task_run("task")?.is_none());
+        let encoded = serde_json::to_value(Request::new(Operation::Task { command: request }))?;
+        let mut hostile = encoded.clone();
+        hostile["operation"]["command"]["spec"]["shell"] = serde_json::json!("echo");
+        assert!(serde_json::from_value::<Request>(hostile).is_err());
+        let mut hostile = encoded;
+        hostile["operation"]["command"]["spec"]["paid_allowance"] = serde_json::json!("20");
+        assert!(serde_json::from_value::<Request>(hostile).is_err());
         Ok(())
     }
 }

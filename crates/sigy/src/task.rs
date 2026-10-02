@@ -1,4 +1,4 @@
-//! Finite monitor-bound tasks, frozen observations and explicit publication delegation.
+//! Finite monitor-bound tasks, frozen observations and explicit publication or collection grants.
 
 use std::io::{self, Write};
 
@@ -9,6 +9,7 @@ use sigy_service::{
     task::{MAX_CHECKPOINTS, TaskCheckpoint, TaskSpec, TaskView},
 };
 
+mod collection;
 mod execution;
 
 use crate::explorer::text::sanitize;
@@ -103,6 +104,25 @@ pub enum TaskCommand {
         #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
         expected_generation: u32,
     },
+    /// Grant one or two new finite UTC recording schedules for this task.
+    Collect {
+        id: String,
+        request_id: String,
+        #[command(flatten)]
+        bounds: collection::CollectionArgs,
+        /// Zero before collection admission. Exact replay uses the original value.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(0..=0))]
+        expected_generation: u32,
+    },
+    /// Read only this task's collection schedule and recording bindings.
+    Collection { id: String },
+    /// Stop future task collection admissions. Admitted recordings continue.
+    CancelCollection {
+        id: String,
+        request_id: String,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        expected_generation: u32,
+    },
 }
 
 impl TaskCommand {
@@ -155,6 +175,27 @@ impl TaskCommand {
                 request_id: request_id.clone(),
                 expected_generation: *expected_generation,
             },
+            Self::Collect {
+                id,
+                request_id,
+                bounds,
+                expected_generation,
+            } => TaskOperation::Collect {
+                id: id.clone(),
+                request_id: request_id.clone(),
+                spec: Box::new(bounds.spec()?),
+                expected_generation: *expected_generation,
+            },
+            Self::Collection { id } => TaskOperation::Collection { id: id.clone() },
+            Self::CancelCollection {
+                id,
+                request_id,
+                expected_generation,
+            } => TaskOperation::CancelCollection {
+                id: id.clone(),
+                request_id: request_id.clone(),
+                expected_generation: *expected_generation,
+            },
         };
         Ok(Operation::Task { command })
     }
@@ -181,6 +222,7 @@ pub fn render(writer: &mut impl Write, page: &TaskPage) -> io::Result<()> {
         }
         TaskPage::Checkpoint { checkpoint } => render_checkpoint(writer, checkpoint),
         TaskPage::Execution { run } => execution::render(writer, run.as_deref()),
+        TaskPage::Collection { collection } => collection::render(writer, collection.as_deref()),
     }
 }
 
@@ -230,7 +272,7 @@ fn render_task(writer: &mut impl Write, task: &TaskView, created: Option<bool>) 
     )?;
     writeln!(
         writer,
-        "Paid allowance: USD 0. No worker jobs are created by this task."
+        "Paid allowance: USD 0. Scope and checkpoints alone create no worker jobs."
     )?;
     if let Some(checkpoint) = &task.latest_checkpoint {
         render_checkpoint(writer, checkpoint)?;
@@ -435,6 +477,97 @@ mod tests {
         }
         assert!(parse(&["sigy", "checkpoint", "water", "check-1"]).is_err());
         assert!(parse(&["sigy", "checkpoint-show", "water", "0"]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn collection_requires_finite_explicit_bounds_and_distinct_sources()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let args = [
+            "sigy",
+            "collect",
+            "water",
+            "grant",
+            "--source",
+            "one:v1",
+            "--start-ms",
+            "1000",
+            "--seconds",
+            "60",
+            "--max-bytes",
+            "1024",
+            "--expected-generation",
+            "0",
+        ];
+        match parse(&args)? {
+            Operation::Task {
+                command:
+                    TaskOperation::Collect {
+                        id,
+                        request_id,
+                        spec,
+                        expected_generation: 0,
+                    },
+            } => {
+                assert_eq!(id, "water");
+                assert_eq!(request_id, "grant");
+                assert_eq!(spec.captures.len(), 1);
+                assert_eq!(spec.captures[0].maximum_bytes, 1024);
+            }
+            other => return Err(format!("{other:?}").into()),
+        }
+        for (index, values) in [
+            (7, &["1001", "9223372036854775000"][..]),
+            (9, &["0", "901"]),
+            (11, &["0", "268435457"]),
+            (13, &["1"]),
+        ] {
+            for value in values {
+                let mut invalid = args;
+                invalid[index] = value;
+                assert!(parse(&invalid).is_err(), "{invalid:?}");
+            }
+        }
+        let mut multiple = args.to_vec();
+        multiple.extend(["--source", "two:v1"]);
+        assert!(
+            matches!(parse(&multiple)?, Operation::Task { command: TaskOperation::Collect { spec, .. } } if spec.captures.len() == 2)
+        );
+        multiple.extend(["--source", "three:v1"]);
+        assert!(parse(&multiple).is_err());
+        let mut duplicate = args.to_vec();
+        duplicate.extend(["--source", "one:v1"]);
+        assert!(parse(&duplicate).is_err());
+        assert!(
+            matches!(parse(&["sigy", "collection", "water"] )?, Operation::Task { command: TaskOperation::Collection { id } } if id == "water")
+        );
+        assert!(matches!(
+            parse(&[
+                "sigy",
+                "cancel-collection",
+                "water",
+                "stop",
+                "--expected-generation",
+                "1"
+            ])?,
+            Operation::Task {
+                command: TaskOperation::CancelCollection {
+                    expected_generation: 1,
+                    ..
+                }
+            }
+        ));
+        assert!(
+            parse(&[
+                "sigy",
+                "cancel-collection",
+                "water",
+                "stop",
+                "--expected-generation",
+                "0"
+            ])
+            .is_err()
+        );
         Ok(())
     }
 

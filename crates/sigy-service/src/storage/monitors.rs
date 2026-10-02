@@ -25,7 +25,7 @@ pub(crate) fn count_for_tests(store: &Store, sql: &str) -> Result<u32> {
 #[cfg(test)]
 pub(crate) fn revert_032_for_tests(connection: &Connection) -> Result<()> {
     connection.execute_batch(
-        "DROP TABLE IF EXISTS task_run_events; DROP TABLE IF EXISTS task_run_intents; DROP TABLE IF EXISTS task_runs; DROP TABLE IF EXISTS task_checkpoints; DROP TABLE IF EXISTS tasks; DROP TABLE IF EXISTS monitor_capture_refusals; DROP TABLE IF EXISTS monitor_capture_days; DROP TABLE IF EXISTS monitor_capture_admissions; DROP TABLE IF EXISTS monitor_capture_rules; DROP TABLE IF EXISTS monitor_briefing_reasons; DROP TABLE IF EXISTS monitor_briefing_sources; DROP TABLE IF EXISTS monitor_briefing_schedules; DROP TABLE IF EXISTS monitor_briefing_coverage; DROP TABLE IF EXISTS monitor_briefing_members; DROP TABLE IF EXISTS monitor_briefings; DROP TABLE IF EXISTS monitor_findings; DROP TABLE monitor_steps; DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; PRAGMA user_version = 31;",
+        "DROP TRIGGER IF EXISTS task_collection_schedule_no_update; DROP TRIGGER IF EXISTS task_collection_schedule_no_delete; DROP TABLE IF EXISTS task_collection_admissions; DROP TABLE IF EXISTS task_collection_cancellations; DROP TABLE IF EXISTS task_collection_rules; DROP TABLE IF EXISTS task_collections; ALTER TABLE schedule_rules DROP COLUMN task_owned; DROP TABLE IF EXISTS task_run_events; DROP TABLE IF EXISTS task_run_intents; DROP TABLE IF EXISTS task_runs; DROP TABLE IF EXISTS task_checkpoints; DROP TABLE IF EXISTS tasks; DROP TABLE IF EXISTS monitor_capture_refusals; DROP TABLE IF EXISTS monitor_capture_days; DROP TABLE IF EXISTS monitor_capture_admissions; DROP TABLE IF EXISTS monitor_capture_rules; DROP TABLE IF EXISTS monitor_briefing_reasons; DROP TABLE IF EXISTS monitor_briefing_sources; DROP TABLE IF EXISTS monitor_briefing_schedules; DROP TABLE IF EXISTS monitor_briefing_coverage; DROP TABLE IF EXISTS monitor_briefing_members; DROP TABLE IF EXISTS monitor_briefings; DROP TABLE IF EXISTS monitor_findings; DROP TABLE monitor_steps; DROP TABLE monitor_actions; DROP TABLE monitor_versions; DROP TABLE monitors; PRAGMA user_version = 31;",
     )?;
     Ok(())
 }
@@ -52,6 +52,29 @@ fn checked_spec(json: &str, digest: &str) -> Result<MonitorSpec> {
         return Err(Error::StorageIntegrity);
     }
     Ok(spec)
+}
+
+pub(in crate::storage) fn monitor_version_in(
+    connection: &Connection,
+    id: &str,
+    version: u32,
+) -> Result<MonitorVersion> {
+    validate_key(id, "monitor ID")?;
+    let (json, spec_sha256, created_ms): (String, String, i64) = connection
+            .query_row(
+                "SELECT spec_json, spec_sha256, created_ms FROM monitor_versions WHERE monitor_id = ?1 AND version = ?2",
+                params![id, version],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?
+            .ok_or(Error::NotFound)?;
+    Ok(MonitorVersion {
+        monitor_id: id.to_owned(),
+        version,
+        spec: checked_spec(&json, &spec_sha256)?,
+        spec_sha256,
+        created_ms,
+    })
 }
 
 fn latest_version(connection: &Connection, id: &str) -> Result<Option<MonitorVersion>> {
@@ -424,23 +447,7 @@ impl Store {
     /// # Errors
     /// Refuses a missing version or invalid stored rows.
     pub fn monitor_version(&self, id: &str, version: u32) -> Result<MonitorVersion> {
-        validate_key(id, "monitor ID")?;
-        let (json, spec_sha256, created_ms): (String, String, i64) = self
-            .connection
-            .query_row(
-                "SELECT spec_json, spec_sha256, created_ms FROM monitor_versions WHERE monitor_id = ?1 AND version = ?2",
-                params![id, version],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .optional()?
-            .ok_or(Error::NotFound)?;
-        Ok(MonitorVersion {
-            monitor_id: id.to_owned(),
-            version,
-            spec: checked_spec(&json, &spec_sha256)?,
-            spec_sha256,
-            created_ms,
-        })
+        monitor_version_in(&self.connection, id, version)
     }
 
     /// Up to sixteen actions after an ordinal cursor, oldest first.

@@ -20,6 +20,8 @@ type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
 #[path = "tests/monitor_admission_tests.rs"]
 mod monitor_admission_tests;
+#[path = "tests/schedule_launch_tests.rs"]
+mod schedule_launch_tests;
 #[path = "tests/task_tests.rs"]
 mod task_tests;
 

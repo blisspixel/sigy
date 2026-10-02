@@ -23,6 +23,8 @@ mod podcast_fixtures;
 mod recognition_fixtures;
 #[path = "support/recording_fixtures.rs"]
 mod recording_fixtures;
+#[path = "support/task_collection_fixtures.rs"]
+mod task_collection_fixtures;
 #[path = "support/task_execution_fixtures.rs"]
 mod task_execution_fixtures;
 #[path = "support/task_fixtures.rs"]

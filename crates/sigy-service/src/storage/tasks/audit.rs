@@ -38,48 +38,8 @@ pub(super) struct CheckpointContext {
 pub(super) type CheckedScope = (TaskSpec, String, String, i64);
 
 impl Store {
-    pub(super) fn checked_task_scope(&self, id: &str) -> Result<(TaskSpec, String, String, i64)> {
-        let row: ScopeRow = self.connection.query_row(
-            "SELECT spec_json, scope_sha256, monitor_spec_sha256, created_ms, monitor_id, monitor_version, monitor_actions, from_ms, to_ms, template, amount_micros FROM tasks WHERE id = ?1",
-            [id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?)),
-        ).optional()?.ok_or(Error::NotFound)?;
-        let (
-            json,
-            digest,
-            monitor_digest,
-            created,
-            monitor,
-            version,
-            actions,
-            from,
-            to,
-            template,
-            cost,
-        ) = row;
-        let spec: TaskSpec = serde_json::from_str(&json).map_err(|_| Error::StorageIntegrity)?;
-        spec.validate().map_err(|_| Error::StorageIntegrity)?;
-        let policy = self.monitor_version(&spec.monitor_id, spec.monitor_version)?;
-        let invalid_actions: bool = self.connection.query_row(
-            "SELECT ?2 != (SELECT count(*) FROM monitor_actions WHERE monitor_id = ?1 AND ordinal <= ?2) OR EXISTS (SELECT 1 FROM monitor_actions WHERE monitor_id = ?1 AND ordinal <= ?2 AND (policy_version > ?3 OR created_ms > ?4))",
-            params![monitor, actions, version, created], |row| row.get(0),
-        )?;
-        if json.len() > 8192
-            || spec.monitor_id != monitor
-            || spec.monitor_version != version
-            || spec.monitor_actions != actions
-            || spec.from_ms != from
-            || spec.to_ms != to
-            || template != TASK_TEMPLATE
-            || cost != 0
-            || created < policy.created_ms
-            || policy.spec_sha256 != monitor_digest
-            || scope_hash(&json, &monitor_digest) != digest
-            || invalid_actions
-        {
-            return Err(Error::StorageIntegrity);
-        }
-        Ok((spec, digest, monitor_digest, created))
+    pub(super) fn checked_task_scope(&self, id: &str) -> Result<CheckedScope> {
+        checked_task_scope_in(&self.connection, id)
     }
 
     pub(super) fn task_checkpoint_context(&self, spec: &TaskSpec) -> Result<CheckpointContext> {
@@ -249,4 +209,55 @@ impl Store {
         }
         Ok(())
     }
+}
+
+pub(super) fn checked_task_scope_in(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> Result<CheckedScope> {
+    let row: ScopeRow = connection.query_row(
+            "SELECT spec_json, scope_sha256, monitor_spec_sha256, created_ms, monitor_id, monitor_version, monitor_actions, from_ms, to_ms, template, amount_micros FROM tasks WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?)),
+        ).optional()?.ok_or(Error::NotFound)?;
+    let (
+        json,
+        digest,
+        monitor_digest,
+        created,
+        monitor,
+        version,
+        actions,
+        from,
+        to,
+        template,
+        cost,
+    ) = row;
+    let spec: TaskSpec = serde_json::from_str(&json).map_err(|_| Error::StorageIntegrity)?;
+    spec.validate().map_err(|_| Error::StorageIntegrity)?;
+    let policy = crate::storage::monitors::monitor_version_in(
+        connection,
+        &spec.monitor_id,
+        spec.monitor_version,
+    )?;
+    let invalid_actions: bool = connection.query_row(
+            "SELECT ?2 != (SELECT count(*) FROM monitor_actions WHERE monitor_id = ?1 AND ordinal <= ?2) OR EXISTS (SELECT 1 FROM monitor_actions WHERE monitor_id = ?1 AND ordinal <= ?2 AND (policy_version > ?3 OR created_ms > ?4))",
+            params![monitor, actions, version, created], |row| row.get(0),
+        )?;
+    if json.len() > 8192
+        || spec.monitor_id != monitor
+        || spec.monitor_version != version
+        || spec.monitor_actions != actions
+        || spec.from_ms != from
+        || spec.to_ms != to
+        || template != TASK_TEMPLATE
+        || cost != 0
+        || created < policy.created_ms
+        || policy.spec_sha256 != monitor_digest
+        || scope_hash(&json, &monitor_digest) != digest
+        || invalid_actions
+    {
+        return Err(Error::StorageIntegrity);
+    }
+    Ok((spec, digest, monitor_digest, created))
 }

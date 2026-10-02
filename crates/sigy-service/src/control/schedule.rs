@@ -86,6 +86,8 @@ pub struct ScheduleRuleView {
     pub revision: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor_owner: Option<MonitorScheduleOwner>,
+    #[serde(default)]
+    pub task_owned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -322,6 +324,7 @@ fn rule_view(rule: ScheduleRule) -> Result<ScheduleRuleView> {
         maximum_bytes: rule.maximum_bytes,
         revision: rule.revision,
         monitor_owner: rule.monitor_owner,
+        task_owned: rule.task_owned,
     })
 }
 

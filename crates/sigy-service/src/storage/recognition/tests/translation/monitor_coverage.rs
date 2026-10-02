@@ -42,7 +42,7 @@ fn spec() -> MonitorSpec {
 /// A daily rule with one admitted occurrence (the fixture recording) and one missed window.
 fn schedule(store: &Store, start_ms: i64) -> Result<()> {
     store.connection.execute(
-        "INSERT INTO schedule_rules VALUES ('morning', 'radio:v1', 'UTC', 'daily', NULL, NULL, 8, 0, 0, 60, 600, 0, 1, 1)",
+        "INSERT INTO schedule_rules(id, source_revision, zone, recurrence, civil_date, weekday, hour, minute, second, duration_seconds, maximum_bytes, revision, created_ms, updated_ms) VALUES ('morning', 'radio:v1', 'UTC', 'daily', NULL, NULL, 8, 0, 0, 60, 600, 0, 1, 1)",
         [],
     )?;
     store.connection.execute(

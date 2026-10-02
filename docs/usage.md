@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 `--data-dir` is required except for `sigy update`, help, and version. Use a private directory outside the checkout. `--json` emits one structured response for automation. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v42 and local IPC is v42. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v43 and local IPC is v43. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Update
 
@@ -333,6 +333,22 @@ Output separates elapsed windows, paused monitor processing, absent results and 
 The service advances accepted runs independently of the client. Offline admission is allowed, but publication waits for the service to run. `task execution` shows committed receipts, artifact identities and the current generation. `completed` means the finite publication workflow ended; semantic goal completion and language quality remain unmeasured. Missing coverage, gaps, truncation and unsupported publications yield a partial outcome. A changed monitor version or action count revokes pending task publication.
 
 To cancel pending task publications, inspect the current generation and run `task cancel evening-water stop-1 --expected-generation N`, replacing `N` with that exact value. A stale generation conflicts. Repeating the same cancellation request and expected generation changes nothing. Cancellation preserves committed findings and never stops an independent schedule, capture, monitor or shared processing job. No task mutation is exposed through MCP. See [finite evidence execution](decisions/0067-task-evidence-execution.md) for the bounded contract and verification requirements.
+
+### Finite task collection
+
+```text
+sigy --data-dir PATH_TO_LIBRARY task collect evening-water collect-1 --source north:v1 --source south:v1 --start-ms 1790812800000 --seconds 60 --max-bytes 1048576 --expected-generation 0
+sigy --data-dir PATH_TO_LIBRARY task collection evening-water
+sigy --data-dir PATH_TO_LIBRARY task cancel-collection evening-water stop-collection-1 --expected-generation 1
+```
+
+Replace the example's sources and timestamps with registered source revisions and your intended window. The monitor must already follow those sources and have explicit capture limits. `task collect` grants one or two new once schedules, with a shared UTC start, duration and byte ceiling in this CLI. The start must be on a whole second, each duration is 1 to 900 seconds, and each byte ceiling is 1 to 256 MiB. Every full planned interval must fit inside the task window. The aggregate duration and byte ceiling must fit the frozen monitor's lifetime capture bounds; its remaining shared daily and lifetime caps are checked again at actual admission.
+
+One task receives one lifetime collection grant, starting at generation 1. Exact replay creates no additional schedule or reservation. The service owns the schedules after the client exits. An ended window stays missed, and a late admission retains the original plan and records its prefix gap. Full planned seconds and maximum bytes are reserved before connection and never refill after failure, restart or cancellation. `task collection` shows only the grant's exact schedules, occurrences and recording identities, with current recording states and cancellation or scope-change holds. It does not adopt unrelated recordings from the same source.
+
+`cancel-collection` has its own generation, separate from publication cancellation. It stops future admissions and preserves already admitted recordings, reservations and independently authorized work. Any new monitor version or action, including a refused proposal or processing-pause action, changes the task's frozen scope and holds its future collection. Already admitted captures continue; independent monitor-owned schedules retain their existing pause behavior. Task-owned schedule rules cannot be revised through ordinary schedule commands.
+
+Collection starts no task-owned recognition, translation or planning model. A monitor may process a recording under its separately saved policy. Existing checkpoints still observe that monitor's broader window rather than just task-owned captures. Use recording inspection to assess published media, gaps and retention. See [task-owned collection](decisions/0069-task-owned-collection.md) for authority, recovery and remaining work.
 
 ## Listening
 
