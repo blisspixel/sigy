@@ -1,8 +1,10 @@
 # Complete CLI, terminal explorer, and radio DVR
 
-Last updated: 2026-09-30. Status: the list explorer, globe and flat map, monitor inspection, named finding navigation, recording metadata timeline, and segmented recording/playheads have local implementations. Live captions, audio sample visualizers and the complete terminal workflow remain open; see [progress](../development/progress.md). The contract below describes the intended complete experience.
+Last updated: 2026-10-03. Status: the list explorer and explicit cache filter editor, globe and flat map, monitor inspection, named finding navigation, recording metadata timeline, and segmented recording/playheads have local implementations. Playback decodes one published segment at a time; the TUI timeline is metadata-only. Worldwide place selection, interactive DVR, live captions, audio sample visualizers and the complete terminal workflow remain open; see [progress](../development/progress.md). The contract below describes the intended complete experience.
 
 ## 1. Experience
+
+The 2026-10-02 followup confirms a fuller-screen retro-futuristic explorer and exceptionally usable CLI/TUI: type or select worldwide countries/territories and major cities, combine filters, inspect dependable radio lists and move through a complete DVR-to-evidence workflow. Late-1980s computing and WarGames inform the visual character; real observations, useful controls and traceable analysis supply its substance. Follow the [terminal contract](../design/terminal-experience.md#full-screen-explorer-and-place-search) and [explorer/DVR packages](../development/reliability-and-scale.md#explorer-increments) for progressive layouts, independent place references and bounded validation/playback. These capabilities remain planned beyond the existing cached filters and terminal-usability slice; future native clients do not make browser delivery a prerequisite.
 
 Sigy should feel like a world listening desk with a dependable recorder behind it. A user can rotate a terminal globe, switch to a flat day/night map, search and filter stations, inspect a source, listen, rewind retained audio, save a passage, and follow translated text while other stations continue recording.
 
@@ -30,7 +32,7 @@ Sources: captured 8 | transcribing 2 | queued 6 | paid disabled
 +--------------------------------+-------------------------------------+
 | Playback: 02:10 behind live | buffer: 30 min | capture continues       |
 | Timeline: retained audio, gaps, bookmarks, speech/music, transcripts  |
-| Original text                         | English translation          |
+| Original text                         | Selected-target translation  |
 +----------------------------------------------------------------------+
 Keyboard controls | command palette | costs | queue | directory age
 ```
@@ -50,6 +52,16 @@ Proposed interactions:
 Core filters include name, country/region, declared language, tags/category, source type, favorites/collections, available format, and health/freshness. Observed language, current activity, retained recordings, and monitored topic are separate filters with explicit time windows. A country filter and a spoken-language filter must not be conflated.
 
 Search reports whether results are cached, refreshed, partial, or unavailable. Unknown health/location/language remains a valid discoverable state. Visible/map-only results do not silently replace the full filtered result set; viewport filtering is an explicit option.
+
+### Worldwide country and place queries
+
+Country/territory choices come from a versioned offline reference, independently of cached stations. Every supported reference identity can be typed or selected, including entries with zero or unknown cached counts. Include explicit all-country and unknown-station-country choices. Localized/native names, aliases and codes map to stable identities under documented rules; display fallback never changes identity. Evaluate CLDR as a naming candidate and preserve required notices. The intended first complete installation includes the qualified compact reference so an empty or offline library can still navigate geography.
+
+City resolution uses a separately qualified gazetteer, not a fabricated Radio Browser city field. A capital/major-city baseline needs a reproducible inclusion rule and per-country/territory coverage audit; evaluate a frozen global city subset supplemented by current capitals/government seats and language-tagged aliases. Record hashes, dates, rejected rows and missing entries. Require each included place to be searchable independently of station inventory. Do not claim every city or complete metropolitan population data. Ambiguous names show subdivision and country before selection; unmatched places retain country/region, station-text and explicit coordinate/radius routes.
+
+The service query separates country identity, place identity/dataset, coordinate center/radius and station text from language, tags, favorites, format and dated health. Define combination and ordering rules, stable station-ID tie-breaking and bounded text, filters, candidates, rows, bytes and elapsed time. Cursors bind the normalized query, ordering, place-data version and catalog generation; stale cursors return a useful restart path. Saved query intent grants no network or processing authority. Linked views and structured CLI output share the same matching set and report its scope.
+
+Selecting geography updates only local discovery. It must not replace audible playback, move an existing playhead or stop any capture. Empty results explain whether place data is missing, station locations are unknown or the cached scope has no matches. Offer explicitly authorized finite country-scoped directory pages where useful, then filter known coordinates locally for a chosen place. Partial country pages cannot establish a complete city inventory. Map locations describe directory metadata near the selected place, with radius and missingness visible. No typing, selector opening or map movement refreshes or probes a stream.
 
 ## 3. Globe, day/night map, and activity
 
@@ -94,11 +106,17 @@ Separate catalog freshness, upstream health checks, local connection success, an
 
 Recording defaults are confirmed at 14 days and 50 GB of managed media. Keep and Archive prevent automatic deletion while counting toward quota. A temporary file may remain while it is processed. The service sweep deletes it after a processing receipt, after the retention age, or oldest-first under quota pressure. The implemented finite-recording subset and its limitations are in [recording and retention](../decisions/0005-recording-and-retention.md); continuous buffers and playback below remain planned.
 
+Deliver the service playback contract in DV-01 before the integrated desk in DV-02. Existing attach/seek/pause/live metadata is not continuous playback: the current live action parks at the latest published end and CLI playback consumes one segment. Add finite media read leases, a bounded ordered segment cursor and client progress/control that reuse source/recording identities. Do not concatenate independent encoded files blindly or treat a client-reported playhead as authoritative capture timing.
+
 Enable a finite rolling buffer through the user's saved playback/capture policy. Show its duration/byte allowance and retained range. Merely searching stations does not buffer their audio. Browsing away or closing a client follows explicit ownership rules for the temporary buffer; durable recordings continue independently.
 
-Each playback session has its own playhead. Pause stops audible progression, while an authorized acquisition can keep collecting. Rewind/seek operates only within retained intervals. Return to live follows the newest playable captured position, with upstream buffering and local delay distinguished where measurable.
+Each playback session has its own playhead. Pause stops audible progression, while an authorized acquisition can keep collecting. Rewind/seek operates only within retained intervals. Planned latest-sealed follow advances through published retained audio under finite session/wait limits. Direct live listening is a separate explicit source operation with its own authority and allowance. Distinguish newest playable captured time, uncommitted open tail and upstream/local delay where measurable; do not present the latest sealed position as zero-latency broadcast reception.
 
 Show gaps and partial segments. If a paused position expires, mark it unavailable and offer the earliest retained point or live playback. A live stream cannot supply audio from before Sigy began collecting unless a separately qualified catch-up source actually provides it.
+
+Define codec transitions, decoder restart, bounded prefetch, decoded buffer size, number of leased segments, renewal/wait ceilings, cancellation and client death. Protect only the media actually consumed or finitely prefetched; pause does not grant broader or renewed archive protection. At a recorded gap, pause with its exact interval and offer an explicit jump to the next retained segment. Preserve the time discontinuity after skipping. Missing audio is not silence. At the latest published end, waiting, capture completion, interruption and expired authority remain distinct states. Playback failures cannot stop independently authorized capture.
+
+An expired lease or lost client fences future access and requests decoder shutdown. Keep protection for any outstanding read until handle closure or decoder-group completion is proven; retain a bounded unresolved cleanup claim when proof is unavailable. Define ownership, durable cleanup markers and restart reconciliation through the existing catalog/supervisor. A timeout or client-reported completion alone cannot authorize media deletion or free the outstanding resource claim.
 
 Captions follow the chosen mode: playback position for listening, or live incoming text for monitoring. Label the mode and transcription/translation delay separately from audio delay. Seeking into untranslated audio shows pending/unavailable text, not a caption from a different moment.
 
@@ -107,6 +125,10 @@ Captions follow the chosen mode: playback position for listening, or live incomi
 Users can save a retained interval, begin a recording now, or include a specified available pre-roll. Saving reserves storage and atomically protects segment references against expiry. Shared objects are counted correctly across rolling windows, recordings, monitors, and evidence pins. Clipping boundaries and missing intervals are explicit.
 
 Do not duplicate upstream downloads for compatible playback and recording. Do not stop a shared acquisition when one client detaches. Conversely, a temporary listener does not authorize indefinite background storage. Ownership, stop rules, and retention remain inspectable from both clients.
+
+The interactive desk links timeline, original/selected-target cues, bookmarks and frozen finding citations. Navigate by time, segment or cue and show the exact available range before seeking or saving. Retention protection and an interval-save operation commit under the existing storage authority, preserving gaps and provenance. Cue/finding inspection dispatches no recognition, translation or new capture. Captions without qualified outputs remain pending, unavailable or uncertain rather than being filled with unrelated text.
+
+A multi-source recordings/schedules workspace exposes active captures, future occurrences, retained ranges, processing lag, exact budget use and recovery actions. Finite batch start/save/schedule proposals show per-source and aggregate bounds and partial admission receipts; selection alone starts nothing. Reuse the existing civil scheduler, reservation transactions and task/monitor authority. Complex investigations remain inspectable through the same operations instead of a parallel UI workflow engine.
 
 ### Scheduling
 

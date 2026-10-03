@@ -420,14 +420,18 @@ The service fetches the bytes. This client decodes a private local pipe and does
 
 ## List explorer
 
-![Current station list rendered from a real cached directory page](images/explorer-list.png)
+![Station list rendered from a real cached directory page](images/explorer-list.png)
 
-These interface renders use the current application and one retained 16-station directory page. The cache age and idle playback remain visible; they are not a live station survey.
+These interface renders show the 2026-10-02 application over one retained 16-station directory page. The cache age and idle playback remain visible; they are not a live station survey. Current filter controls are described below.
 
 ```text
 sigy --data-dir PATH_TO_LIBRARY tui
 sigy --data-dir PATH_TO_LIBRARY tui --reduced-motion --monochrome
 ```
+
+In Explore (`1`) and Globe (`7`), `F` opens the cached-station filter editor. Combine station name, country code, directory language, directory tag, upstream check success and favorites. `Tab`/`Shift-Tab` or up/down select a field, `Space` toggles a yes/no field and `Ctrl-U` clears it. `Enter` explicitly applies a cache read; `Esc` discards the current draft and returns to results. `/` edits only the station name. From results, `x` clears every filter and requests page 1.
+
+Displayed rows retain their applied filter scope until a matching successful response arrives. Invalid input, failed reads and disconnects keep the last results. `r`, `n` and `p` use the applied scope. Country takes a blank value or two-letter code such as `CA` or `FR`; country names and city lookup remain planned. Language and tag match whole directory labels, not recognized speech. Upstream health is a dated directory observation, not local playback validation. Filtering contacts no station and does not refresh the directory. See [terminal cache filters](decisions/0077-terminal-cache-filters.md).
 
 `sigy tui` is the list explorer on Ratatui 0.30.2 with the Termina 0.3.3 backend. Selection does not start audio, capture, refresh, or a click. Quit does not stop the service. The tab bar shows each workspace with its number key, in key order: `1` Explore, `2` Live, `3` Recordings, `4` Monitors, `5` Findings, `6` System and `7` Globe. Left and right arrows cycle in the same order. Below 60 columns or 16 rows the compact layout names the current workspace in the title line instead. The first line says whether the explorer reads through the running service or, with no service, the local catalog. The help line follows the current workspace.
 

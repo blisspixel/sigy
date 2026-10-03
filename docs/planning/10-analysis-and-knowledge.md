@@ -1,6 +1,6 @@
 # Analysis, knowledge, and multi-stream processing
 
-Last updated: 2026-09-22. Status: proposed design. The local-processing priority is confirmed; particular recognizers, classifiers, provider routes, and notebook implementation remain undecided. The [language pipeline plan](../development/language-pipeline.md) controls the current retained-recording increment and automated validation method.
+Last updated: 2026-10-03. Status: broader proposed design. Local recognition and English translation have implemented profiles, with language quality unqualified. Classifiers, broader context methods and additional provider routes retain their selection gates. The [language pipeline plan](../development/language-pipeline.md) controls the current retained-recording increment and automated validation method.
 
 ## 1. Intended experience
 
@@ -17,6 +17,8 @@ Temporary media is a normal analysis input. Use bounded memory buffers for live 
 Research basis: [Local processing and capacity](../../research/17-local-processing-and-capacity.md), [decision models](../../research/16-decision-models-and-classifiers.md), [agentic analysis](../../research/15-agentic-analysis.md), and [aggregation and context](../../research/14-aggregation-and-context.md).
 
 ## 2. Separate the processing roles
+
+The 2026-10-02 clarification requires directed translation targets beyond English and analytical usefulness across backgrounds. Keep observation, a source's reported claim, interpretation and hypothesis distinct; retain contrary evidence and unresolved source dependence. Qualify source/target varieties and tasks separately, preserve original-script retrieval, and disclose the monitored sampling frame. Exact citation identity or multiple outlets do not alone establish semantic support or independent corroboration. Follow the [implementation plan](../development/reliability-and-scale.md#measurement-analysis-and-artistic-interaction) and [dated research](../../research/35-reliability-scale-and-interpretation.md#analytical-research-and-social-context).
 
 ```mermaid
 flowchart TD
@@ -88,6 +90,8 @@ Classifiers may prioritize deeper analysis. They do not decide raw-data retentio
 
 ## 5. Durable topic context
 
+The [storage and memory contract](../design/storage-and-memory.md) specifies logical evidence, task/episode, claim/entity, navigation, working-context and authorized-procedure roles. Temporal queries distinguish received/media time, asserted event time, committed knowledge cutoff and derivation/validity evidence. Exact finding/dependency navigation can precede semantic extraction. A wiki/OKF bundle is a versioned optional projection; the [dated research](../../research/37-knowledge-formats-and-temporal-memory.md) pins the migrated v0.2 specification and records graph-framework/paper limitations. [AR/KM packages](../development/reliability-and-scale.md#storage-and-memory-increments) separate query work, lexical retrieval, frozen context, export and semantic qualification.
+
 The first release needs a topic overview, evidence list, timeline, and changes since the previous report. A richer linked notebook is a proposed extension of those views rather than a prerequisite for an additional knowledge-management product.
 
 | Record | Essential properties |
@@ -140,6 +144,8 @@ Reuse compatible work across monitors without counting one physical request twic
 At a classifier cap, pause that stage or use an already permitted local alternative. Reports show partial classification and pending work. Healthy capture, completed transcripts, music observations, and locally computable statistics remain available within their independent limits. Never present unclassified or unidentified content as a negative observation.
 
 ## 8. Validation before implementation selection
+
+The [mathematical contract](../design/workflow-invariants.md#coverage-stage-denominators-and-absence) separates planned/received/media coordinates, interval union, stage denominators and absence states. The [near-term briefs](../development/near-term-implementation.md) require bounded pre-allocation reconciliation and exact snapshot membership before publication. [Retrieval research](../../research/40-discovery-retrieval-and-evidence-logic.md) freezes eligible stored-text corpora, reference completeness, comparator and stop bounds; precision/recall do not establish audio-grounded accuracy, claim support or worldwide coverage. Use these definitions in each acceptance brief instead of a single quality or completion score.
 
 Specify and later execute comparison workloads for multilingual detection/ASR, live-versus-batch scheduling, end-to-end classifier cascades, topic evolution, and weekly music reports. Use licensed majority non-English reference fixtures, preserved originals, held-out stations/time windows, and language-specific thresholds. Current language evaluation uses published references, deterministic metrics, and calibrated independent model checks without depending on new human reviewers. Record the actual review method and preserve uncertainty.
 

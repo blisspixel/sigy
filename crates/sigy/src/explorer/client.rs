@@ -8,7 +8,6 @@ use sigy_service::{
         self, DirectoryOperation, DvrOperation, ListenView, MonitorOperation, MonitorPage,
         Operation, RecordingOperation, Snapshot,
     },
-    discovery::StationFilter,
     library::Library,
     storage::dvr::DvrStatus,
 };
@@ -23,20 +22,12 @@ const PAGE: u32 = Explorer::page_limit();
 
 pub async fn load_desk(
     directory: &Path,
-    name: &str,
-    favorites_only: bool,
-    after: Option<&str>,
+    query: &SearchQuery,
     observed_ms: i64,
 ) -> Result<Desk, Error> {
-    let query = SearchQuery {
-        generation: 0,
-        name: name.to_owned(),
-        favorites_only,
-        after: after.map(str::to_owned),
-    };
     let (via_status, status) = fetch(directory, Operation::Status {}).await?;
     let (via_radio, radio) = fetch(directory, radio_status()).await?;
-    let (via_search, search) = fetch(directory, search_operation(&query)).await?;
+    let (via_search, search) = fetch(directory, search_operation(query)).await?;
     let (via_quota, quota) = fetch(directory, quota_operation()).await?;
     let (via_records, records) = fetch(directory, recording_operation()).await?;
     Ok(assemble(
@@ -53,7 +44,7 @@ pub async fn load_desk(
 pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) -> Result<(), Error> {
     match effect {
         Effect::None | Effect::Detach => Ok(()),
-        Effect::Reload => reload(directory, model).await,
+        Effect::Reload => Box::pin(reload(directory, model)).await,
         Effect::MonitorList => {
             apply_fetched(
                 directory,
@@ -107,22 +98,7 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
             )
             .await
         }
-        Effect::Search(query) => {
-            let operation = search_operation(query);
-            let generation = query.generation;
-            apply_fetched(directory, model, operation, |model, snapshot| {
-                let Some(page) = snapshot.station_page.as_ref() else {
-                    model.note_message("The search returned no page; the previous list is kept.");
-                    return;
-                };
-                let rows = rows_from(page);
-                let directory_view = directory_from(snapshot);
-                if !model.apply_search(generation, rows, directory_view, page.next_after.clone()) {
-                    model.note_message("An older search answered late and was ignored.");
-                }
-            })
-            .await
-        }
+        Effect::Search(query) => Box::pin(search(directory, model, query)).await,
         Effect::SetFavorite {
             generation,
             id,
@@ -155,12 +131,7 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
         Effect::Reload => vec![
             Operation::Status {},
             radio_status(),
-            search_operation(&SearchQuery {
-                generation: 0,
-                name: model.query().to_owned(),
-                favorites_only: model.favorites_only(),
-                after: model.page_cursor().map(str::to_owned),
-            }),
+            search_operation(&model.current_search()),
             quota_operation(),
             recording_operation(),
         ],
@@ -251,17 +222,37 @@ async fn read_monitor(directory: &Path, model: &mut Explorer, id: &str) -> Resul
 }
 
 async fn reload(directory: &Path, model: &mut Explorer) -> Result<(), Error> {
-    match load_desk(
-        directory,
-        model.query(),
-        model.favorites_only(),
-        model.page_cursor(),
-        model.now_ms(),
-    )
-    .await
-    {
+    match load_desk(directory, &model.current_search(), model.now_ms()).await {
         Ok(desk) => model.apply_desk(desk),
         Err(error) => report(model, &error),
+    }
+    Ok(())
+}
+
+async fn search(directory: &Path, model: &mut Explorer, query: &SearchQuery) -> Result<(), Error> {
+    match fetch(directory, search_operation(query)).await {
+        Ok((via_service, snapshot)) => {
+            let Some(page) = snapshot.station_page.as_ref() else {
+                let _ = model.fail_search(
+                    query.generation,
+                    "The search returned no page; the previous list is kept.",
+                );
+                return Ok(());
+            };
+            if model.apply_search(
+                query.generation,
+                rows_from(page),
+                directory_from(&snapshot),
+                page.next_after.clone(),
+            ) {
+                model.note_link(link_from(via_service, &snapshot));
+            }
+        }
+        Err(error) => {
+            if model.fail_search(query.generation, &error.to_string()) {
+                report(model, &error);
+            }
+        }
     }
     Ok(())
 }
@@ -503,13 +494,7 @@ fn radio_status() -> Operation {
 fn search_operation(query: &SearchQuery) -> Operation {
     Operation::Radio {
         command: DirectoryOperation::Search {
-            filter: StationFilter {
-                name: query.name.clone(),
-                country: String::new(),
-                language: String::new(),
-                tag: String::new(),
-                healthy_only: false,
-            },
+            filter: query.filter.clone(),
             favorites_only: query.favorites_only,
             after: query.after.clone(),
             limit: PAGE,
@@ -548,6 +533,7 @@ mod tests {
     use sigy_service::control::{
         DirectoryOperation, DvrOperation, MonitorOperation, Operation, RecordingOperation,
     };
+    use sigy_service::discovery::StationFilter;
 
     fn model() -> Explorer {
         Explorer::new(
@@ -604,7 +590,10 @@ mod tests {
         let explorer = model();
         let search = Effect::Search(SearchQuery {
             generation: 2,
-            name: "navajo".into(),
+            filter: StationFilter {
+                name: "navajo".into(),
+                ..StationFilter::default()
+            },
             favorites_only: true,
             after: None,
         });
@@ -636,7 +625,10 @@ mod tests {
         assert!(matches!(
             search_operation(&SearchQuery {
                 generation: 1,
-                name: "navajo".into(),
+                filter: StationFilter {
+                    name: "navajo".into(),
+                    ..StationFilter::default()
+                },
                 favorites_only: false,
                 after: None,
             }),
@@ -689,6 +681,45 @@ mod tests {
             } if after == "cursor-1"
         )));
         assert!(reload.iter().all(|operation| !forbidden(operation)));
+    }
+
+    #[tokio::test]
+    async fn actual_cache_reads_apply_filters_and_validation_failure_ends_pending_state()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::explorer::state::{Key, Link};
+        let directory = tempfile::tempdir()?;
+        drop(sigy_service::library::Library::open(
+            directory.path(),
+            true,
+        )?);
+        let mut explorer = model();
+        explorer.note_link(Link::LocalCatalog);
+        explorer.handle(Key::Char('F'));
+        explorer.handle(Key::Tab);
+        explorer.handle(Key::Paste("ca".into()));
+        let Effect::Search(query) = explorer.handle(Key::Enter) else {
+            panic!("valid filters read cache");
+        };
+        super::perform(directory.path(), &mut explorer, &Effect::Search(query)).await?;
+        assert_eq!(explorer.current_search().filter.country, "CA");
+        assert!(!explorer.search.pending());
+        explorer.handle(Key::ClearInput);
+        explorer.handle(Key::Paste("fr".into()));
+        let Effect::Search(mut invalid) = explorer.handle(Key::Enter) else {
+            panic!("next valid draft reads");
+        };
+        invalid.filter.country = "France".into();
+        super::perform(directory.path(), &mut explorer, &Effect::Search(invalid)).await?;
+        assert_eq!(explorer.current_search().filter.country, "CA");
+        assert_eq!(explorer.search.draft.filter.country, "fr");
+        assert!(!explorer.search.pending());
+        assert!(explorer.search.failed);
+        assert_eq!(explorer.link(), &Link::LocalCatalog);
+        let (_, status) = super::fetch(directory.path(), Operation::Status {}).await?;
+        assert_eq!(status.captures.active, 0);
+        assert_eq!(status.captures.scheduled, 0);
+        assert!(explorer.playback().is_none());
+        Ok(())
     }
 
     #[tokio::test]

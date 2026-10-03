@@ -1,6 +1,6 @@
 # Sigy research and design
 
-Last updated: 2026-09-30
+Last updated: 2026-10-03
 
 Status: research-backed product contract. Implementation has begun with a [Rust foundation decision](../decisions/0001-rust-foundation.md); [active work](../development/progress.md) records verified behavior and remaining qualification.
 
@@ -43,7 +43,7 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-14 | User-configured network providers, including OpenRouter, are supported design targets alongside local processing. |
 | C-15 | Paid functionality requires excellent enforced cost controls and transparent accounting, with no surprise spend. |
 | C-16 | The completed documentation baseline produced intent, README, roadmap, detailed designs, and dated topic research before implementation began; subsequent work updates these alongside measured evidence. |
-| C-17 | Most expected listening is non-English. Identify language or languages within content blocks, preserve originals, and translate primarily into English. |
+| C-17 | Most expected listening is non-English. Identify language or languages within content blocks and preserve originals. English is the default translation and initial evaluation target; other directed translation targets remain part of the product. |
 | C-18 | Music research and identification must represent predominantly non-English material and regional catalog coverage. |
 | C-19 | Radio/source and processing integrations must be extensible, including sources whose observations are not audio. |
 | C-20 | Morse code support is a planned capability. Its release placement remains open. |
@@ -70,6 +70,11 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-41 | Support personal-machine and server operation, with optional user-controlled proxy/VPN routing to improve access to sources across networks. Keep routing a small capability supporting a free and open internet; exact profiles, remote control and release placement require qualification. |
 | C-42 | Users can state a task and have a bounded, resumable agent workflow use Sigy's capabilities to deliver a useful evidence-backed result. Reusable skills, plugin/MCP access and A2A interoperability are required integration targets. Qualified local planning with zero metered inference fees is required; OpenRouter and other explicitly configured providers remain optional. The service retains policy and effect authority. |
 | C-43 | Local privacy, security and exceptional long-term dependability are explicit requirements: private bounded local diagnostics, no automatic analytics or diagnostic upload, protected necessary task/evidence state, resumable progress, defensive code, verified recovery and maintained portable contracts. Reliability and professional support claims require measured evidence, not institutional branding or an unproven service-life promise. |
+| C-44 | Architecture must preserve useful personal-machine/server operation while allowing growth to large deployments through measured admission, explicit ownership and stable execution/evidence contracts. Scale claims require workload and recovery evidence; distributed infrastructure is not required for the local baseline. |
+| C-45 | Humans and agents of different backgrounds can request qualified translation targets beyond English. Preserve source scripts, target identity and directed-pair provenance. Unknown, constructed or hypothetical representations remain investigable without invented language, origin or meaning. |
+| C-46 | The CLI and TUI must be exceptionally usable: a fuller-screen retro-futuristic signal desk, typed or selectable worldwide countries/territories and major cities independent of cached stations, combined filters and linked geography, dependable radio lists with bounded validation/recovery, and an integrated DVR-to-evidence journey. Preserve equivalent keyboard/plain-text operations. Native applications may follow later; browser delivery is not required. |
+| C-47 | Storage and transcript/insight analysis must have a measured growth path across Pi-class always-on hosts, gaming machines, explicitly configured large local/NAS libraries and reproducible infrastructure deployments. A stated 2 TB or 20 TB capacity is a target scenario, not qualified hardware, throughput or durability. Preserve a useful local installation and finite authority throughout. |
+| C-48 | Research Open Knowledge Format, linked Markdown/wiki views, graph and temporal knowledge, and complementary agent-memory roles for durable scalable context. Keep exact original evidence and revisions, task state, interpretation and procedure/policy authority distinct. The request does not select a memory framework, graph database or multiple physical stores. |
 
 ## Reading the status labels
 

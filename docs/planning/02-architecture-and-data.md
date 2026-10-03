@@ -4,6 +4,10 @@ Status: broader system design with incremental implementation. The [foundation](
 
 ## 1. Design principles
 
+The 2026-10-02 [engineering plan](../development/reliability-and-scale.md) specifies exact task-evidence publication, shared-interest cancellation, directed translation identity, aggregate resource admission and staged growth. Its [research](../../research/35-reliability-scale-and-interpretation.md) adds measurement models, analytical scope and source dependence, and expressive equivalent-access views. These extend the existing service/catalog contracts; remote workers, multiple writers and full containment remain separate unimplemented qualification gates.
+
+The 2026-10-03 [storage and memory contract](../design/storage-and-memory.md) owns proposed independent media placement, local spool, typed store identity, cross-store publication and scalable retrieval/context. Current catalog/media/scratch share one owned library. Keep catalog/WAL/SHM/lock local; qualify a finite offline second-local-volume move before NAS. Evidence, task history, claims, navigation, working context and authorized procedures are logical roles over shared canonical records, not selected extra databases. Its [packages](../development/reliability-and-scale.md#storage-and-memory-increments) separate host/storage qualification from inference capacity and memory interpretation.
+
 1. Durable capture takes priority over analysis and display.
 2. The service owns accepted jobs; terminal clients own their interactive sessions.
 3. Source material and derived interpretations have separate identities and lifecycles.
@@ -14,6 +18,8 @@ Status: broader system design with incremental implementation. The [foundation](
 8. A future interface uses the same application operations and event model.
 9. Audio, samples, packets, text, telemetry, and timed symbols retain their own types and timing semantics.
 10. Language is observed within content intervals; source metadata never fixes the language of an entire stream.
+
+The [workflow invariants](../design/workflow-invariants.md) express the proposed mathematical contracts for replay, atomic owned effects, effective interests, checked units, finite authority, reusable capacity and coverage coordinates. [Near-term briefs](../development/near-term-implementation.md) apply them to source-owned transaction and supervisor changes. Bounded reference models and production fixtures need independent expected values and explicit reachable-state/OS assumptions; notation alone establishes no formal proof or deployment guarantee.
 
 ## 2. Proposed system boundaries
 

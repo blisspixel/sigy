@@ -1,6 +1,6 @@
 # Intent
 
-Last updated: 2026-09-30
+Last updated: 2026-10-03
 
 Sigy's purpose is practical signals intelligence for everyday people: a broad, approachable, enjoyable toolkit for discovering signals and turning observations into understanding.
 
@@ -10,9 +10,17 @@ It should be an exceptionally well-engineered application that feels natural in 
 
 The intended character is a professional signals instrument accessible to everyday people. Its usefulness comes from actual collection, measured observations, reproducible processing, inspectable evidence and dependable operation. Professional quality is an engineering and workflow goal to demonstrate through evidence. Present the product as a listening, analysis and operations desk; personal journal framing is not desired. Learning and enjoyment come from discovering real material, understanding mechanisms and accomplishing useful tasks.
 
-A user should be able to state a task and have a bounded agent workflow use the toolkit to complete it well. Reusable skills, the existing plugin and MCP surface, and agent-to-agent interoperability through A2A belong to this direction. A qualified local-model path with zero metered inference fees is required; OpenRouter and other explicitly configured providers are optional. The service owns durable progress, policy and effects across client exit and restart. [Durable task workflows](docs/design/task-workflows.md) records the current gap and proposed contract.
+This is a passion project with the breadth of a serious signals workstation and the freedom to make exploration unusually rewarding. The core must cover discovery and acquisition, retained observations, decoding and language work, time/place context, search and analysis, monitoring, cited results and dependable recovery within declared supported profiles. The wider workbench adds expressive receivers, world listening, unfamiliar representations, historical ciphers, experiments and creative explanation. Modern interaction, visual ambition and play belong in the delivered experience alongside correctness, evidence and resource control.
+
+Aim for the instrument a deeply experienced practitioner has always wanted and looks forward to opening after work. Preserve context across exploration, keep expert depth close at hand, and make navigation and reversible investigation fluid enough to support absorbed, self-directed work. A newcomer gets a clear way in; a specialist gets a rich instrument to grow into. Compact access preserves usability, while expansive terminals support composed multi-pane views and expressive real activity.
+
+A user should be able to state a task and have a bounded agent workflow use the toolkit to complete it well. Reusable skills, the existing plugin and MCP surface, and agent-to-agent interoperability through A2A belong to this direction. Humans get an immersive, calm instrument they can enjoy; agent harnesses get discoverable capabilities, structured results, exact evidence and durable task state. Both use the same service, permission, budget, revision and recovery contracts. CLI/plugin/MCP composition is part of product quality, with useful partial results and explicit unsupported capabilities. A qualified local-model path with zero metered inference fees is required; OpenRouter and other explicitly configured providers are optional. The service owns durable progress, policy and effects across client exit and restart. [Durable task workflows](docs/design/task-workflows.md) records the current gap and proposed contract.
 
 Support a free and open internet through user choice: open discovery, portable data and optional user-controlled network routes. The same service should run on a personal machine or a server. Proxy configuration and compatibility with externally managed VPNs should remain small, optional capabilities; remote service access is a separate security boundary.
+
+Storage and analysis should grow from a Pi-class always-on host or gaming machine to explicitly configured 2 TB or 20 TB bulk storage and reproducible larger deployments. Qualify capture, catalog/search, inference and storage independently. Keep local transactional authority and bounded spool/scratch separate from future NAS media; more available space cannot silently enlarge authority or consume the whole device. The [storage and memory contract](docs/design/storage-and-memory.md) records the proposed path and current co-location limit.
+
+Build durable knowledge from exact evidence: searchable originals, attributed claims, evolving topic relationships, time-aware history and portable linked Markdown views. Research Open Knowledge Format interchange and graph/wiki memory as complementary representations. Task context, user preferences, authorized procedures and generated interpretations have distinct scope and retention. A readable wiki or fluent summary cannot become another source of truth or edit service policy. Multiple physical memory systems are an option to earn through measurements, not a requirement to install competing databases.
 
 It should make it enjoyable to explore world radio, straightforward to record several sources, and possible to understand broadcasts through live transcription, translation, and topic monitoring. A user should be able to ask to follow a subject, set boundaries, and return to useful findings with inspectable source evidence.
 
@@ -40,12 +48,12 @@ Users must be able to follow findings back to retained originals, inspect altern
 
 - CLI and TUI first, on Linux, macOS, and Windows.
 - The CLI is complete without opening the optional TUI. Both expose the same source, recording, processing, monitoring, and administrative operations.
-- The TUI includes searchable and refreshable station catalogs, a rotatable globe/world map with day/night context, and truthful source/activity visualizers.
+- The TUI includes searchable and refreshable station catalogs, a rotatable globe/world map with day/night context, and truthful source/activity visualizers. Type or select countries/territories and a declared worldwide major-city reference independently of cached station availability; combine filters and preserve unfamiliar scripts.
 - DVR-style radio workflows include bounded pause/rewind, return to live, saved intervals, scheduled recordings, and replay of retained material.
 - Broad practical signal workflows must be approachable to non-specialists, with guided starting points and progressively available advanced controls.
 - A persistent service owns recording and monitoring independently of the interface.
 - World radio exploration, recordings, live translation, and topic monitoring belong in the first complete release.
-- Most expected listening is non-English. Identify language or languages within each content block, including mixed and uncertain results, preserve originals, and translate primarily into English.
+- Most expected listening is non-English. Identify language or languages within each content block, including mixed and uncertain results, and preserve originals. English is the default translation and initial evaluation target; humans and agents can choose other qualified targets. Translation direction, source variety and target variety require separate evidence.
 - Monitors may discover and adjust sources within the user's source, time, and resource limits.
 - Local processing is the default. Local runtimes, user-managed network services, and explicitly configured remote providers are supported design targets. Ollama and OpenRouter are named integrations.
 - Paid processing requires excellent enforced cost controls. No silently enabled paid fallback, automatic budget increase, or surprise recurring spend.
@@ -87,6 +95,10 @@ Current deliverables include source, tests, [documentation](docs/README.md), [to
 
 A user installs Sigy, finds a station, listens, starts several recordings, enables translation, and creates a bounded topic monitor. They can close the terminal, reconnect later, inspect failures and spending, and follow a report back to the exact retained material that supports it.
 
-The same product remains manageable on a small always-on host, benefits from a capable desktop, and can accept hardware sources later without rebuilding its storage, job lifecycle, or evidence model.
+The same product remains manageable on a small always-on host, benefits from a capable desktop, and can accept hardware sources later without rebuilding its storage, job lifecycle, or evidence model. The 2026-10-02 clarification requires architecture that can grow to large deployments through measured resource admission, stable evidence identities and explicit ownership. It establishes no current capacity claim or requirement for a distributed installation.
+
+The terminal explorer should use the available screen deliberately and feel like an expressive, modern instrument with a retro-futuristic character inspired by late-1980s computing, WarGames and hands-on radio desks. Its sense of power comes from useful worldwide discovery, simultaneous source work, precise DVR control and insights traceable to originals. Country and major-city selection remains available even when the station cache is empty; coverage limits and useful fallbacks stay visible. Dependable radio lists, bounded validation/recovery, linked search/filter/map views and exceptional keyboard interaction belong to the intended CLI/TUI experience. Later native applications remain possible; the current product does not require a browser. [Terminal experience](docs/design/terminal-experience.md) defines the visual direction and DVR work without weakening source or resource authority.
+
+Unfamiliar, constructed or hypothetical languages and symbol systems remain eligible for investigation. Preserve observations, candidate representations, competing interpretations and supplied context without inventing origin or meaning. Physical instrumentation, analytical research and artistic attention inform a coherent instrument whose usefulness and beauty come from actual evidence. The [reliability and scale plan](docs/development/reliability-and-scale.md) makes the next increments reviewable.
 
 A user can also open a replayable experiment, inspect Morse timing or an Enigma rotor path, and understand the result without a model account or paid request. Exact release placement for the workbench and cryptographic capabilities remains a planning decision.

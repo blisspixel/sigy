@@ -1,6 +1,12 @@
 # Design documents
 
-Last updated: 2026-10-01
+Last updated: 2026-10-03
+
+The [near-term implementation briefs](development/near-term-implementation.md) turn task publication/cancellation, country discovery and bounded operator/retrieval increments into concrete outcomes, source owners, transaction boundaries, compatibility rules and acceptance cases. [Workflow invariants](design/workflow-invariants.md) define identity/replay, effective interests, authority/capacity/liability, clocks/coverage and conditional progress. Dated [publication logic](../research/38-publication-and-cancellation-logic.md), [capacity math](../research/39-capacity-coverage-and-accounting-math.md) and [discovery/retrieval logic](../research/40-discovery-retrieval-and-evidence-logic.md) record primary facts and current source inspection. These are implementation proposals; no model checker or new runtime qualification was run.
+
+The 2026-10-03 [storage and knowledge memory contract](design/storage-and-memory.md) separates local catalog authority, future large local/NAS media, scalable archive retrieval and logical evidence/task/claim/context roles. [Storage and memory packages](development/reliability-and-scale.md#storage-and-memory-increments) define measured local-volume, NAS, projection and export steps. Primary-source [storage research](../research/36-storage-placement-and-capacity.md) and [temporal-memory/format research](../research/37-knowledge-formats-and-temporal-memory.md) cover Pi-class qualification and the migrated OKF v0.2 specification. These are proposed mechanisms, not completed deployment or language profiles.
+
+The 2026-10-02 [reliability, multilingual reach and scale plan](development/reliability-and-scale.md) joins durable execution, target-aware translation, physical measurement, analytical evidence and a retro-futuristic world listening/DVR desk. Worldwide country/major-city choices are independent of cached stations; [explorer and DVR packages](development/reliability-and-scale.md#explorer-increments) separate place discovery, source maintenance, timeline playback and the interactive evidence journey. Its [research synthesis](../research/35-reliability-scale-and-interpretation.md) records primary sources and limitations. [Confirmed requirements](planning/README.md#confirmed-requirements) and [acceptance cases](planning/04-assurance-and-validation.md) distinguish the expanded goals from current behavior.
 
 Read [Intent](../INTENT.md) first, followed by the [Roadmap](../ROADMAP.md).
 
@@ -32,7 +38,7 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Decoded formats](decisions/0014-decoded-formats.md) names only the formats one local run decoded, on the operating system and FFmpeg build that ran them.
 
-[Terminal stack](decisions/0015-terminal-stack.md) selects Ratatui with the Termina backend. [The list explorer](decisions/0016-list-explorer.md) uses that backend. The client still opens no second catalog. The later [terminal globe](decisions/0044-terminal-globe.md) and [station clustering](decisions/0060-terminal-station-clusters.md) slices draw the current filtered page with offline geometry; terminal latency with capture running remains unmeasured.
+[Terminal stack](decisions/0015-terminal-stack.md) selects Ratatui with the Termina backend. [The list explorer](decisions/0016-list-explorer.md) uses that backend. [Terminal cache filters](decisions/0077-terminal-cache-filters.md) add an explicit applied/draft editor over the existing search, with country codes rather than country-name or city resolution. The client still opens no second catalog. The later [terminal globe](decisions/0044-terminal-globe.md) and [station clustering](decisions/0060-terminal-station-clusters.md) slices draw the current filtered page with offline geometry; terminal latency with capture running remains unmeasured.
 
 [Local podcast subscriptions](decisions/0017-local-podcast-subscriptions.md) store one feed URL, scope, pin, and redirect policy. Subscribe does not resolve DNS or start a capture. Unsubscribe stops future polls and deletes nothing.
 

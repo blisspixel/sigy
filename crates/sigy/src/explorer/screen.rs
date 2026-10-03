@@ -5,6 +5,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+mod filters;
 
 use crate::style::{Tone, tone_for_state};
 
@@ -12,7 +13,7 @@ use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 
 pub const HELP_PRIMARY: &str =
-    "Help: / search, f favorite, v favorites only, n/p page, r reload, q quit";
+    "Help: / search, F filters, f favorite, v favorites, n/p page, r reload, q quit";
 pub const HELP_SELECTION: &str = "Selection does not start audio, capture, refresh, or a click.";
 pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
 const FOCUS_PREFIX: &str = "Focus ";
@@ -27,6 +28,10 @@ pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
     let area = frame.area();
     if area.width < 20 || area.height < 8 {
         frame.render_widget(Paragraph::new(RECOVERY), area);
+        return;
+    }
+    if model.search.editing_filters() {
+        filters::render(frame, area, model);
         return;
     }
     if area.height < 16 || area.width < 60 {
@@ -155,7 +160,7 @@ fn full_sections(model: &Explorer) -> Vec<Section> {
             model,
         ),
         one(cache_line(model), false, model),
-        one(search_line(model), model.focus() == Focus::Search, model),
+        many(search_lines(model), model.focus() == Focus::Search, model),
         fill(body(model, 8), model.focus() == Focus::Results, model),
         many(identity_lines(model), model.focus() == Focus::Detail, model),
         one(
@@ -173,7 +178,7 @@ fn full_sections(model: &Explorer) -> Vec<Section> {
 fn compact_sections(model: &Explorer) -> Vec<Section> {
     vec![
         one(connection_line(model, true), false, model),
-        one(search_line(model), model.focus() == Focus::Search, model),
+        many(search_lines(model), model.focus() == Focus::Search, model),
         one(
             identity_primary(model),
             model.focus() == Focus::Detail,
@@ -395,20 +400,37 @@ fn cache_line(model: &Explorer) -> Line<'static> {
     Line::from(spans)
 }
 
-fn search_line(model: &Explorer) -> Line<'static> {
+fn search_lines(model: &Explorer) -> Vec<Line<'static>> {
     if model.workspace() == Workspace::Findings {
-        return plain("Findings: read one stored citation by name. Listing is not available yet.");
+        return vec![plain(
+            "Findings: read one stored citation by name. Listing is not available yet.",
+        )];
     }
     let color = color_on(model);
     let mut spans = vec![
         paint(color, Tone::Accent, "Search: ["),
-        paint(color, Tone::Plain, model.query().to_owned()),
+        paint(
+            color,
+            Tone::Plain,
+            if model.focus() == Focus::Search {
+                model.query()
+            } else {
+                &model.search.applied.filter.name
+            }
+            .to_owned(),
+        ),
         paint(color, Tone::Plain, "]"),
     ];
     if model.favorites_only() {
         spans.push(paint(color, Tone::Warn, " favorites"));
     }
-    Line::from(spans)
+    let mut lines = vec![Line::from(spans)];
+    if model.search.applied.filter != sigy_service::discovery::StationFilter::default()
+        || model.search.draft != model.search.applied
+    {
+        lines.push(plain(&filters::summary(&model.search.applied)));
+    }
+    lines
 }
 
 fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
@@ -811,9 +833,9 @@ fn empty_explore(model: &Explorer) -> Vec<Line<'static>> {
     vec![
         plain("No cached station matches this search."),
         plain(if model.favorites_only() {
-            "Press v to show every station, or / to edit the search."
+            "F edits filters; x clears all; v toggles favorites. Cache matches only."
         } else {
-            "Press / to edit the search. Filters match station names in this cache."
+            "F edits filters; x clears all. Countries use two-letter codes. Cache matches only."
         }),
     ]
 }
@@ -1682,6 +1704,83 @@ mod tests {
                 "{error_visited}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn filter_editor_renders_draft_applied_invalid_and_offline_states()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut model = sample();
+        model.handle(Key::Char('F'));
+        model.handle(Key::Tab);
+        model.handle(Key::Paste("ca".into()));
+        for (width, height) in [(20, 8), (59, 17), (80, 24), (132, 40)] {
+            let (text, colored) = frame(&model, width, height);
+            assert!(text.contains("[ca]"), "{text}");
+            assert!(text.contains("Enter appl"), "{text}");
+            assert!(text.contains("Esc cancel"), "{text}");
+            assert!(!colored);
+            assert!(!text.contains('\u{1b}'));
+            requested_snapshot(
+                &model,
+                &format!("filters-draft-{width}x{height}.json"),
+                width,
+                height,
+            )?;
+        }
+        let crate::explorer::state::Effect::Search(query) = model.handle(Key::Enter) else {
+            panic!("valid draft reads cache");
+        };
+        let (pending, _) = frame(&model, 20, 8);
+        assert!(pending.contains("Cache read pending"), "{pending}");
+        assert!(model.apply_search(
+            query.generation,
+            model.rows().to_vec(),
+            DirectoryView {
+                cached_stations: 1,
+                maximum_stations: 10_000,
+                favorite_stations: 1,
+                refresh: None,
+            },
+            None
+        ));
+        model.handle(Key::ClearInput);
+        model.handle(Key::Paste("France".into()));
+        model.handle(Key::Enter);
+        let (invalid, _) = frame(&model, 20, 8);
+        assert!(invalid.contains("Need 2-letter code"), "{invalid}");
+        requested_snapshot(&model, "filters-invalid-20x8.json", 20, 8)?;
+        let (wide, _) = frame(&model, 80, 24);
+        assert!(wide.contains("Results: country=CA"), "{wide}");
+        assert!(wide.contains("[France]"), "{wide}");
+        model.note_disconnect(model.now_ms(), "fixture offline");
+        let (offline, _) = frame(&model, 20, 8);
+        assert!(offline.contains("Offline: read held"), "{offline}");
+        requested_snapshot(&model, "filters-offline-20x8.json", 20, 8)?;
+        model.handle(Key::Escape);
+        let (results, _) = frame(&model, 80, 24);
+        assert!(results.contains("Results: country=CA"), "{results}");
+        assert!(!results.contains("France"), "{results}");
+        requested_snapshot(&model, "filters-applied-offline-80x24.json", 80, 24)?;
+        Ok(())
+    }
+
+    #[test]
+    fn compact_filter_failure_keeps_the_applied_query_visible()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut model = sample();
+        model.handle(Key::Char('F'));
+        model.handle(Key::Tab);
+        model.handle(Key::Paste("CA".into()));
+        let crate::explorer::state::Effect::Search(query) = model.handle(Key::Enter) else {
+            panic!("valid filters read cache");
+        };
+        assert!(model.fail_search(query.generation, "fixture cache failure"));
+        let (text, _) = frame(&model, 20, 8);
+        assert!(text.contains("Cache read failed"), "{text}");
+        assert!(text.contains("Results:"), "{text}");
+        assert!(!text.contains("Cache read pending"), "{text}");
+        requested_snapshot(&model, "filters-failed-20x8.json", 20, 8)?;
         Ok(())
     }
 

@@ -1,12 +1,12 @@
 # Sigy
 
-**Practical signals intelligence for everyday people.** Explore internet radio and podcasts, record what matters, and trace findings back to their sources. Sigy brings station discovery, a private recording library, local speech recognition, English translation and bounded topic monitoring into one terminal toolkit. A background service keeps working when you close the terminal.
+**Practical signals intelligence for everyday people.** Sigy is a local-first listening and analysis toolkit. Explore internet radio and podcasts, keep recordings, read across languages and trace findings back to their sources. Its CLI and terminal explorer share a background service that keeps working when you close the terminal.
 
-**Windows development preview.** Recognition and translation are experimental. See [current capabilities and limits](docs/development/progress.md) and the [roadmap](ROADMAP.md#whats-next).
+**Windows development preview.** Local speech recognition and English translation run on retained audio, but language quality and platform support are not qualified. See [current capabilities and limits](docs/development/progress.md) and [what comes next](ROADMAP.md#whats-next).
 
 ![Sigy's radio explorer with an offline world map and selected station](docs/images/tui.png)
 
-The current interface rendered with one real cached station page. Map positions come from directory metadata; selecting a station does not start playback or recording. [Explore the interface](docs/usage.md#list-explorer).
+The explorer rendered on 2026-10-02 with one real cached station page. Map positions come from directory metadata; selecting a station does not start playback or recording. [Explore the current controls](docs/usage.md#list-explorer).
 
 ## Install
 
@@ -26,10 +26,10 @@ These commands build `main` from source; [installation details](docs/install.md)
 
 ## What you can do
 
-- **Explore world radio.** Search stations by name, country, language or tag, save favorites, browse a globe or map, and listen to radio or podcast episodes.
+- **Explore world radio.** Search stations by name, country code, language or tag, combine filters in the terminal with `F`, save favorites, browse a globe or map, and listen to radio or podcast episodes.
 - **Keep a useful record.** Capture streams in the background, schedule recordings across time zones, and retain selected intervals. Recording timelines distinguish audio, gaps and expired material.
-- **Read across languages.** Run local recognition and translation on retained audio, keep original scripts beside English text, search both across your library, and correct a transcript without erasing its history.
-- **Follow a topic with evidence.** Set source and resource bounds for monitoring. Explicit finite tasks can collect up to two recordings and publish cited findings and a briefing. Selected operations are also available through the [agent plugin](docs/decisions/0021-agent-plugin.md).
+- **Read across languages.** Run experimental local recognition and English translation on retained audio, search originals and translations, and correct a transcript without erasing its history.
+- **Follow a topic with evidence.** Bound a monitor's sources and resources, inspect literal matches, and save cited findings and briefings. Finite tasks add bounded collection and processing; a general task planner remains ahead. Selected operations are available through the [agent plugin](docs/decisions/0021-agent-plugin.md).
 
 ## Get started
 
@@ -42,13 +42,20 @@ sigy tui
 
 Sigy uses `~/.sigy/library` by default. Use `sigy init` for setup without a directory fetch, or `sigy init --no-start` to prepare storage without starting a service. See [first use](docs/install.md#first-use) for custom libraries and recording setup, and the [usage guide](docs/usage.md) for full commands.
 
-Your library and local processing stay on your machine by default. Paid model dispatch and general task orchestration are not implemented. The [progress record](docs/development/progress.md#tracked-intermittent-test-issues) keeps current limitations visible, including a Windows client shutdown failure that has a structural repair but no proven cause.
+Your library and local processing stay on your machine by default. Paid model dispatch is not implemented. The [progress record](docs/development/progress.md#tracked-intermittent-test-issues) keeps known faults and verification gaps visible.
+
+## Where it's going
+
+A full-screen, retro-futuristic world listening desk: type or select countries and major cities, combine filters, explore linked maps and station lists, and use a radio DVR to revisit retained passages while other sources keep recording. Original scripts, chosen qualified translations and cited findings connect discovery to understanding. English remains the default; other targets are planned for humans and agents. The same service contracts should grow from personal machines to larger deployments as capacity and recovery are measured. These are planned capabilities; see the [roadmap](ROADMAP.md#whats-next) for delivery checkpoints and the [engineering plan](docs/development/reliability-and-scale.md) for their acceptance criteria.
+
+The [storage and knowledge plan](docs/design/storage-and-memory.md) adds a measured path for small servers, larger media libraries and future NAS placement, with searchable evidence, time-aware topic context and portable wiki-style exports. Current storage remains one local library; these deployment and memory extensions are planned.
 
 ## Learn more
 
 - [Installation and updates](docs/install.md) and [command reference](docs/usage.md)
 - [Current progress and verification evidence](docs/development/progress.md)
 - [Product intent](INTENT.md) and [what comes next](ROADMAP.md#whats-next)
+- [Near-term build briefs](docs/development/near-term-implementation.md) and [workflow invariants](docs/design/workflow-invariants.md)
 - [Architecture, design and research](docs/README.md)
 
 ## Use responsibly

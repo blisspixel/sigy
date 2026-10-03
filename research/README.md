@@ -1,6 +1,6 @@
 # Research index
 
-Research baseline: **September 20, 2026**. Latest evidence update: **October 1, 2026**. Individual notes retain their review dates.
+Research baseline: **September 20, 2026**. Latest research/evidence update: **October 3, 2026**. Individual notes retain their review dates and distinguish research from measurements.
 
 This folder records primary-source findings, measured experiments, design implications, competing approaches, and unanswered questions. It supports the [intent](../INTENT.md) and [design documents](../docs/README.md). Each note distinguishes completed measurements from proposed work and technology selection.
 
@@ -40,6 +40,12 @@ This folder records primary-source findings, measured experiments, design implic
 | Private local diagnostics, effect reconciliation, SQLite durability, corruption and restore qualification | [32. Private diagnostics and durable recovery](32-private-diagnostics-and-recovery.md) |
 | Finite task collection, transaction fences, exact ownership and shared processing authority | [33. Task collection and scoped effects](33-task-collection-and-scoped-effects.md) |
 | Windows client shutdown, preserved crash stacks, bounded reproduction and transport lifetime limits | [34. Windows control shutdown](34-windows-control-shutdown.md) |
+| Durable execution, containment, directed translation, physical instrumentation, analytical context, artistic interaction and explorer recovery | [35. Reliability, scale and interpretation](35-reliability-scale-and-interpretation.md) |
+| Pi-class hosts, flash endurance, local authority, large media libraries, NAS faults, archive query work and reproducible deployment | [36. Storage placement and capacity](36-storage-placement-and-capacity.md) |
+| Migrated OKF v0.2, linked wiki views, logical agent-memory roles, temporal provenance and bounded retrieval/context | [37. Knowledge formats and temporal memory](37-knowledge-formats-and-temporal-memory.md) |
+| Exact task publication, historical replay, shared-owner cancellation, transaction races and bounded state models | [38. Publication and cancellation logic](38-publication-and-cancellation-logic.md) |
+| Authority/capacity/liability equations, work/rate estimates, fairness, interval coverage and physical copy accounting | [39. Capacity, coverage and accounting math](39-capacity-coverage-and-accounting-math.md) |
+| Country identity/aliases, Unicode matching, bounded retrieval evaluation, location geometry and exact evidence context | [40. Discovery, retrieval and evidence logic](40-discovery-retrieval-and-evidence-logic.md) |
 
 ## Evidence discipline
 

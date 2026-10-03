@@ -1,8 +1,10 @@
 //! Explorer view state. Mutations are explicit effects, never selection.
 
+use super::search::{Edit, Search};
+#[cfg(test)]
+mod filter_tests;
 use crate::explorer::text::{age_label, sanitize};
-
-const QUERY_LIMIT: usize = 128;
+use sigy_service::discovery::StationFilter;
 const PAGE_LIMIT: u32 = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -267,7 +269,7 @@ enum PageMove {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchQuery {
     pub generation: u64,
-    pub name: String,
+    pub filter: StationFilter,
     pub favorites_only: bool,
     pub after: Option<String>,
 }
@@ -300,6 +302,7 @@ pub enum Effect {
 pub enum Key {
     Char(char),
     Backspace,
+    ClearInput,
     Enter,
     Escape,
     Tab,
@@ -318,8 +321,7 @@ pub struct Explorer {
     focus: Focus,
     workspace: Workspace,
     modes: Modes,
-    query: String,
-    favorites_only: bool,
+    pub(super) search: Search,
     rows: Vec<StationRow>,
     selection: usize,
     /// Cursor that produced the current station page; `None` is the first page.
@@ -377,8 +379,7 @@ impl Explorer {
             focus: Focus::Results,
             workspace: Workspace::Explore,
             modes,
-            query: String::new(),
-            favorites_only: false,
+            search: Search::default(),
             rows: Vec::new(),
             selection: 0,
             page_cursor: None,
@@ -468,12 +469,21 @@ impl Explorer {
 
     #[must_use]
     pub fn query(&self) -> &str {
-        &self.query
+        &self.search.draft.filter.name
     }
 
     #[must_use]
     pub const fn favorites_only(&self) -> bool {
-        self.favorites_only
+        self.search.applied.favorites_only
+    }
+
+    pub fn current_search(&self) -> SearchQuery {
+        SearchQuery {
+            generation: self.applied_search,
+            filter: self.search.applied.filter.clone(),
+            favorites_only: self.search.applied.favorites_only,
+            after: self.page_cursor().map(str::to_owned),
+        }
     }
 
     #[must_use]
@@ -622,6 +632,7 @@ impl Explorer {
         self.search_generation = self.search_generation.saturating_add(1);
         self.applied_search = self.search_generation;
         self.pending_search = None;
+        self.search.interrupt();
         self.pending_page = None;
         self.pending_favorite = None;
         self.next_after = desk.next_after;
@@ -653,6 +664,7 @@ impl Explorer {
         self.link = Link::Disconnected;
         self.now_ms = now_ms;
         self.pending_search = None;
+        self.search.interrupt();
         self.pending_page = None;
         self.pending_favorite = None;
         self.status = sanitize(
@@ -685,6 +697,9 @@ impl Explorer {
         if self.pending_search != Some(generation) || generation < self.applied_search {
             return false;
         }
+        if !self.search.accept() {
+            return false;
+        }
         let selected = self.selected().map(|row| row.id.clone());
         self.pending_search = None;
         self.applied_search = generation;
@@ -708,7 +723,28 @@ impl Explorer {
             }
         }
         self.snapshot_ms = Some(self.now_ms);
+        if let Some(issue) = self.search.validation {
+            self.status = issue.message().into();
+        } else {
+            self.status = format!(
+                "Cached page read: {} stations. F edits filters; x resets.",
+                self.rows.len()
+            );
+        }
         self.draw = Draw::Needed;
+        true
+    }
+
+    /// A failed request cannot change the applied scope or strand its pending page.
+    #[must_use]
+    pub fn fail_search(&mut self, generation: u64, message: &str) -> bool {
+        if self.pending_search != Some(generation) {
+            return false;
+        }
+        self.pending_search = None;
+        self.pending_page = None;
+        self.search.fail();
+        self.note_message(message);
         true
     }
 
@@ -781,14 +817,32 @@ impl Explorer {
             Key::Char('q') | Key::Quit => Effect::Detach,
             Key::Char('/') => {
                 self.focus = Focus::Search;
+                self.search.begin(false);
                 Effect::None
+            }
+            Key::Char('F') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
+                self.focus = Focus::Search;
+                self.search.begin(true);
+                self.status =
+                    "Editing cache filters. Enter applies; Esc discards the draft.".into();
+                Effect::None
+            }
+            Key::Char('x') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
+                self.search.reset();
+                self.submit_search(PageMove::First)
             }
             Key::Tab => {
                 self.focus = self.focus.cycle(true);
+                if self.focus == Focus::Search {
+                    self.search.begin(false);
+                }
                 Effect::None
             }
             Key::BackTab => {
                 self.focus = self.focus.cycle(false);
+                if self.focus == Focus::Search {
+                    self.search.begin(false);
+                }
                 Effect::None
             }
             Key::Left => {
@@ -813,9 +867,12 @@ impl Explorer {
                 self.workspace = workspace_from_digit(character);
                 self.workspace_effect()
             }
-            Key::Paste(_) | Key::Char(_) | Key::Backspace | Key::Escape | Key::Redraw => {
-                Effect::None
-            }
+            Key::Paste(_)
+            | Key::Char(_)
+            | Key::Backspace
+            | Key::ClearInput
+            | Key::Escape
+            | Key::Redraw => Effect::None,
         }
     }
 
@@ -873,38 +930,21 @@ impl Explorer {
     }
 
     fn edit_search(&mut self, key: Key) -> Effect {
-        match key {
-            Key::Escape | Key::Tab => {
+        match self.search.handle(key) {
+            Edit::End => {
                 self.focus = Focus::Results;
+                self.status =
+                    "Draft discarded. Displayed results keep their applied filters.".into();
                 Effect::None
             }
-            Key::BackTab => {
+            Edit::Back => {
                 self.focus = Focus::Workspaces;
                 Effect::None
             }
-            Key::Enter => self.submit_search(PageMove::First),
-            Key::Backspace => {
-                self.query.pop();
-                Effect::None
-            }
-            Key::Char(character) => {
-                let mut encoded = [0; 4];
-                self.push_query(character.encode_utf8(&mut encoded));
-                Effect::None
-            }
-            Key::Paste(text) => {
-                self.push_query(&text);
-                Effect::None
-            }
-            Key::Up | Key::Down | Key::Left | Key::Right | Key::Redraw => Effect::None,
-            Key::Quit => Effect::Detach,
+            Edit::Apply => self.submit_search(PageMove::First),
+            Edit::Continue => Effect::None,
+            Edit::Quit => Effect::Detach,
         }
-    }
-
-    fn push_query(&mut self, text: &str) {
-        let mut combined = self.query.clone();
-        combined.push_str(&sanitize(text, QUERY_LIMIT));
-        self.query = sanitize(&combined, QUERY_LIMIT);
     }
 
     fn move_selection(&mut self, delta: isize) -> Effect {
@@ -925,7 +965,7 @@ impl Explorer {
                 "Disconnected; the favorites filter was not submitted. r reconnects.".into();
             return Effect::None;
         }
-        self.favorites_only = !self.favorites_only;
+        self.search.toggle_favorites();
         self.submit_search(PageMove::First)
     }
 
@@ -983,6 +1023,18 @@ impl Explorer {
             self.status = "Disconnected; the search was not submitted. r reconnects.".into();
             return Effect::None;
         }
+        let scope = if movement == PageMove::First {
+            match self.search.normalized_draft() {
+                Ok(scope) => scope,
+                Err(issue) => {
+                    self.search.validation = Some(issue);
+                    self.status = issue.message().into();
+                    return Effect::None;
+                }
+            }
+        } else {
+            self.search.applied.clone()
+        };
         let after = match &movement {
             PageMove::First => None,
             PageMove::Next(after) => Some(after.clone()),
@@ -992,10 +1044,12 @@ impl Explorer {
         let generation = self.search_generation;
         self.pending_search = Some(generation);
         self.pending_page = Some(movement);
+        self.search.request(scope.clone());
+        self.status = "Reading cached station matches. No directory refresh was requested.".into();
         Effect::Search(SearchQuery {
             generation,
-            name: self.query.clone(),
-            favorites_only: self.favorites_only,
+            filter: scope.filter,
+            favorites_only: scope.favorites_only,
             after,
         })
     }
@@ -1048,7 +1102,7 @@ mod tests {
         }
     }
 
-    fn row(id: &str, name: &str) -> StationRow {
+    pub(super) fn row(id: &str, name: &str) -> StationRow {
         StationRow {
             id: id.into(),
             name: name.into(),
@@ -1096,7 +1150,7 @@ mod tests {
         }
     }
 
-    fn loaded() -> Explorer {
+    pub(super) fn loaded() -> Explorer {
         let mut model = Explorer::new(modes(), 10_000);
         model.apply_desk(desk(
             vec![row("station-a", "Alpha"), row("station-b", "Beta")],

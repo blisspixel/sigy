@@ -1,6 +1,6 @@
 # Retained-recording language pipeline
 
-Updated: 2026-09-30. Status: authorized build goal and implementation plan. The service recognizes speech, stores recognizer block labels as unevaluated evidence, and translates recognized cues into English locally. Reference-scored calibration exists, but measured language detection, independent translation qualification, and paid provider dispatch remain open. [Chunked recognition](../decisions/0049-chunked-recognition.md) covers recordings longer than 60 seconds. A phrase at a window edge while audio remains waits for the next window. The 2026-09-24 decisions below are unchanged.
+Updated: 2026-10-02. Status: authorized build goal and implementation plan. The service recognizes speech, stores recognizer block labels as unevaluated evidence, and translates recognized cues into English locally. Reference-scored calibration exists, but measured language detection, independent translation qualification, and paid provider dispatch remain open. [Chunked recognition](../decisions/0049-chunked-recognition.md) covers recordings longer than 60 seconds. A phrase at a window edge while audio remains waits for the next window. The 2026-09-24 decisions below are unchanged.
 
 ## 2026-09-24 decisions
 
@@ -13,6 +13,8 @@ Updated: 2026-09-30. Status: authorized build goal and implementation plan. The 
 - **Bounded public station audio.** The user authorized short recordings from a small number of public stations listed in Radio Browser (about ten stations, 60 to 120 seconds each, direct streams) for decode and recognition validation. Recordings stay local and are not committed.
 
 ## Goal and current evidence
+
+The 2026-10-02 clarification extends this goal to explicit qualified targets beyond English for humans and agents. English remains the current implemented target, default and initial evaluation direction. [Directed-target identity](../design/languages.md#translation-targets) requires a separate schema/IPC migration, target-aware canonical jobs/grants/revisions and preserved English history before implementation. Qualify each source-variety/target-variety/profile/task pair independently; an English reference or pivot does not qualify another direction. Unfamiliar representations keep typed hypotheses and explicit unknowns under the [interpretation contract](../design/signal-interpretation.md). The [engineering plan](reliability-and-scale.md) connects this work to reliable execution and measured resource admission.
 
 Turn one retained recording into inspectable original-script text, language evidence, and aligned English translation. Preserve its checksum, media clock, gaps, revisions, and uncertainty. Prove the local path with paid processing disabled, then compare explicitly authorized remote profiles under exact finite reservations. Continue through the [first-release build order](../../ROADMAP.md#build-order) only as each operation earns its evidence.
 

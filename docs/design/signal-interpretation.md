@@ -1,6 +1,6 @@
 # Universal signal interpretation
 
-Updated: 2026-09-20. Status: core product direction and implementation contract. Sigy aims to turn unfamiliar observations into understandable, inspectable meaning across languages and representations. Canadian French, Navajo, and Klingon are minimum named acceptance cases, not a limit on the language ambition. Mathematical and symbolic content belongs in the same interpretation architecture.
+Updated: 2026-10-02. Status: core product direction and implementation contract. Sigy aims to turn unfamiliar observations into understandable, inspectable meaning across languages and representations. Canadian French, Navajo, and Klingon are minimum named acceptance cases, not a limit on the language ambition. Mathematical and symbolic content belongs in the same interpretation architecture.
 
 ## User journey
 
@@ -9,6 +9,8 @@ A user selects a live source, retained interval, file, or supplied text and asks
 The input might be mixed-language speech, sung material, timed symbols, a numerical sequence, a packet payload, an equation in a document, or telemetry with missing units. An observation can contain several of these. An unknown input must remain eligible for investigation instead of falling out of a fixed language menu.
 
 ## One extensible interpretation path
+
+The 2026-10-02 clarification explicitly includes unfamiliar, constructed and hypothetical non-human representations. Retain typed observations, clocks/units, measurement and transform assumptions, supplied legends, alternative hypotheses and unresolved meaning. A candidate pattern, fluent rendering or model proposal does not establish origin or semantics. Registered human-language tags do not replace unknown representation identity. Translation targets beyond English are separately qualified directions; no English pivot is mandatory. The [implementation plan](../development/reliability-and-scale.md#measurement-analysis-and-artistic-interaction) connects physical instrumentation, analytical research and artistic attention without expanding current hardware or support claims.
 
 | Stage | Responsibility | Durable output |
 | --- | --- | --- |

@@ -1,12 +1,22 @@
 # Language and localization contract
 
-Updated: 2026-09-22. Status: implementation target. English is the current maintenance CLI language. Canadian French, Navajo, and Klingon are minimum named content-understanding and translation acceptance cases, alongside interface localization. They are not stretch goals or an upper bound. The [universal interpretation contract](signal-interpretation.md) governs the broader ambition; [research](../../research/23-localization-and-language-coverage.md) records current evidence and gaps.
+Updated: 2026-10-02. Status: implementation target. English is the current maintenance CLI language and implemented translation target. Other translation targets are confirmed product scope, not yet implemented. Canadian French, Navajo, and Klingon are minimum named content-understanding and translation acceptance cases, alongside interface localization. They are not stretch goals or an upper bound. The [universal interpretation contract](signal-interpretation.md) governs the broader ambition; [research](../../research/23-localization-and-language-coverage.md) records current evidence and gaps.
 
 ## Separate language axes
 
 Store interface locale, source-declared language, user-supplied hint, observed content-language spans, translation target, and provider/model capability separately. The interface can be Canadian French while a source contains several languages and its translation target is English. A station's location or locale preference cannot become a detected language.
 
 Use standards-based language identifiers, preserving script and region when actually known. Map provider aliases at the adapter boundary and retain the original provider value in provenance. Unknown content remains unknown. Mixed content has spans and evidence, not a single forced station language. A manual correction records a new revision with its basis and origin, preserving the original observation.
+
+## Translation targets
+
+The 2026-10-02 clarification requires useful translation for humans and agents beyond English. English remains the default and initial evaluation direction. Freeze an explicit qualified target at admission, independently of UI locale, detected source spans and report presentation. Include its bounded canonical tag in profile capabilities, job identity, finite task/monitor grants, translation revisions, target-specific latest selection, citations, search and exports. A different target coexists with earlier results; it cannot silently replace them or inherit their qualification. Multiple requested targets require bounded fan-out and separate admission.
+
+Use BCP 47 for known languages, retaining script and regional distinctions. Freeze canonicalization behavior used by durable digests. Presentation language matching cannot silently substitute a processing target. Capability is a directed source-variety/target-variety/profile/task relationship, with reference-text and ASR-output evaluation separately reported. Preserve originals and unsupported reasons; English pivots and backtranslation do not establish another direction's quality.
+
+The current schema and worker are English-only. Target support requires a versioned schema/IPC and canonical-job migration that preserves existing English IDs, revision order and historical grants, followed by independently measured non-English directions. Follow the [implementation plan](../development/reliability-and-scale.md#translation-for-people-and-agents). No proposed command option is an implemented interface.
+
+Unknown, constructed and hypothetical symbol systems remain eligible for bounded investigation. Keep representation identifiers, supplied legends, competing hypotheses and missing context separately from registered language tags. Do not force unfamiliar material into a human-language label or claim a decoder established meaning or origin.
 
 ## Interface resources
 

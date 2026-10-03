@@ -41,6 +41,8 @@ None exposes an authoritative per-request charge, so a remote task stays an unce
 
 ## Codebase findings
 
+Historical observations from 2026-09-24, not current implementation status. The [durable pool](../docs/decisions/0043-task-contract-and-job-pool.md) removed the old admission/history limitations, and later increments added exact interests and task receipts. The [2026-10-02 review](35-reliability-scale-and-interpretation.md) and [engineering plan](../docs/development/reliability-and-scale.md) govern current ownership, containment and scaling recommendations. Version and provider tables above remain dated research and require rechecking before selection.
+
 - Admission and dispatch are one step today, so a busy worker slot refuses work instead of queueing it.
 - One active job per kind is enforced by SQL unique indexes.
 - Job history is capped at 256 rows per table. With 60-second recognition jobs, one continuous station would reach that cap in about four hours, so the cap must become a bound on active and queued work.

@@ -1871,9 +1871,14 @@ struct SegmentServer {
     url: String,
     hits: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     stop: Arc<AtomicBool>,
-    /// Holds the stream open after the second segment until the test releases it.
-    release: Arc<AtomicBool>,
+    /// Only an explicit finish may publish a clean end of the response.
+    tail: std::sync::mpsc::SyncSender<SegmentTail>,
     worker: Option<thread::JoinHandle<std::io::Result<()>>>,
+}
+
+enum SegmentTail {
+    Finish,
+    Abort,
 }
 
 impl SegmentServer {
@@ -1884,10 +1889,9 @@ impl SegmentServer {
         let url = format!("http://127.0.0.1:{}/audio", listener.local_addr()?.port());
         let hits = std::sync::Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(AtomicBool::new(false));
-        let release = Arc::new(AtomicBool::new(false));
+        let (tail, tail_control) = std::sync::mpsc::sync_channel(1);
         let hits_worker = hits.clone();
         let stop_worker = stop.clone();
-        let release_worker = release.clone();
         let worker = thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(40);
             while !stop_worker.load(Ordering::Relaxed) && Instant::now() < deadline {
@@ -1907,13 +1911,9 @@ impl SegmentServer {
                         write_paced(&mut stream, &first, Duration::from_millis(3500))?;
                         thread::sleep(Duration::from_millis(3500));
                         write_paced(&mut stream, &second, Duration::from_millis(3500))?;
-                        // Keep the tail open while the test inspects it, without depending on
-                        // how long playback takes on a loaded host. Stay under the stall timeout.
-                        let hold = Instant::now() + Duration::from_secs(10);
-                        thread::sleep(Duration::from_millis(3000));
-                        while !release_worker.load(Ordering::Relaxed) && Instant::now() < hold {
-                            thread::sleep(Duration::from_millis(20));
-                        }
+                        // The acquisition's twelve-second stall limit still applies.
+                        // Exhausting this fixture allowance must fail, never silently send EOF.
+                        finish_segment_tail(&tail_control, Duration::from_secs(10))?;
                         stream.write_all(b"0\r\n\r\n")?;
                         stream.flush()?;
                         let _ = stream.shutdown(std::net::Shutdown::Write);
@@ -1938,14 +1938,14 @@ impl SegmentServer {
             url,
             hits,
             stop,
-            release,
+            tail,
             worker: Some(worker),
         })
     }
 
-    fn release_tail(&self) {
-        self.release
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+    fn release_tail(&self) -> TestResult {
+        self.tail.try_send(SegmentTail::Finish)?;
+        Ok(())
     }
 
     fn hits(&self) -> usize {
@@ -1965,10 +1965,58 @@ impl SegmentServer {
 impl Drop for SegmentServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        let _ = self.tail.try_send(SegmentTail::Abort);
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
     }
+}
+
+fn finish_segment_tail(
+    control: &std::sync::mpsc::Receiver<SegmentTail>,
+    maximum_wait: Duration,
+) -> std::io::Result<()> {
+    match control.recv_timeout(maximum_wait) {
+        Ok(SegmentTail::Finish) => Ok(()),
+        Ok(SegmentTail::Abort) => Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "segment fixture aborted before explicit finish",
+        )),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "segment fixture tail was not explicitly finished before its deadline",
+        )),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "segment fixture lost its tail controller before explicit finish",
+        )),
+    }
+}
+
+#[test]
+fn segment_tail_never_treats_timeout_abort_or_lost_control_as_clean_eof() -> TestResult {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    assert_eq!(
+        finish_segment_tail(&receiver, Duration::ZERO)
+            .err()
+            .map(|error| error.kind()),
+        Some(std::io::ErrorKind::TimedOut),
+    );
+    sender.try_send(SegmentTail::Abort)?;
+    assert_eq!(
+        finish_segment_tail(&receiver, Duration::ZERO)
+            .err()
+            .map(|error| error.kind()),
+        Some(std::io::ErrorKind::Interrupted),
+    );
+    drop(sender);
+    assert_eq!(
+        finish_segment_tail(&receiver, Duration::ZERO)
+            .err()
+            .map(|error| error.kind()),
+        Some(std::io::ErrorKind::BrokenPipe),
+    );
+    Ok(())
 }
 
 fn write_paced(stream: &mut impl Write, bytes: &[u8], pace: Duration) -> std::io::Result<()> {
@@ -2061,10 +2109,12 @@ fn running_capture_seals_ordered_segments_on_one_socket() -> TestResult {
         intervals[1]["decoded_start_us"],
         intervals[0]["decoded_end_us"]
     );
-    let checked = play_two_segments_without_stopping_capture(directory.path(), intervals);
+    let checked = check_open_tail_before_playback(directory.path(), intervals)
+        .and_then(|()| play_two_segments_without_stopping_capture(directory.path(), intervals));
     drop(stalled_clients);
-    server.release_tail();
+    let released = server.release_tail();
     checked?;
+    released?;
     server.finish()?;
     let done = wait_recording(directory.path(), "segments", "completed")?;
     assert_eq!(server.hits(), 1);
@@ -2075,6 +2125,7 @@ fn running_capture_seals_ordered_segments_on_one_socket() -> TestResult {
     assert_eq!(done["end_reason"], "end_of_body");
     let intervals = done["intervals"].as_array().ok_or("intervals")?;
     assert_eq!(intervals.len(), 2);
+    check_completed_edge(directory.path(), intervals)?;
     let segment_sha = hex_encode(&Sha256::digest(audio.as_slice()));
     assert_eq!(intervals[0]["sha256"], segment_sha);
     assert_eq!(intervals[1]["sha256"], segment_sha);
@@ -2134,8 +2185,15 @@ fn play_two_segments_without_stopping_capture(
     if second["segment_ordinal"] != 1 {
         return Err(format!("segment 1 was not played: {second}").into());
     }
+    independent_playheads(directory)
+}
+
+fn check_open_tail_before_playback(
+    directory: &std::path::Path,
+    intervals: &[serde_json::Value],
+) -> TestResult {
     let live = intervals[1]["decoded_end_us"].as_u64().ok_or("live")?;
-    let tail = super::invoke(
+    seek_refused(
         directory,
         &[
             "listen",
@@ -2146,18 +2204,8 @@ fn play_two_segments_without_stopping_capture(
             "--seek-us",
             &live.to_string(),
         ],
+        "open tail is not readable",
     )?;
-    let tail_error = String::from_utf8_lossy(&tail.stderr);
-    if tail.status.success() || !tail_error.contains("open tail") {
-        return Err(format!("open tail was readable: {tail_error}").into());
-    }
-    independent_playheads(directory, intervals)
-}
-
-fn independent_playheads(
-    directory: &std::path::Path,
-    intervals: &[serde_json::Value],
-) -> Result<(), Box<dyn std::error::Error>> {
     success(
         directory,
         &["listen", "attach", "listener-a", "--recording", "segments"],
@@ -2167,8 +2215,7 @@ fn independent_playheads(
         directory,
         &["listen", "attach", "listener-b", "--recording", "segments"],
     )?;
-    let live = intervals[1]["decoded_end_us"].as_u64().ok_or("live")?;
-    let tail = super::invoke(
+    seek_refused(
         directory,
         &[
             "listen",
@@ -2177,11 +2224,56 @@ fn independent_playheads(
             "--seek-us",
             &live.to_string(),
         ],
+        "open tail is not readable",
     )?;
-    let tail_error = String::from_utf8_lossy(&tail.stderr);
-    if tail.status.success() || !tail_error.contains("open tail") {
-        return Err(format!("session seek read the open tail: {tail_error}").into());
+    let snapshot = success(directory, &["record", "show", "segments"])?;
+    let recording = &snapshot["recording_page"]["entries"][0];
+    assert_eq!(recording["state"], "running");
+    assert!(recording["open_object_key"].is_string(), "{recording}");
+    Ok(())
+}
+
+fn seek_refused(directory: &std::path::Path, arguments: &[&str], reason: &str) -> TestResult {
+    let output = super::invoke(directory, arguments)?;
+    let error = String::from_utf8_lossy(&output.stderr);
+    if output.status.success() || !error.contains(reason) {
+        return Err(format!("{arguments:?}: expected refusal {reason:?}, got {error}").into());
     }
+    Ok(())
+}
+
+fn check_completed_edge(
+    directory: &std::path::Path,
+    intervals: &[serde_json::Value],
+) -> TestResult {
+    let edge = intervals[1]["decoded_end_us"].as_u64().ok_or("edge")?;
+    seek_refused(
+        directory,
+        &[
+            "listen",
+            "file",
+            "segments",
+            "--destination",
+            "null",
+            "--seek-us",
+            &edge.to_string(),
+        ],
+        "seek is outside the retained audio",
+    )?;
+    success(
+        directory,
+        &["listen", "attach", "ended", "--recording", "segments"],
+    )?;
+    seek_refused(
+        directory,
+        &["listen", "seek", "ended", "--seek-us", &edge.to_string()],
+        "seek is outside the retained audio",
+    )?;
+    success(directory, &["listen", "detach", "ended"])?;
+    Ok(())
+}
+
+fn independent_playheads(directory: &std::path::Path) -> TestResult {
     let moved = success(
         directory,
         &["listen", "seek", "listener-b", "--seek-us", "200000"],
@@ -2208,8 +2300,8 @@ fn independent_playheads(
     let still = success(directory, &["record", "show", "segments"])?;
     let still = &still["recording_page"]["entries"][0];
     let state = still["state"].as_str().unwrap_or("");
-    if state == "failed" || state == "interrupted" {
-        return Err(format!("capture stopped: {still}").into());
+    if state != "running" {
+        return Err(format!("capture did not remain running during playback: {still}").into());
     }
     if still["gaps"]
         .as_array()
@@ -2265,7 +2357,9 @@ fn wait_segments_with_stalled_clients(
         let response = success(directory, &["record", "show", "segments"])?;
         let record = &response["recording_page"]["entries"][0];
         let intervals = record["intervals"].as_array().map_or(0, Vec::len);
-        if intervals >= count && record["state"] == "running" {
+        let open = record["open_ceiling"].as_u64().unwrap_or(0) == 32 * 1024 * 1024
+            && record["open_object_key"].is_string();
+        if intervals >= count && record["state"] == "running" && open {
             return Ok((record.clone(), clients));
         }
         assert_ne!(record["state"], "failed", "{record}");

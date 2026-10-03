@@ -202,8 +202,12 @@ fn map_key(code: KeyCode, modifiers: Modifiers) -> Option<Key> {
     if modifiers.contains(Modifiers::CONTROL) && matches!(code, KeyCode::Char('c')) {
         return Some(Key::Quit);
     }
+    if modifiers.contains(Modifiers::CONTROL) && matches!(code, KeyCode::Char('u')) {
+        return Some(Key::ClearInput);
+    }
     Some(match code {
         KeyCode::Char('\u{3}') => Key::Quit,
+        KeyCode::Char('\u{15}') => Key::ClearInput,
         KeyCode::Char(character) => Key::Char(character),
         KeyCode::Backspace => Key::Backspace,
         KeyCode::Enter => Key::Enter,
