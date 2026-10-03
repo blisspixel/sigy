@@ -74,6 +74,9 @@ fn needs_library(command: &Command) -> bool {
     !matches!(
         command,
         Command::Update { .. }
+            | Command::Radio {
+                command: crate::radio::RadioCommand::Countries { .. }
+            }
             | Command::Library {
                 command: LibraryCommand::VerifyBackup { .. } | LibraryCommand::Restore { .. }
             }

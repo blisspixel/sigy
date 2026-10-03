@@ -226,7 +226,7 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
     } else if let Command::Podcast { command } = &cli.command {
         command.operation()
     } else if let Command::Radio { command } = &cli.command {
-        command.operation()
+        command.operation()?
     } else if let Command::Record { command } = &cli.command {
         command.operation()?
     } else if let Command::Schedule { command } = &cli.command {
@@ -256,6 +256,11 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
 }
 
 async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    if let Command::Radio { command } = &cli.command
+        && radio::offline(command, cli.json)?
+    {
+        return Ok(());
+    }
     match &cli.command {
         Command::Init { options } => {
             init::execute(library_dir(cli)?, options, cli.json, cli.explicit_data_dir).await

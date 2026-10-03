@@ -82,6 +82,17 @@ See [source authority and transport](decisions/0004-source-authority-and-http.md
 
 ## Radio directory
 
+Browse countries and territories offline before initializing a library or fetching stations:
+
+```text
+sigy radio countries
+sigy radio countries Congo --locale fr
+sigy --json radio countries Canada
+sigy radio countries --licenses
+```
+
+This bundled CLDR reference supplies names and codes independently of cached stations. Display locales are `en`, `fr`, `es`, `ar`, `hi`, `zh`, `pt`, `sw`; other locales explicitly fall back to English. Pages contain at most 16 codes, with a continuation for the same query and locale. Station availability remains unknown in this view. Existing `--country` filters accept a unique reference name or two-letter provider code. Ambiguous names require an explicit code from `radio countries`; names preserve accents and scripts. See [offline country selection](decisions/0080-offline-country-reference.md).
+
 ![Current radio command help](images/cli.png)
 
 Start the service, then request one directory page:
@@ -431,7 +442,7 @@ sigy --data-dir PATH_TO_LIBRARY tui --reduced-motion --monochrome
 
 In Explore (`1`) and Globe (`7`), `F` opens the cached-station filter editor. Combine station name, country code, directory language, directory tag, upstream check success and favorites. `Tab`/`Shift-Tab` or up/down select a field, `Space` toggles a yes/no field and `Ctrl-U` clears it. `Enter` explicitly applies a cache read; `Esc` discards the current draft and returns to results. `/` edits only the station name. From results, `x` clears every filter and requests page 1.
 
-Displayed rows retain their applied filter scope until a matching successful response arrives. Invalid input, failed reads and disconnects keep the last results. `r`, `n` and `p` use the applied scope. Country takes a blank value or two-letter code such as `CA` or `FR`; country names and city lookup remain planned. Language and tag match whole directory labels, not recognized speech. Upstream health is a dated directory observation, not local playback validation. Filtering contacts no station and does not refresh the directory. See [terminal cache filters](decisions/0077-terminal-cache-filters.md).
+Displayed rows retain their applied filter scope until a matching successful response arrives. Invalid input, failed reads and disconnects keep the last results. `r`, `n` and `p` use the applied scope. Country accepts a unique name, a two-letter code such as `CA` or `FR`, or blank for all. `C` opens the offline worldwide country picker even with an empty station cache, preserving its previous query, page, locale and selection during this client session. Type to filter; Up/Down selects, Left/Right pages, Tab/Shift-Tab cycles display locales and Ctrl-U clears to the full reference. Enter selects into the filter draft; Enter again explicitly applies the cache query. Escape from the picker returns unchanged to the editor; Escape from the editor discards the draft. Right on the country field opens this same picker. City lookup remains planned. Language and tag match whole directory labels, not recognized speech. Upstream health is a dated directory observation, not local playback validation. Filtering contacts no station and does not refresh the directory. See [terminal cache filters](decisions/0077-terminal-cache-filters.md) and [offline country selection](decisions/0080-offline-country-reference.md).
 
 `sigy tui` is the list explorer on Ratatui 0.30.2 with the Termina 0.3.3 backend. Selection does not start audio, capture, refresh, or a click. Quit does not stop the service. The tab bar shows each workspace with its number key, in key order: `1` Explore, `2` Live, `3` Recordings, `4` Monitors, `5` Findings, `6` System and `7` Globe. Left and right arrows cycle in the same order. Below 60 columns or 16 rows the compact layout names the current workspace in the title line instead. The first line says whether the explorer reads through the running service or, with no service, the local catalog. The help line follows the current workspace.
 

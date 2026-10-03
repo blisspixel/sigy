@@ -137,9 +137,9 @@ fn invalid_or_offline_filters_preserve_the_last_rows_and_scope() {
     let mut model = loaded();
     model.handle(Key::Char('F'));
     model.handle(Key::Tab);
-    model.handle(Key::Paste("Canada".into()));
+    model.handle(Key::Paste("Congo".into()));
     assert_eq!(model.handle(Key::Enter), Effect::None);
-    assert!(model.status().contains("two-letter code"));
+    assert!(model.status().contains("unknown or ambiguous"));
     assert_eq!(model.current_search().filter, StationFilter::default());
     let old = model.rows().to_vec();
     model.note_disconnect(20_000, "fixture disconnect");
@@ -169,7 +169,7 @@ fn completed_reads_clear_pending_status_without_hiding_a_new_invalid_draft() {
         panic!("valid draft reads");
     };
     model.handle(Key::ClearInput);
-    model.handle(Key::Paste("France".into()));
+    model.handle(Key::Paste("Congo".into()));
     assert_eq!(model.handle(Key::Enter), Effect::None);
     let invalid = model.status().to_owned();
     assert!(apply(&mut model, &pending, "b", None));
@@ -195,6 +195,75 @@ fn text_editing_preserves_graphemes_and_obeys_the_service_byte_bound() {
     assert!(query.filter.validate().is_ok());
     assert_eq!(model.captures_active(), 1);
     assert!(model.playback().is_none());
+}
+
+#[test]
+fn offline_reference_selection_changes_only_draft_until_explicit_apply() {
+    let mut model = loaded();
+    let rows = model.rows().to_vec();
+    assert_eq!(model.handle(Key::Char('C')), Effect::None);
+    assert!(model.search.picker.as_ref().is_some_and(|picker| {
+        picker
+            .page
+            .as_ref()
+            .is_some_and(|page| page.total_candidates >= 249)
+    }));
+    assert_eq!(model.handle(Key::Paste("Congo".into())), Effect::None);
+    assert_eq!(model.handle(Key::Down), Effect::None);
+    assert_eq!(model.handle(Key::Enter), Effect::None);
+    assert_eq!(model.search.draft.filter.country, "CG");
+    assert_eq!(model.current_search().filter.country, "");
+    assert_eq!(model.rows(), rows);
+    assert!(model.playback().is_none());
+    let Effect::Search(query) = model.handle(Key::Enter) else {
+        panic!("explicit apply reads cache");
+    };
+    assert_eq!(query.filter.country, "CG");
+    assert_eq!(query.after, None);
+    assert_eq!(model.rows(), rows);
+    assert!(apply(&mut model, &query, "cg", None));
+    model.handle(Key::Escape);
+    model.handle(Key::Char('C'));
+    assert!(
+        model
+            .search
+            .picker
+            .as_ref()
+            .is_some_and(|picker| picker.query == "Congo" && picker.selected == 1)
+    );
+    model.handle(Key::ClearInput);
+    model.handle(Key::Paste("Canada".into()));
+    model.handle(Key::Escape);
+    assert_eq!(model.search.draft.filter.country, "CG");
+    model.handle(Key::Escape);
+    assert_eq!(model.search.draft, model.search.applied);
+}
+
+#[test]
+fn empty_cache_still_selects_every_reference_country_and_name_resolves() {
+    let mut model = loaded();
+    let Effect::Search(current) = model.handle(Key::Char('x')) else {
+        panic!("explicit cache read");
+    };
+    assert!(model.apply_search(
+        current.generation,
+        Vec::new(),
+        DirectoryView {
+            cached_stations: 0,
+            maximum_stations: 10_000,
+            favorite_stations: 0,
+            refresh: None
+        },
+        None
+    ));
+    model.handle(Key::Char('C'));
+    model.handle(Key::Paste("中国".into()));
+    assert_eq!(model.handle(Key::Enter), Effect::None);
+    assert_eq!(model.search.draft.filter.country, "CN");
+    assert!(model.rows().is_empty());
+    model.handle(Key::Escape);
+    let query = country(&mut model, "Canada");
+    assert_eq!(query.filter.country, "CA");
 }
 
 #[test]

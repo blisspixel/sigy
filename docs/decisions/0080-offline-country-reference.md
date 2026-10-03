@@ -1,0 +1,23 @@
+# 0080: Offline country reference and explicit selection
+
+Date: 2026-10-03
+
+Status: implemented increment; verification evidence is recorded in active work after integration. This is EX-01A/B, not worldwide station coverage, city discovery or a qualified platform release.
+
+## Decision
+
+Use a pinned, licensed offline country and territory reference for both the CLI and terminal picker. The [retained sources and inclusion contract](../../assets/countries/cldr-48.2.0/README.md) identify CLDR 48.2.0, Unicode 17, eight display/search locales, exceptional territories, exclusions, input bounds, aliases and English fallback. The [discovery and evidence research](../../research/40-discovery-retrieval-and-evidence-logic.md) and [implementation brief](../development/near-term-implementation.md#ex-01aex-01b-useful-worldwide-country-discovery) supply the architectural contract.
+
+`radio countries [QUERY] --locale LOCALE` lists up to 16 stable-code entries with full candidate count and explicit ambiguity, reference identity and optional continuation. It opens neither a library nor a network. `--json` exposes the same result. Continuation binds the canonical query, requested/display locale, input manifest hash and reference policy version, and refuses unknown candidate positions. Station availability is unknown in this reference view; no fictitious zero counts are shown.
+
+`--country` on existing radio filter commands resolves a unique reference name or a literal ASCII two-letter code. Multiple candidate codes, including candidates beyond the first page, require explicit choice; they never become the first match. Names use canonical normalization and full case folding while preserving accents and scripts. Unsupported aliases fail with the command to inspect candidates. Raw provider codes preserve the preexisting uppercase comparison contract. The station ordering, cursors, service request shape and catalog/IPC versions stay unchanged.
+
+In Explore and Globe, `C` opens worldwide choices even with an empty station cache, retaining the previous picker query, page, locale and selection in this client session. Type to filter; Up/Down selects; Left/Right pages; Tab/Shift-Tab cycles locales; Ctrl-U clears to the complete reference. Enter selects a country into the filter draft and returns to the filter editor. A second explicit Enter applies the cache query. Escape from the picker preserves the draft; Escape from the editor discards it. Right on the editor's country field opens the same picker for that field. Displayed station rows retain their previous applied query until the matching successful response arrives. Selection contacts no station, refreshes no directory, reports no click and starts no playback or analysis.
+
+## Alternatives and limits
+
+CLDR 49 beta was rejected for this stable increment. Loading the station cache to build the country list was rejected because it hides countries with no cached rows. A country-name service request or schema migration is unnecessary: clients canonicalize names to existing codes, while the service continues validating the same typed filter. Automatic accent/transliteration assistance, locale collation and regional-locale inference are deferred until separately specified and bounded. Country/territory wording follows the pinned source without an independent geopolitical claim. Capital and city lookup, broader refresh, local repair and worldwide source qualification remain later work.
+
+## Evidence gates
+
+Check every retained input hash and legal notice, every included code and supported locale, full-reference ambiguity, pagination completeness, stale/tampered cursor refusal, canonical equivalence, different-script preservation and malicious/oversized input rejection. Verify offline CLI operation without library initialization. Exercise explicit draft selection/cancellation, empty-cache selection and stale station response rejection. Render and inspect 20 by 8, 80 by 24 and 132 by 40 terminal cells including native scripts and combining text. Focused tests and Clippy precede the root verification and coverage gates; no language or worldwide station capacity is inferred from these fixtures.

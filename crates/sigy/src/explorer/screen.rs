@@ -5,6 +5,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+mod countries;
 mod filters;
 
 use crate::style::{Tone, tone_for_state};
@@ -13,7 +14,7 @@ use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 
 pub const HELP_PRIMARY: &str =
-    "Help: / search, F filters, f favorite, v favorites, n/p page, r reload, q quit";
+    "Help: / search, F filters, C country, f save, v fav, n/p page, r reload, q quit";
 pub const HELP_SELECTION: &str = "Selection does not start audio, capture, refresh, or a click.";
 pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
 const FOCUS_PREFIX: &str = "Focus ";
@@ -28,6 +29,10 @@ pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
     let area = frame.area();
     if area.width < 20 || area.height < 8 {
         frame.render_widget(Paragraph::new(RECOVERY), area);
+        return;
+    }
+    if let Some(picker) = &model.search.picker {
+        countries::render(frame, area, picker);
         return;
     }
     if model.search.editing_filters() {
@@ -835,7 +840,7 @@ fn empty_explore(model: &Explorer) -> Vec<Line<'static>> {
         plain(if model.favorites_only() {
             "F edits filters; x clears all; v toggles favorites. Cache matches only."
         } else {
-            "F edits filters; x clears all. Countries use two-letter codes. Cache matches only."
+            "F edits filters; C chooses a country; x clears all. Cache matches only."
         }),
     ]
 }
@@ -1525,6 +1530,12 @@ mod tests {
         let mut model = sample();
         let mut desk = sample_desk();
         desk.stations.clear();
+        desk.directory = Some(DirectoryView {
+            cached_stations: 0,
+            maximum_stations: 10_000,
+            favorite_stations: 0,
+            refresh: None,
+        });
         desk.recordings.clear();
         if let Some(directory) = desk.directory.as_mut() {
             directory.cached_stations = 0;
@@ -1745,14 +1756,14 @@ mod tests {
             None
         ));
         model.handle(Key::ClearInput);
-        model.handle(Key::Paste("France".into()));
+        model.handle(Key::Paste("Congo".into()));
         model.handle(Key::Enter);
         let (invalid, _) = frame(&model, 20, 8);
-        assert!(invalid.contains("Need 2-letter code"), "{invalid}");
+        assert!(invalid.contains("Select country code"), "{invalid}");
         requested_snapshot(&model, "filters-invalid-20x8.json", 20, 8)?;
         let (wide, _) = frame(&model, 80, 24);
         assert!(wide.contains("Results: country=CA"), "{wide}");
-        assert!(wide.contains("[France]"), "{wide}");
+        assert!(wide.contains("[Congo]"), "{wide}");
         model.note_disconnect(model.now_ms(), "fixture offline");
         let (offline, _) = frame(&model, 20, 8);
         assert!(offline.contains("Offline: read held"), "{offline}");
@@ -1795,6 +1806,65 @@ mod tests {
             std::fs::create_dir_all(&directory)?;
             write_snapshot(&directory.join(name), model, width, height)?;
         }
+        Ok(())
+    }
+
+    #[test]
+    fn offline_country_views_keep_selection_and_native_scripts_visible()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut model = sample();
+        let mut desk = sample_desk();
+        desk.stations.clear();
+        model.apply_desk(desk);
+        model.handle(Key::Char('C'));
+        for (width, height) in [(20, 8), (80, 24), (132, 40)] {
+            let (text, _) = frame(&model, width, height);
+            assert!(text.contains("Countries"));
+            assert!(text.contains(">AC"));
+            assert!(text.contains("Enter pick") || text.contains("Enter sets draft"));
+            requested_snapshot(
+                &model,
+                &format!("countries-world-{width}x{height}.json"),
+                width,
+                height,
+            )?;
+        }
+        for _ in 0..15 {
+            model.handle(Key::Down);
+        }
+        let code = model
+            .search
+            .picker
+            .as_ref()
+            .and_then(|picker| picker.page.as_ref().and_then(|page| page.entries.get(15)))
+            .map(|entry| entry.code.as_str())
+            .ok_or("selected")?;
+        assert!(frame(&model, 20, 8).0.contains(&format!(">{code}")));
+        model.handle(Key::Right);
+        model.handle(Key::Tab);
+        model.handle(Key::Tab);
+        model.handle(Key::Tab);
+        model.handle(Key::Paste("المغرب".into()));
+        for (width, height) in [(20, 8), (80, 24), (132, 40)] {
+            let text = frame(&model, width, height).0;
+            assert!(text.contains("MA"));
+            assert!(text.contains("المغرب"));
+            requested_snapshot(
+                &model,
+                &format!("countries-arabic-{width}x{height}.json"),
+                width,
+                height,
+            )?;
+        }
+        model.handle(Key::ClearInput);
+        model.handle(Key::Paste("Re\u{301}union".into()));
+        let text = frame(&model, 80, 24).0;
+        assert!(text.contains("RE"));
+        requested_snapshot(&model, "countries-combining-80x24.json", 80, 24)?;
+        model.handle(Key::ClearInput);
+        model.handle(Key::Paste("日本".into()));
+        assert!(frame(&model, 20, 8).0.contains("JP"));
+        requested_snapshot(&model, "countries-wide-script-20x8.json", 20, 8)?;
         Ok(())
     }
 

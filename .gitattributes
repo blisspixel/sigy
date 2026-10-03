@@ -1,3 +1,7 @@
 * text=auto eol=lf
 vendor/libsqlite3-sys/** -text
 research/experiments/language-corpus/fleurs-screening-manifest.json -text
+assets/countries/cldr-48.2.0/*.json -text
+assets/countries/cldr-48.2.0/CaseFolding.txt -text
+assets/countries/cldr-48.2.0/LICENSE -text
+assets/countries/cldr-48.2.0/UCD-LICENSE -text

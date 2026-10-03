@@ -26,6 +26,7 @@ fs4.workspace = true
 flate2.workspace = true
 jiff.workspace = true
 oxilangtag.workspace = true
+unicode-normalization.workspace = true
 process-wrap.workspace = true
 processkit.workspace = true
 

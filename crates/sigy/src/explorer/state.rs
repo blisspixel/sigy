@@ -827,6 +827,12 @@ impl Explorer {
                     "Editing cache filters. Enter applies; Esc discards the draft.".into();
                 Effect::None
             }
+            Key::Char('C') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
+                self.focus = Focus::Search;
+                self.search.begin_countries();
+                self.status = "Choosing a country from the offline reference. Select, then Enter applies the draft.".into();
+                Effect::None
+            }
             Key::Char('x') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
                 self.search.reset();
                 self.submit_search(PageMove::First)

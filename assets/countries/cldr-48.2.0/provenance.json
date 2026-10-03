@@ -1,0 +1,62 @@
+{
+  "reviewed": "2026-10-03",
+  "version": "48.2.0",
+  "commit": "bb334e8d6250c9363e957e131bf7e6d08ec72f91",
+  "files": [
+    {
+      "file": "en.json",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/bb334e8d6250c9363e957e131bf7e6d08ec72f91/cldr-json/cldr-localenames-full/main/en/territories.json",
+      "sha256": "158c1d575308f7e46912edbeda435c8fe2ef5dad280798231f3a432e406b1807"
+    },
+    {
+      "file": "fr.json",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/bb334e8d6250c9363e957e131bf7e6d08ec72f91/cldr-json/cldr-localenames-full/main/fr/territories.json",
+      "sha256": "42d67b78cb74ffe87380db1d702d06be995c3082d7f711ffd6e75a721133c5e0"
+    },
+    {
+      "file": "es.json",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/bb334e8d6250c9363e957e131bf7e6d08ec72f91/cldr-json/cldr-localenames-full/main/es/territories.json",
+      "sha256": "027b9c91d4e923d506b404415648691ef41ebde721aa454cee4d9f7f66b3ea62"
+    },
+    {
+      "file": "ar.json",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/bb334e8d6250c9363e957e131bf7e6d08ec72f91/cldr-json/cldr-localenames-full/main/ar/territories.json",
+      "sha256": "b78c4a11a9ad8358048998bcda2eb49e205d5ab281f85991ed097af7b972c3d7"
+    },
+    {
+      "file": "hi.json",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/bb334e8d6250c9363e957e131bf7e6d08ec72f91/cldr-json/cldr-localenames-full/main/hi/territories.json",
+      "sha256": "f77f9c0c4f8bb7062dfe40edca416beae34e17b89714dabedca2f2b41ed77121"
+    },
+    {
+      "file": "zh.json",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/bb334e8d6250c9363e957e131bf7e6d08ec72f91/cldr-json/cldr-localenames-full/main/zh/territories.json",
+      "sha256": "18f1426f1e8981a671517a4857a8d4e56060909906c4cfd9b9a43a8a18b9ab6f"
+    },
+    {
+      "file": "pt.json",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/bb334e8d6250c9363e957e131bf7e6d08ec72f91/cldr-json/cldr-localenames-full/main/pt/territories.json",
+      "sha256": "89604c7cd2eecc83c7a7f65129e7e6fe70a04f2d52263345530d714146f99ee8"
+    },
+    {
+      "file": "sw.json",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/bb334e8d6250c9363e957e131bf7e6d08ec72f91/cldr-json/cldr-localenames-full/main/sw/territories.json",
+      "sha256": "9ca6ab6db15b55606f75ecaee68c60a1cb8cb5b82ef890352333dc77c34a4195"
+    },
+    {
+      "file": "LICENSE",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/bb334e8d6250c9363e957e131bf7e6d08ec72f91/LICENSE",
+      "sha256": "220ba0e1c43b99530d2d5bdb892a99dca0989414f51ab695ecd90163eaa1ec3b"
+    },
+    {
+      "file": "CaseFolding.txt",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/CaseFolding.txt",
+      "sha256": "ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183"
+    },
+    {
+      "file": "UCD-LICENSE",
+      "url": "https://www.unicode.org/license.txt",
+      "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+    }
+  ]
+}

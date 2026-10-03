@@ -2,6 +2,7 @@
 
 use sigy_service::discovery::StationFilter;
 
+use super::country::{Picker, Selection};
 use super::{state::Key, text::sanitize};
 
 const TEXT_BYTES: usize = 128;
@@ -36,7 +37,7 @@ impl Field {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Name => "Station name",
-            Self::Country => "Country code",
+            Self::Country => "Country name / code",
             Self::Language => "Directory language",
             Self::Tag => "Directory tag",
             Self::Health => "Upstream check succeeded",
@@ -79,7 +80,7 @@ impl Invalid {
     pub const fn message(self) -> &'static str {
         match self {
             Self::CountryCode => {
-                "Country currently needs a two-letter code, such as CA or FR; blank means all."
+                "Country name is unknown or ambiguous. Right opens the reference picker; select a code."
             }
             Self::TextBounds => "The filters exceed the service's text bounds.",
         }
@@ -87,7 +88,7 @@ impl Invalid {
 
     pub const fn compact(self) -> &'static str {
         match self {
-            Self::CountryCode => "Need 2-letter code",
+            Self::CountryCode => "Select country code",
             Self::TextBounds => "Text exceeds bounds",
         }
     }
@@ -101,12 +102,15 @@ pub(super) struct Search {
     editor: Editor,
     pub validation: Option<Invalid>,
     pub failed: bool,
+    pub picker: Option<Picker>,
+    saved_picker: Option<Picker>,
 }
 
 impl Search {
     pub fn begin(&mut self, filters: bool) {
         self.validation = None;
         self.failed = false;
+        self.picker = None;
         self.draft = self.pending.as_ref().unwrap_or(&self.applied).clone();
         self.editor = if filters {
             Editor::Filters(Field::Name)
@@ -139,17 +143,8 @@ impl Search {
 
     pub fn normalized_draft(&self) -> Result<Scope, Invalid> {
         let mut scope = self.draft.clone();
-        scope.filter.country = scope.filter.country.to_ascii_uppercase();
-        if !scope.filter.country.is_empty()
-            && (scope.filter.country.len() != 2
-                || !scope
-                    .filter
-                    .country
-                    .bytes()
-                    .all(|byte| byte.is_ascii_uppercase()))
-        {
-            return Err(Invalid::CountryCode);
-        }
+        scope.filter.country = sigy_service::discovery::countries::resolve(&scope.filter.country)
+            .map_err(|_| Invalid::CountryCode)?;
         scope.filter.validate().map_err(|_| Invalid::TextBounds)?;
         Ok(scope)
     }
@@ -198,7 +193,28 @@ impl Search {
     }
 
     pub fn handle(&mut self, key: Key) -> Edit {
+        if let Some(picker) = &mut self.picker {
+            return match picker.handle(key) {
+                Selection::Continue => Edit::Continue,
+                Selection::Quit => Edit::Quit,
+                Selection::Cancel => {
+                    self.saved_picker = self.picker.take();
+                    Edit::Continue
+                }
+                Selection::Code(code) => {
+                    self.draft.filter.country = code;
+                    self.validation = None;
+                    self.saved_picker = self.picker.take();
+                    self.editor = Editor::Filters(Field::Country);
+                    Edit::Continue
+                }
+            };
+        }
         match key {
+            Key::Right if self.editing_filters() && self.field() == Field::Country => {
+                self.picker = Some(Picker::new(self.draft.filter.country.clone()));
+                Edit::Continue
+            }
             Key::Tab | Key::Down if self.editing_filters() => self.move_field(true),
             Key::BackTab | Key::Up if self.editing_filters() => self.move_field(false),
             Key::Escape | Key::Tab => self.end(Edit::End),
@@ -254,6 +270,16 @@ impl Search {
         }
     }
 
+    pub fn begin_countries(&mut self) {
+        self.begin(true);
+        self.editor = Editor::Filters(Field::Country);
+        self.picker = Some(
+            self.saved_picker
+                .clone()
+                .unwrap_or_else(|| Picker::new(String::new())),
+        );
+    }
+
     fn push(&mut self, text: &str) {
         let Some(value) = self.text_mut() else {
             return;
@@ -283,7 +309,7 @@ fn toggle_label(enabled: bool) -> &'static str {
     if enabled { "yes" } else { "no" }
 }
 
-fn remove_grapheme(text: &mut String) {
+pub(super) fn remove_grapheme(text: &mut String) {
     let line = ratatui::text::Line::raw(text.as_str());
     let mut previous = 0;
     let mut end = 0;

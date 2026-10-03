@@ -16,7 +16,7 @@ pub struct Filters {
     /// Station name substring. Local search uses Unicode lowercase matching.
     #[arg(long, default_value = "", hide_default_value = true)]
     name: String,
-    /// Two-letter country code, independent of spoken language.
+    /// Country name or two-letter code. Ambiguous names require an explicit code.
     #[arg(long, default_value = "", hide_default_value = true)]
     country: String,
     /// Whole directory language label, for example french. Not detected speech.
@@ -31,19 +31,34 @@ pub struct Filters {
 }
 
 impl Filters {
-    fn filter(&self) -> StationFilter {
-        StationFilter {
+    fn filter(&self) -> sigy_service::Result<StationFilter> {
+        Ok(StationFilter {
             name: self.name.clone(),
-            country: self.country.to_ascii_uppercase(),
+            country: sigy_service::discovery::countries::resolve(&self.country)?,
             language: self.language.clone(),
             tag: self.tag.clone(),
             healthy_only: self.healthy,
-        }
+        })
     }
 }
 
 #[derive(Debug, Subcommand)]
 pub enum RadioCommand {
+    /// Browse the bundled worldwide country reference, without opening a library or network.
+    Countries {
+        /// Country name substring or two-letter code. Blank lists the full reference.
+        #[arg(default_value = "")]
+        query: String,
+        /// Display locale: en, fr, es, ar, hi, zh, pt, sw. Others explicitly fall back to en.
+        #[arg(long, default_value = "en")]
+        locale: String,
+        /// Continue a country page with the same query, locale and reference.
+        #[arg(long)]
+        after: Option<String>,
+        /// Print the unchanged legal notices for the bundled reference data.
+        #[arg(long)]
+        licenses: bool,
+    },
     /// Refresh one bounded directory page in the background. Never contacts station streams.
     Refresh {
         /// New request ID, for example news-001. Reusing an ID never sends another request.
@@ -173,8 +188,13 @@ pub enum PolicyCommand {
 }
 
 impl RadioCommand {
-    pub fn operation(&self) -> Operation {
-        match self {
+    pub fn operation(&self) -> sigy_service::Result<Operation> {
+        Ok(match self {
+            Self::Countries { .. } => {
+                return Err(sigy_service::Error::InvalidInput(
+                    "country reference is an offline client operation",
+                ));
+            }
             Self::Refresh {
                 id,
                 filters,
@@ -185,7 +205,7 @@ impl RadioCommand {
             } => DirectoryOperation::Refresh {
                 id: id.clone(),
                 request: RefreshRequest {
-                    filter: filters.filter(),
+                    filter: filters.filter()?,
                     limit: *limit,
                     offset: *offset,
                     mirror: mirror.clone(),
@@ -202,7 +222,7 @@ impl RadioCommand {
                 limit,
                 after,
             } => DirectoryOperation::Search {
-                filter: filters.filter(),
+                filter: filters.filter()?,
                 favorites_only: *favorites,
                 after: after.clone(),
                 limit: *limit,
@@ -243,12 +263,12 @@ impl RadioCommand {
             },
             Self::Policy { command } => return policy_operation(command),
         }
-        .into()
+        .into())
     }
 }
 
-fn policy_operation(command: &PolicyCommand) -> Operation {
-    match command {
+fn policy_operation(command: &PolicyCommand) -> sigy_service::Result<Operation> {
+    Ok(match command {
         PolicyCommand::Set {
             id,
             filters,
@@ -260,7 +280,7 @@ fn policy_operation(command: &PolicyCommand) -> Operation {
         } => DirectoryOperation::SetPolicy {
             id: id.clone(),
             request: RefreshRequest {
-                filter: filters.filter(),
+                filter: filters.filter()?,
                 limit: *limit,
                 offset: *offset,
                 mirror: mirror.clone(),
@@ -273,7 +293,91 @@ fn policy_operation(command: &PolicyCommand) -> Operation {
         PolicyCommand::Show { id } => DirectoryOperation::ShowPolicy { id: id.clone() },
         PolicyCommand::Clear { id } => DirectoryOperation::ClearPolicy { id: id.clone() },
     }
-    .into()
+    .into())
+}
+
+pub fn offline(command: &RadioCommand, json: bool) -> Result<bool, Box<dyn std::error::Error>> {
+    let RadioCommand::Countries {
+        query,
+        locale,
+        after,
+        licenses,
+    } = command
+    else {
+        return Ok(false);
+    };
+    if *licenses {
+        let mut writer = io::stdout().lock();
+        if json {
+            serde_json::to_writer(
+                &mut writer,
+                &serde_json::json!({"reference_version": sigy_service::discovery::countries::VERSION, "licenses": sigy_service::discovery::countries::LICENSES}),
+            )?;
+            writeln!(writer)?;
+        } else {
+            write!(writer, "{}", sigy_service::discovery::countries::LICENSES)?;
+        }
+        return Ok(true);
+    }
+    let page = sigy_service::discovery::countries::page(query, locale, after.as_deref())?;
+    let mut writer = io::stdout().lock();
+    if json {
+        serde_json::to_writer(&mut writer, &page)?;
+        writeln!(writer)?;
+    } else {
+        write_countries(&mut writer, &page)?;
+    }
+    Ok(true)
+}
+
+fn write_countries(
+    writer: &mut impl Write,
+    page: &sigy_service::discovery::countries::Page,
+) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Countries and territories: {} | locale {}{} | {} candidates",
+        page.reference_version,
+        page.display_locale,
+        if page.locale_fallback {
+            " (requested locale unavailable; English fallback)"
+        } else {
+            ""
+        },
+        page.total_candidates
+    )?;
+    for entry in &page.entries {
+        writeln!(
+            writer,
+            "{}: {}{}",
+            entry.code,
+            clean(&entry.name),
+            if entry.listed {
+                ""
+            } else {
+                " (raw provider code; absent from reference)"
+            }
+        )?;
+        if let (Some(alias), Some(locale)) = (&entry.matched_alias, &entry.matched_locale) {
+            writeln!(
+                writer,
+                "  Matched alias ({}): {}",
+                clean(locale),
+                clean(alias)
+            )?;
+        }
+    }
+    writeln!(
+        writer,
+        "Select an explicit --country CODE. Station availability is unknown until a cache query; this reference supplies no station counts."
+    )?;
+    if let Some(after) = &page.next_after {
+        writeln!(
+            writer,
+            "Continue with the same query and locale: --after {after}"
+        )?;
+    }
+    Ok(())
 }
 
 pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<()> {
@@ -513,6 +617,72 @@ mod tests {
     };
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    #[tokio::test]
+    async fn country_command_executes_without_opening_the_selected_library() -> TestResult {
+        use clap::Parser;
+        let temporary = tempfile::tempdir()?;
+        let missing = temporary.path().join("never-initialized");
+        let mut cli = crate::Cli::try_parse_from([
+            std::ffi::OsStr::new("sigy"),
+            std::ffi::OsStr::new("--data-dir"),
+            missing.as_os_str(),
+            std::ffi::OsStr::new("--json"),
+            std::ffi::OsStr::new("radio"),
+            std::ffi::OsStr::new("countries"),
+            std::ffi::OsStr::new("Canada"),
+        ])?;
+        crate::init::resolve_directory(&mut cli)?;
+        crate::run(&cli).await?;
+        assert!(!missing.exists());
+        let mut notices =
+            crate::Cli::try_parse_from(["sigy", "--json", "radio", "countries", "--licenses"])?;
+        crate::init::resolve_directory(&mut notices)?;
+        assert!(notices.data_dir.is_none());
+        crate::run(&notices).await?;
+        Ok(())
+    }
+
+    #[test]
+    fn offline_country_cli_and_filter_names_share_the_bounded_resolver() -> TestResult {
+        use clap::Parser;
+        let mut cli =
+            crate::Cli::try_parse_from(["sigy", "radio", "countries", "Congo", "--locale", "fr"])?;
+        crate::init::resolve_directory(&mut cli)?;
+        assert!(cli.data_dir.is_none());
+        let crate::Command::Radio {
+            command:
+                RadioCommand::Countries {
+                    query,
+                    locale,
+                    after,
+                    ..
+                },
+        } = cli.command
+        else {
+            return Err("country command".into());
+        };
+        let page = sigy_service::discovery::countries::page(&query, &locale, after.as_deref())?;
+        let mut output = Vec::new();
+        write_countries(&mut output, &page)?;
+        let text = String::from_utf8(output)?;
+        assert!(text.contains("2 candidates"));
+        assert!(text.contains("CD:") && text.contains("CG:"));
+        assert!(text.contains("Station availability is unknown"));
+        let cli = crate::Cli::try_parse_from(["sigy", "radio", "search", "--country", "Canada"])?;
+        let crate::Command::Radio { command } = cli.command else {
+            return Err("radio command".into());
+        };
+        assert!(
+            matches!(command.operation()?, Operation::Radio { command: DirectoryOperation::Search { filter, limit: 16, .. } } if filter.country == "CA")
+        );
+        let cli = crate::Cli::try_parse_from(["sigy", "radio", "search", "--country", "Congo"])?;
+        let crate::Command::Radio { command } = cli.command else {
+            return Err("radio command".into());
+        };
+        assert!(command.operation().is_err());
+        Ok(())
+    }
 
     fn snapshot() -> Result<Snapshot, serde_json::Error> {
         serde_json::from_value(

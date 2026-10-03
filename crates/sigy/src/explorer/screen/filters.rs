@@ -81,7 +81,7 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
     if !compact {
         lines.push(Line::raw(""));
         lines.push(Line::raw(
-            "Country: two-letter code (CA, FR); blank text means no restriction.",
+            "Country: name or code; Right on that field opens the offline picker.",
         ));
         lines.push(Line::raw(
             "Language/tag match whole directory labels, not observed speech.",
