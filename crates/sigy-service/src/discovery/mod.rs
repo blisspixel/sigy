@@ -1,6 +1,8 @@
 //! Directory observations are candidates, never authority to acquire a stream.
 
 pub mod countries;
+pub(crate) mod normalization;
+pub mod ordered;
 pub(crate) mod radio_browser;
 
 use crate::{

@@ -4,7 +4,10 @@ use super::search::{Edit, Search};
 #[cfg(test)]
 mod filter_tests;
 use crate::explorer::text::{age_label, sanitize};
-use sigy_service::discovery::StationFilter;
+use sigy_service::{control::DirectoryCatalog, discovery::StationFilter};
+mod catalog;
+#[cfg(test)]
+mod ordered_tests;
 const PAGE_LIMIT: u32 = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,6 +256,7 @@ pub struct Desk {
     pub stations: Vec<StationRow>,
     /// Cursor for the station page after this one, when the cache has more matches.
     pub next_after: Option<String>,
+    pub catalog: Option<DirectoryCatalog>,
     pub quota: Option<QuotaView>,
     pub recordings: Vec<RecordingLine>,
     pub playback: Option<PlaybackView>,
@@ -329,6 +333,10 @@ pub struct Explorer {
     /// Cursors of earlier pages, so `p` can return without a second index.
     page_history: Vec<Option<String>>,
     next_after: Option<String>,
+    catalog: Option<DirectoryCatalog>,
+    page_catalog: Option<DirectoryCatalog>,
+    retired_catalogs: Vec<String>,
+    restart_required: bool,
     pending_page: Option<PageMove>,
     link: Link,
     snapshot_ms: Option<i64>,
@@ -385,6 +393,10 @@ impl Explorer {
             page_cursor: None,
             page_history: Vec::new(),
             next_after: None,
+            catalog: None,
+            page_catalog: None,
+            retired_catalogs: Vec::new(),
+            restart_required: false,
             pending_page: None,
             link: Link::Disconnected,
             snapshot_ms: None,
@@ -504,7 +516,7 @@ impl Explorer {
 
     #[must_use]
     pub const fn has_next_page(&self) -> bool {
-        self.next_after.is_some()
+        self.next_after.is_some() && !self.restart_required
     }
 
     /// Cursor that reproduces the current station page on reload.
@@ -627,6 +639,12 @@ impl Explorer {
     }
 
     pub fn apply_desk(&mut self, desk: Desk) {
+        if let Some(catalog) = &desk.catalog
+            && !self.catalog_fresh(catalog, self.page_cursor.is_none())
+        {
+            self.note_message("An older catalog reply was ignored. g restarts cached page 1.");
+            return;
+        }
         let selected = self.selected().map(|row| row.id.clone());
         let recording = self.selected_recording().map(|row| row.id.clone());
         self.search_generation = self.search_generation.saturating_add(1);
@@ -656,6 +674,11 @@ impl Explorer {
             .unwrap_or(0);
         self.playback = desk.playback;
         self.rows = desk.stations;
+        if let Some(catalog) = desk.catalog {
+            self.install_catalog(&catalog);
+            self.page_catalog = Some(catalog);
+            self.restart_required = false;
+        }
         self.restore_selection(selected);
         self.draw = Draw::Needed;
     }
@@ -868,6 +891,10 @@ impl Explorer {
             Key::Char('v') => self.toggle_favorite_filter(),
             Key::Char('f') => self.toggle_favorite(),
             Key::Char('r') => self.reload(),
+            Key::Char('g') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
+                self.search.draft = self.search.applied.clone();
+                self.submit_search(PageMove::First)
+            }
             Key::Char(direction @ ('n' | 'p')) => self.turn_page(direction == 'n'),
             Key::Char(character @ '1'..='7') => {
                 self.workspace = workspace_from_digit(character);
@@ -1010,7 +1037,15 @@ impl Explorer {
             self.status = "n and p turn station pages in Explore (1) and Globe (7).".into();
             return Effect::None;
         }
+        if self.restart_required {
+            self.note_cursor_changed();
+            return Effect::None;
+        }
         if forward {
+            if self.page_history.len() >= 625 {
+                self.note_message("Page history is full. g restarts cached page 1.");
+                return Effect::None;
+            }
             let Some(after) = self.next_after.clone() else {
                 self.status = "This is the last cached page for this search.".into();
                 return Effect::None;
@@ -1145,6 +1180,7 @@ mod tests {
             }),
             stations,
             next_after: None,
+            catalog: None,
             quota: Some(QuotaView {
                 quota: 50,
                 charged: 5,

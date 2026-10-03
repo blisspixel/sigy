@@ -10,12 +10,13 @@ use std::{
 use serde_json::{Map, Value, json};
 
 const SERVER_VERSION: &str = "0.1.0-dev";
-const MAX_TEXT: usize = 2_048;
+const MAX_TEXT: u64 = 2_048;
 const MAX_OUTPUT: usize = 65_536;
 
 #[derive(Clone, Copy)]
 enum Field {
     Text,
+    StationOrder,
     Count,
     Flag,
 }
@@ -78,13 +79,30 @@ fn tool_schema(tool: &Tool) -> Value {
             slot.key.to_owned(),
             json!({
                 "type": match slot.kind {
-                    Field::Text => "string",
+                    Field::Text | Field::StationOrder => "string",
                     Field::Count => "integer",
                     Field::Flag => "boolean",
                 },
                 "description": slot.description,
             }),
         );
+        if let Some(property) = properties.get_mut(slot.key) {
+            match slot.kind {
+                Field::Text | Field::StationOrder => {
+                    property["minLength"] = json!(1);
+                    property["maxLength"] = json!(slot.maximum);
+                    property["x-sigy-maxBytes"] = json!(slot.maximum);
+                    if matches!(slot.kind, Field::StationOrder) {
+                        property["enum"] = json!(["id", "name"]);
+                    }
+                }
+                Field::Count => {
+                    property["minimum"] = json!(slot.minimum);
+                    property["maximum"] = json!(slot.maximum);
+                }
+                Field::Flag => {}
+            }
+        }
         if slot.required {
             required.push(slot.key);
         }
@@ -129,11 +147,14 @@ fn argv(tool: &Tool, arguments: &Map<String, Value>) -> Result<Vec<String>, Stri
 
 fn push_slot(args: &mut Vec<String>, slot: &Slot, value: &Value) -> Result<(), String> {
     match slot.kind {
-        Field::Text => {
+        Field::Text | Field::StationOrder => {
             let text = value
                 .as_str()
-                .filter(|text| bounded(text))
+                .filter(|text| bounded(text, slot.maximum))
                 .ok_or_else(|| format!("{} must be a short string", slot.key))?;
+            if matches!(slot.kind, Field::StationOrder) && !matches!(text, "id" | "name") {
+                return Err("order must be id or name".into());
+            }
             if slot.flag.is_empty() {
                 args.push(text.to_owned());
             } else {
@@ -165,8 +186,10 @@ fn push_slot(args: &mut Vec<String>, slot: &Slot, value: &Value) -> Result<(), S
     Ok(())
 }
 
-fn bounded(text: &str) -> bool {
-    !text.is_empty() && text.len() <= MAX_TEXT && !text.chars().any(char::is_control)
+fn bounded(text: &str, maximum: u64) -> bool {
+    !text.is_empty()
+        && text.len() <= usize::try_from(maximum).unwrap_or(0)
+        && !text.chars().any(char::is_control)
 }
 
 fn run(
@@ -962,7 +985,7 @@ const fn pos(key: &'static str, description: &'static str) -> Slot {
         flag: "",
         required: true,
         minimum: 0,
-        maximum: 0,
+        maximum: MAX_TEXT,
         description,
     }
 }
@@ -973,13 +996,23 @@ const fn text(
     required: bool,
     description: &'static str,
 ) -> Slot {
+    text_bound(key, flag, required, MAX_TEXT, description)
+}
+
+const fn text_bound(
+    key: &'static str,
+    flag: &'static str,
+    required: bool,
+    maximum: u64,
+    description: &'static str,
+) -> Slot {
     Slot {
         key,
         kind: Field::Text,
         flag,
         required,
         minimum: 0,
-        maximum: 0,
+        maximum,
         description,
     }
 }
@@ -1044,7 +1077,12 @@ const PAGE: &[Slot] = &[
 
 const RADIO_SEARCH: &[Slot] = &[
     text("name", "--name", false, "Station name substring."),
-    text("country", "--country", false, "Two-letter country code."),
+    text(
+        "country",
+        "--country",
+        false,
+        "Unique country name or raw two-letter code; ambiguous names require a code.",
+    ),
     text(
         "language",
         "--language",
@@ -1058,8 +1096,23 @@ const RADIO_SEARCH: &[Slot] = &[
         "Keep only stations whose latest directory check succeeded.",
     ),
     flag("favorites", "--favorites", "Keep only saved favorites."),
-    text("after", "--after", false, "Page cursor."),
-    count("limit", "--limit", 1, 32, "Page size."),
+    Slot {
+        kind: Field::StationOrder,
+        ..text(
+            "order",
+            "--order",
+            false,
+            "id (default) preserves UUID order; name uses the pinned Unicode name key with UUID ties.",
+        )
+    },
+    text_bound(
+        "after",
+        "--after",
+        false,
+        8_192,
+        "At most 8192 UTF-8 bytes. With id: UUID; with name: opaque cursor, same filters and limit. On changed cache omit after to restart.",
+    ),
+    count("limit", "--limit", 1, 16, "Page size, 1 to 16."),
 ];
 
 const EPISODES: &[Slot] = &[
@@ -1215,6 +1268,115 @@ const RECORD_START: &[Slot] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_radio_search_order_maps_exact_args_and_preserves_id_default() -> Result<(), String> {
+        let tool = TOOLS
+            .iter()
+            .find(|tool| tool.name == "radio_search")
+            .ok_or("radio_search")?;
+        assert_eq!(argv(tool, &Map::new())?, ["radio", "search"]);
+        for order in ["id", "name"] {
+            let arguments = json!({"country":"Canada", "favorites":true, "order":order, "after":"af12", "limit":16});
+            assert_eq!(
+                argv(tool, arguments.as_object().ok_or("object")?)?,
+                [
+                    "radio",
+                    "search",
+                    "--country",
+                    "Canada",
+                    "--favorites",
+                    "--order",
+                    order,
+                    "--after",
+                    "af12",
+                    "--limit",
+                    "16"
+                ]
+            );
+        }
+        for arguments in [
+            json!({"order":"popularity"}),
+            json!({"order":"NAME"}),
+            json!({"limit":17}),
+            json!({"limit":0}),
+        ] {
+            assert!(argv(tool, arguments.as_object().ok_or("object")?).is_err());
+        }
+        let schema = tool_schema(tool);
+        assert_eq!(
+            schema["inputSchema"]["properties"]["order"]["enum"],
+            json!(["id", "name"])
+        );
+        assert_eq!(schema["inputSchema"]["properties"]["limit"]["minimum"], 1);
+        assert_eq!(schema["inputSchema"]["properties"]["limit"]["maximum"], 16);
+        assert_eq!(schema["annotations"]["readOnlyHint"], true);
+        assert_eq!(schema["annotations"]["openWorldHint"], false);
+        Ok(())
+    }
+
+    #[test]
+    fn only_radio_cursor_accepts_8192_bytes_and_unrelated_text_stays_bounded() -> Result<(), String>
+    {
+        let tool = TOOLS
+            .iter()
+            .find(|tool| tool.name == "radio_search")
+            .ok_or("radio_search")?;
+        let cursor = "af".repeat(4096);
+        let arguments = json!({"order":"name", "after":cursor});
+        assert_eq!(
+            argv(tool, arguments.as_object().ok_or("object")?)?,
+            [
+                "radio",
+                "search",
+                "--order",
+                "name",
+                "--after",
+                cursor.as_str()
+            ]
+        );
+        for arguments in [
+            json!({"after":format!("{cursor}a")}),
+            json!({"name":"a".repeat(2049)}),
+            json!({"after":"af\n12"}),
+        ] {
+            assert!(argv(tool, arguments.as_object().ok_or("object")?).is_err());
+        }
+        assert!(
+            argv(
+                tool,
+                json!({"name":"a".repeat(2048)})
+                    .as_object()
+                    .ok_or("object")?
+            )
+            .is_ok()
+        );
+        let show = TOOLS
+            .iter()
+            .find(|tool| tool.name == "radio_show")
+            .ok_or("radio_show")?;
+        assert!(
+            argv(
+                show,
+                json!({"id":"a".repeat(2049)}).as_object().ok_or("object")?
+            )
+            .is_err()
+        );
+        let schema = tool_schema(tool);
+        assert_eq!(
+            schema["inputSchema"]["properties"]["after"]["maxLength"],
+            8192
+        );
+        assert_eq!(
+            schema["inputSchema"]["properties"]["after"]["x-sigy-maxBytes"],
+            8192
+        );
+        assert_eq!(
+            schema["inputSchema"]["properties"]["name"]["maxLength"],
+            2048
+        );
+        Ok(())
+    }
 
     #[test]
     fn archive_search_is_read_only_and_keeps_the_term_an_option_value() -> Result<(), String> {

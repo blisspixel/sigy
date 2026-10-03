@@ -42,7 +42,7 @@ Acceptance uses the entire declared code set plus explicit ambiguous aliases, an
 
 ## Ordered station search followup
 
-Reviewed again: 2026-10-03. The country resolver is now implemented; existing station pages still use UUID order. [SQLite comparison rules](https://www.sqlite.org/datatype3.html#collation) specify ASCII-only folding for built-in `NOCASE`. Evaluate explicit UTF-8 comparison keys against the pinned normalization/folding profile instead of claiming multilingual collation from that setting. Keep original display names and station-ID tie breakers.
+Reviewed again: 2026-10-03, before decision0081. At that review the country resolver was implemented and station pages still used UUID order. [SQLite comparison rules](https://www.sqlite.org/datatype3.html#collation) specify ASCII-only folding for built-in `NOCASE`. Evaluate explicit UTF-8 comparison keys against the pinned normalization/folding profile instead of claiming multilingual collation from that setting. Keep original display names and station-ID tie breakers.
 
 [SQLite transactions](https://www.sqlite.org/lang_transaction.html) support consistent reads while other connections commit changes. A new page operation should read its catalog revision, entries and lookahead together. A versioned revision-bound cursor can refuse later cache drift; it does not preserve that historical snapshot across requests.
 
@@ -103,7 +103,9 @@ A task context should freeze exact query and comparator, corpus or projection ge
 
 Relation identity answers which records were linked, under which algorithm and generation. Semantic truth answers whether the interpreted claim is supported. Hash equality, deterministic matching, a graph edge, a similarity score or a verification string cannot collapse those questions. Contradictions and independence remain attributed hypotheses unless supported by separate evidence. Repeated summaries and translations share their source lineage and cannot inflate corroboration.
 
-## Recommended near-term increments
+## Recommended near-term increments at review
+
+This sequence records alternatives before decision0081. [Selected station-name paging](../docs/decisions/0081-ordered-station-search.md) now implements the ordering/cursor slice; [active work](../docs/development/progress.md) holds its evidence. The remaining retrieval and city proposals keep separate gates.
 
 1. Country reference and shared resolver: complete declared selectable identities, bounded names/aliases, explicit ambiguity and useful empty-cache behavior. Reuse current filters and station-ID paging.
 2. Ordering and cursor migration: choose collation and tie breakers, bind query/order/generation, measure query cost and preserve selection across stale responses.

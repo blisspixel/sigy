@@ -33,7 +33,10 @@ pub use analysis::{
     AnalysisOperation, AnalysisPage, AnalysisView, LanguageOperation, ProfileOperation,
     RecognitionView, TranscriptCueView, TranscriptView, TranslationProfileOperation,
 };
-pub use discovery::{DirectoryOperation, DirectoryPolicyPage, PolicyDisposition, StationPage};
+pub use discovery::{
+    DirectoryCatalog, DirectoryOperation, DirectoryPolicyPage, OrderedStationPage,
+    PolicyDisposition, StationPage,
+};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
 pub use listen::{ListenOperation, ListenView};
@@ -52,7 +55,7 @@ pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, Sche
 pub use server::{request, run};
 pub use task::{TaskOperation, TaskPage};
 
-pub const PROTOCOL_VERSION: u32 = 48;
+pub const PROTOCOL_VERSION: u32 = 49;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -213,6 +216,8 @@ pub struct Snapshot {
     pub directory: Option<crate::storage::discovery::DirectoryStatus>,
     pub directory_refresh: Option<crate::storage::discovery::RefreshStatus>,
     pub station_page: Option<StationPage>,
+    pub ordered_station_page: Option<OrderedStationPage>,
+    pub directory_catalog: Option<DirectoryCatalog>,
     pub schema_version: u32,
     pub sqlite_version: String,
     pub provider_dispatch_available: bool,
@@ -423,6 +428,8 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         directory: None,
         directory_refresh: None,
         station_page: None,
+        ordered_station_page: None,
+        directory_catalog: Some(store.directory_catalog()?),
         schema_version: crate::storage::SCHEMA_VERSION,
         sqlite_version: store.sqlite_version()?,
         provider_dispatch_available: false,

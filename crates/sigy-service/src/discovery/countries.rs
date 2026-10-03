@@ -4,9 +4,9 @@ mod reference;
 #[cfg(test)]
 mod tests;
 
+use super::normalization::canonical_key;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use unicode_normalization::UnicodeNormalization;
 
 use crate::{Error, Result, sources::unsafe_display};
 
@@ -175,14 +175,11 @@ fn cursor_start(after: Option<&str>, scope: &str, candidates: &[Country]) -> Res
         .ok_or(Error::InvalidInput("country cursor code"))
 }
 
-fn canonical_key(value: &str, folding: &std::collections::BTreeMap<char, String>) -> String {
-    let mut key = String::new();
-    for character in value.nfc() {
-        if let Some(mapping) = folding.get(&character) {
-            key.push_str(mapping);
-        } else {
-            key.push(character);
-        }
+pub(crate) fn station_key(value: &str) -> Result<String> {
+    validate_text(value, 256)?;
+    let key = reference::get()?.key(value);
+    if key.len() > 3072 {
+        return Err(Error::InvalidInput("station comparison key"));
     }
-    key.nfc().collect()
+    Ok(key)
 }

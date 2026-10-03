@@ -47,8 +47,11 @@ This folder records primary-source findings, measured experiments, design implic
 | Authority/capacity/liability equations, work/rate estimates, fairness, interval coverage and physical copy accounting | [39. Capacity, coverage and accounting math](39-capacity-coverage-and-accounting-math.md) |
 | Country identity/aliases, Unicode matching, bounded retrieval evaluation, location geometry and exact evidence context | [40. Discovery, retrieval and evidence logic](40-discovery-retrieval-and-evidence-logic.md) |
 | Cited unusual claims, public SETI archives, calibration, interference controls and finite watches | [41. Strange signals and claim exploration](41-strange-signals-and-claim-exploration.md) |
+| Calm world listening, distinct IQ/audio/packet observations and measured receive-only device boundaries | [42. Calm listening and receive-only sources](42-calm-listening-and-receive-only-sources.md) |
 
 ## Evidence discipline
+
+The [ordered discovery validation](experiments/ordered-discovery-2026-10-03.md) records revision-bound station-name paging, encoding-independent comparison keys, bounded query/frame work, migration and console evidence, with explicit measurement limits.
 
 The [workstation milestone validation](experiments/workstation-milestone-2026-10-03.md) records bounded exact snapshots/publication, shared-interest withdrawal and offline worldwide country discovery, with integrated gates, native console observations and explicit measurement limits.
 

@@ -422,7 +422,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn terminal_first_page_requests_replay_without_new_admission() -> Result {
         for state in ["completed", "failed", "interrupted"] {
-            replay_terminal(state).await?;
+            Box::pin(replay_terminal(state)).await?;
         }
         Ok(())
     }

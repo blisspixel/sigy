@@ -1,0 +1,40 @@
+# Calm listening and receive-only sources
+
+Reviewed: 2026-10-03. Status: current primary-source review and proposed implementation boundaries. No hardware, firmware, decoder, dataset or dependency is selected or qualified here. No hardware access, installation, capture, transmission, inference or paid request was performed. External spend for this research is USD 0; the active USD 20 ceiling remains unchanged.
+
+## Practical listening now
+
+The user wants an enjoyable place to listen around the world and later investigate SDR and LoRa sources. Existing [source and recording contracts](../docs/design/recording-metadata.md), [terminal experience](../docs/design/terminal-experience.md#calm-listening-sessions) and [explorer/DVR plan](../docs/planning/11-radio-explorer-and-dvr.md) already establish the shared architecture. Calm presentation means less compulsory information and dependable control, not weaker accounting or invented activity.
+
+Current CLI listening plays one retained published segment or explicitly listens to a direct audio revision. The terminal recording timeline and service playhead sessions are metadata views; they do not yet control audible pause/seek. The next player must bind a protected reader, contained decoder and actual client audio destination before claiming interactive DVR. Selection, source inspection and cached paging remain acquisition-free.
+
+Proposed first session: one foreground audible source, independent inspected source, optional original/target context and a stable return to the same query. Admit each playback explicitly. Replacement stops and proves completion of the old generation before admitting another. Retain one pending replacement, finite execution/output/reader bounds and no automatic retry sequence. Background recordings retain their independent service ownership. Closing the client stops its player without stopping durable collection. Restoring view state never restarts sound.
+
+## Three different observations
+
+| Observation | Useful presentation | Required lineage |
+| --- | --- | --- |
+| IQ or real samples | Spectrum, tuning and sample inspection | Format, rate, sample origin, tuning/configuration epochs, gaps and measured clock mapping |
+| Demodulated audio | Player, waveform and later speech/translation | Exact sample parents, demodulator profile, filtering/resampling alignment, uncertainty and propagated gaps |
+| LoRa frames or node packets | Packet/event inspector, typed telemetry and text | Protocol/interface version, packet/payload identity, integrity/authentication status, distinct device and local receipt clocks |
+
+These are proposed Sigy contracts. IQ is not audio; a node packet is not a raw RF recording. Binary telemetry does not require speech recognition. A text message can use later text translation under the same target and authority rules. Unknown protocols and inaccessible payloads remain useful observations without invented meaning. English is the default target; interface locale, source language and chosen target remain independent, and actual language quality remains unqualified.
+
+## Primary hardware and protocol findings
+
+[HackRF Pro documentation](https://hackrf.readthedocs.io/en/latest/hackrf_pro.html), reviewed 2026-10-03, describes a half-duplex transceiver, a 100 kHz to 6 GHz operating range, 8-bit I and Q at up to 20 million complex samples/s, additional precision modes and a hardware transmit-disable facility. Operating range and configurable tuning range differ. These are manufacturer capabilities, not Sigy compatibility or usable-bandwidth measurements. At the stated 8-bit mode, hypothetical raw storage is `20,000,000 samples/s * 2 bytes/sample = 40,000,000 bytes/s`; ten seconds needs 400 MB before metadata and copies. An IQ grant therefore needs its own finite bytes and scratch accounting. Do not generalize that arithmetic to packed or extended-precision modes.
+
+[SigMF's specification](https://sigmf.org/), reviewed 2026-10-03, defines sample representation and dataset metadata with capture segments and annotations. Keep sample-rate/frequency units and capture sample starts explicit. Evaluate a version-pinned projection and independent interoperability fixtures while preserving Sigy's authority, retention and derivative ancestry. Optional interchange fields do not satisfy a transform's required acquisition metadata merely because a file validates. Alternatives are a first-party typed import with a later SigMF projection, or SigMF import first; neither justifies another catalog or a control-channel stream of high-rate samples.
+
+[Meshtastic's client API](https://meshtastic.org/docs/development/device/client-api/), reviewed 2026-10-03, documents serial, TCP and BLE interfaces carrying `ToRadio`/`FromRadio` protocol buffers. Its streaming framing uses a length-prefixed header and documents rejecting lengths above 512 bytes. The page contains both older `startConfig` examples and a `want_config_id` description: pin compatible firmware/protobuf definitions and test the actual handshake before implementation. Packet framing does not bound the complete initial node database, reconnect backlog, debug output or decoded allocation. Set independent aggregate byte, record, time and queue limits. Local receipt does not prove an RF receive time or complete mesh coverage.
+
+[Meshtastic device roles](https://meshtastic.org/docs/configuration/radio/device/), reviewed 2026-10-03, distinguishes routing/rebroadcast behavior; `CLIENT_MUTE` is not evidence that every RF transmission is disabled. [LoRa configuration](https://meshtastic.org/docs/configuration/radio/lora/), reviewed 2026-10-03, separately documents `tx_enabled` with a true default, modem parameters and region settings. A future receive-only adapter must require a previously prepared supported configuration and qualify its behavior. A local protocol write used to inspect configuration is distinct from an RF message, but its firmware effects must still be tested. Never silently change settings, request mesh responses or enable forwarding. Region selection guides configuration and does not establish operating permission. Generic LoRa and Meshtastic are separate protocol capabilities.
+
+## Finite implementation and evidence gates
+
+1. Finish stable ordered cached discovery and focused source/recording inspection. Preserve applied query, selected identity, original scripts and truthful empty-cache state. This gives immediate utility without playback or hardware claims.
+2. Implement the protected retained-range reader and real player lifecycle from DV-01. Measure native input/audio behavior, seek boundaries, retention exclusion, cancellation, generation races and background capture continuity. Then add explicit direct-live replacement; do not silently splice live connections into retained gaps.
+3. Add typed file replay before device access: known IQ and packet fixtures with exact provenance, malformed/truncated input, unknown fields, clock gaps, clipping and bounded output. Choose an adapter boundary only after reviewing native distribution and license requirements. No implementation language expansion is needed.
+4. Qualify one actual receive-only device profile at a time. Compare process-hosted tools, a narrowly reviewed native library and a general device abstraction against observed throughput, ownership and cancellation. Test RF silence through startup, traffic, reboot and reconnect with independent instrumentation. Require exact device/firmware/OS/backend receipts. Unverified autonomous transmit behavior refuses live attachment.
+
+One tuner has one observed tuning epoch; scanning leaves unobserved intervals and cannot claim simultaneous coverage. Display decimation loses visual detail without dropping acquisition samples. Device disappearance, overflow and configuration drift create explicit gaps/holds, not fabricated silence. Unknown completion retains bounded protection until actual proof. These gates establish no current SDR/LoRa support, simultaneous capacity or release qualification.

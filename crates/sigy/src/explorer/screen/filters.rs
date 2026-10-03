@@ -96,21 +96,32 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
         lines.push(super::recording_line(model));
     }
     frame.render_widget(Paragraph::new(lines), panes[1]);
-    let footer = if compact {
+    frame.render_widget(Paragraph::new(footer(compact, model)), panes[2]);
+}
+
+fn footer(compact: bool, model: &Explorer) -> Vec<Line<'static>> {
+    if compact {
         vec![
             Line::raw("Enter apply"),
-            Line::raw("Esc cancel Tab field"),
+            Line::raw(if model.restart_required() {
+                "Esc then g restart"
+            } else {
+                "Esc cancel Tab field"
+            }),
             Line::raw("Space toggle Ctrl-U"),
         ]
     } else {
         vec![
-            Line::raw("Enter applies; Esc cancels. Tab/Shift-Tab or arrows select fields."),
+            Line::raw(if model.restart_required() {
+                "Esc then g restart cached page 1. Enter applies this draft."
+            } else {
+                "Enter applies; Esc cancels. Tab/Shift-Tab or arrows select fields."
+            }),
             Line::raw("Space toggles a yes/no field. Ctrl-U clears the selected field."),
             Line::raw(summary(&model.search.applied)),
             Line::raw(model.status().to_owned()),
         ]
-    };
-    frame.render_widget(Paragraph::new(footer), panes[2]);
+    }
 }
 
 pub(super) fn summary(scope: &Scope) -> String {

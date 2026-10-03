@@ -14,7 +14,7 @@ use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 
 pub const HELP_PRIMARY: &str =
-    "Help: / search, F filters, C country, f save, v fav, n/p page, r reload, q quit";
+    "Help: / search F filters C country f save v fav n/p page g first r reload q quit";
 pub const HELP_SELECTION: &str = "Selection does not start audio, capture, refresh, or a click.";
 pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
 const FOCUS_PREFIX: &str = "Focus ";
@@ -210,16 +210,20 @@ fn one(line: Line<'static>, focused: bool, model: &Explorer) -> Section {
 
 fn compact_help(model: &Explorer) -> &'static str {
     if editing(model) {
-        return "Help: Esc ends edit";
+        return if model.restart_required() {
+            "Esc then g restart"
+        } else {
+            "Help: Esc ends edit"
+        };
     }
     match model.workspace() {
         Workspace::Findings => "Help: q quit, / IDs, o metadata",
         Workspace::Recordings => "Help: q quit, arrows select, r reload",
         Workspace::Monitors => "Help: q quit, Enter read, r reload",
+        Workspace::Globe | Workspace::Explore if model.restart_required() => "q quit | g restart",
         Workspace::Globe => "Help: q quit, h/j/k/l turn, m map",
-        Workspace::Explore | Workspace::Live | Workspace::System => {
-            "Help: q quit, / search, 1-7 views"
-        }
+        Workspace::Explore => "Help: q quit, / search, n/p page, g first",
+        Workspace::Live | Workspace::System => "Help: q quit, r reload, Tab focus",
     }
 }
 
@@ -429,6 +433,18 @@ fn search_lines(model: &Explorer) -> Vec<Line<'static>> {
     if model.favorites_only() {
         spans.push(paint(color, Tone::Warn, " favorites"));
     }
+    if matches!(model.workspace(), Workspace::Explore | Workspace::Globe) {
+        spans.push(paint(
+            color,
+            Tone::Muted,
+            format!(
+                " | {} | page {} | snapshot {}",
+                model.catalog_label(),
+                model.page_number(),
+                model.snapshot_age()
+            ),
+        ));
+    }
     let mut lines = vec![Line::from(spans)];
     if model.search.applied.filter != sigy_service::discovery::StationFilter::default()
         || model.search.draft != model.search.applied
@@ -610,7 +626,13 @@ fn quota_line(model: &Explorer) -> Line<'static> {
 
 fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
     let primary = if editing(model) {
-        "Help: Esc ends edit; Enter reads; Ctrl-C quits"
+        if model.restart_required()
+            && matches!(model.workspace(), Workspace::Explore | Workspace::Globe)
+        {
+            "Help: Esc ends edit; Esc then g restart; Enter applies; Ctrl-C quits"
+        } else {
+            "Help: Esc ends edit; Enter reads; Ctrl-C quits"
+        }
     } else {
         match model.workspace() {
             Workspace::Explore => HELP_PRIMARY,
@@ -625,7 +647,7 @@ fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
                 "Help: / edit IDs, Enter reads, arrows scroll, o recording metadata, q quit"
             }
             Workspace::Globe => {
-                "Help: h/l/j/k turn, m map, c center, arrows select, n/p page, q quit"
+                "Help: h/l/j/k turn, m map, c center, arrows select, n/p page, g first, q quit"
             }
         }
     };
@@ -1147,6 +1169,7 @@ mod tests {
                 coordinates: None,
             }],
             next_after: None,
+            catalog: None,
             quota: Some(QuotaView {
                 quota: 50,
                 charged: 5,
@@ -1391,6 +1414,7 @@ mod tests {
             directory: model.directory().cloned(),
             stations: model.rows().to_vec(),
             next_after: None,
+            catalog: None,
             quota: model.quota(),
             recordings: model.recordings().to_vec(),
             playback: model.playback().cloned(),
@@ -1615,6 +1639,59 @@ mod tests {
         assert_eq!(super::fit("東京ラジオ", 6), "東京~ ");
         assert_eq!(super::clip("a\u{1b}[2Jb", 8), "a[2Jb");
         assert_eq!(super::clip("abc", 0), "");
+    }
+
+    #[test]
+    fn stale_catalog_restart_is_visible_at_minimum_size_and_during_editing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut model = sample();
+        let mut desk = sample_desk_from(&model);
+        desk.catalog = Some(sigy_service::control::DirectoryCatalog {
+            namespace: "a".repeat(32),
+            revision: 5,
+            comparison: sigy_service::discovery::ordered::COMPARISON.into(),
+        });
+        model.apply_desk(desk);
+        for (width, height) in [(20, 8), (40, 12), (80, 24), (132, 40), (160, 50)] {
+            requested_snapshot(
+                &model,
+                &format!("ordered-catalog-{width}x{height}.json"),
+                width,
+                height,
+            )?;
+        }
+        model.note_cursor_changed();
+        for (width, height) in [(20, 8), (40, 12), (80, 24), (132, 40), (160, 50)] {
+            let (text, _) = frame(&model, width, height);
+            assert!(
+                text.contains("g first")
+                    || text.contains("g restart")
+                    || text.contains("g restarts"),
+                "{width}x{height}: {text}"
+            );
+            requested_snapshot(
+                &model,
+                &format!("ordered-stale-{width}x{height}.json"),
+                width,
+                height,
+            )?;
+        }
+        model.handle(Key::Char('/'));
+        for (width, height) in [(20, 8), (40, 12), (80, 24), (132, 40), (160, 50)] {
+            assert!(
+                frame(&model, width, height)
+                    .0
+                    .contains("Esc then g restart"),
+                "{width}x{height}"
+            );
+            requested_snapshot(
+                &model,
+                &format!("ordered-stale-edit-{width}x{height}.json"),
+                width,
+                height,
+            )?;
+        }
+        Ok(())
     }
 
     #[test]

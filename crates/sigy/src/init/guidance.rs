@@ -19,6 +19,7 @@ enum Kind {
     ServiceRequired,
     Busy,
     StationId,
+    StationCursor,
 }
 
 /// Replaces a bare failure with what happened and what to run next, when that is known.
@@ -41,6 +42,9 @@ pub fn explain(cli: &Cli, error: Failure) -> Failure {
         Kind::StationId => format!(
             "that is not a station ID. Station IDs are directory UUIDs; `sigy radio search`{same} prints one at the start of each result"
         ),
+        Kind::StationCursor => format!(
+            "the cached catalog or ordered search scope changed. Repeat `sigy radio search --order name`{same} with your filters and --limit, omitting --after to restart page 1. No directory refresh is needed"
+        ),
     };
     message.into()
 }
@@ -53,6 +57,9 @@ fn classify(error: &(dyn Error + 'static), command: &Command) -> Option<Kind> {
         ServiceError::ServiceRequired => Some(Kind::ServiceRequired),
         ServiceError::LibraryBusy => Some(Kind::Busy),
         ServiceError::InvalidInput("station UUID") => Some(Kind::StationId),
+        ServiceError::InvalidInput("ordered station cursor scope changed; restart search") => {
+            Some(Kind::StationCursor)
+        }
         ServiceError::Io(cause)
             if matches!(
                 command,
@@ -68,6 +75,12 @@ fn classify(error: &(dyn Error + 'static), command: &Command) -> Option<Kind> {
         }
         _ if remote(&ServiceError::NotFound) => Some(Kind::NotFound),
         _ if remote(&ServiceError::InvalidInput("station UUID")) => Some(Kind::StationId),
+        _ if remote(&ServiceError::InvalidInput(
+            "ordered station cursor scope changed; restart search",
+        )) =>
+        {
+            Some(Kind::StationCursor)
+        }
         _ => None,
     }
 }

@@ -1,5 +1,6 @@
 //! Bounded directory cache and refresh intent owned by the existing catalog actor.
 
+pub(crate) mod ordered;
 #[cfg(test)]
 mod tests;
 
@@ -212,13 +213,14 @@ impl Store {
                     &list.iter().map(|v| v.to_lowercase()).collect::<Vec<_>>(),
                 )?)
             };
-            tx.execute("INSERT INTO directory_stations(provider, id, metadata_json, endpoint, name_folded, country, languages_folded, tags_folded, healthy, refresh_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) ON CONFLICT(provider, id) DO UPDATE SET metadata_json=excluded.metadata_json, endpoint=excluded.endpoint, name_folded=excluded.name_folded, country=excluded.country, languages_folded=excluded.languages_folded, tags_folded=excluded.tags_folded, healthy=excluded.healthy, refresh_id=excluded.refresh_id", params![station.provider, station.id, json, source.endpoint(), station.name.to_lowercase(), station.country, folded(&station.languages)?, folded(&station.tags)?, station.last_check_ok, id])?;
+            tx.execute("INSERT INTO directory_stations(provider, id, metadata_json, endpoint, name_folded, country, languages_folded, tags_folded, healthy, refresh_id, name_ordered) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) ON CONFLICT(provider, id) DO UPDATE SET metadata_json=excluded.metadata_json, endpoint=excluded.endpoint, name_folded=excluded.name_folded, country=excluded.country, languages_folded=excluded.languages_folded, tags_folded=excluded.tags_folded, healthy=excluded.healthy, refresh_id=excluded.refresh_id, name_ordered=excluded.name_ordered", params![station.provider, station.id, json, source.endpoint(), station.name.to_lowercase(), station.country, folded(&station.languages)?, folded(&station.tags)?, station.last_check_ok, id, crate::discovery::countries::station_key(&station.name)?.as_bytes()])?;
         }
         let count: u32 =
             tx.query_row("SELECT count(*) FROM directory_stations", [], |r| r.get(0))?;
         if count > MAX_CACHED_STATIONS {
             return Err(Error::InvalidInput("directory cache capacity reached"));
         }
+        ordered::advance_catalog(&tx)?;
         tx.commit()?;
         Ok(())
     }
@@ -292,15 +294,22 @@ impl Store {
     /// Rejects unknown or invalid identities and corrupt cached metadata.
     pub fn set_station_favorite(&mut self, id: &str, favorite: bool) -> Result<()> {
         self.station(id)?;
-        if favorite {
-            self.connection.execute(
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = if favorite {
+            tx.execute(
                 "INSERT INTO station_favorites(provider, station_id) VALUES ('radio_browser', ?1) ON CONFLICT(provider, station_id) DO NOTHING", [id],
-            )?;
+            )?
         } else {
-            self.connection.execute(
+            tx.execute(
                 "DELETE FROM station_favorites WHERE provider = 'radio_browser' AND station_id = ?1", [id],
-            )?;
+            )?
+        };
+        if changed != 0 {
+            ordered::advance_catalog(&tx)?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -352,6 +361,7 @@ impl Store {
     }
 
     pub(crate) fn audit_discovery(&self) -> Result<()> {
+        self.directory_catalog()?;
         let status = self.directory_status()?;
         if status.cached_stations > MAX_CACHED_STATIONS {
             return Err(Error::SourceIntegrity);
@@ -360,7 +370,11 @@ impl Store {
             .connection
             .prepare("SELECT id FROM directory_stations")?;
         for row in query.query_map([], |r| r.get::<_, String>(0))? {
-            self.station(&row?)?;
+            let station = self.station(&row?)?;
+            let key: String = self.connection.query_row("SELECT name_ordered FROM directory_stations WHERE provider='radio_browser' AND id=?1", [&station.id], |r| ordered::blob_key(r, 0))?;
+            if key != crate::discovery::countries::station_key(&station.name)? {
+                return Err(Error::SourceIntegrity);
+            }
         }
         Ok(())
     }

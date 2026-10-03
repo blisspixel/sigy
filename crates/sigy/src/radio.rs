@@ -1,5 +1,5 @@
 use crate::style::{Ink, Tone, tone_for_state};
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use sigy_service::{
     control::{DirectoryOperation, Operation, Snapshot},
     discovery::{ClickRequest, RefreshRequest, StationFilter},
@@ -92,11 +92,14 @@ pub enum RadioCommand {
         /// Only stations explicitly saved as favorites. Combines with all other filters.
         #[arg(long)]
         favorites: bool,
+        /// id preserves UUID order; name uses the pinned Unicode name key with UUID ties.
+        #[arg(long, value_enum, default_value_t = StationOrder::Id)]
+        order: StationOrder,
         /// Stations per page, 1 to 16.
         #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u32).range(1..=16))]
         limit: u32,
-        /// Continue after this station ID, as printed at the end of the previous page.
-        #[arg(long)]
+        /// With id: station UUID. With name: opaque cursor, same filters and limit; changed cache requires restart without --after.
+        #[arg(long, value_parser = search_cursor)]
         after: Option<String>,
     },
     /// Inspect cached station metadata. Does not tune or record.
@@ -149,6 +152,19 @@ pub enum RadioCommand {
         #[command(subcommand)]
         command: PolicyCommand,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum StationOrder {
+    Id,
+    Name,
+}
+
+fn search_cursor(value: &str) -> Result<String, String> {
+    if value.is_empty() || value.len() > sigy_service::discovery::ordered::MAX_CURSOR_BYTES {
+        return Err("station continuation exceeds its bounded cursor size".into());
+    }
+    Ok(value.into())
 }
 
 #[derive(Debug, Subcommand)]
@@ -221,11 +237,20 @@ impl RadioCommand {
                 favorites,
                 limit,
                 after,
-            } => DirectoryOperation::Search {
-                filter: filters.filter()?,
-                favorites_only: *favorites,
-                after: after.clone(),
-                limit: *limit,
+                order,
+            } => match order {
+                StationOrder::Id => DirectoryOperation::Search {
+                    filter: filters.filter()?,
+                    favorites_only: *favorites,
+                    after: after.clone(),
+                    limit: *limit,
+                },
+                StationOrder::Name => DirectoryOperation::SearchOrdered {
+                    filter: filters.filter()?,
+                    favorites_only: *favorites,
+                    after: after.clone(),
+                    limit: *limit,
+                },
             },
             Self::Show { id } => DirectoryOperation::Show { id: id.clone() },
             Self::Favorite { id } => DirectoryOperation::SetFavorite {
@@ -453,6 +478,9 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
     if let Some(page) = &view.station_page {
         write_stations(writer, page, ink)?;
     }
+    if let Some(page) = &view.ordered_station_page {
+        write_ordered_stations(writer, page, ink)?;
+    }
     Ok(())
 }
 
@@ -565,6 +593,35 @@ fn write_stations(
             writer,
             "Continue with the same filters and --after {}",
             clean(after)
+        )?;
+    }
+    Ok(())
+}
+
+fn write_ordered_stations(
+    writer: &mut impl Write,
+    page: &sigy_service::control::OrderedStationPage,
+    ink: Ink,
+) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Name order, UUID ties | partial local cache revision {}.",
+        page.catalog.revision
+    )?;
+    let legacy = sigy_service::control::StationPage {
+        entries: page.entries.clone(),
+        favorite_ids: page.favorite_ids.clone(),
+        next_after: None,
+    };
+    write_stations(writer, &legacy, ink)?;
+    if let Some(cursor) = &page.next_after {
+        writeln!(
+            writer,
+            "Continue with --order name, the same filters and --limit, and --after {}",
+            crate::explorer::text::sanitize(
+                cursor,
+                sigy_service::discovery::ordered::MAX_CURSOR_BYTES
+            )
         )?;
     }
     Ok(())
@@ -811,6 +868,85 @@ mod tests {
         bytes = Vec::new();
         render(&mut bytes, &view, Ink::stdout(true))?;
         assert!(String::from_utf8(bytes)?.contains("acknowledged yes"));
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_name_order_keeps_legacy_id_default_and_bounds_opaque_input() -> TestResult {
+        use clap::Parser;
+        for (order, ordered) in [(None, false), (Some("id"), false), (Some("name"), true)] {
+            let mut words = vec![
+                "sigy",
+                "radio",
+                "search",
+                "--after",
+                "00000000-0000-4000-8000-000000000001",
+            ];
+            if let Some(order) = order {
+                words.extend(["--order", order]);
+            }
+            let cli = crate::Cli::try_parse_from(words)?;
+            let crate::Command::Radio { command } = cli.command else {
+                return Err("radio command".into());
+            };
+            assert_eq!(
+                matches!(
+                    command.operation()?,
+                    Operation::Radio {
+                        command: DirectoryOperation::SearchOrdered { .. }
+                    }
+                ),
+                ordered
+            );
+        }
+        let cursor = "a".repeat(sigy_service::discovery::ordered::MAX_CURSOR_BYTES);
+        assert!(
+            crate::Cli::try_parse_from([
+                "sigy", "radio", "search", "--order", "name", "--after", &cursor
+            ])
+            .is_ok()
+        );
+        assert!(
+            crate::Cli::try_parse_from([
+                "sigy",
+                "radio",
+                "search",
+                "--order",
+                "name",
+                "--after",
+                &(cursor + "a")
+            ])
+            .is_err()
+        );
+        assert!(
+            crate::Cli::try_parse_from(["sigy", "radio", "search", "--order", "popularity"])
+                .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ordered_output_and_json_preserve_the_complete_bounded_cursor() -> TestResult {
+        let cursor = "af".repeat(4096);
+        let page = sigy_service::control::OrderedStationPage {
+            entries: Vec::new(),
+            favorite_ids: Vec::new(),
+            next_after: Some(cursor.clone()),
+            catalog: sigy_service::control::DirectoryCatalog {
+                namespace: "a".repeat(32),
+                revision: 7,
+                comparison: sigy_service::discovery::ordered::COMPARISON.into(),
+            },
+        };
+        let mut bytes = Vec::new();
+        write_ordered_stations(&mut bytes, &page, Ink::stdout(true))?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.contains(&cursor));
+        assert!(text.contains("--order name"));
+        assert!(text.contains("No cached matches"));
+        let restored: sigy_service::control::OrderedStationPage =
+            serde_json::from_str(&serde_json::to_string(&page)?)?;
+        assert_eq!(restored.next_after.as_deref(), Some(cursor.as_str()));
         Ok(())
     }
 

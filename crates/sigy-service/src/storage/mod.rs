@@ -44,7 +44,7 @@ mod widen;
 mod widen_tests;
 pub(crate) mod withdrawals;
 
-pub const SCHEMA_VERSION: u32 = 47;
+pub const SCHEMA_VERSION: u32 = 48;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -317,6 +317,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=46).contains(&version) {
         tasks::run::migrate_047(transaction)?;
+    }
+    if (0..=47).contains(&version) {
+        discovery::ordered::migrate_048(transaction)?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

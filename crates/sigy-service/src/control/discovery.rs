@@ -1,4 +1,5 @@
 use super::{Operation, Snapshot, SourcePage};
+pub use crate::discovery::ordered::{DirectoryCatalog, OrderedStationPage};
 use crate::{
     Error, Result,
     discovery::{RefreshRequest, Station, StationFilter},
@@ -23,6 +24,13 @@ pub enum DirectoryOperation {
     },
     Status {},
     Search {
+        filter: StationFilter,
+        #[serde(default)]
+        favorites_only: bool,
+        after: Option<String>,
+        limit: u32,
+    },
+    SearchOrdered {
         filter: StationFilter,
         #[serde(default)]
         favorites_only: bool,
@@ -119,6 +127,9 @@ impl StationPage {
 }
 
 pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Snapshot> {
+    if matches!(command, DirectoryOperation::SearchOrdered { .. }) {
+        return apply_ordered(store, command);
+    }
     let mut view = super::snapshot(store)?;
     let listed = matches!(
         &command,
@@ -140,6 +151,7 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
             (None, None)
         }
         DirectoryOperation::Status {} => (None, None),
+        DirectoryOperation::SearchOrdered { .. } => return Err(Error::RequestState),
         DirectoryOperation::Search {
             filter,
             favorites_only,
@@ -203,7 +215,28 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
     };
     attach_policies(&mut view, store, disposition, selected.as_deref(), listed)?;
     view.directory = Some(store.directory_status()?);
+    view.directory_catalog = Some(store.directory_catalog()?);
     Ok(view)
+}
+
+fn apply_ordered(store: &Store, command: DirectoryOperation) -> Result<Snapshot> {
+    let DirectoryOperation::SearchOrdered {
+        filter,
+        favorites_only,
+        after,
+        limit,
+    } = command
+    else {
+        return Err(Error::RequestState);
+    };
+    store.guarded_directory_read(|store| {
+        let mut view = super::snapshot(store)?;
+        let page =
+            store.ordered_stations_in_work(&filter, favorites_only, after.as_deref(), limit)?;
+        view.directory_catalog = Some(page.catalog.clone());
+        view.ordered_station_page = Some(page);
+        Ok(view)
+    })
 }
 
 fn map_save(result: SaveResult) -> PolicyDisposition {

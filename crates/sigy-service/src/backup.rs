@@ -287,6 +287,7 @@ fn stage(source: &Path, staging: &Path, manifest: &BackupManifest) -> Result<()>
     }
     // Opening runs migrations and the catalog audits; the lock is released on drop.
     let library = Library::open(staging, false)?;
+    library.store().renew_directory_namespace()?;
     if !library.store().integrity_ok()? {
         return Err(Error::CatalogIntegrity);
     }

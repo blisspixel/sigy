@@ -34,6 +34,7 @@ CREATE TRIGGER task_run_event_snapshot_clock BEFORE INSERT ON task_run_events WH
 /// Only legacy fixture history can be represented in the old schema.
 #[cfg(test)]
 pub(in crate::storage) fn revert_047_for_tests(connection: &Connection) -> Result<()> {
+    crate::storage::discovery::ordered::revert_048_for_tests(connection)?;
     let newer: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM pragma_table_info('task_runs') WHERE name='origin')",
         [],

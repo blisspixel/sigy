@@ -1,6 +1,6 @@
 # Recording envelopes and signal-specific metadata
 
-Updated: 2026-09-21. The HTTP audio export below is implemented. Other profiles are planned contracts, not supported adapters.
+Updated: 2026-10-03. The HTTP audio export below is implemented. Other profiles are planned contracts, not supported adapters.
 
 ## Common envelope
 
@@ -38,6 +38,16 @@ Radio captures may contain multiple channels or a changing tuning configuration.
 For RF sample interchange, implement and validate a SigMF projection rather than inventing an incompatible sample-file standard. Keep Sigy's application envelope for lifecycle, policies, source ancestry and derived artifacts. Do not claim SigMF compliance until both the chosen specification schema and sample layout pass interoperability tests. [Research](../../research/26-recording-discovery-and-rf.md).
 
 ## Receiver exploration roadmap
+
+### Receive-only source qualification
+
+The planned listening session consumes a declared audio artifact, not arbitrary RF data. Raw IQ retains sample representation, sample indices, sample rate, tuning epochs and discontinuities. Demodulated audio is a derivative with exact parent ranges, demodulator/version/settings, resampling alignment, group delay where established and propagated gaps. Retaining audio alone does not preserve the RF observation for another decoder. Show which original remains available and reserve IQ and audio storage separately. A sample index maps to UTC only through an observed clock relationship with stated uncertainty.
+
+A Meshtastic node client observes versioned packets delivered by that node. It does not inherently observe raw IQ, every over-air frame or all traffic during disconnection. Preserve local receipt time separately from device/payload time, interface and firmware identity, configuration epoch, packet identifiers, channel context, payload visibility and authentication status. Repeat reception and separate messages remain distinguishable; bounded deduplication must not erase distinct receive evidence. Node-reported positions and RSSI/SNR remain attributed observations with units and missing-value states.
+
+Receive-only is an operational evidence gate. HackRF Pro documents a hardware transmit-disable facility; its exact setup and effectiveness require actual-device qualification. Meshtastic documents `tx_enabled`, whose default is true; `CLIENT_MUTE` alone does not establish no transmission. A future node adapter requires an explicitly prepared, supported receive-only configuration before attachment, a narrowly allowlisted local-interface handshake and refusal on unknown configuration or drift. It must not issue mesh messages, acknowledgments requested by the client, administrative mutations, node queries over RF or MQTT forwarding. Firmware may have independent behavior, so absence of application send calls is insufficient proof. If required state cannot be verified without transmitting, refuse that live profile and offer offline observation import. [Dated primary-source research](../../research/42-calm-listening-and-receive-only-sources.md).
+
+Before supporting either family, pin the exact device/firmware/driver/backend, test startup and reconnect behavior, unplug/reboot, cancellation/drain, exclusive tuner ownership, slow consumers and bounded storage. Check RF silence using an independent receiver or appropriate instrumentation through startup, receive traffic and reconnect. Synthetic protocol fixtures prove parsing and state transitions only. Transmit APIs are absent from the first adapter contract; they are not hidden behind a disabled UI control.
 
 Expose device capabilities before enabling controls: tunable ranges, instantaneous bandwidth, sample formats/rates, supported demodulators, gain controls and exclusivity. Validate requested profiles against device capabilities. One tuner cannot independently receive arbitrary simultaneous bands; channelization is possible only within the actually sampled span and measured processing budget.
 

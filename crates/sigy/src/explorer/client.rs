@@ -28,6 +28,13 @@ pub async fn load_desk(
     let (via_status, status) = fetch(directory, Operation::Status {}).await?;
     let (via_radio, radio) = fetch(directory, radio_status()).await?;
     let (via_search, search) = fetch(directory, search_operation(query)).await?;
+    let page = search
+        .ordered_station_page
+        .as_ref()
+        .ok_or(Error::Protocol("ordered station page missing"))?;
+    if search.directory_catalog.as_ref() != Some(&page.catalog) {
+        return Err(Error::Protocol("ordered station catalog mismatch"));
+    }
     let (via_quota, quota) = fetch(directory, quota_operation()).await?;
     let (via_records, records) = fetch(directory, recording_operation()).await?;
     Ok(assemble(
@@ -103,19 +110,7 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
             generation,
             id,
             favorite,
-        } => {
-            let operation = favorite_operation(id, *favorite);
-            let generation = *generation;
-            let id = id.clone();
-            let favorite = *favorite;
-            apply_fetched(directory, model, operation, move |model, snapshot| {
-                let directory_view = snapshot.directory.as_ref().map(directory_status);
-                if !model.apply_favorite(generation, &id, favorite, directory_view) {
-                    model.note_message("An older favorite request answered late and was ignored.");
-                }
-            })
-            .await
-        }
+        } => set_favorite(directory, model, *generation, id, *favorite).await,
     }
 }
 
@@ -222,9 +217,47 @@ async fn read_monitor(directory: &Path, model: &mut Explorer, id: &str) -> Resul
 }
 
 async fn reload(directory: &Path, model: &mut Explorer) -> Result<(), Error> {
-    match load_desk(directory, &model.current_search(), model.now_ms()).await {
+    match Box::pin(load_desk(
+        directory,
+        &model.current_search(),
+        model.now_ms(),
+    ))
+    .await
+    {
         Ok(desk) => model.apply_desk(desk),
         Err(error) => report(model, &error),
+    }
+    Ok(())
+}
+
+async fn set_favorite(
+    directory: &Path,
+    model: &mut Explorer,
+    generation: u64,
+    id: &str,
+    saved: bool,
+) -> Result<(), Error> {
+    match fetch(directory, favorite_operation(id, saved)).await {
+        Ok((via_service, snapshot)) => {
+            let Some(catalog) = &snapshot.directory_catalog else {
+                let _ = model.fail_favorite(generation, "Favorite reply omitted catalog identity; previous rows kept. g rereads cached page 1.");
+                return Ok(());
+            };
+            if model.apply_ordered_favorite(
+                generation,
+                id,
+                saved,
+                snapshot.directory.as_ref().map(directory_status),
+                catalog,
+            ) {
+                model.note_link(link_from(via_service, &snapshot));
+            }
+        }
+        Err(error) => {
+            if model.fail_favorite(generation, &error.to_string()) {
+                report(model, &error);
+            }
+        }
     }
     Ok(())
 }
@@ -232,18 +265,26 @@ async fn reload(directory: &Path, model: &mut Explorer) -> Result<(), Error> {
 async fn search(directory: &Path, model: &mut Explorer, query: &SearchQuery) -> Result<(), Error> {
     match fetch(directory, search_operation(query)).await {
         Ok((via_service, snapshot)) => {
-            let Some(page) = snapshot.station_page.as_ref() else {
+            let Some(page) = snapshot.ordered_station_page.as_ref() else {
                 let _ = model.fail_search(
                     query.generation,
                     "The search returned no page; the previous list is kept.",
                 );
                 return Ok(());
             };
-            if model.apply_search(
+            if snapshot.directory_catalog.as_ref() != Some(&page.catalog) {
+                let _ = model.fail_search(
+                    query.generation,
+                    "Catalog metadata disagrees; the previous list is kept.",
+                );
+                return Ok(());
+            }
+            if model.apply_ordered_search(
                 query.generation,
                 rows_from(page),
                 directory_from(&snapshot),
                 page.next_after.clone(),
+                &page.catalog,
             ) {
                 model.note_link(link_from(via_service, &snapshot));
             }
@@ -290,6 +331,10 @@ async fn fetch(directory: &Path, operation: Operation) -> Result<(bool, Snapshot
 
 fn report(model: &mut Explorer, error: &Error) {
     let message = error.to_string();
+    if message.contains("ordered station cursor scope changed") {
+        model.note_cursor_changed();
+        return;
+    }
     if lost(error) {
         model.note_disconnect(model.now_ms(), &message);
     } else {
@@ -314,12 +359,12 @@ fn assemble(
     records: &Snapshot,
 ) -> Desk {
     let stations = search
-        .station_page
+        .ordered_station_page
         .as_ref()
         .map(rows_from)
         .unwrap_or_default();
     let next_after = search
-        .station_page
+        .ordered_station_page
         .as_ref()
         .and_then(|page| page.next_after.clone());
     Desk {
@@ -353,13 +398,17 @@ fn assemble(
         captures_interrupted: status.captures.interrupted,
         captures_terminal: status.captures.terminal,
         dispatch_available: status.captures.dispatch_available,
-        directory: radio
+        directory: search
             .directory
             .as_ref()
             .map(directory_status)
-            .or_else(|| search.directory.as_ref().map(directory_status)),
+            .or_else(|| radio.directory.as_ref().map(directory_status)),
         stations,
         next_after,
+        catalog: search
+            .ordered_station_page
+            .as_ref()
+            .map(|page| page.catalog.clone()),
         quota: quota.dvr.as_ref().map(quota_from),
         recordings: records
             .recording_page
@@ -427,7 +476,7 @@ fn directory_status(status: &sigy_service::storage::discovery::DirectoryStatus) 
     }
 }
 
-fn rows_from(page: &sigy_service::control::StationPage) -> Vec<StationRow> {
+fn rows_from(page: &sigy_service::control::OrderedStationPage) -> Vec<StationRow> {
     page.entries
         .iter()
         .map(|station| StationRow {
@@ -493,7 +542,7 @@ fn radio_status() -> Operation {
 
 fn search_operation(query: &SearchQuery) -> Operation {
     Operation::Radio {
-        command: DirectoryOperation::Search {
+        command: DirectoryOperation::SearchOrdered {
             filter: query.filter.clone(),
             favorites_only: query.favorites_only,
             after: query.after.clone(),
@@ -574,7 +623,7 @@ mod tests {
             Operation::Radio { command } => !matches!(
                 command,
                 DirectoryOperation::Status {}
-                    | DirectoryOperation::Search { .. }
+                    | DirectoryOperation::SearchOrdered { .. }
                     | DirectoryOperation::SetFavorite { .. }
             ),
             Operation::Dvr { command } => !matches!(command, DvrOperation::Status {}),
@@ -633,7 +682,7 @@ mod tests {
                 after: None,
             }),
             Operation::Radio {
-                command: DirectoryOperation::Search { .. }
+                command: DirectoryOperation::SearchOrdered { .. }
             }
         ));
         assert!(matches!(
@@ -677,7 +726,7 @@ mod tests {
         assert!(reload.iter().any(|operation| matches!(
             operation,
             Operation::Radio {
-                command: DirectoryOperation::Search { after: Some(after), favorites_only: true, .. }
+                command: DirectoryOperation::SearchOrdered { after: Some(after), favorites_only: true, .. }
             } if after == "cursor-1"
         )));
         assert!(reload.iter().all(|operation| !forbidden(operation)));

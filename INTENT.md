@@ -24,6 +24,8 @@ Build durable knowledge from exact evidence: searchable originals, attributed cl
 
 It should make it enjoyable to explore world radio, straightforward to record several sources, and possible to understand broadcasts through live transcription, translation, and topic monitoring. A user should be able to ask to follow a subject, set boundaries, and return to useful findings with inspectable source evidence.
 
+The 2026-10-03 clarification also calls for calm, absorbed listening: choose a source, settle into its sound and original language, and inspect context when wanted. A focused listening session preserves a dependable player and return path without requiring an operations dashboard. Browsing another station never replaces the audible source or starts a connection. Playback, background capture and analysis remain separately explicit. The same experience later accommodates receive-only SDR audio and LoRa packet inspection, while keeping raw samples, derived sound and messages distinct. [Listening sessions](docs/design/terminal-experience.md#calm-listening-sessions) defines the proposed transitions and staged implementation.
+
 Curiosity and play are part of the product. Discovering unfamiliar music, inspecting a signal, practicing Morse, or stepping through an Enigma machine should be satisfying in its own right. A historical cipher feature does not need an operational justification to belong here.
 
 Receiver personalities such as a CB channel scanner, AM/FM dial and shortwave or spectrum desk should make unfamiliar signals approachable. They share source, capture and interpretation contracts rather than becoming separate applications. Temporary capture for local analysis is a normal workflow; keeping a permanent recording is optional.

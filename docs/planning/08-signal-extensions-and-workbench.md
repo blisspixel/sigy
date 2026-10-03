@@ -1,6 +1,6 @@
 # Signal extensions and workbench
 
-Last updated: 2026-09-22. Status: proposed design for confirmed extension, Morse, historical cipher, and modern cryptography requirements. Roadmap stages 11 and 12 remain future work; implementation technologies remain open.
+Last updated: 2026-10-03. Status: proposed design for confirmed extension, Morse, historical cipher, and modern cryptography requirements. Roadmap stages 11 and 12 remain future work; implementation technologies remain open.
 
 ## 1. Product intent
 
@@ -11,6 +11,8 @@ The first release retains its confirmed radio, recording, live translation, and 
 Supporting a new source should usually mean adding an adapter and its tests. Supporting a new interpretation should usually mean adding a transform with declared input/output types. Neither should require duplicating the library, scheduler, CLI operations, or evidence model.
 
 The [recording metadata and receiver design](../design/recording-metadata.md) defines the implemented audio export and planned typed RF, packet and measurement profiles. CB channel scan, AM/FM dial, shortwave exploration and laboratory views are receive-only presentations of shared capabilities. Internet radio and podcasts precede device integration. Energy detection, demodulation, protocol decoding and interpretation remain separate stages; unknown signals are valid results.
+
+The 2026-10-03 clarification connects future receivers to [calm listening sessions](../design/terminal-experience.md#calm-listening-sessions): audio derivatives can use the same explicit player, while IQ and packet sources open their appropriate inspectors. Browsing a device view grants no scan, retune, configuration change or transmission. [Receive-only qualification](../design/recording-metadata.md#receive-only-source-qualification) applies to actual firmware and hardware behavior, including autonomous mesh traffic; an application that exposes no send button is insufficient. [Research42](../../research/42-calm-listening-and-receive-only-sources.md) records the primary-source constraints and staged alternatives without selecting a device backend.
 
 ## 2. Extension roles
 

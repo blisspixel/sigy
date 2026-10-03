@@ -70,7 +70,7 @@ fn combined_filters_change_results_only_after_their_matching_response() {
     assert_eq!(model.current_search().filter, StationFilter::default());
     let operations = operations_for(&Effect::Search(query.clone()), &model);
     assert!(
-        matches!(operations.as_slice(), [Operation::Radio { command: DirectoryOperation::Search { filter, favorites_only: true, after: None, limit: 16 } }] if *filter == query.filter)
+        matches!(operations.as_slice(), [Operation::Radio { command: DirectoryOperation::SearchOrdered { filter, favorites_only: true, after: None, limit: 16 } }] if *filter == query.filter)
     );
     assert!(apply(&mut model, &query, "station-a", Some("station-a")));
     assert_eq!(model.current_search().filter, query.filter);
@@ -119,7 +119,7 @@ fn reload_and_paging_use_applied_filters_while_drafts_can_be_cancelled() {
     model.handle(Key::ClearInput);
     model.handle(Key::Paste("FR".into()));
     let reload = operations_for(&Effect::Reload, &model);
-    assert!(reload.iter().any(|operation| matches!(operation, Operation::Radio { command: DirectoryOperation::Search { filter, after: Some(after), .. } } if filter.country == "CA" && filter.name.is_empty() && after == "b")));
+    assert!(reload.iter().any(|operation| matches!(operation, Operation::Radio { command: DirectoryOperation::SearchOrdered { filter, after: Some(after), .. } } if filter.country == "CA" && filter.name.is_empty() && after == "b")));
     model.handle(Key::Escape);
     assert_eq!(model.query(), "");
     let Effect::Search(reset) = model.handle(Key::Char('x')) else {
