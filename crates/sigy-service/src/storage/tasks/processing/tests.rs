@@ -21,6 +21,7 @@ use crate::{
 };
 
 mod admission;
+mod bounded_evidence;
 mod evidence;
 mod lineage;
 mod recovery;

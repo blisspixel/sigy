@@ -4,11 +4,11 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::{Store, validate_key};
+use crate::storage::query_work::{Limits, QueryWork};
 use crate::{
     Error, Result,
-    monitor::{MATCH_PAGE, MonitorTerm, searches_english, term_matches},
+    monitor::MonitorTerm,
     task::{
-        TaskCitation,
         collection::{TaskCaptureSpec, TaskCollectionCapture, TaskCollectionView},
         evidence::{
             EVIDENCE_TEMPLATE, TaskEvidenceEntry, TaskEvidenceStage, TaskEvidenceView, TaskOutcome,
@@ -16,6 +16,7 @@ use crate::{
         processing::{TaskProcessingStep, TaskProcessingView},
     },
 };
+use std::time::Duration;
 
 const ACTIVE_JOBS: [&str; 3] = ["queued", "running", "cancelling"];
 const TERMINAL_CAPTURES: [&str; 3] = ["failed", "interrupted", "cancelled"];
@@ -76,68 +77,9 @@ fn translated(connection: &Connection, job: &str) -> Result<Option<(i64, u32, u3
         .optional()?)
 }
 
-struct Matching<'a> {
-    terms: &'a [MonitorTerm],
-    citations: Vec<TaskCitation>,
-    more: bool,
-}
-
-impl Matching<'_> {
-    /// Cite each cue of the exact revision once when any frozen literal term matches.
-    fn scan(
-        &mut self,
-        connection: &Connection,
-        source: &str,
-        recording: &str,
-        heard: &Heard,
-        translation: Option<i64>,
-    ) -> Result<()> {
-        let mut statement = connection.prepare(
-            "SELECT c.ordinal, c.start_us, c.end_us, c.script, e.english FROM transcript_cues c LEFT JOIN translation_cues e ON e.transcript_id = c.transcript_id AND e.transcript_revision = c.revision AND e.revision = ?3 AND e.ordinal = c.ordinal AND e.state = 'translated' WHERE c.transcript_id = ?1 AND c.revision = ?2 ORDER BY c.ordinal",
-        )?;
-        let cues = statement
-            .query_map(
-                params![heard.transcript_id, heard.revision, translation],
-                |row| {
-                    Ok((
-                        row.get::<_, u32>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                    ))
-                },
-            )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (ordinal, start, end, script, english) in cues {
-            let matched = self.terms.iter().any(|term| {
-                term_matches(&term.text, &script)
-                    || (searches_english(&term.language)
-                        && english
-                            .as_ref()
-                            .is_some_and(|text| term_matches(&term.text, text)))
-            });
-            if !matched {
-                continue;
-            }
-            if self.citations.len() == MATCH_PAGE {
-                self.more = true;
-                return Ok(());
-            }
-            self.citations.push(TaskCitation {
-                source: source.to_owned(),
-                recording_id: recording.to_owned(),
-                transcript_id: heard.transcript_id.clone(),
-                transcript_revision: heard.revision,
-                translation_revision: translation,
-                cue_ordinal: ordinal,
-                start_us: micros(start)?,
-                end_us: micros(end)?,
-            });
-        }
-        Ok(())
-    }
-}
+mod matching;
+pub(in crate::storage) use matching::Bounds;
+use matching::Matching;
 
 /// Current authority for future task effects; holds are permanent except a clock hold.
 struct Authority<'a> {
@@ -159,6 +101,9 @@ impl Authority<'_> {
     fn processing_hold(&self) -> Option<&'static str> {
         match self.processing {
             None => Some("processing-not-granted"),
+            Some(view) if view.hold_reason.as_deref() == Some("task-interest-withdrawn") => {
+                Some("processing-interest-withdrawn")
+            }
             Some(view) if view.cancelled => Some("processing-cancelled"),
             Some(view) if !view.scope_current => Some("scope-changed"),
             Some(_) => None,
@@ -190,12 +135,54 @@ impl Store {
     /// # Errors
     /// Refuses a missing task or invalid stored task, collection or processing records.
     pub fn task_evidence(&self, id: &str) -> Result<Option<TaskEvidenceView>> {
+        self.task_evidence_bounded(id, Bounds::default())
+    }
+
+    pub(in crate::storage) fn task_evidence_bounded(
+        &self,
+        id: &str,
+        bounds: Bounds,
+    ) -> Result<Option<TaskEvidenceView>> {
+        let work = QueryWork::start(
+            &self.connection,
+            Limits {
+                wall: Duration::from_millis(100),
+                vm_ops: 4_000_000,
+                lock_wait: Duration::from_millis(10),
+            },
+        )?;
+        let result = if bounds == Bounds::default() {
+            self.task_evidence_in_work(id, &work)
+        } else {
+            self.task_evidence_scan(id, bounds, &work)
+        };
+        work.finish()?;
+        result
+    }
+
+    pub(in crate::storage) fn task_evidence_in_work(
+        &self,
+        id: &str,
+        work: &QueryWork<'_>,
+    ) -> Result<Option<TaskEvidenceView>> {
+        self.task_evidence_scan(id, Bounds::default(), work)
+    }
+
+    fn task_evidence_scan(
+        &self,
+        id: &str,
+        bounds: Bounds,
+        work: &QueryWork<'_>,
+    ) -> Result<Option<TaskEvidenceView>> {
+        work.check_connection(&self.connection)?;
         validate_key(id, "task ID")?;
-        let task = self.task(id)?;
+        let task = evidence_task(self, id)?;
         let Some(collection) = self.task_collection(id)? else {
+            work.check()?;
             return Ok(None);
         };
         let processing = self.task_processing(id)?;
+        work.check()?;
         let terms = self
             .monitor_version(&task.spec.monitor_id, task.spec.monitor_version)?
             .spec
@@ -204,11 +191,7 @@ impl Store {
             collection: &collection,
             processing: processing.as_ref(),
         };
-        let mut matching = Matching {
-            terms: &terms,
-            citations: Vec::new(),
-            more: false,
-        };
+        let mut matching = Matching::new(&terms, bounds, work);
         let mut entries = Vec::with_capacity(collection.captures.len());
         for (ordinal, (planned, capture)) in collection
             .spec
@@ -232,8 +215,8 @@ impl Store {
                 reasons.push(reason.clone());
             }
         }
-        if matching.more {
-            reasons.push("citations-truncated".into());
+        if let Some(reason) = matching.stop_reason() {
+            reasons.push(reason.into());
         }
         let total = |value: fn(&TaskEvidenceEntry) -> u64| -> Result<u64> {
             entries
@@ -241,7 +224,10 @@ impl Store {
                 .try_fold(0_u64, |sum, entry| sum.checked_add(value(entry)))
                 .ok_or(Error::StorageIntegrity)
         };
-        let outcome = if entries.iter().any(|entry| entry.pending) {
+        work.check()?;
+        let outcome = if matching.more {
+            TaskOutcome::Partial
+        } else if entries.iter().any(|entry| entry.pending) {
             TaskOutcome::Pending
         } else if !reasons.is_empty() {
             TaskOutcome::Partial
@@ -440,4 +426,21 @@ impl Store {
         }
         Ok(Some(revision))
     }
+}
+
+/// Validates the frozen scope without rebuilding an unrelated broad checkpoint.
+pub(super) fn evidence_task(store: &Store, id: &str) -> Result<crate::task::TaskView> {
+    let (spec, scope_sha256, monitor_spec_sha256, created_ms) = store.checked_task_scope(id)?;
+    Ok(crate::task::TaskView {
+        id: id.into(),
+        scope_current: super::scope_current(store, &spec)?,
+        spec,
+        scope_sha256,
+        monitor_spec_sha256,
+        created_ms,
+        checkpoint: 0,
+        latest_checkpoint: None,
+        template: crate::task::TASK_TEMPLATE.into(),
+        paid_allowance_usd: "0.000000".into(),
+    })
 }

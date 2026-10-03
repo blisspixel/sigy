@@ -66,7 +66,7 @@ impl Store {
     pub fn task_collection(&self, id: &str) -> Result<Option<TaskCollectionView>> {
         validate_key(id, "task ID")?;
         audit::validate_markers(&self.connection)?;
-        let task = self.task(id)?;
+        let task = super::super::evidence::evidence_task(self, id)?;
         let Some(grant) = read_grant(&self.connection, id)? else {
             return Ok(None);
         };

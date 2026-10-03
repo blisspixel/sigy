@@ -423,7 +423,7 @@ impl Store {
         let Some(grant) = read_grant(&self.connection, id)? else {
             return Ok(None);
         };
-        let task = self.task(id)?;
+        let task = super::evidence::evidence_task(self, id)?;
         let cancelled = cancellation(&self.connection, id, &grant)?;
         let steps = stored_steps(&self.connection, id)?;
         audit::validate_steps(&self.connection, id, &grant, &steps)?;

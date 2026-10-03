@@ -33,6 +33,7 @@ pub(crate) mod interests;
 pub(crate) mod job_pool;
 pub(crate) mod monitors;
 pub(crate) mod providers;
+pub(crate) mod query_work;
 pub(crate) mod schedules;
 pub mod sources;
 pub(crate) mod tasks;
