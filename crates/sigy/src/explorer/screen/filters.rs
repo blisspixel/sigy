@@ -141,7 +141,7 @@ pub(super) fn summary(scope: &Scope) -> String {
     }
 }
 
-fn tail(value: &str, cells: usize) -> String {
+pub(super) fn tail(value: &str, cells: usize) -> String {
     if cells == 0 {
         return String::new();
     }

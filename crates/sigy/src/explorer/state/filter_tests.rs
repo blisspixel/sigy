@@ -267,6 +267,30 @@ fn empty_cache_still_selects_every_reference_country_and_name_resolves() {
 }
 
 #[test]
+fn pending_station_response_cannot_relabel_a_new_country_draft_or_newer_results() {
+    let mut model = loaded();
+    let initial = country(&mut model, "CA");
+    model.handle(Key::Escape);
+    model.handle(Key::Char('C'));
+    model.handle(Key::Paste("Congo".into()));
+    model.handle(Key::Down);
+    model.handle(Key::Enter);
+    assert_eq!(model.search.draft.filter.country, "CG");
+    assert!(apply(&mut model, &initial, "ca", None));
+    assert_eq!(model.current_search().filter.country, "CA");
+    assert_eq!(model.search.draft.filter.country, "CG");
+    let Effect::Search(newer) = model.handle(Key::Enter) else {
+        panic!("country apply");
+    };
+    assert!(!apply(&mut model, &initial, "old", None));
+    assert_eq!(model.current_search().filter.country, "CA");
+    assert!(apply(&mut model, &newer, "cg", None));
+    assert_eq!(model.current_search().filter.country, "CG");
+    assert_eq!(model.selected().map(|row| row.id.as_str()), Some("cg"));
+    assert!(model.playback().is_none());
+}
+
+#[test]
 fn failed_reads_are_fenced_and_preserve_rows_draft_and_applied_scope() {
     let mut model = loaded();
     let first = country(&mut model, "CA");

@@ -24,9 +24,12 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, picker: &Picker) {
             } else {
                 "Countries and territories: offline worldwide reference"
             }),
-            Line::raw(super::clip(
-                &format!("Find: {}", sanitize(&picker.query, 128)),
-                usize::from(area.width),
+            Line::raw(format!(
+                "Find: {}",
+                super::filters::tail(
+                    &sanitize(&picker.query, 128),
+                    usize::from(area.width).saturating_sub(6)
+                )
             )),
         ]),
         panes[0],
@@ -67,23 +70,8 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, picker: &Picker) {
         )));
     }
     frame.render_widget(Paragraph::new(lines), panes[1]);
-    let page_status = picker.page.as_ref().map_or_else(
-        || "Reference unavailable".to_owned(),
-        |page| {
-            format!(
-                "{} candidates | {} | {}",
-                page.total_candidates,
-                page.display_locale,
-                if page.next_after.is_some() {
-                    "more >"
-                } else {
-                    "last page"
-                }
-            )
-        },
-    );
     let mut footer = vec![Line::raw(super::clip(
-        &page_status,
+        &page_status(picker, compact),
         usize::from(area.width),
     ))];
     if compact {
@@ -101,6 +89,36 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, picker: &Picker) {
         ));
     }
     frame.render_widget(Paragraph::new(footer), panes[2]);
+}
+
+fn page_status(picker: &Picker, compact: bool) -> String {
+    picker.page.as_ref().map_or_else(
+        || "Reference unavailable".to_owned(),
+        |page| {
+            if compact {
+                return format!(
+                    "{} choices {} {}",
+                    page.total_candidates,
+                    page.display_locale,
+                    if page.next_after.is_some() {
+                        "more"
+                    } else {
+                        "end"
+                    }
+                );
+            }
+            format!(
+                "{} candidates | {} | {}",
+                page.total_candidates,
+                page.display_locale,
+                if page.next_after.is_some() {
+                    "more >"
+                } else {
+                    "last page"
+                }
+            )
+        },
+    )
 }
 
 #[cfg(test)]
@@ -126,6 +144,9 @@ mod tests {
             assert!(text.contains("Countries"));
             assert!(text.contains("AC"));
             assert!(text.contains("Enter"));
+            if width == 20 {
+                assert!(text.contains("257 choices en more"), "{text}");
+            }
             for _ in 0..15 {
                 picker.handle(Key::Down);
             }
@@ -142,6 +163,40 @@ mod tests {
             assert!(!picker.query.contains('\u{1b}'));
             assert!(!picker.query.contains('\u{202e}'));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn compact_country_query_shows_its_edited_tail_and_last_page_state()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut picker = Picker::new(format!("{}Canada", "a".repeat(122)));
+        let mut terminal = Terminal::new(TestBackend::new(20, 8))?;
+        terminal.draw(|frame| render(frame, frame.area(), &picker))?;
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect::<String>();
+        assert!(text.contains("Canada"), "{text}");
+        picker.handle(Key::ClearInput);
+        while picker
+            .page
+            .as_ref()
+            .is_some_and(|page| page.next_after.is_some())
+        {
+            picker.handle(Key::Right);
+        }
+        terminal.draw(|frame| render(frame, frame.area(), &picker))?;
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect::<String>();
+        assert!(text.contains("257 choices en end"), "{text}");
         Ok(())
     }
 }
