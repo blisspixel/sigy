@@ -1,6 +1,6 @@
 # Task-owned processing
 
-Date: 2026-10-02. Status: implemented and tested locally on Windows with storage, actor, control and CLI fixtures. This extends [task-owned collection](0069-task-owned-collection.md) with finite task processing, and applies the [atomic monitor processing](0068-atomic-monitor-processing.md) admission pattern to tasks. Verification outcomes are recorded in the [validation record](../../research/experiments/task-processing-2026-10-02.md). No roadmap stage exit, language quality or general planning is established.
+Date: 2026-10-02. Status: implemented and tested locally on Windows with storage, actor, control, CLI and native loopback fixtures. This extends [task-owned collection](0069-task-owned-collection.md) with finite task processing, and applies the [atomic monitor processing](0068-atomic-monitor-processing.md) admission pattern to tasks. Verification outcomes are recorded in the [validation record](../../research/experiments/task-processing-2026-10-02.md). No roadmap stage exit, language quality or general planning is established.
 
 ## Decision
 
