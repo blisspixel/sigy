@@ -1,6 +1,6 @@
 # Terminal usability
 
-Date: 2026-10-02. Status: implemented and locally tested on Windows x86_64. Catalog schema and local IPC remain v43. This refines the [list explorer](0016-list-explorer.md), [terminal globe](0044-terminal-globe.md) and [first-use setup](0070-first-use-setup.md). It adds no service operation, network request, dependency or authority, and it exits no roadmap stage.
+Date: 2026-10-02. Status: implemented and locally tested on Windows x86_64. It changes neither the catalog schema nor local IPC, which are v44 and v45 on the base it was verified on. This refines the [list explorer](0016-list-explorer.md), [terminal globe](0044-terminal-globe.md) and [first-use setup](0070-first-use-setup.md). It adds no service operation, network request, dependency or authority, and it exits no roadmap stage.
 
 ## Decision
 
