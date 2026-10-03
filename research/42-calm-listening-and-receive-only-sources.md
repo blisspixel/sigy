@@ -2,6 +2,8 @@
 
 Reviewed: 2026-10-03. Status: current primary-source review and proposed implementation boundaries. No hardware, firmware, decoder, dataset or dependency is selected or qualified here. No hardware access, installation, capture, transmission, inference or paid request was performed. External spend for this research is USD 0; the active USD 20 ceiling remains unchanged.
 
+The subsequent [HackRF Pro identity experiment](experiments/hackrf-pro-identity-2026-10-03.md) records the user's connected Pro and one bounded Windows native identity operation. It is separate from this research scope: normal utility close requests transceiver OFF, and neither process exit nor metadata establishes RF silence, reception quality or adapter support.
+
 ## Practical listening now
 
 The user wants an enjoyable place to listen around the world and later investigate SDR and LoRa sources. Existing [source and recording contracts](../docs/design/recording-metadata.md), [terminal experience](../docs/design/terminal-experience.md#calm-listening-sessions) and [explorer/DVR plan](../docs/planning/11-radio-explorer-and-dvr.md) already establish the shared architecture. Calm presentation means less compulsory information and dependable control, not weaker accounting or invented activity.

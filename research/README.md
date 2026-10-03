@@ -51,6 +51,8 @@ This folder records primary-source findings, measured experiments, design implic
 
 ## Evidence discipline
 
+The [HackRF Pro identity experiment](experiments/hackrf-pro-identity-2026-10-03.md) records one bounded Windows native identity run, exact board/firmware and tooling provenance, process measurements and separate hardware-state limits. It qualifies no RF receiver adapter or throughput.
+
 The [ordered discovery validation](experiments/ordered-discovery-2026-10-03.md) records revision-bound station-name paging, encoding-independent comparison keys, bounded query/frame work, migration and console evidence, with explicit measurement limits.
 
 The [workstation milestone validation](experiments/workstation-milestone-2026-10-03.md) records bounded exact snapshots/publication, shared-interest withdrawal and offline worldwide country discovery, with integrated gates, native console observations and explicit measurement limits.
