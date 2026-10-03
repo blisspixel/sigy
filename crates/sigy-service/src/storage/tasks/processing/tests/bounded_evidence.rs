@@ -50,7 +50,12 @@ fn hear_cues(store: &mut Store, job: &str, count: u32, script: &str, now: i64) -
     Ok(())
 }
 
-fn populated(store: &mut Store, count: u32, script: &str, english: &str) -> Result<Vec<String>> {
+pub(super) fn populated(
+    store: &mut Store,
+    count: u32,
+    script: &str,
+    english: &str,
+) -> Result<Vec<String>> {
     store.start_task_processing("task", "grant", &spec(60, true), 0, START - 500)?;
     let recordings = collect(store)?;
     for (ordinal, recording) in recordings.iter().enumerate() {

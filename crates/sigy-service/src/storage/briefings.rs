@@ -4,6 +4,8 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 mod task;
 pub(super) use task::write_task_briefing;
+mod evidence;
+pub(in crate::storage) use evidence::write_task_evidence_briefing;
 
 use super::{Store, validate_key};
 use crate::{
@@ -72,6 +74,9 @@ impl Store {
     pub(crate) fn briefing(&self, monitor: &str, id: &str) -> Result<BriefingPage> {
         validate_key(monitor, "monitor ID")?;
         validate_key(id, "briefing ID")?;
+        if evidence::is_exact(&self.connection, monitor, id)? {
+            return Err(Error::Analysis("task-evidence-briefing-required"));
+        }
         let header = header(&self.connection, monitor, id)?.ok_or(Error::NotFound)?;
         let coverage = load_snapshot(&self.connection, monitor, id, header.from_ms, header.to_ms)?;
         assemble(&self.connection, monitor, id, &header, coverage)

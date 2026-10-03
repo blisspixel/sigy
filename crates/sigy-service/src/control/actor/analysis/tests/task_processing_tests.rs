@@ -138,6 +138,185 @@ fn steps(actor: &Actor) -> Result<u32> {
     count(actor, "SELECT count(*) FROM task_processing_steps")
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn withdrawal_signals_a_running_contained_worker_and_commits_drain_proof() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, mut receiver) = mpsc::channel(8);
+    let mut actor = actor(root.path(), &sender)?;
+    collected(&mut actor, false, Some(100_000))?;
+    let now = now_ms()?;
+    let facts = actor
+        .library
+        .store()
+        .task_processing_facts("task", now)?
+        .ok_or("facts")?;
+    let entry = facts.captures.first().ok_or("entry")?;
+    let request = actor.recognize(&entry.recording_id, "asr", now)?;
+    actor.library.store_mut().enqueue_task_recognition(
+        &crate::storage::tasks::processing::TaskJobScope {
+            task_id: "task",
+            ordinal: entry.ordinal,
+            recording_id: &entry.recording_id,
+            audio_us: 1_000_000,
+        },
+        &request,
+        now,
+    )?;
+    let work = actor
+        .library
+        .store_mut()
+        .claim_local_asr(&request.id, &actor.pool.owner, now)?
+        .ok_or("claim")?;
+    let job = work.job.clone();
+    let (stop, signal) = watch::channel(false);
+    let (started, running) = oneshot::channel();
+    let callback = sender.clone();
+    let worker = tokio::spawn(async move {
+        let result = crate::execution::contained_cancellation_fixture(
+            &job.request.id,
+            job.generation,
+            signal,
+            started,
+        )
+        .await
+        .and_then(|envelope| {
+            crate::recognition::ReapedLocalAsr::from_envelope(&job, envelope, None)
+        });
+        let _ = callback
+            .send(Message::RecognitionFinished {
+                id: job.request.id,
+                generation: job.generation,
+                result,
+            })
+            .await;
+    });
+    actor.pool.recognition.insert(
+        request.id.clone(),
+        super::super::RecognitionWorker {
+            generation: 1,
+            worker: crate::control::actor::Worker { stop, task: worker },
+            work,
+        },
+    );
+    tokio::time::timeout(Duration::from_secs(5), running).await??;
+    let view =
+        actor
+            .library
+            .store_mut()
+            .withdraw_task_processing("task", "withdraw", 1, 0, now_ms()?)?;
+    assert!(view.completion_unproven);
+    assert!(
+        actor
+            .library
+            .store_mut()
+            .begin_delete(&entry.recording_id, false)
+            .is_err()
+    );
+    // Exercise the durable tick handoff, rather than relying on delivery of the response.
+    actor.schedule()?;
+    let message = completion(&mut receiver).await?;
+    if let Message::RecognitionFinished {
+        result: Err(error), ..
+    } = &message
+    {
+        return Err(format!("contained fixture completion: {error}").into());
+    }
+    assert_eq!(deliver(&mut actor, message), (false, false));
+    assert!(!actor.library.store().native_completion_unproven()?);
+    assert_eq!(
+        actor.library.store().local_asr_job(&request.id)?.state,
+        "cancelled"
+    );
+    assert_eq!(
+        count(&actor, "SELECT count(*) FROM native_stop_completions")?,
+        1
+    );
+    assert_eq!(
+        count(&actor, "SELECT count(*) FROM worker_observations")?,
+        1
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unproven_restart_preserves_scratch_and_serves_control_without_native_launch() -> TestResult
+{
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(8);
+    let mut actor = actor(root.path(), &sender)?;
+    collected(&mut actor, false, Some(100_000))?;
+    actor.pool.accepting = false;
+    actor.reconcile_task_processing()?;
+    let processing = actor
+        .library
+        .store()
+        .task_processing("task")?
+        .ok_or("processing")?;
+    let job = processing.steps[0]
+        .job_id
+        .as_deref()
+        .ok_or("job")?
+        .to_owned();
+    actor
+        .library
+        .store_mut()
+        .claim_local_asr(&job, "dead-owner", now_ms()?)?
+        .ok_or("claim")?;
+    actor
+        .library
+        .store_mut()
+        .withdraw_task_processing("task", "withdraw", 1, 0, now_ms()?)?;
+    let scratch = root.path().join("analysis-scratch");
+    std::fs::create_dir_all(&scratch)?;
+    std::fs::write(scratch.join("retained-marker"), b"unproven attempt")?;
+    drop(actor);
+    let library = Library::open(root.path(), false)?;
+    let service = tokio::spawn(crate::control::run(library, std::future::pending()));
+    let snapshot = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(snapshot) = crate::control::request(root.path(), Operation::Doctor {}).await {
+                break snapshot;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    assert!(
+        snapshot
+            .doctor
+            .ok_or("doctor")?
+            .checks
+            .iter()
+            .any(|check| check.name == "native recovery"
+                && check.detail.contains("completion unproven"))
+    );
+    let state = crate::control::request(
+        root.path(),
+        Operation::Task {
+            command: crate::control::TaskOperation::Withdrawal { id: "task".into() },
+        },
+    )
+    .await?;
+    let Some(crate::control::TaskPage::Withdrawal {
+        withdrawal: Some(view),
+    }) = state.task.as_deref()
+    else {
+        return Err("withdrawal inspection unavailable".into());
+    };
+    assert!(view.completion_unproven);
+    assert!(scratch.join("retained-marker").is_file());
+    crate::control::request(root.path(), Operation::Status {}).await?;
+    crate::control::request(root.path(), Operation::Stop {}).await?;
+    tokio::time::timeout(Duration::from_secs(10), service).await???;
+    let reopened = Library::open(root.path(), false)?;
+    assert_eq!(reopened.store().local_asr_job(&job)?.state, "cancelling");
+    assert_eq!(reopened.store().local_asr_job(&job)?.generation, 1);
+    assert!(reopened.store().native_completion_unproven()?);
+    assert!(scratch.join("retained-marker").is_file());
+    Ok(())
+}
+
 #[tokio::test]
 async fn the_tick_admits_owned_jobs_once_and_a_repeated_pass_changes_nothing() -> TestResult {
     let root = tempfile::tempdir()?;

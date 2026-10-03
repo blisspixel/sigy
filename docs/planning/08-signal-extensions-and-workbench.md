@@ -194,6 +194,8 @@ A saved workbench session references artifacts, configuration revisions, trace s
 
 ## 11. Acceptance and sequencing
 
+The proposed [Strange Signals Desk](../design/strange-signals.md) reuses these contracts for selected public scientific archives before live reception. Import must distinguish raw IQ from reduced filterbank/dynamic-spectrum products, preserve exact ranges, clocks, units, tuning/cadence and calibration status, and hold transforms whose required metadata is absent. RFI reference checks and independently labeled numerical fixtures precede anomaly claims. Reprocessing one artifact is not another physical observation. [Research41](../../research/41-strange-signals-and-claim-exploration.md) records the BLC1 interference counterexample, published formats and candidate metadata tooling; no astronomy backend, detector or dataset has been selected or qualified.
+
 Acceptance includes type compatibility, schema evolution, worker failure isolation, resource accounting, time mapping, replay provenance, and a demonstration that a new non-audio source can fit the existing library and job lifecycle.
 
 Morse needs independently labeled fixtures. Historical ciphers need independent known-answer and stepping tests, hidden-answer isolation, false cribs, ambiguous candidates, budget exhaustion, exact comparison, and replay evidence. Modern operations need independent conformance vectors, interoperability, authentication failure, nonce/restart, and secret-handling evidence. A round trip alone cannot qualify either path. TUI review includes keyboard use, narrow layouts, reduced motion, and simultaneous capture.

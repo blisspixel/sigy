@@ -14,7 +14,8 @@ mod checkpoint;
 pub(crate) mod collection;
 mod evidence;
 pub(crate) mod processing;
-mod run;
+pub(in crate::storage) mod run;
+pub(crate) mod snapshot;
 #[cfg(test)]
 mod tests;
 mod validation;
@@ -112,6 +113,11 @@ impl Store {
         } else {
             Some(Box::new(self.task_checkpoint(id, ordinal)?))
         };
+        let snapshots = self.connection.query_row(
+            "SELECT coalesce(max(ordinal), 0) FROM task_evidence_snapshots WHERE task_id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
         Ok(TaskView {
             id: id.to_owned(),
             scope_current: scope_current(self, &spec)?,
@@ -120,6 +126,7 @@ impl Store {
             monitor_spec_sha256,
             created_ms,
             checkpoint: ordinal,
+            snapshots,
             latest_checkpoint,
             template: TASK_TEMPLATE.into(),
             paid_allowance_usd: "0.000000".into(),

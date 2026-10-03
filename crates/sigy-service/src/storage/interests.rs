@@ -55,9 +55,9 @@ pub(in crate::storage) fn sharing(
     job_id: &str,
 ) -> Result<JobSharing> {
     Ok(connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM job_interests WHERE family = ?1 AND job_id = ?2 AND authority = 'direct'), (SELECT count(*) FROM job_interests WHERE family = ?1 AND job_id = ?2 AND authority = 'monitor'), (SELECT count(*) FROM job_interests WHERE family = ?1 AND job_id = ?2 AND authority = 'task')",
+        "SELECT EXISTS(SELECT 1 FROM job_interests WHERE family = ?1 AND job_id = ?2 AND authority = 'direct'), (SELECT count(*) FROM job_interests WHERE family = ?1 AND job_id = ?2 AND authority = 'monitor'), (SELECT count(*) FROM job_interests WHERE family = ?1 AND job_id = ?2 AND authority = 'task'), (SELECT count(*) FROM job_interest_withdrawals WHERE family = ?1 AND job_id = ?2)",
         params![family, job_id],
-        |row| Ok(JobSharing { direct: row.get(0)?, monitors: row.get(1)?, tasks: row.get(2)? }),
+        |row| Ok(JobSharing { direct: row.get(0)?, monitors: row.get(1)?, tasks: row.get(2)?, withdrawn_tasks: row.get(3)? }),
     )?)
 }
 

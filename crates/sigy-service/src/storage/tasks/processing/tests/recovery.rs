@@ -59,7 +59,7 @@ fn populated_v43_catalog_migrates_with_labeled_derived_interests() -> TestResult
     assert_eq!(admitted.len(), 6);
     assert!(admitted.iter().all(|row| row.contains("|admitted|")));
     let jobs = effects(&store)?;
-    store.connection.execute_batch(REVERT_044_FOR_TESTS)?;
+    remove_processing_schema(&store)?;
     store.connection.execute_batch("PRAGMA user_version = 43")?;
     drop(store);
     let reopened = Store::open(&path)?;
@@ -90,7 +90,7 @@ fn interrupted_v44_migration_leaves_the_v43_catalog_unchanged() -> TestResult {
     let path = directory.path().join("catalog");
     let mut store = setup(&path, true)?;
     populate_history(&mut store)?;
-    store.connection.execute_batch(REVERT_044_FOR_TESTS)?;
+    remove_processing_schema(&store)?;
     store.connection.execute_batch(
         "CREATE TABLE task_processing(conflict INTEGER); PRAGMA user_version = 43",
     )?;
@@ -107,7 +107,10 @@ fn interrupted_v44_migration_leaves_the_v43_catalog_unchanged() -> TestResult {
     connection.execute_batch("DROP TABLE task_processing")?;
     drop(connection);
     let reopened = Store::open(&path)?;
-    assert_eq!(crate::storage::SCHEMA_VERSION, 44);
+    let version: u32 = reopened
+        .connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))?;
+    assert_eq!(version, crate::storage::SCHEMA_VERSION);
     assert_eq!(count(&reopened, "SELECT count(*) FROM job_interests")?, 5);
     Ok(())
 }
@@ -216,7 +219,7 @@ fn backup_and_restore_reproduce_receipts_interests_charges_and_media() -> TestRe
     let before = effects(library.store())?;
     let backup = directory.path().join("backup");
     let manifest = crate::backup::backup(&library, &backup)?;
-    assert_eq!(manifest.schema_version, 44);
+    assert_eq!(manifest.schema_version, crate::storage::SCHEMA_VERSION);
     assert_eq!(manifest.media.len(), 2);
     drop(library);
     let restored = directory.path().join("restored");

@@ -26,12 +26,37 @@ pub(crate) use admission::{TaskJobAdmission, TaskJobScope};
 
 /// Test downgrades remove v44 objects before rebuilding tables their triggers name.
 #[cfg(test)]
-pub(in crate::storage) const REVERT_044_FOR_TESTS: &str = "DROP TABLE IF EXISTS job_interests; DROP TABLE IF EXISTS task_processing_cancellations; DROP TABLE IF EXISTS task_processing_steps; DROP TABLE IF EXISTS task_processing;";
+const REVERT_044_FOR_TESTS: &str = "
+DROP TRIGGER IF EXISTS task_checkpoint_shared_capacity;
+DROP TRIGGER IF EXISTS task_capture_snapshot_clock;
+DROP TRIGGER IF EXISTS task_collection_cancel_snapshot_clock;
+DROP TRIGGER IF EXISTS task_processing_snapshot_clock;
+DROP TRIGGER IF EXISTS task_processing_step_snapshot_clock;
+DROP TRIGGER IF EXISTS task_processing_cancel_snapshot_clock;
+DROP TRIGGER IF EXISTS task_withdrawal_snapshot_clock;
+DROP TRIGGER IF EXISTS task_run_snapshot_clock;
+DROP TRIGGER IF EXISTS task_run_event_snapshot_clock;
+DROP TABLE IF EXISTS task_evidence_snapshots;
+DROP TABLE IF EXISTS native_stop_completions;
+DROP TABLE IF EXISTS native_stop_targets;
+DROP TABLE IF EXISTS job_interest_withdrawals;
+DROP TABLE IF EXISTS task_interest_withdrawals;
+DROP TABLE IF EXISTS job_interest_legacy_guards;
+DROP TABLE IF EXISTS job_interests;
+DROP TABLE IF EXISTS task_processing_cancellations;
+DROP TABLE IF EXISTS task_processing_steps;
+DROP TABLE IF EXISTS task_processing;";
+
+#[cfg(test)]
+pub(in crate::storage) fn revert_for_tests(connection: &Connection) -> Result<()> {
+    super::run::revert_047_for_tests(connection)?;
+    connection.execute_batch(REVERT_044_FOR_TESTS)?;
+    Ok(())
+}
 
 #[cfg(test)]
 pub(in crate::storage) fn remove_processing_schema(store: &Store) -> Result<()> {
-    store.connection.execute_batch(REVERT_044_FOR_TESTS)?;
-    Ok(())
+    revert_for_tests(&store.connection)
 }
 
 #[derive(Debug, Clone)]
@@ -293,6 +318,47 @@ fn stored_steps(connection: &Connection, id: &str) -> Result<Vec<TaskProcessingS
         .collect()
 }
 
+pub(in crate::storage) struct WithdrawalStep {
+    pub ordinal: u32,
+    pub stage: String,
+    pub job_id: String,
+    pub created_ms: i64,
+}
+
+pub(in crate::storage) struct WithdrawalContext {
+    pub grant_sha256: String,
+    pub generation: u32,
+    pub steps: Vec<WithdrawalStep>,
+}
+
+/// Bounded authority facts for the caller's immediate withdrawal transaction.
+pub(in crate::storage) fn withdrawal_context(
+    connection: &Connection,
+    id: &str,
+) -> Result<WithdrawalContext> {
+    let grant = read_grant(connection, id)?.ok_or(Error::NotFound)?;
+    let cancelled = cancellation(connection, id, &grant)?.is_some();
+    let mut statement = connection.prepare("SELECT ordinal, stage, job_id, created_ms FROM task_processing_steps WHERE task_id = ?1 AND decision = 'queued' ORDER BY ordinal, stage LIMIT 5")?;
+    let steps = statement
+        .query_map([id], |row| {
+            Ok(WithdrawalStep {
+                ordinal: row.get(0)?,
+                stage: row.get(1)?,
+                job_id: row.get(2)?,
+                created_ms: row.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if steps.len() > 4 {
+        return Err(Error::StorageIntegrity);
+    }
+    Ok(WithdrawalContext {
+        grant_sha256: grant.digest,
+        generation: if cancelled { 2 } else { 1 },
+        steps,
+    })
+}
+
 impl Store {
     /// Accept one lifetime finite processing grant over this task's collected recordings.
     /// # Errors
@@ -456,7 +522,9 @@ impl Store {
             generation: if cancelled.is_some() { 2 } else { 1 },
             cancelled: cancelled.is_some(),
             scope_current: task.scope_current,
-            hold_reason: if cancelled.is_some() {
+            hold_reason: if crate::storage::withdrawals::fenced(&self.connection, id)? {
+                Some("task-interest-withdrawn".into())
+            } else if cancelled.is_some() {
                 Some("cancelled".into())
             } else if !task.scope_current {
                 Some("scope-changed".into())
@@ -486,6 +554,7 @@ impl Store {
         let mut statement = self.connection.prepare(
             "SELECT p.task_id FROM task_processing p WHERE p.task_id > ?1
                AND NOT EXISTS (SELECT 1 FROM task_processing_cancellations c WHERE c.task_id = p.task_id)
+               AND NOT EXISTS (SELECT 1 FROM task_interest_withdrawals w WHERE w.task_id = p.task_id)
                AND EXISTS (SELECT 1 FROM task_collection_admissions a WHERE a.task_id = p.task_id
                  AND NOT EXISTS (SELECT 1 FROM task_processing_steps s WHERE s.task_id = a.task_id AND s.ordinal = a.ordinal AND (s.stage = 'translation' OR s.decision = 'skipped')))
              ORDER BY p.task_id LIMIT ?2",

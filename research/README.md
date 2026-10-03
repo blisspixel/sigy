@@ -46,8 +46,11 @@ This folder records primary-source findings, measured experiments, design implic
 | Exact task publication, historical replay, shared-owner cancellation, transaction races and bounded state models | [38. Publication and cancellation logic](38-publication-and-cancellation-logic.md) |
 | Authority/capacity/liability equations, work/rate estimates, fairness, interval coverage and physical copy accounting | [39. Capacity, coverage and accounting math](39-capacity-coverage-and-accounting-math.md) |
 | Country identity/aliases, Unicode matching, bounded retrieval evaluation, location geometry and exact evidence context | [40. Discovery, retrieval and evidence logic](40-discovery-retrieval-and-evidence-logic.md) |
+| Cited unusual claims, public SETI archives, calibration, interference controls and finite watches | [41. Strange signals and claim exploration](41-strange-signals-and-claim-exploration.md) |
 
 ## Evidence discipline
+
+The [workstation milestone validation](experiments/workstation-milestone-2026-10-03.md) records bounded exact snapshots/publication, shared-interest withdrawal and offline worldwide country discovery, with integrated gates, native console observations and explicit measurement limits.
 
 The [finite task processing validation](experiments/task-processing-2026-10-02.md) checks durable job interests, atomic task admission, shared-job charges, cancellation, restart and an interrupted-versus-uninterrupted comparison through literal evidence. Synthetic and stand-in outputs establish no language quality.
 

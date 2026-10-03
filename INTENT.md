@@ -32,6 +32,8 @@ Broadcasts change within a session. Detect language shifts, candidate advertisem
 
 ## Breadth and approachability
 
+A later Strange Signals Desk should make unusual claims and unfamiliar signals rewarding to investigate. Follow a claim across radio and podcasts, compare exact multilingual passages, or replay a selected public scientific observation. A playful SETI watch can be a serious, reproducible instrument: preserve original data, clocks, units, interference checks and competing explanations. Humor belongs in optional presentation; measurement and provenance stay precise. [The proposed experience](docs/design/strange-signals.md) keeps this curiosity-driven direction separate from present capabilities and the first-release build.
+
 The ambition is to cover most everyday signal workflows in one coherent application: discover, listen or inspect, capture, decode, translate, search, compare, monitor, and explain findings. The informal "90%" aspiration expresses that breadth. Coverage will be judged against a documented set of representative tasks, source types, and supported profiles before any numerical claim is made.
 
 Everyday tasks should begin with a clear action or question, such as "understand this station," "follow this topic," or "show me how this code works." Useful presets, plain-language status, contextual explanations, and reversible exploration help users progress. Detailed signal controls and reproducible automation remain available as users need them.

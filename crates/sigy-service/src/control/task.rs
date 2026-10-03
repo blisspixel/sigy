@@ -6,7 +6,9 @@ use super::{Snapshot, snapshot};
 use crate::task::collection::{TaskCollectionSpec, TaskCollectionView};
 use crate::task::evidence::TaskEvidenceView;
 use crate::task::processing::{TaskProcessingSpec, TaskProcessingView};
-use crate::task::run::{TaskRunSpec, TaskRunView};
+use crate::task::run::{TaskEvidenceBriefing, TaskRunSpec, TaskRunView, TaskSnapshotRunSpec};
+use crate::task::snapshot::TaskEvidenceSnapshot;
+use crate::task::withdrawal::TaskWithdrawalView;
 use crate::{
     Result,
     storage::Store,
@@ -36,12 +38,32 @@ pub enum TaskOperation {
         id: String,
         ordinal: u32,
     },
+    /// Freeze exact task-owned evidence without granting publication or processing.
+    FreezeEvidence {
+        id: String,
+        request_id: String,
+        expected_snapshot: u32,
+    },
+    ShowEvidenceSnapshot {
+        id: String,
+        ordinal: u32,
+    },
     /// Delegate one bounded frozen-checkpoint publication workflow.
     Execute {
         id: String,
         request_id: String,
         spec: Box<TaskRunSpec>,
         expected_generation: u32,
+    },
+    /// Publish from one exact frozen task evidence snapshot.
+    Publish {
+        id: String,
+        request_id: String,
+        spec: Box<TaskSnapshotRunSpec>,
+        expected_generation: u32,
+    },
+    EvidenceBriefing {
+        id: String,
     },
     Execution {
         id: String,
@@ -81,6 +103,15 @@ pub enum TaskOperation {
         request_id: String,
         expected_generation: u32,
     },
+    WithdrawProcessing {
+        id: String,
+        request_id: String,
+        expected_processing_generation: u32,
+        expected_withdrawal_generation: u32,
+    },
+    Withdrawal {
+        id: String,
+    },
     /// Reconcile collection through task processing to literal evidence. Read-only.
     Evidence {
         id: String,
@@ -101,6 +132,12 @@ pub enum TaskPage {
     Checkpoint {
         checkpoint: Box<TaskCheckpoint>,
     },
+    EvidenceSnapshot {
+        snapshot: Box<TaskEvidenceSnapshot>,
+    },
+    EvidenceBriefing {
+        briefing: Option<Box<TaskEvidenceBriefing>>,
+    },
     Execution {
         run: Option<Box<TaskRunView>>,
     },
@@ -112,6 +149,9 @@ pub enum TaskPage {
     },
     Evidence {
         evidence: Option<Box<TaskEvidenceView>>,
+    },
+    Withdrawal {
+        withdrawal: Option<Box<TaskWithdrawalView>>,
     },
 }
 
@@ -148,12 +188,44 @@ pub(super) fn apply(store: &mut Store, command: TaskOperation) -> Result<Snapsho
         TaskOperation::ShowCheckpoint { id, ordinal } => TaskPage::Checkpoint {
             checkpoint: Box::new(store.task_checkpoint(&id, ordinal)?),
         },
-        TaskOperation::Evidence { id } => {
-            store.task(&id)?;
-            TaskPage::Evidence {
-                evidence: store.task_evidence(&id)?.map(Box::new),
-            }
-        }
+        TaskOperation::Evidence { id } => TaskPage::Evidence {
+            evidence: store.task_evidence(&id)?.map(Box::new),
+        },
+        TaskOperation::FreezeEvidence {
+            id,
+            request_id,
+            expected_snapshot,
+        } => TaskPage::EvidenceSnapshot {
+            snapshot: Box::new(store.freeze_task_evidence(
+                &id,
+                &request_id,
+                expected_snapshot,
+                now,
+            )?),
+        },
+        TaskOperation::ShowEvidenceSnapshot { id, ordinal } => TaskPage::EvidenceSnapshot {
+            snapshot: Box::new(store.task_evidence_snapshot(&id, ordinal)?),
+        },
+        TaskOperation::EvidenceBriefing { id } => TaskPage::EvidenceBriefing {
+            briefing: store.task_evidence_briefing(&id)?.map(Box::new),
+        },
+        TaskOperation::Withdrawal { id } => TaskPage::Withdrawal {
+            withdrawal: store.task_withdrawal(&id)?.map(Box::new),
+        },
+        TaskOperation::WithdrawProcessing {
+            id,
+            request_id,
+            expected_processing_generation,
+            expected_withdrawal_generation,
+        } => TaskPage::Withdrawal {
+            withdrawal: Some(Box::new(store.withdraw_task_processing(
+                &id,
+                &request_id,
+                expected_processing_generation,
+                expected_withdrawal_generation,
+                now,
+            )?)),
+        },
         grant => grant_page(store, grant, now)?,
     };
     let mut view = snapshot(store)?;
@@ -161,8 +233,7 @@ pub(super) fn apply(store: &mut Store, command: TaskOperation) -> Result<Snapsho
     Ok(view)
 }
 
-/// Explicit finite delegations: publication, collection and processing grants.
-fn grant_page(store: &mut Store, command: TaskOperation, now: i64) -> Result<TaskPage> {
+fn publication_page(store: &mut Store, command: TaskOperation, now: i64) -> Result<TaskPage> {
     Ok(match command {
         TaskOperation::Execute {
             id,
@@ -175,6 +246,20 @@ fn grant_page(store: &mut Store, command: TaskOperation, now: i64) -> Result<Tas
                 run: store.task_run(&id)?.map(Box::new),
             }
         }
+        TaskOperation::Publish {
+            id,
+            request_id,
+            spec,
+            expected_generation,
+        } => TaskPage::Execution {
+            run: Some(Box::new(store.start_task_snapshot_run(
+                &id,
+                &request_id,
+                &spec,
+                expected_generation,
+                now,
+            )?)),
+        },
         TaskOperation::Execution { id } => {
             store.task(&id)?;
             TaskPage::Execution {
@@ -191,6 +276,17 @@ fn grant_page(store: &mut Store, command: TaskOperation, now: i64) -> Result<Tas
                 run: store.task_run(&id)?.map(Box::new),
             }
         }
+        _ => return Err(crate::Error::InvalidInput("task publication operation")),
+    })
+}
+
+/// Explicit finite delegations: publication, collection and processing grants.
+fn grant_page(store: &mut Store, command: TaskOperation, now: i64) -> Result<TaskPage> {
+    Ok(match command {
+        publication @ (TaskOperation::Execute { .. }
+        | TaskOperation::Publish { .. }
+        | TaskOperation::Execution { .. }
+        | TaskOperation::Cancel { .. }) => publication_page(store, publication, now)?,
         TaskOperation::Collect {
             id,
             request_id,
@@ -256,7 +352,12 @@ fn grant_page(store: &mut Store, command: TaskOperation, now: i64) -> Result<Tas
         | TaskOperation::List { .. }
         | TaskOperation::Checkpoint { .. }
         | TaskOperation::ShowCheckpoint { .. }
-        | TaskOperation::Evidence { .. } => {
+        | TaskOperation::FreezeEvidence { .. }
+        | TaskOperation::ShowEvidenceSnapshot { .. }
+        | TaskOperation::EvidenceBriefing { .. }
+        | TaskOperation::Evidence { .. }
+        | TaskOperation::Withdrawal { .. }
+        | TaskOperation::WithdrawProcessing { .. } => {
             return Err(crate::Error::InvalidInput("task operation"));
         }
     })

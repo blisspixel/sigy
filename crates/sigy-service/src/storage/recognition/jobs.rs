@@ -84,6 +84,9 @@ impl Store {
         owner: &str,
         now: i64,
     ) -> Result<Option<LocalAsrWork>> {
+        if self.native_completion_unproven()? {
+            return Ok(None);
+        }
         let job = self.local_asr_job(id)?;
         if job.state != "queued" {
             return Ok(None);
@@ -199,11 +202,11 @@ impl Store {
     ) -> Result<bool> {
         request.validate()?;
         if let Some(job) = find_job(connection, &request.id)? {
-            return if job.request == *request {
-                Ok(false)
-            } else {
-                Err(Error::IdempotencyConflict)
-            };
+            if job.request != *request {
+                return Err(Error::IdempotencyConflict);
+            }
+            super::super::withdrawals::attachable(connection, "recognition", &request.id)?;
+            return Ok(false);
         }
         if now < 0 {
             return Err(Error::InvalidInput("clock range"));

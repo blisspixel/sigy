@@ -76,6 +76,20 @@ fn inspect(
 ) -> Result<DoctorReport> {
     let checks = vec![
         catalog(view, store.catalog_quick_check()?),
+        check(
+            "native recovery",
+            if store.native_completion_unproven()? {
+                DoctorState::Blocked
+            } else {
+                DoctorState::Ok
+            },
+            if store.native_completion_unproven()? {
+                "Recovery completion unproven; native claims and cleanup remain held.".into()
+            } else {
+                "No unresolved task withdrawal completion.".into()
+            },
+            None,
+        ),
         provider(view.provider_dispatch_available),
         budgets(&view.budgets),
         decoder(dvr.decoder.as_ref()),

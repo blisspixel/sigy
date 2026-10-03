@@ -123,18 +123,24 @@ impl Pool {
         }
     }
 
-    /// Signal the worker of exactly this job generation, if one runs.
-    fn signal(&self, id: &str, generation: u32) {
-        let worker = match (
-            self.verification.get(id),
-            self.recognition.get(id),
-            self.translation.get(id),
-        ) {
-            (Some(active), _, _) if active.generation == generation => Some(&active.worker),
-            (_, Some(active), _) if active.generation == generation => Some(&active.worker),
-            (_, _, Some(active)) if active.generation == generation => Some(&active.worker),
-            _ => None,
-        };
+    /// Signal exactly this family, job and generation, if one runs.
+    fn signal(&self, kind: JobKind, id: &str, generation: u32) {
+        let worker = match kind {
+            JobKind::Verification => self
+                .verification
+                .get(id)
+                .map(|active| (active.generation, &active.worker)),
+            JobKind::Recognition => self
+                .recognition
+                .get(id)
+                .map(|active| (active.generation, &active.worker)),
+            JobKind::Translation => self
+                .translation
+                .get(id)
+                .map(|active| (active.generation, &active.worker)),
+        }
+        .filter(|(active_generation, _)| *active_generation == generation)
+        .map(|(_, worker)| worker);
         if let Some(worker) = worker {
             worker.stop.send_replace(true);
         }
@@ -159,7 +165,11 @@ impl Actor {
     /// # Errors
     /// Returns catalog failures and a worker that could not be started.
     pub(super) fn schedule(&mut self) -> Result<()> {
+        self.signal_durable_stops()?;
         for kind in JobKind::ALL {
+            if kind != JobKind::Verification && self.library.store().native_completion_unproven()? {
+                continue;
+            }
             let mut claims = 0;
             while self.pool.accepting
                 && self.pool.running(kind) < self.pool.caps.cap(kind)
@@ -257,7 +267,56 @@ impl Actor {
                 .active()
         };
         if active_job {
-            self.pool.signal(id, generation);
+            self.pool.signal(
+                if native {
+                    JobKind::Recognition
+                } else {
+                    JobKind::Verification
+                },
+                id,
+                generation,
+            );
+        }
+        Ok(())
+    }
+
+    pub(super) fn signal_task_withdrawal(
+        &self,
+        view: &crate::task::withdrawal::TaskWithdrawalView,
+    ) {
+        for interest in &view.receipt.interests {
+            if interest.decision == "running-cancelling" {
+                let kind = match interest.family.as_str() {
+                    "recognition" => JobKind::Recognition,
+                    "translation" => JobKind::Translation,
+                    _ => continue,
+                };
+                self.pool
+                    .signal(kind, &interest.job_id, interest.job_generation);
+            }
+        }
+    }
+
+    fn signal_durable_stops(&self) -> Result<()> {
+        for (id, active) in &self.pool.recognition {
+            if self
+                .library
+                .store()
+                .native_stop_requested("recognition", id, active.generation)?
+            {
+                self.pool
+                    .signal(JobKind::Recognition, id, active.generation);
+            }
+        }
+        for (id, active) in &self.pool.translation {
+            if self
+                .library
+                .store()
+                .native_stop_requested("translation", id, active.generation)?
+            {
+                self.pool
+                    .signal(JobKind::Translation, id, active.generation);
+            }
         }
         Ok(())
     }
@@ -630,7 +689,7 @@ impl Actor {
             .store_mut()
             .cancel_translation(id, generation)?;
         if matches!(job.state.as_str(), "running" | "cancelling") {
-            self.pool.signal(id, generation);
+            self.pool.signal(JobKind::Translation, id, generation);
         }
         Ok(())
     }

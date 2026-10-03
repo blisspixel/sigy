@@ -7,25 +7,64 @@ use crate::{
     Error, Result,
     recognition::sha256_hex,
     task::{
-        TaskCheckpoint,
-        run::{RUN_TEMPLATE, TaskRunSpec, TaskRunState, TaskRunStep, TaskRunView},
+        TaskCheckpoint, TaskCitation,
+        run::{
+            EXACT_RUN_TEMPLATE, RUN_TEMPLATE, TaskRunSelection, TaskRunSpec, TaskRunState,
+            TaskRunStep, TaskRunView, TaskSnapshotRunSpec,
+        },
+        snapshot::TaskEvidenceSnapshot,
     },
 };
 
 mod admission;
 mod advance;
 mod audit;
+mod migration;
+pub(in crate::storage) use migration::migrate_047;
+#[cfg(test)]
+pub(in crate::storage) use migration::revert_047_for_tests;
 #[cfg(test)]
 mod tests;
 
 struct Grant {
     request_id: String,
-    spec: TaskRunSpec,
+    spec: TaskRunSelection,
     sha256: String,
     created_ms: i64,
     planned_findings: u32,
     initial_partial: bool,
-    checkpoint: TaskCheckpoint,
+    observation: Observation,
+}
+
+enum Observation {
+    Checkpoint(Box<TaskCheckpoint>),
+    Snapshot(Box<TaskEvidenceSnapshot>),
+}
+
+impl Observation {
+    fn citations(&self) -> &[TaskCitation] {
+        match self {
+            Self::Checkpoint(c) => &c.citations,
+            Self::Snapshot(s) => &s.evidence.citations,
+        }
+    }
+    fn observed_ms(&self) -> i64 {
+        match self {
+            Self::Checkpoint(c) => c.observed_ms,
+            Self::Snapshot(s) => s.observed_ms,
+        }
+    }
+    fn partial(&self, maximum: u32) -> bool {
+        self.citations().len() > maximum as usize
+            || match self {
+                Self::Checkpoint(c) => partial_checkpoint(c),
+                Self::Snapshot(s) => !matches!(
+                    s.evidence.outcome,
+                    crate::task::evidence::TaskOutcome::Cited
+                        | crate::task::evidence::TaskOutcome::NoLiteralMatch
+                ),
+            }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,6 +104,20 @@ fn effect_id(grant: &str, kind: &str, ordinal: u32) -> String {
     format!("task-{kind}:{digest}")
 }
 
+fn exact_grant_hash(
+    id: &str,
+    request: &str,
+    json: &str,
+    scope: &str,
+    observation: &str,
+    now: i64,
+) -> Result<String> {
+    let identity = serde_json::to_string(&(id, request, scope, "snapshot", observation, now))?;
+    Ok(sha256_hex(
+        format!("[\"sigy-task-run-v2\",\"{EXACT_RUN_TEMPLATE}\",{identity},{json},0]").as_bytes(),
+    ))
+}
+
 fn partial_checkpoint(checkpoint: &TaskCheckpoint) -> bool {
     checkpoint.more
         || !checkpoint.window_elapsed
@@ -90,12 +143,6 @@ fn partial_checkpoint(checkpoint: &TaskCheckpoint) -> bool {
                 || schedule.missed_elapsed > 0
                 || schedule.missed_spring_forward > 0
         })
-}
-
-fn planned_count(checkpoint: &TaskCheckpoint, spec: &TaskRunSpec) -> Result<u32> {
-    let available =
-        u32::try_from(checkpoint.citations.len()).map_err(|_| Error::StorageIntegrity)?;
-    Ok(available.min(spec.maximum_findings))
 }
 
 fn intents(grant: &Grant) -> Vec<Intent> {
@@ -157,16 +204,16 @@ fn events(connection: &Connection, id: &str) -> Result<Vec<Event>> {
             Ok((
                 TaskRunStep {
                     ordinal: row.get(0)?,
-                    kind: row.get(3)?,
-                    effect_id: row.get(4)?,
+                    kind: stored_text(row, 3, 16)?,
+                    effect_id: stored_text(row, 4, 128)?,
                     citation_ordinal: row.get(5)?,
-                    finding_id: row.get(6)?,
-                    reason: row.get(7)?,
+                    finding_id: optional_text(row, 6, 128)?,
+                    reason: optional_text(row, 7, 128)?,
                     recorded_ms: row.get(8)?,
                 },
                 row.get::<_, u32>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(9)?,
+                stored_text(row, 2, 16)?,
+                optional_text(row, 9, 128)?,
                 row.get::<_, Option<u32>>(10)?,
             ))
         })?
@@ -186,6 +233,25 @@ fn events(connection: &Connection, id: &str) -> Result<Vec<Event>> {
         .collect()
 }
 
+fn stored_text(row: &rusqlite::Row<'_>, index: usize, maximum: usize) -> rusqlite::Result<String> {
+    let value = row.get_ref(index)?.as_str()?;
+    if value.is_empty() || value.len() > maximum {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(value.to_owned())
+}
+
+fn optional_text(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+    maximum: usize,
+) -> rusqlite::Result<Option<String>> {
+    if matches!(row.get_ref(index)?, rusqlite::types::ValueRef::Null) {
+        return Ok(None);
+    }
+    stored_text(row, index, maximum).map(Some)
+}
+
 fn insert_event(connection: &Connection, id: &str, event: &Event) -> Result<()> {
     let step = &event.step;
     connection.execute(
@@ -196,10 +262,55 @@ fn insert_event(connection: &Connection, id: &str, event: &Event) -> Result<()> 
 }
 
 impl Store {
+    /// Read the run-owned exact artifact. It preserves the selected snapshot's facts.
+    /// # Errors
+    /// Refuses malformed IDs, inconsistent membership, origin or query-work exhaustion.
+    pub fn task_evidence_briefing(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::task::run::TaskEvidenceBriefing>> {
+        let work = crate::storage::query_work::QueryWork::start(
+            &self.connection,
+            crate::storage::query_work::Limits::TASK_EVIDENCE,
+        )?;
+        let result = (|| {
+            let Some(run) = self.task_run_in_work(id)? else {
+                return Ok(None);
+            };
+            if !matches!(run.spec, TaskRunSelection::Snapshot(_)) {
+                return Ok(None);
+            }
+            let Some(briefing) = run.briefing_id else {
+                return Ok(None);
+            };
+            self.task_evidence_briefing_record(id, &briefing).map(Some)
+        })();
+        let result = result.and_then(|page| {
+            work.check()?;
+            Ok(page)
+        });
+        work.finish()?;
+        result
+    }
+
     /// Inspect immutable delegation, committed effects and terminal lifecycle receipts.
     /// # Errors
     /// Refuses invalid IDs or inconsistent grants, intents or effect references.
     pub fn task_run(&self, id: &str) -> Result<Option<TaskRunView>> {
+        let work = crate::storage::query_work::QueryWork::start(
+            &self.connection,
+            crate::storage::query_work::Limits::TASK_EVIDENCE,
+        )?;
+        let result = self.task_run_in_work(id);
+        let result = result.and_then(|view| {
+            work.check()?;
+            Ok(view)
+        });
+        work.finish()?;
+        result
+    }
+
+    fn task_run_in_work(&self, id: &str) -> Result<Option<TaskRunView>> {
         validate_key(id, "task ID")?;
         let Some(grant) = self.checked_run_grant(id)? else {
             return Ok(None);

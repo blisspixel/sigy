@@ -45,6 +45,8 @@ These proposals add no first-release obligation, selected reward system, or impl
 
 ## 2. First complete release
 
+The later [Strange Signals Desk](../design/strange-signals.md) is a confirmed curiosity-driven direction, with specific features still proposed. It serves people exploring unusual subjects through public radio and podcasts, with exact multilingual claim trails and eventually a bounded SETI archive/watch instrument. Investigation should feel inviting and occasionally funny while the evidence controls remain professional. C-49 adds no first-release obligation or implemented capability.
+
 | Area | Required experience | Completion evidence |
 | --- | --- | --- |
 | Explore | Search/filter refreshed station catalogs; browse a terminal globe, day/night map, or list; save favorites and collections; add a direct stream | Find and tune entirely by keyboard; preserve filters, freshness, location provenance, and usable fallback modes |

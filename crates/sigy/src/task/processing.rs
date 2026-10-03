@@ -39,15 +39,51 @@ fn optional(value: Option<&str>, limit: usize) -> String {
     value.map_or_else(|| "none".into(), |text| sanitize(text, limit))
 }
 
+pub(super) fn render_withdrawal(
+    writer: &mut impl Write,
+    view: Option<&sigy_service::task::withdrawal::TaskWithdrawalView>,
+) -> io::Result<()> {
+    let Some(view) = view else {
+        return writeln!(writer, "No processing interest withdrawal.");
+    };
+    writeln!(
+        writer,
+        "Task {} withdrawal generation {} | request {}",
+        sanitize(&view.receipt.task_id, 128),
+        view.receipt.withdrawal_generation,
+        sanitize(&view.receipt.request_id, 128)
+    )?;
+    for interest in &view.receipt.interests {
+        writeln!(
+            writer,
+            "{} {} generation {}: {}",
+            sanitize(&interest.family, 32),
+            sanitize(&interest.job_id, 128),
+            interest.job_generation,
+            sanitize(&interest.decision, 64)
+        )?;
+    }
+    writeln!(
+        writer,
+        "Completion: {}. Lifetime charges remain consumed.",
+        if view.completion_unproven {
+            "unproven; native claims and cleanup held"
+        } else {
+            "no unresolved native stop"
+        }
+    )
+}
+
 fn sharing(value: Option<&JobSharing>) -> String {
     value.map_or_else(
         || "none".into(),
         |shared| {
             format!(
-                "direct {}, monitors {}, tasks {}",
+                "direct {}, monitors {}, historical tasks {}, withdrawn tasks {}",
                 if shared.direct { "yes" } else { "no" },
                 shared.monitors,
-                shared.tasks
+                shared.tasks,
+                shared.withdrawn_tasks
             )
         },
     )
@@ -214,6 +250,7 @@ mod tests {
                     sharing: Some(JobSharing {
                         direct: false,
                         monitors: 1,
+                        withdrawn_tasks: 0,
                         tasks: 1,
                     }),
                 },
@@ -243,7 +280,11 @@ mod tests {
         let text = String::from_utf8(output)?;
         assert!(!text.contains('\u{1b}'));
         assert!(text.contains("Audio charged to this task: 1000000 of 60000000 us"));
-        assert!(text.contains("interests: direct no, monitors 1, tasks 1"));
+        assert!(
+            text.contains(
+                "interests: direct no, monitors 1, historical tasks 1, withdrawn tasks 0"
+            )
+        );
         assert!(text.contains("Entry 1 recognition | recording two | skipped (recording-failed)"));
         assert!(text.contains("not language quality"));
         assert!(!text.contains("Admission hold"));

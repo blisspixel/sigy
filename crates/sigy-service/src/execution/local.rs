@@ -165,6 +165,62 @@ pub(super) fn runtime_environment(command: &mut tokio::process::Command, runtime
         .env("DYLD_LIBRARY_PATH", runtime);
 }
 
+#[cfg(all(test, windows))]
+pub(crate) async fn contained_cancellation_fixture(
+    id: &str,
+    generation: u32,
+    mut signal: watch::Receiver<bool>,
+    started: tokio::sync::oneshot::Sender<()>,
+) -> Result<ResultEnvelope> {
+    let group = contained(
+        ProcessGroupOptions::default()
+            .max_processes(1)
+            .max_memory(256 * 1024 * 1024)
+            .cpu_quota(0.25),
+    )
+    .ok_or(Error::Analysis("native-containment-unavailable"))?;
+    let mut command = tokio::process::Command::new(std::env::current_exe()?);
+    command
+        .args([
+            "--exact",
+            "execution::local::tests::contained_waiting_child",
+            "--nocapture",
+        ])
+        .env("SIGY_TEST_CONTAINED_CHILD", "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let mut child = group
+        .spawn(command)
+        .map_err(|_| Error::Analysis("native-fixture-spawn"))?;
+    if group
+        .stats()
+        .map_err(|_| Error::Analysis("native-cleanup-unproven"))?
+        .active_process_count
+        != 1
+    {
+        return Err(Error::Analysis("native-fixture-not-running"));
+    }
+    let _ = started.send(());
+    let stopped = tokio::time::timeout(Duration::from_secs(5), signal.changed()).await;
+    group
+        .kill_all()
+        .map_err(|_| Error::Analysis("native-cleanup-unproven"))?;
+    child
+        .wait()
+        .await
+        .map_err(|_| Error::Analysis("native-cleanup-unproven"))?;
+    let snapshot = drain(&group).await?;
+    stopped
+        .map_err(|_| Error::Analysis("native-fixture-stop-timeout"))?
+        .map_err(|_| Error::Analysis("native-fixture-stop-missing"))?;
+    let mut envelope = super::cancel_recognition(id, generation);
+    envelope.containment = super::Containment::Drained(super::Drained::accounts(vec![
+        snapshot.labeled("recognize", 0),
+    ]));
+    Ok(envelope)
+}
+
 #[cfg(test)]
 mod tests {
     use std::process::Stdio;
@@ -174,6 +230,13 @@ mod tests {
     use super::{contained, drain};
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    #[test]
+    fn contained_waiting_child() {
+        if std::env::var("SIGY_TEST_CONTAINED_CHILD").as_deref() == Ok("1") {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+        }
+    }
 
     #[tokio::test]
     async fn an_empty_group_keeps_the_snapshot_that_proved_it_empty() -> TestResult {

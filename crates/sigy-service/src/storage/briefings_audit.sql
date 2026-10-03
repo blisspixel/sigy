@@ -21,9 +21,19 @@ SELECT EXISTS (
                    <> b.corroboration - 1
             )
        )
-       OR NOT EXISTS (
-            SELECT 1 FROM monitor_briefing_coverage AS coverage
-            WHERE coverage.monitor_id = b.monitor_id AND coverage.briefing_id = b.id
+       OR (EXISTS (SELECT 1 FROM monitor_briefing_coverage AS coverage WHERE coverage.monitor_id=b.monitor_id AND coverage.briefing_id=b.id)
+          + EXISTS (SELECT 1 FROM task_briefing_evidence AS exact WHERE exact.monitor_id=b.monitor_id AND exact.briefing_id=b.id)) != 1
+       OR EXISTS (
+            SELECT 1 FROM task_briefing_evidence AS exact
+            WHERE exact.monitor_id=b.monitor_id AND exact.briefing_id=b.id
+              AND NOT EXISTS (
+                    SELECT 1 FROM task_run_events AS receipt
+                    WHERE receipt.task_id=exact.task_id AND receipt.kind='briefing'
+                      AND receipt.effect_id=exact.briefing_id
+                      AND receipt.recorded_ms=b.created_ms
+                      AND ((receipt.state='completed' AND receipt.reason IS NULL)
+                           OR (receipt.state='partial' AND receipt.reason='coverage-partial'))
+              )
        )
        OR EXISTS (
             SELECT 1 FROM monitor_briefing_sources AS source

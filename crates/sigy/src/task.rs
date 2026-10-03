@@ -4,16 +4,18 @@
 use std::io::{self, Write};
 
 use clap::{Args, Subcommand};
-use sigy_service::task::run::TaskRunSpec;
+use sigy_service::task::run::{TaskRunSpec, TaskSnapshotRunSpec};
 use sigy_service::{
     control::{Operation, TaskOperation, TaskPage},
     task::{MAX_CHECKPOINTS, TaskCheckpoint, TaskSpec, TaskView},
 };
 
+mod briefing;
 mod collection;
 mod evidence;
 mod execution;
 mod processing;
+mod snapshot;
 
 use crate::explorer::text::sanitize;
 
@@ -85,6 +87,20 @@ pub enum TaskCommand {
         #[arg(value_parser = clap::value_parser!(u32).range(1..=128))]
         ordinal: u32,
     },
+    /// Freeze exact task-owned collection and processing evidence. Dispatches no work.
+    Freeze {
+        id: String,
+        request_id: String,
+        /// Current exact snapshot ordinal, zero before the first snapshot.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(0..=128))]
+        expected_snapshot: u32,
+    },
+    /// Inspect one immutable exact snapshot, including observed pending work.
+    Snapshot {
+        id: String,
+        #[arg(value_parser = clap::value_parser!(u32).range(1..=128))]
+        ordinal: u32,
+    },
     /// Delegate bounded literal findings and one briefing from a frozen checkpoint.
     Execute {
         id: String,
@@ -97,6 +113,20 @@ pub enum TaskCommand {
         #[arg(long)]
         expected_generation: u32,
     },
+    /// Publish bounded findings and exact coverage from a frozen task snapshot.
+    Publish {
+        id: String,
+        request_id: String,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=128))]
+        snapshot: u32,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=64))]
+        max_findings: u32,
+        /// Zero before the task's single lifetime publication admission.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(0..=0))]
+        expected_generation: u32,
+    },
+    /// Read the exact task briefing and its immutable collection coverage.
+    Briefing { id: String },
     /// Inspect durable execution state and publication receipts.
     Execution { id: String },
     /// Cancel future task-owned publications. Preserves existing findings and shared work.
@@ -138,6 +168,17 @@ pub enum TaskCommand {
     },
     /// Read this task's processing receipts, charges and shared job states.
     Processing { id: String },
+    /// Withdraw this task's interests and stop unshared work after proven cleanup.
+    WithdrawProcessing {
+        id: String,
+        request_id: String,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=2))]
+        expected_processing_generation: u32,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(0..=0))]
+        expected_withdrawal_generation: u32,
+    },
+    /// Inspect immutable withdrawal decisions and physical completion status.
+    Withdrawal { id: String },
     /// Stop future task processing admissions. Admitted jobs and other interests continue.
     CancelProcessing {
         id: String,
@@ -150,6 +191,41 @@ pub enum TaskCommand {
 }
 
 impl TaskCommand {
+    fn exact_operation(&self) -> Result<TaskOperation, Box<dyn std::error::Error>> {
+        Ok(match self {
+            Self::Freeze {
+                id,
+                request_id,
+                expected_snapshot,
+            } => TaskOperation::FreezeEvidence {
+                id: id.clone(),
+                request_id: request_id.clone(),
+                expected_snapshot: *expected_snapshot,
+            },
+            Self::Snapshot { id, ordinal } => TaskOperation::ShowEvidenceSnapshot {
+                id: id.clone(),
+                ordinal: *ordinal,
+            },
+            Self::Publish {
+                id,
+                request_id,
+                snapshot,
+                max_findings,
+                expected_generation,
+            } => TaskOperation::Publish {
+                id: id.clone(),
+                request_id: request_id.clone(),
+                spec: Box::new(TaskSnapshotRunSpec {
+                    snapshot_ordinal: *snapshot,
+                    maximum_findings: *max_findings,
+                }),
+                expected_generation: *expected_generation,
+            },
+            Self::Briefing { id } => TaskOperation::EvidenceBriefing { id: id.clone() },
+            _ => return Err("task exact operation".into()),
+        })
+    }
+
     pub fn operation(&self) -> Result<Operation, Box<dyn std::error::Error>> {
         let command = match self {
             Self::Create { id, scope } => TaskOperation::Create {
@@ -174,6 +250,10 @@ impl TaskCommand {
                 id: id.clone(),
                 ordinal: *ordinal,
             },
+            Self::Freeze { .. }
+            | Self::Snapshot { .. }
+            | Self::Publish { .. }
+            | Self::Briefing { .. } => self.exact_operation()?,
             Self::Execute {
                 id,
                 request_id,
@@ -232,6 +312,8 @@ impl TaskCommand {
                 expected_generation: *expected_generation,
             },
             Self::Processing { id } => TaskOperation::Processing { id: id.clone() },
+            Self::Withdrawal { id } => TaskOperation::Withdrawal { id: id.clone() },
+            Self::WithdrawProcessing { .. } => self.withdrawal_operation()?,
             Self::CancelProcessing {
                 id,
                 request_id,
@@ -244,6 +326,24 @@ impl TaskCommand {
             Self::Evidence { id } => TaskOperation::Evidence { id: id.clone() },
         };
         Ok(Operation::Task { command })
+    }
+
+    fn withdrawal_operation(&self) -> sigy_service::Result<TaskOperation> {
+        let Self::WithdrawProcessing {
+            id,
+            request_id,
+            expected_processing_generation,
+            expected_withdrawal_generation,
+        } = self
+        else {
+            return Err(sigy_service::Error::InvalidInput("withdrawal command"));
+        };
+        Ok(TaskOperation::WithdrawProcessing {
+            id: id.clone(),
+            request_id: request_id.clone(),
+            expected_processing_generation: *expected_processing_generation,
+            expected_withdrawal_generation: *expected_withdrawal_generation,
+        })
     }
 }
 
@@ -267,10 +367,15 @@ pub fn render(writer: &mut impl Write, page: &TaskPage) -> io::Result<()> {
             Ok(())
         }
         TaskPage::Checkpoint { checkpoint } => render_checkpoint(writer, checkpoint),
+        TaskPage::EvidenceSnapshot { snapshot } => snapshot::render(writer, snapshot),
+        TaskPage::EvidenceBriefing { briefing } => briefing::render(writer, briefing.as_deref()),
         TaskPage::Execution { run } => execution::render(writer, run.as_deref()),
         TaskPage::Collection { collection } => collection::render(writer, collection.as_deref()),
         TaskPage::Processing { processing } => processing::render(writer, processing.as_deref()),
         TaskPage::Evidence { evidence } => evidence::render(writer, evidence.as_deref()),
+        TaskPage::Withdrawal { withdrawal } => {
+            processing::render_withdrawal(writer, withdrawal.as_deref())
+        }
     }
 }
 
@@ -309,14 +414,15 @@ fn render_task(writer: &mut impl Write, task: &TaskView, created: Option<bool>) 
     )?;
     writeln!(
         writer,
-        "Scope: {}. Checkpoints: {}/{MAX_CHECKPOINTS}; remaining {}.",
+        "Scope: {}. Checkpoints: {}/{MAX_CHECKPOINTS}; snapshots: {}; shared observations remaining {}.",
         if task.scope_current {
             "current"
         } else {
-            "stale; new checkpoints refused"
+            "stale; new observations refused"
         },
         task.checkpoint,
-        MAX_CHECKPOINTS.saturating_sub(task.checkpoint)
+        task.snapshots,
+        MAX_CHECKPOINTS.saturating_sub(task.checkpoint.saturating_add(task.snapshots))
     )?;
     writeln!(
         writer,
@@ -435,6 +541,7 @@ fn render_coverage(
 
 #[cfg(test)]
 mod tests {
+    mod exact;
     use clap::Parser;
     use sigy_service::{
         monitor::{MonitorCoverage, ScheduleCoverage, SourceCoverage},
@@ -687,6 +794,40 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn withdrawal_requires_separate_explicit_fences() -> Result<(), Box<dyn std::error::Error>> {
+        let arguments = [
+            "sigy",
+            "withdraw-processing",
+            "water",
+            "withdraw-1",
+            "--expected-processing-generation",
+            "1",
+            "--expected-withdrawal-generation",
+            "0",
+        ];
+        assert!(matches!(
+            parse(&arguments)?,
+            Operation::Task {
+                command: TaskOperation::WithdrawProcessing {
+                    expected_processing_generation: 1,
+                    expected_withdrawal_generation: 0,
+                    ..
+                }
+            }
+        ));
+        for (index, value) in [(5, "0"), (5, "3"), (7, "1")] {
+            let mut invalid = arguments;
+            invalid[index] = value;
+            assert!(parse(&invalid).is_err());
+        }
+        assert!(parse(&arguments[..6]).is_err());
+        assert!(
+            matches!(parse(&["sigy", "withdrawal", "water"])?, Operation::Task { command: TaskOperation::Withdrawal { id } } if id == "water")
+        );
+        Ok(())
+    }
+
     fn checkpoint() -> TaskCheckpoint {
         TaskCheckpoint {
             task_id: "water".into(),
@@ -799,6 +940,7 @@ mod tests {
             monitor_spec_sha256: "b".repeat(64),
             created_ms: 1,
             checkpoint: 0,
+            snapshots: 0,
             scope_current: true,
             latest_checkpoint: None,
         };
@@ -808,7 +950,7 @@ mod tests {
                 created,
             })?;
             assert!(!text.contains('\u{1b}'));
-            assert!(text.contains("Scope: current. Checkpoints: 0/128; remaining 128."));
+            assert!(text.contains("Scope: current. Checkpoints: 0/128; snapshots: 0; shared observations remaining 128."));
             assert!(text.contains("No checkpoint recorded"));
         }
         task.scope_current = false;
@@ -818,7 +960,7 @@ mod tests {
             task: Box::new(task),
             created: None,
         })?;
-        assert!(text.contains("stale; new checkpoints refused"));
+        assert!(text.contains("stale; new observations refused"));
         assert!(text.contains("remaining 0"));
         assert!(text.contains("checkpoint 1"));
         let text = rendered(&TaskPage::List {

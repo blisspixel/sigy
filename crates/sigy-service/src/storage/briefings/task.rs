@@ -78,7 +78,7 @@ pub(in crate::storage) fn write_task_briefing(
     store_snapshot(connection, monitor, id, coverage)
 }
 
-fn checked_ids(finding_ids: &[String]) -> Result<BTreeSet<String>> {
+pub(super) fn checked_ids(finding_ids: &[String]) -> Result<BTreeSet<String>> {
     if finding_ids.len() > crate::monitor::MATCH_PAGE {
         return Err(Error::Analysis("task-briefing-limit"));
     }
@@ -92,7 +92,7 @@ fn checked_ids(finding_ids: &[String]) -> Result<BTreeSet<String>> {
     Ok(ids)
 }
 
-fn selected_citations(
+pub(super) fn selected_citations(
     connection: &Connection,
     monitor: &str,
     ids: &BTreeSet<String>,
@@ -103,7 +103,11 @@ fn selected_citations(
                 .query_row(
                     "SELECT c.script FROM monitor_findings f JOIN transcript_cues c ON c.transcript_id = f.transcript_id AND c.revision = f.transcript_revision AND c.ordinal = f.cue_ordinal WHERE f.monitor_id = ?1 AND f.id = ?2",
                     params![monitor, id],
-                    |row| row.get(0),
+                    |row| {
+                        let value=row.get_ref(0)?.as_str()?;
+                        if value.is_empty()||value.len()>4096 {return Err(rusqlite::Error::InvalidQuery);}
+                        Ok(value.to_owned())
+                    },
                 )
                 .optional()?
                 .ok_or(Error::NotFound)?;

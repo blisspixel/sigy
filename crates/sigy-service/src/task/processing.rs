@@ -16,6 +16,7 @@ pub struct JobSharing {
     pub direct: bool,
     pub monitors: u32,
     pub tasks: u32,
+    pub withdrawn_tasks: u32,
 }
 
 pub const PROCESSING_TEMPLATE: &str = "collected-processing-v1";

@@ -4,9 +4,10 @@
 //! whose transcript lineage has no active job, up to a per-kind cap, and records a lease
 //! owned by this service process. A fresh cursor starts at the oldest job when every
 //! candidate is batch, and at the soonest live recognition job when one is waiting.
-//! A restart ends every lease: running zero-cost local work returns to the queue under
-//! a new generation until its attempt limit, while
-//! cancelling or exhausted work becomes interrupted. Every ended attempt is recorded.
+//! Legacy restart recovery ends leases: running zero-cost local work returns to the queue
+//! under a new generation until its attempt limit, while cancelling or exhausted work
+//! becomes interrupted. Explicit task withdrawal targets instead retain their lease and
+//! generation when native completion is unproven. Every ended attempt is recorded.
 //! A queued job holds no read lease; its input is checked again when it is claimed.
 
 use rusqlite::{Connection, Transaction, params};
@@ -203,6 +204,16 @@ pub(super) fn recover(connection: &mut Connection, family: Family, now: i64) -> 
             .collect::<rusqlite::Result<Vec<_>>>()?
     };
     for job in held {
+        let stop_family = if family == Family::Analysis {
+            "recognition"
+        } else {
+            "translation"
+        };
+        let unproven: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_stop_targets t WHERE t.family = ?1 AND t.job_id = ?2 AND t.generation = ?3 AND NOT EXISTS(SELECT 1 FROM native_stop_completions c WHERE c.family = t.family AND c.job_id = t.job_id AND c.generation = t.generation))", params![stop_family, job.id, job.generation], |row| row.get(0))?;
+        if unproven {
+            // An old owner disappearing is not proof that its native group drained.
+            continue;
+        }
         tx.execute(
             "INSERT INTO job_attempts(family, job_id, attempt, generation, lease_owner, started_ms, ended_ms, outcome, reason) VALUES (?1, ?2, ?3, ?4, ?5, ?6, max(?6, ?7), 'interrupted', 'service-restarted')",
             params![family.name(), job.id, job.attempt, job.generation, job.owner, job.started_ms, now],
@@ -477,7 +488,7 @@ pub(crate) fn revert_031_for_tests(connection: &mut Connection) -> Result<()> {
     let tx = connection.transaction()?;
     tx.pragma_update(None, "defer_foreign_keys", true)?;
     // Later triggers name these tables; remove them before the tables are rebuilt.
-    tx.execute_batch(super::tasks::processing::REVERT_044_FOR_TESTS)?;
+    super::tasks::processing::revert_for_tests(&tx)?;
     tx.execute_batch(
         "DROP TABLE job_attempts;
          DROP INDEX analysis_one_per_lineage; DROP INDEX translation_one_per_lineage;

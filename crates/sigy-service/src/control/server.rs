@@ -44,7 +44,9 @@ async fn serve(
     library.store_mut().recover_listens()?;
     library.store_mut().recover_analysis_jobs()?;
     library.store_mut().recover_translation_jobs()?;
-    crate::recognizer::clear_scratch(library.directory())?;
+    if !library.store().native_completion_unproven()? {
+        crate::recognizer::clear_scratch(library.directory())?;
+    }
     crate::recordings::recover_deletions(&mut library)?;
     let endpoint = Endpoint::new()?;
     let listener = endpoint.listen(&directory)?;

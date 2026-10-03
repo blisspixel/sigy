@@ -223,6 +223,12 @@ impl Actor {
 
     fn finish_snapshot(&mut self, operation: Operation, created: Option<bool>) -> Result<Snapshot> {
         let mut snapshot = apply_library(&mut self.library, operation)?;
+        if let Some(super::TaskPage::Withdrawal {
+            withdrawal: Some(view),
+        }) = snapshot.task.as_deref()
+        {
+            self.signal_task_withdrawal(view);
+        }
         if let Some(listen) = snapshot.listen.as_mut() {
             if let Some(created) = created {
                 listen.newly_started = Some(created);

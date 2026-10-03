@@ -1,12 +1,13 @@
 //! One bounded step per pass. Catalog effect and receipt share the same transaction.
 
-use rusqlite::TransactionBehavior;
+use rusqlite::{Transaction, TransactionBehavior};
 
 use super::{
-    Connection, Error, Event, Grant, Intent, Result, Store, TaskRunState, TaskRunStep, TaskRunView,
-    artifact_exists, effect_id, insert_event, intents, scope_current,
+    Connection, Error, Event, Grant, Intent, Observation, Result, Store, TaskRunState, TaskRunStep,
+    TaskRunView, artifact_exists, effect_id, insert_event, intents, scope_current,
 };
 use crate::monitor::FindingOriginal;
+use crate::storage::query_work::{Limits, QueryWork};
 
 fn expected_refusal(error: Error) -> Result<String> {
     match error {
@@ -26,8 +27,8 @@ fn finding_event(
     now: i64,
 ) -> Result<Event> {
     let citation = grant
-        .checkpoint
-        .citations
+        .observation
+        .citations()
         .get(intent.ordinal as usize - 1)
         .ok_or(Error::StorageIntegrity)?;
     let mut step = TaskRunStep {
@@ -119,14 +120,24 @@ fn briefing_event(
         return Ok(event);
     }
     connection.execute_batch("SAVEPOINT task_effect")?;
-    if let Err(error) = crate::storage::briefings::write_task_briefing(
-        connection,
-        monitor,
-        &intent.effect_id,
-        &grant.checkpoint.coverage,
-        &selected,
-        now,
-    ) {
+    let publication = match &grant.observation {
+        Observation::Checkpoint(checkpoint) => crate::storage::briefings::write_task_briefing(
+            connection,
+            monitor,
+            &intent.effect_id,
+            &checkpoint.coverage,
+            &selected,
+            now,
+        ),
+        Observation::Snapshot(snapshot) => crate::storage::briefings::write_task_evidence_briefing(
+            connection,
+            &intent.effect_id,
+            snapshot,
+            &selected,
+            now,
+        ),
+    };
+    if let Err(error) = publication {
         event.step.reason = Some(expected_refusal(error)?);
         event.state = TaskRunState::Partial;
         connection.execute_batch("ROLLBACK TO task_effect")?;
@@ -146,11 +157,27 @@ impl Store {
         expected_generation: u32,
         now: i64,
     ) -> Result<TaskRunView> {
-        let view = self.task_run(id)?.ok_or(Error::NotFound)?;
+        let work = QueryWork::start(&self.connection, Limits::TASK_EVIDENCE)?;
+        let result = self.advance_task_run_in_work(id, expected_generation, now, &work);
+        work.finish()?;
+        result
+    }
+
+    fn advance_task_run_in_work(
+        &self,
+        id: &str,
+        expected_generation: u32,
+        now: i64,
+        work: &QueryWork<'_>,
+    ) -> Result<TaskRunView> {
+        let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
+        let view = self.task_run_in_work(id)?.ok_or(Error::NotFound)?;
         if view.generation != expected_generation {
             return Err(Error::IdempotencyConflict);
         }
         if view.state != TaskRunState::Running {
+            work.check()?;
+            tx.commit()?;
             return Ok(view);
         }
         if now < view.updated_ms {
@@ -159,9 +186,6 @@ impl Store {
         let grant = self.checked_run_grant(id)?.ok_or(Error::StorageIntegrity)?;
         let task_scope = self.checked_task_scope(id)?.0;
         let current = scope_current(self, &task_scope)?;
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let event = if current {
             let plan = intents(&grant);
             let intent = plan
@@ -190,7 +214,9 @@ impl Store {
             }
         };
         insert_event(&tx, id, &event)?;
+        let view = self.task_run_in_work(id)?.ok_or(Error::StorageIntegrity)?;
+        work.check()?;
         tx.commit()?;
-        self.task_run(id)?.ok_or(Error::StorageIntegrity)
+        Ok(view)
     }
 }

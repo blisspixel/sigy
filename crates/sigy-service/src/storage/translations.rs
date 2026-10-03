@@ -208,6 +208,9 @@ impl Store {
         owner: &str,
         now: i64,
     ) -> Result<Option<TranslationWork>> {
+        if self.native_completion_unproven()? {
+            return Ok(None);
+        }
         let job = self.translation_job(id)?;
         if job.state != "queued" {
             return Ok(None);
@@ -341,7 +344,8 @@ impl Store {
         if !matches!(job.state.as_str(), "running" | "cancelling") {
             return Ok(job);
         }
-        let finished = now.max(job.created_ms);
+        let finished =
+            super::withdrawals::complete(&tx, "translation", &job.request.id, job.generation, now)?;
         let (state, reason) = match outcome.result() {
             _ if job.state == "cancelling" => ("cancelled", Some("cancelled")),
             TranslationResult::Cancelled => ("cancelled", Some("cancelled")),
@@ -488,11 +492,11 @@ pub(in crate::storage) fn enqueue_translation_in(
         )
         .optional()?;
     if let Some(job) = existing {
-        return if job.request == *request {
-            Ok(false)
-        } else {
-            Err(Error::IdempotencyConflict)
-        };
+        if job.request != *request {
+            return Err(Error::IdempotencyConflict);
+        }
+        super::withdrawals::attachable(connection, "translation", &request.id)?;
+        return Ok(false);
     }
     if now < 0 {
         return Err(Error::InvalidInput("clock range"));

@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use sigy_service::task::run::{RUN_TEMPLATE, TaskRunState, TaskRunView};
+use sigy_service::task::run::{TaskRunState, TaskRunView};
 
 use crate::explorer::text::sanitize;
 
@@ -22,8 +22,11 @@ pub(super) fn render(writer: &mut impl Write, run: Option<&TaskRunView>) -> io::
     )?;
     writeln!(
         writer,
-        "Template: {RUN_TEMPLATE}. Frozen checkpoint: {}. Finding ceiling: {}.",
-        run.spec.checkpoint_ordinal, run.spec.maximum_findings
+        "Template: {}. Frozen {}: {}. Finding ceiling: {}.",
+        run.spec.template(),
+        run.spec.origin(),
+        run.spec.ordinal(),
+        run.spec.maximum_findings()
     )?;
     writeln!(
         writer,
@@ -115,10 +118,10 @@ mod tests {
         TaskRunView {
             task_id: "water".into(),
             request_id: "delegate".into(),
-            spec: TaskRunSpec {
+            spec: sigy_service::task::run::TaskRunSelection::Checkpoint(TaskRunSpec {
                 checkpoint_ordinal: 1,
                 maximum_findings: 4,
-            },
+            }),
             generation: 1,
             state,
             created_ms: 1,

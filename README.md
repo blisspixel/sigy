@@ -26,10 +26,10 @@ These commands build `main` from source; [installation details](docs/install.md)
 
 ## What you can do
 
-- **Explore world radio.** Search stations by name, country code, language or tag, combine filters in the terminal with `F`, save favorites, browse a globe or map, and listen to radio or podcast episodes.
+- **Explore world radio.** Search by station name, country name/code, language or tag. Press `C` for an offline country picker or `F` to combine filters, save favorites, browse a globe or map, and explicitly listen. The country reference has 257 entries and names in eight locales; cached station coverage varies.
 - **Keep a useful record.** Capture streams in the background, schedule recordings across time zones, and retain selected intervals. Recording timelines distinguish audio, gaps and expired material.
 - **Read across languages.** Run experimental local recognition and English translation on retained audio, search originals and translations, and correct a transcript without erasing its history.
-- **Follow a topic with evidence.** Bound a monitor's sources and resources, inspect literal matches, and save cited findings and briefings. Finite tasks add bounded collection and processing; a general task planner remains ahead. Selected operations are available through the [agent plugin](docs/decisions/0021-agent-plugin.md).
+- **Follow a topic with evidence.** Bound a monitor's sources and resources, inspect literal matches, and save cited findings and briefings. Finite tasks can collect, process, freeze their exact evidence and publish cited findings with coverage-aware partial results. [Explicit interest withdrawal](docs/decisions/0079-task-interest-withdrawal.md) preserves shared processing. A general task planner remains ahead. Selected operations are available through the [agent plugin](docs/decisions/0021-agent-plugin.md).
 
 ## Get started
 
@@ -49,6 +49,8 @@ Your library and local processing stay on your machine by default. Paid model di
 A full-screen, retro-futuristic world listening desk: type or select countries and major cities, combine filters, explore linked maps and station lists, and use a radio DVR to revisit retained passages while other sources keep recording. Original scripts, chosen qualified translations and cited findings connect discovery to understanding. English remains the default; other targets are planned for humans and agents. The same service contracts should grow from personal machines to larger deployments as capacity and recovery are measured. These are planned capabilities; see the [roadmap](ROADMAP.md#whats-next) for delivery checkpoints and the [engineering plan](docs/development/reliability-and-scale.md) for their acceptance criteria.
 
 The [storage and knowledge plan](docs/design/storage-and-memory.md) adds a measured path for small servers, larger media libraries and future NAS placement, with searchable evidence, time-aware topic context and portable wiki-style exports. Current storage remains one local library; these deployment and memory extensions are planned.
+
+Later, a [Strange Signals Desk](docs/design/strange-signals.md) brings cited claim comparisons, public-archive experiments and a playful, rigorous SETI watch. Observations, competing explanations and unknowns stay inspectable.
 
 ## Learn more
 

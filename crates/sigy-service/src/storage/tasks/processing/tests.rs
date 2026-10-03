@@ -25,6 +25,8 @@ mod bounded_evidence;
 mod evidence;
 mod lineage;
 mod recovery;
+mod snapshots;
+mod withdrawal;
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 const START: i64 = 1_790_078_400_000;

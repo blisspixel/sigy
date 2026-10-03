@@ -75,6 +75,8 @@ These come directly from the product discussion. Changes require revisiting the 
 | C-46 | The CLI and TUI must be exceptionally usable: a fuller-screen retro-futuristic signal desk, typed or selectable worldwide countries/territories and major cities independent of cached stations, combined filters and linked geography, dependable radio lists with bounded validation/recovery, and an integrated DVR-to-evidence journey. Preserve equivalent keyboard/plain-text operations. Native applications may follow later; browser delivery is not required. |
 | C-47 | Storage and transcript/insight analysis must have a measured growth path across Pi-class always-on hosts, gaming machines, explicitly configured large local/NAS libraries and reproducible infrastructure deployments. A stated 2 TB or 20 TB capacity is a target scenario, not qualified hardware, throughput or durability. Preserve a useful local installation and finite authority throughout. |
 | C-48 | Research Open Knowledge Format, linked Markdown/wiki views, graph and temporal knowledge, and complementary agent-memory roles for durable scalable context. Keep exact original evidence and revisions, task state, interpretation and procedure/policy authority distinct. The request does not select a memory framework, graph database or multiple physical stores. |
+| C-49 | Later curiosity-driven investigations should combine exact multilingual radio/podcast claim trails with a playful, rigorous strange-signal and SETI archive/watch experience. Preserve observations, attributed claims, competing explanations and unknowns; reuse finite service authority. Specific features remain proposed and add no first-release obligation. |
+
 
 ## Reading the status labels
 

@@ -123,7 +123,9 @@ fn fresh(connection: &Connection, scope: &TaskJobScope<'_>, now: i64) -> Result<
     if task.1 != grant.scope_sha256 {
         return Err(Error::StorageIntegrity);
     }
-    if cancellation(connection, scope.task_id, &grant)?.is_some() {
+    if cancellation(connection, scope.task_id, &grant)?.is_some()
+        || crate::storage::withdrawals::fenced(connection, scope.task_id)?
+    {
         return Err(Error::Analysis("task-processing-cancelled"));
     }
     if !current_scope(connection, &task.0)? {

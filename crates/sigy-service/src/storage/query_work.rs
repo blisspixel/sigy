@@ -23,6 +23,14 @@ pub(crate) struct Limits {
     pub lock_wait: Duration,
 }
 
+impl Limits {
+    pub(crate) const TASK_EVIDENCE: Self = Self {
+        wall: Duration::from_millis(100),
+        vm_ops: 4_000_000,
+        lock_wait: Duration::from_millis(10),
+    };
+}
+
 pub(crate) struct QueryWork<'a> {
     connection: &'a Connection,
     previous_wait: Duration,

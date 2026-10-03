@@ -1,9 +1,9 @@
 //! Bounded reopen checks reconstruct the accepted plan and validate committed artifacts.
 
 use super::{
-    Error, Event, Grant, Intent, OptionalExtension, RUN_TEMPLATE, Result, Store, TaskRunSpec,
-    TaskRunState, effect_id, grant_hash, intents, params, partial_checkpoint, planned_count,
-    scope_current, validate_key,
+    Error, Event, Grant, Intent, Observation, OptionalExtension, Result, Store, TaskRunSelection,
+    TaskRunState, effect_id, exact_grant_hash, grant_hash, intents, optional_text, params,
+    scope_current, stored_text, validate_key,
 };
 use crate::monitor::FindingOriginal;
 
@@ -12,8 +12,11 @@ struct RawGrant {
     json: String,
     digest: String,
     scope: String,
-    checkpoint: u32,
-    checkpoint_digest: String,
+    checkpoint: Option<u32>,
+    checkpoint_digest: Option<String>,
+    snapshot: Option<u32>,
+    origin: String,
+    observation_digest: String,
     maximum: u32,
     planned: u32,
     partial: bool,
@@ -23,48 +26,89 @@ struct RawGrant {
 }
 
 impl Store {
+    fn raw_run_grant(&self, id: &str) -> Result<Option<RawGrant>> {
+        self.connection.query_row(
+            "SELECT request_id, spec_json, grant_sha256, scope_sha256, checkpoint_ordinal, checkpoint_sha256, maximum_findings, planned_findings, initial_partial, template, amount_micros, created_ms, snapshot_ordinal, origin, observation_sha256 FROM task_runs WHERE task_id = ?1",
+            [id], |row| {
+                let json=row.get_ref(1)?.as_str()?;
+                if json.len()>1024 {return Err(rusqlite::Error::InvalidQuery);}
+                Ok(RawGrant {
+                request: stored_text(row,0,128)?, json: json.to_owned(), digest: stored_text(row,2,64)?, scope: stored_text(row,3,64)?,
+                checkpoint: row.get(4)?, checkpoint_digest: optional_text(row,5,64)?, maximum: row.get(6)?,
+                planned: row.get(7)?, partial: row.get(8)?, template: stored_text(row,9,64)?, cost: row.get(10)?, created: row.get(11)?,snapshot:row.get(12)?,origin:stored_text(row,13,16)?,observation_digest:stored_text(row,14,64)?,
+            })},
+        ).optional().map_err(Into::into)
+    }
+
     pub(super) fn checked_run_grant(&self, id: &str) -> Result<Option<Grant>> {
-        let Some(raw) = self.connection.query_row(
-            "SELECT request_id, spec_json, grant_sha256, scope_sha256, checkpoint_ordinal, checkpoint_sha256, maximum_findings, planned_findings, initial_partial, template, amount_micros, created_ms FROM task_runs WHERE task_id = ?1",
-            [id], |row| Ok(RawGrant {
-                request: row.get(0)?, json: row.get(1)?, digest: row.get(2)?, scope: row.get(3)?,
-                checkpoint: row.get(4)?, checkpoint_digest: row.get(5)?, maximum: row.get(6)?,
-                planned: row.get(7)?, partial: row.get(8)?, template: row.get(9)?, cost: row.get(10)?, created: row.get(11)?,
-            }),
-        ).optional()? else { return Ok(None); };
+        let Some(raw) = self.raw_run_grant(id)? else {
+            return Ok(None);
+        };
         validate_key(&raw.request, "task run request").map_err(|_| Error::StorageIntegrity)?;
-        let spec: TaskRunSpec =
+        let spec: TaskRunSelection =
             serde_json::from_str(&raw.json).map_err(|_| Error::StorageIntegrity)?;
         spec.validate().map_err(|_| Error::StorageIntegrity)?;
         let scope = self.checked_task_scope(id)?;
-        let checkpoint = self.task_checkpoint(id, spec.checkpoint_ordinal)?;
+        let observation = match &spec {
+            TaskRunSelection::Checkpoint(s) => {
+                Observation::Checkpoint(Box::new(self.task_checkpoint(id, s.checkpoint_ordinal)?))
+            }
+            TaskRunSelection::Snapshot(s) => Observation::Snapshot(Box::new(
+                self.checked_evidence_snapshot(id, s.snapshot_ordinal)?,
+            )),
+        };
         let digest: String = self.connection.query_row(
-            "SELECT payload_sha256 FROM task_checkpoints WHERE task_id = ?1 AND ordinal = ?2",
-            params![id, spec.checkpoint_ordinal],
+            match &spec {TaskRunSelection::Checkpoint(_)=>"SELECT payload_sha256 FROM task_checkpoints WHERE task_id = ?1 AND ordinal = ?2",TaskRunSelection::Snapshot(_)=>"SELECT payload_sha256 FROM task_evidence_snapshots WHERE task_id = ?1 AND ordinal = ?2"},
+            params![id, spec.ordinal()],
             |row| row.get(0),
         )?;
-        let partial = partial_checkpoint(&checkpoint)
-            || checkpoint.citations.len() > spec.maximum_findings as usize;
+        let partial = observation.partial(spec.maximum_findings());
+        let planned = u32::try_from(observation.citations().len())
+            .map_err(|_| Error::StorageIntegrity)?
+            .min(spec.maximum_findings());
+        let origin_valid = match &spec {
+            TaskRunSelection::Checkpoint(s) => {
+                raw.checkpoint == Some(s.checkpoint_ordinal)
+                    && raw.snapshot.is_none()
+                    && raw.checkpoint_digest.as_ref() == Some(&digest)
+            }
+            TaskRunSelection::Snapshot(s) => {
+                raw.snapshot == Some(s.snapshot_ordinal)
+                    && raw.checkpoint.is_none()
+                    && raw.checkpoint_digest.is_none()
+            }
+        };
+        let hashed = match &spec {
+            TaskRunSelection::Checkpoint(_) => grant_hash(
+                id,
+                &raw.request,
+                &raw.json,
+                &raw.scope,
+                &digest,
+                raw.created,
+            )?,
+            TaskRunSelection::Snapshot(_) => exact_grant_hash(
+                id,
+                &raw.request,
+                &raw.json,
+                &raw.scope,
+                &digest,
+                raw.created,
+            )?,
+        };
         if raw.json.len() > 1024
             || raw.scope != scope.1
-            || raw.checkpoint != spec.checkpoint_ordinal
-            || raw.checkpoint_digest != digest
-            || raw.maximum != spec.maximum_findings
-            || raw.planned != planned_count(&checkpoint, &spec)?
+            || !origin_valid
+            || raw.origin != spec.origin()
+            || raw.observation_digest != digest
+            || raw.maximum != spec.maximum_findings()
+            || raw.planned != planned
             || raw.partial != partial
-            || raw.template != RUN_TEMPLATE
+            || raw.template != spec.template()
             || raw.cost != 0
-            || raw.created < checkpoint.observed_ms
-            || checkpoint.monitor_paused
-            || raw.digest
-                != grant_hash(
-                    id,
-                    &raw.request,
-                    &raw.json,
-                    &raw.scope,
-                    &digest,
-                    raw.created,
-                )?
+            || raw.created < observation.observed_ms()
+            || matches!(&observation,Observation::Checkpoint(c) if c.monitor_paused)
+            || raw.digest != hashed
         {
             return Err(Error::StorageIntegrity);
         }
@@ -75,15 +119,15 @@ impl Store {
             created_ms: raw.created,
             planned_findings: raw.planned,
             initial_partial: partial,
-            checkpoint,
+            observation,
         };
         let mut statement = self.connection.prepare("SELECT ordinal, kind, effect_id, citation_ordinal FROM task_run_intents WHERE task_id = ?1 ORDER BY ordinal LIMIT 66")?;
         let stored = statement
             .query_map([id], |row| {
                 Ok(Intent {
                     ordinal: row.get(0)?,
-                    kind: row.get(1)?,
-                    effect_id: row.get(2)?,
+                    kind: stored_text(row, 1, 16)?,
+                    effect_id: stored_text(row, 2, 128)?,
                     citation_ordinal: row.get(3)?,
                 })
             })?
@@ -165,8 +209,8 @@ impl Store {
             };
         };
         let citation = grant
-            .checkpoint
-            .citations
+            .observation
+            .citations()
             .get(event.step.ordinal as usize - 1)
             .ok_or(Error::StorageIntegrity)?;
         let page = self.finding(monitor, finding)?;
@@ -232,6 +276,28 @@ impl Store {
         {
             return Err(Error::StorageIntegrity);
         }
+        if let Observation::Snapshot(snapshot) = &grant.observation {
+            let page =
+                self.task_evidence_briefing_record(&snapshot.task_id, &event.step.effect_id)?;
+            let mut actual = page
+                .members
+                .iter()
+                .map(|m| m.finding_id.clone())
+                .collect::<Vec<_>>();
+            actual.sort();
+            let mut expected = selected.to_vec();
+            expected.sort();
+            if actual != expected
+                || page.snapshot.as_ref() != snapshot.as_ref()
+                || page.created_ms != event.step.recorded_ms
+            {
+                return Err(Error::StorageIntegrity);
+            }
+            return Ok(());
+        }
+        let Observation::Checkpoint(checkpoint) = &grant.observation else {
+            return Err(Error::StorageIntegrity);
+        };
         let page = self.briefing(monitor, &event.step.effect_id)?;
         let mut actual = page
             .members
@@ -247,7 +313,7 @@ impl Store {
             |row| row.get(0),
         )?;
         if actual != expected
-            || page.coverage != grant.checkpoint.coverage
+            || page.coverage != checkpoint.coverage
             || created != event.step.recorded_ms
         {
             return Err(Error::StorageIntegrity);

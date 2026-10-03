@@ -67,7 +67,9 @@ impl Store {
         if scope.1 != grant.scope_sha256 {
             return Err(Error::StorageIntegrity);
         }
-        let hold = if cancellation(&self.connection, id, &grant)?.is_some() {
+        let hold = if crate::storage::withdrawals::fenced(&self.connection, id)? {
+            Some("task-interest-withdrawn")
+        } else if cancellation(&self.connection, id, &grant)?.is_some() {
             Some("cancelled")
         } else if !current_scope(&self.connection, &scope.0)? {
             Some("scope-changed")

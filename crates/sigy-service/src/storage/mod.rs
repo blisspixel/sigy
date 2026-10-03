@@ -42,8 +42,9 @@ pub(crate) mod translations;
 mod widen;
 #[cfg(test)]
 mod widen_tests;
+pub(crate) mod withdrawals;
 
-pub const SCHEMA_VERSION: u32 = 44;
+pub const SCHEMA_VERSION: u32 = 47;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -128,7 +129,9 @@ impl Store {
         store.audit_task_runs()?;
         store.audit_task_collections()?;
         store.audit_job_interests()?;
+        store.audit_withdrawals()?;
         store.audit_task_processing()?;
+        store.audit_task_evidence_snapshots()?;
         Ok(store)
     }
 
@@ -305,6 +308,15 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=43).contains(&version) {
         transaction.execute_batch(include_str!("044-task-processing.sql"))?;
+    }
+    if (0..=44).contains(&version) {
+        transaction.execute_batch(include_str!("045-task-interest-withdrawal.sql"))?;
+    }
+    if (0..=45).contains(&version) {
+        transaction.execute_batch(include_str!("046-task-evidence-snapshots.sql"))?;
+    }
+    if (0..=46).contains(&version) {
+        tasks::run::migrate_047(transaction)?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

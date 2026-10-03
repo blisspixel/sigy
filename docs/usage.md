@@ -91,7 +91,9 @@ sigy --json radio countries Canada
 sigy radio countries --licenses
 ```
 
-This bundled CLDR reference supplies names and codes independently of cached stations. Display locales are `en`, `fr`, `es`, `ar`, `hi`, `zh`, `pt`, `sw`; other locales explicitly fall back to English. Pages contain at most 16 codes, with a continuation for the same query and locale. Station availability remains unknown in this view. Existing `--country` filters accept a unique reference name or two-letter provider code. Ambiguous names require an explicit code from `radio countries`; names preserve accents and scripts. See [offline country selection](decisions/0080-offline-country-reference.md).
+The bundled CLDR 48.2.0 reference supplies 257 country/territory identities independently of cached stations. Display locales are `en`, `fr`, `es`, `ar`, `hi`, `zh`, `pt`, `sw`; other locales explicitly fall back to English, including regional tags such as `fr-CA`. Pages contain at most 16 codes, with a continuation bound to the query, requested/display locale and reference version/hash. Structured output includes reference and matched-alias provenance. Station availability remains unknown in this view; a reference entry does not imply directory coverage. `--licenses` prints the preserved legal notices.
+
+Existing `--country` filters accept a unique reference name or a literal two-letter provider code, including an unlisted code. Names preserve accents and scripts and search aliases from all eight bundled locales. Ambiguity considers every matching identity before paging: `Congo` requires `CD` or `CG`, and a more general name can match several territories. Choose an explicit code from `radio countries` when ambiguous. City and coordinate/radius lookup remain planned. See [offline country selection](decisions/0080-offline-country-reference.md).
 
 ![Current radio command help](images/cli.png)
 
@@ -410,7 +412,32 @@ The running service then processes only the grant's exact collected recordings, 
 sigy --data-dir PATH_TO_LIBRARY task evidence evening-water
 ```
 
-`task evidence` reconciles the collection grant through task processing to literal evidence, read-only. Each collected entry shows its schedule state, exact recording, recorded audio, uncovered time (planned but not recorded) and unprocessed time (recorded but without task recognition coverage), the task's recognition and translation receipts with live job states, the transcript revision the task's own recognition published and the translation of that revision. Citations are literal matches of the frozen monitor version's terms in those exact revisions; a later correction is not substituted. The outcome is `pending` while collection or processing can still advance, `cited` when every planned entry was recorded, recognized and translated and at least one passage matched, `no_literal_match` when coverage and processing are complete without a match, and `partial` otherwise, with reasons such as `capture-missed`, `uncovered-time`, `processing-not-granted`, `recognition-failed`, `no-recognized-text`, `translation-skipped` or `untranslated-cues`. Literal citations are not semantic support, and wording, language and translation quality remain unmeasured. To publish findings and a briefing, use `task checkpoint` and `task execute`; a checkpoint observes the monitor's broader window and newest revisions.
+`task evidence` reconciles the collection grant through task processing to literal evidence, read-only. Each collected entry shows its schedule state, exact recording, recorded audio, uncovered time (planned but not recorded) and unprocessed time (recorded but without task recognition coverage), the task's recognition and translation receipts with live job states, the transcript revision the task's own recognition published and the translation of that revision. Citations are literal matches of the frozen monitor version's terms in those exact revisions; a later correction is not substituted. The outcome is `pending` while collection or processing can still advance, `cited` when every planned entry was recorded, recognized and translated and at least one passage matched, `no_literal_match` when coverage and processing are complete without a match, and `partial` otherwise, with reasons such as `capture-missed`, `uncovered-time`, `processing-not-granted`, `recognition-failed`, `no-recognized-text`, `translation-skipped` or `untranslated-cues`. Literal citations are not semantic support, and wording, language and translation quality remain unmeasured. Use `task freeze` and `task publish` below to publish this exact task evidence. `task checkpoint` and `task execute` retain the separate broader monitor observation path.
+
+### Exact task snapshots and publication
+
+```text
+sigy --data-dir PATH_TO_LIBRARY task freeze evening-water freeze-1 --expected-snapshot 0
+sigy --data-dir PATH_TO_LIBRARY task snapshot evening-water 1
+sigy --data-dir PATH_TO_LIBRARY task publish evening-water publish-1 --snapshot 1 --max-findings 4 --expected-generation 0
+sigy --data-dir PATH_TO_LIBRARY task execution evening-water
+sigy --data-dir PATH_TO_LIBRARY task briefing evening-water
+```
+
+Freeze stores only this task's collected recordings, processing receipts, exact published revisions and literal citations. It grants no work authority. Pending work is frozen as observed; later completion and corrections do not expand the snapshot. Fresh observations require the current scope and exact expected snapshot ordinal. Old checkpoints and exact snapshots share 128 lifetime observation slots, with separate ordinal sequences. Exact replay reads the original observation after scope drift or clock regression.
+
+Publication requires a frozen snapshot and an explicit finding ceiling of 1 to 64. It shares the task's single lifetime run allowance with `task execute`; the two commands cannot grant separate runs. Findings and receipts commit together. Original-only citations without the required translation become explicit skipped outcomes. `task briefing` reads exactly the successful run-owned findings and that snapshot's frozen collection coverage, including pending work, gaps and omitted remainder. Broader monitor coverage remains a separate live read. The finite workflow's completion does not establish semantic success, translation quality or independent corroboration. See [exact evidence and publication](decisions/0078-exact-task-evidence-publication.md).
+
+### Withdraw a task's processing interests
+
+```text
+sigy --data-dir PATH_TO_LIBRARY task withdraw-processing evening-water stop-1 --expected-processing-generation 1 --expected-withdrawal-generation 0
+sigy --data-dir PATH_TO_LIBRARY task withdrawal evening-water
+```
+
+This explicit operation stops future task processing admission and withdraws only that task's existing interests. Direct, monitor and conservatively preserved legacy authority keep shared jobs running. Unshared queued work is cancelled; an unshared running native job remains cancelling until its contained process group is proven empty and finalization commits. Existing audio charges never refill. `cancel-processing` retains its earlier admission-only behavior. A previously cancelled processing grant uses expected processing generation 2 for this separate withdrawal; replay retains the original expected parameters.
+
+Restart without a committed native completion proof retains a visible unresolved hold, leases and scratch. New native claims and global scratch cleanup wait; capture, control, inspection and independent verification remain available. This is conservative preservation, with no automatic reconstruction or release of an unknown process-group obligation. Processing withdrawal does not cancel collection or publication. See [interest withdrawal and native completion](decisions/0079-task-interest-withdrawal.md).
 
 ## Listening
 
@@ -440,7 +467,7 @@ sigy --data-dir PATH_TO_LIBRARY tui
 sigy --data-dir PATH_TO_LIBRARY tui --reduced-motion --monochrome
 ```
 
-In Explore (`1`) and Globe (`7`), `F` opens the cached-station filter editor. Combine station name, country code, directory language, directory tag, upstream check success and favorites. `Tab`/`Shift-Tab` or up/down select a field, `Space` toggles a yes/no field and `Ctrl-U` clears it. `Enter` explicitly applies a cache read; `Esc` discards the current draft and returns to results. `/` edits only the station name. From results, `x` clears every filter and requests page 1.
+In Explore (`1`) and Globe (`7`), `F` opens the cached-station filter editor. Combine station name, country name/code, directory language, directory tag, upstream check success and favorites. `Tab`/`Shift-Tab` or up/down select a field, `Space` toggles a yes/no field and `Ctrl-U` clears it. `Enter` explicitly applies a cache read; `Esc` discards the current draft and returns to results. `/` edits only the station name. From results, `x` clears every filter and requests page 1.
 
 Displayed rows retain their applied filter scope until a matching successful response arrives. Invalid input, failed reads and disconnects keep the last results. `r`, `n` and `p` use the applied scope. Country accepts a unique name, a two-letter code such as `CA` or `FR`, or blank for all. `C` opens the offline worldwide country picker even with an empty station cache, preserving its previous query, page, locale and selection during this client session. Type to filter; Up/Down selects, Left/Right pages, Tab/Shift-Tab cycles display locales and Ctrl-U clears to the full reference. Enter selects into the filter draft; Enter again explicitly applies the cache query. Escape from the picker returns unchanged to the editor; Escape from the editor discards the draft. Right on the country field opens this same picker. City lookup remains planned. Language and tag match whole directory labels, not recognized speech. Upstream health is a dated directory observation, not local playback validation. Filtering contacts no station and does not refresh the directory. See [terminal cache filters](decisions/0077-terminal-cache-filters.md) and [offline country selection](decisions/0080-offline-country-reference.md).
 

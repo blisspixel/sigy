@@ -16,7 +16,6 @@ use crate::{
         processing::{TaskProcessingStep, TaskProcessingView},
     },
 };
-use std::time::Duration;
 
 const ACTIVE_JOBS: [&str; 3] = ["queued", "running", "cancelling"];
 const TERMINAL_CAPTURES: [&str; 3] = ["failed", "interrupted", "cancelled"];
@@ -143,14 +142,7 @@ impl Store {
         id: &str,
         bounds: Bounds,
     ) -> Result<Option<TaskEvidenceView>> {
-        let work = QueryWork::start(
-            &self.connection,
-            Limits {
-                wall: Duration::from_millis(100),
-                vm_ops: 4_000_000,
-                lock_wait: Duration::from_millis(10),
-            },
-        )?;
+        let work = QueryWork::start(&self.connection, Limits::TASK_EVIDENCE)?;
         let result = if bounds == Bounds::default() {
             self.task_evidence_in_work(id, &work)
         } else {
@@ -439,6 +431,7 @@ pub(super) fn evidence_task(store: &Store, id: &str) -> Result<crate::task::Task
         monitor_spec_sha256,
         created_ms,
         checkpoint: 0,
+        snapshots: 0,
         latest_checkpoint: None,
         template: crate::task::TASK_TEMPLATE.into(),
         paid_allowance_usd: "0.000000".into(),

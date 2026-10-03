@@ -222,8 +222,8 @@ pub(super) fn current_scope(connection: &Connection, task: &crate::task::TaskSpe
 }
 
 /// The latest committed task receipt. A fresh task effect must not precede it.
-pub(super) fn latest_task_ms(connection: &Connection, id: &str) -> Result<i64> {
-    Ok(connection.query_row("SELECT max(moment) FROM (SELECT created_ms AS moment FROM tasks WHERE id = ?1 UNION ALL SELECT observed_ms FROM task_checkpoints WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_runs WHERE task_id = ?1 UNION ALL SELECT recorded_ms FROM task_run_events WHERE task_id = ?1 UNION ALL SELECT admitted_ms FROM task_collection_admissions WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_processing WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_processing_steps WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_processing_cancellations WHERE task_id = ?1)", [id], |row| row.get(0))?)
+pub(in crate::storage) fn latest_task_ms(connection: &Connection, id: &str) -> Result<i64> {
+    Ok(connection.query_row("SELECT max(moment) FROM (SELECT created_ms AS moment FROM tasks WHERE id = ?1 UNION ALL SELECT observed_ms FROM task_checkpoints WHERE task_id = ?1 UNION ALL SELECT observed_ms FROM task_evidence_snapshots WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_runs WHERE task_id = ?1 UNION ALL SELECT recorded_ms FROM task_run_events WHERE task_id = ?1 UNION ALL SELECT admitted_ms FROM task_collection_admissions WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_processing WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_processing_steps WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_processing_cancellations WHERE task_id = ?1 UNION ALL SELECT created_ms FROM task_interest_withdrawals WHERE task_id = ?1)", [id], |row| row.get(0))?)
 }
 
 fn admission_mask(connection: &Connection, id: &str) -> Result<u32> {

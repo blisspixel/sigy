@@ -44,7 +44,13 @@ impl Store {
             return Ok(job);
         }
         let (state, reason) = terminal_outcome(&tx, work, &job, completion.outcome())?;
-        let finished = now.max(job.created_ms);
+        let finished = super::super::withdrawals::complete(
+            &tx,
+            "recognition",
+            &job.request.id,
+            job.generation,
+            now,
+        )?;
         if state == "succeeded" {
             let LocalAsrOutcome::Succeeded(output) = completion.outcome() else {
                 return Err(Error::StorageIntegrity);

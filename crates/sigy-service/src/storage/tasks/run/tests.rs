@@ -1,4 +1,5 @@
 use super::*;
+mod exact_migration;
 use crate::{
     monitor::{ActionOrigin, MonitorSpec, MonitorTerm, Proposal},
     sources::{HttpSource, NetworkScope},

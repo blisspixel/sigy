@@ -1,12 +1,13 @@
 //! User-selected delegation and cancellation. Text and checkpoints grant no authority.
 
-use rusqlite::{TransactionBehavior, params};
+use crate::storage::query_work::{Limits, QueryWork};
+use rusqlite::{Transaction, TransactionBehavior, params};
 
 use super::{
-    Error, Event, Grant, OptionalExtension, RUN_TEMPLATE, Result, Store, TaskRunSpec, TaskRunState,
-    TaskRunStep, TaskRunView, effect_id, grant_hash, insert_event, intents, partial_checkpoint,
-    planned_count, scope_current, validate_key,
+    Error, Event, OptionalExtension, Result, Store, TaskRunSelection, TaskRunSpec, TaskRunState,
+    TaskRunStep, TaskRunView, TaskSnapshotRunSpec, effect_id, insert_event, validate_key,
 };
+mod start;
 
 impl Store {
     /// Accept one finite materialization run. Exact request replay changes nothing.
@@ -20,71 +21,33 @@ impl Store {
         expected_generation: u32,
         now: i64,
     ) -> Result<TaskRunView> {
-        validate_key(id, "task ID")?;
-        validate_key(request_id, "task run request")?;
-        spec.validate()?;
-        if let Some(existing) = self.task_run(id)? {
-            return if expected_generation == 0
-                && existing.request_id == request_id
-                && existing.spec == *spec
-            {
-                Ok(existing)
-            } else {
-                Err(Error::IdempotencyConflict)
-            };
-        }
-        if expected_generation != 0 {
-            return Err(Error::IdempotencyConflict);
-        }
-        let task = self.task(id)?;
-        if !scope_current(self, &task.spec)? {
-            return Err(Error::InvalidInput("task monitor scope changed"));
-        }
-        let checkpoint = self.task_checkpoint(id, spec.checkpoint_ordinal)?;
-        if checkpoint.monitor_paused {
-            return Err(Error::InvalidInput("task monitor paused"));
-        }
-        if now < checkpoint.observed_ms {
-            return Err(Error::InvalidInput("task run clock"));
-        }
-        let checkpoint_sha: String = self.connection.query_row(
-            "SELECT payload_sha256 FROM task_checkpoints WHERE task_id = ?1 AND ordinal = ?2",
-            params![id, spec.checkpoint_ordinal],
-            |row| row.get(0),
-        )?;
-        let json = serde_json::to_string(spec)?;
-        let grant = Grant {
-            request_id: request_id.into(),
-            spec: spec.clone(),
-            sha256: grant_hash(
-                id,
-                request_id,
-                &json,
-                &task.scope_sha256,
-                &checkpoint_sha,
-                now,
-            )?,
-            created_ms: now,
-            planned_findings: planned_count(&checkpoint, spec)?,
-            initial_partial: partial_checkpoint(&checkpoint)
-                || checkpoint.citations.len() > spec.maximum_findings as usize,
-            checkpoint,
-        };
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute(
-            "INSERT INTO task_runs(task_id, request_id, spec_json, grant_sha256, scope_sha256, checkpoint_ordinal, checkpoint_sha256, maximum_findings, planned_findings, initial_partial, template, amount_micros, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12)",
-            params![id, request_id, json, grant.sha256, task.scope_sha256, spec.checkpoint_ordinal, checkpoint_sha, spec.maximum_findings, grant.planned_findings, grant.initial_partial, RUN_TEMPLATE, now],
-        )?;
-        for intent in intents(&grant) {
-            tx.execute(
-                "INSERT INTO task_run_intents(task_id, ordinal, kind, effect_id, citation_ordinal) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![id, intent.ordinal, intent.kind, intent.effect_id, intent.citation_ordinal],
-            )?;
-        }
-        tx.commit()?;
-        self.task_run(id)?.ok_or(Error::StorageIntegrity)
+        self.start_selected_run(
+            id,
+            request_id,
+            &TaskRunSelection::Checkpoint(spec.clone()),
+            expected_generation,
+            now,
+        )
+    }
+
+    /// Accept one exact frozen snapshot without substituting monitor-wide coverage.
+    /// # Errors
+    /// Refuses changed replay, prior lifetime delegation, scope drift or resource bounds.
+    pub(crate) fn start_task_snapshot_run(
+        &mut self,
+        id: &str,
+        request_id: &str,
+        spec: &TaskSnapshotRunSpec,
+        expected_generation: u32,
+        now: i64,
+    ) -> Result<TaskRunView> {
+        self.start_selected_run(
+            id,
+            request_id,
+            &TaskRunSelection::Snapshot(spec.clone()),
+            expected_generation,
+            now,
+        )
     }
 
     /// Append cancellation without stopping independently authorized capture or jobs.
@@ -97,19 +60,35 @@ impl Store {
         expected_generation: u32,
         now: i64,
     ) -> Result<TaskRunView> {
+        let work = QueryWork::start(&self.connection, Limits::TASK_EVIDENCE)?;
+        let result = self.cancel_task_run_in_work(id, request_id, expected_generation, now, &work);
+        work.finish()?;
+        result
+    }
+
+    fn cancel_task_run_in_work(
+        &self,
+        id: &str,
+        request_id: &str,
+        expected_generation: u32,
+        now: i64,
+        work: &QueryWork<'_>,
+    ) -> Result<TaskRunView> {
+        let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         validate_key(id, "task ID")?;
         validate_key(request_id, "task cancellation request")?;
-        let view = self.task_run(id)?.ok_or(Error::NotFound)?;
+        let view = self.task_run_in_work(id)?.ok_or(Error::NotFound)?;
         let replay: Option<u32> = self.connection.query_row(
             "SELECT expected_generation FROM task_run_events WHERE task_id = ?1 AND request_id = ?2",
             params![id, request_id], |row| row.get(0),
         ).optional()?;
         if let Some(expected) = replay {
-            return if expected == expected_generation {
-                Ok(view)
-            } else {
-                Err(Error::IdempotencyConflict)
-            };
+            if expected != expected_generation {
+                return Err(Error::IdempotencyConflict);
+            }
+            work.check()?;
+            tx.commit()?;
+            return Ok(view);
         }
         if view.generation != expected_generation {
             return Err(Error::IdempotencyConflict);
@@ -136,11 +115,10 @@ impl Store {
             request_id: Some(request_id.into()),
             expected_generation: Some(expected_generation),
         };
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         insert_event(&tx, id, &event)?;
+        let view = self.task_run_in_work(id)?.ok_or(Error::StorageIntegrity)?;
+        work.check()?;
         tx.commit()?;
-        self.task_run(id)?.ok_or(Error::StorageIntegrity)
+        Ok(view)
     }
 }

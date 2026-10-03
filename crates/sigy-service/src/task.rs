@@ -8,6 +8,8 @@ pub mod collection;
 pub mod evidence;
 pub mod processing;
 pub mod run;
+pub mod snapshot;
+pub mod withdrawal;
 
 pub const MAX_TASKS: u32 = 256;
 pub const MAX_CHECKPOINTS: u32 = 128;
@@ -85,6 +87,7 @@ pub struct TaskView {
     pub monitor_spec_sha256: String,
     pub created_ms: i64,
     pub checkpoint: u32,
+    pub snapshots: u32,
     pub scope_current: bool,
     pub latest_checkpoint: Option<Box<TaskCheckpoint>>,
 }
