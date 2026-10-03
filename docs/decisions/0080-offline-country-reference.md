@@ -2,7 +2,7 @@
 
 Date: 2026-10-03
 
-Status: implemented increment; verification evidence is recorded in active work after integration. This is EX-01A/B, not worldwide station coverage, city discovery or a qualified platform release.
+Status: implemented bounded increment with passing integrated local gates; active work records terminal observations and exact-commit CI. This is EX-01A/B, not worldwide station coverage, city discovery or a qualified platform release.
 
 ## Decision
 

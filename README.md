@@ -26,7 +26,7 @@ These commands build `main` from source; [installation details](docs/install.md)
 
 ## What you can do
 
-- **Explore world radio.** Search by station name, country name/code, language or tag. Press `C` for an offline country picker or `F` to combine filters, save favorites, browse a globe or map, and explicitly listen. The country reference has 257 entries and names in eight locales; cached station coverage varies.
+- **Explore world radio.** Search by station name, country name/code, language or tag. Press `C` for an offline country picker or `F` to combine filters, save favorites and browse a globe or map. Listen explicitly through the CLI. The country reference has 257 entries and names in eight locales; cached station coverage varies.
 - **Keep a useful record.** Capture streams in the background, schedule recordings across time zones, and retain selected intervals. Recording timelines distinguish audio, gaps and expired material.
 - **Read across languages.** Run experimental local recognition and English translation on retained audio, search originals and translations, and correct a transcript without erasing its history.
 - **Follow a topic with evidence.** Bound a monitor's sources and resources, inspect literal matches, and save cited findings and briefings. Finite tasks can collect, process, freeze their exact evidence and publish cited findings with coverage-aware partial results. [Explicit interest withdrawal](docs/decisions/0079-task-interest-withdrawal.md) preserves shared processing. A general task planner remains ahead. Selected operations are available through the [agent plugin](docs/decisions/0021-agent-plugin.md).

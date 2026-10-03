@@ -69,11 +69,12 @@ pub(in crate::storage) fn write_task_evidence_briefing(
 impl Store {
     pub(in crate::storage) fn task_evidence_briefing_record(
         &self,
-        task: &str,
+        snapshot: &TaskEvidenceSnapshot,
+        expected_digest: &str,
         id: &str,
     ) -> Result<TaskEvidenceBriefing> {
+        let task = &snapshot.task_id;
         let (monitor,ordinal,digest):(String,u32,String)=self.connection.query_row("SELECT monitor_id,snapshot_ordinal,observation_sha256 FROM task_briefing_evidence WHERE task_id=?1 AND briefing_id=?2",params![task,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(Error::NotFound)?;
-        let snapshot = self.checked_evidence_snapshot(task, ordinal)?;
         let actual: String = self.connection.query_row(
             "SELECT payload_sha256 FROM task_evidence_snapshots WHERE task_id=?1 AND ordinal=?2",
             params![task, ordinal],
@@ -81,6 +82,8 @@ impl Store {
         )?;
         let saved = header(&self.connection, &monitor, id)?.ok_or(Error::StorageIntegrity)?;
         if actual != digest
+            || digest != expected_digest
+            || ordinal != snapshot.ordinal
             || monitor != snapshot.scope.monitor_id
             || saved.monitor_version != i64::from(snapshot.scope.monitor_version)
             || saved.from_ms != snapshot.scope.from_ms
@@ -107,12 +110,12 @@ impl Store {
             return Err(Error::StorageIntegrity);
         }
         Ok(TaskEvidenceBriefing {
-            task_id: task.into(),
+            task_id: task.clone(),
             id: id.into(),
             monitor_id: monitor,
             generation: number(saved.generation)?,
             created_ms: created,
-            snapshot: Box::new(snapshot),
+            snapshot: Box::new(snapshot.clone()),
             members,
         })
     }

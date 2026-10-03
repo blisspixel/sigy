@@ -1,6 +1,6 @@
 # Workstation milestone validation
 
-Date: 2026-10-03. Status: integrated local verification passed; exact-commit CI is pending integration. No roadmap stage exit, supported release, language pair, deployment or simultaneous-capacity qualification is established. [Active work](../../docs/development/progress.md) owns current state.
+Date: 2026-10-03. Status: the bounded-work repair passes integrated local gates after the first hosted run failed the largest publication fixture. Exact-commit hosted verification is required before source-only publication; [checkpoint metadata](https://github.com/blisspixel/sigy/releases/tag/v0.1.0-dev.20261003) retains its commit and run outcome. No roadmap stage exit, supported release, language pair, deployment or simultaneous-capacity qualification is established. [Active work](../../docs/development/progress.md) owns current state.
 
 ## Scope and inputs
 
@@ -29,6 +29,14 @@ One debug storage fixture with 128 published cues and 64 matching findings measu
 
 Historical media byte counts describe their observation time and are audited against the immutable published interval envelope. Existing release history does not independently reconstruct each earlier retained-byte instant. Sharing counts are historical observations; current authority comes from canonical interests. Today's target identity is explicitly `en`; non-English target execution remains S-05 work.
 
+## Hosted resource failure and bounded-work repair
+
+Hosted [run37138345510](https://github.com/blisspixel/sigy/actions/runs/37138345510) checked commit `4e91636d4170a44eefdb3dce53fff6ab3ec5c359`. It failed only `full_exact_membership_measures_guarded_admission_read_and_tick`, with SQLite operation interruption under the unchanged 100 ms cooperative guard; 601 other service tests passed and one was ignored. Initial local success did not predict that runner's resource behavior.
+
+The repair removes repeated immutable-observation audit and passage-text allocation within each transaction. Complete citation membership is still independently streamed in exact order, partial prefixes retain point checks, and post-effect grant/digest/scope/intents/history/artifact audits remain. Public readers use one deferred transaction. An independent read-only review found no material lost invariant. A regression swaps two valid citations in a rehashed complete snapshot, requires refusal, then restores the valid payload and checks successful read and busy-timeout cleanup. The guard, VM/lock/byte/citation limits and boundary fixture remain intact.
+
+A focused 64-member debug run after the repair measured admission at 9,720 microseconds, maximum tick at 12,295 microseconds and final read at 5,811 microseconds. The snapshot filter then passed 40 existing tests before the additional ordered-citation regression, which passes in full verification. These are synthetic workstation observations, not a CI pass or supported latency profile. Final local gates are recorded below; hosted outcome belongs to the exact source checkpoint.
+
 ## Withdrawal and native recovery
 
 [Decision0079](../../docs/decisions/0079-task-interest-withdrawal.md) preserves old admission-only cancellation and adds explicit versioned owner withdrawal. Valid production cases cover task-only jobs, surviving direct/monitor interests and separate task jobs. Globally unique owned occurrences make two tasks sharing the same job unreachable today; a separately labeled query reference model tests that future ownership case without claiming valid catalog reachability.
@@ -55,19 +63,28 @@ Windows refused native pixel capture. No native PNG, font/glyph shaping or key-t
 
 | Gate | Current outcome |
 | --- | --- |
-| `cargo verify` | Passed: 921 ordinary test executions, 17 ignored, formatting, warnings-denied Clippy, build, native-source hashes and advisory audit of 313 dependencies against 1,290 advisories |
-| `cargo verify-media` | Passed: all 16 fixtures, 103.92 seconds of native test execution |
-| `cargo verify-coverage` | Passed: sigy 88.27%, sigy-core 94.41%, sigy-service 93.22%, sigy-test-recognizer 90.81%, sigy-xtask 93.00%; no source exclusions |
-| Documentation | Passed: 23 changed/new Markdown files, 762 local links/anchors, complete C49/R68/D43/E33 registers, 27 package definitions, writing rules, README legal/setup preservation and `git diff --check` |
-| Exact-commit CI | Pending integration |
+| `cargo verify` | Passed after repair: 922 ordinary test executions, 17 ignored, formatting, warnings-denied Clippy, build, native-source hashes and advisory audit of 313 dependencies against 1,290 advisories |
+| `cargo verify-media` | Passed after repair: all 16 fixtures, 105.20 seconds of native test execution |
+| `cargo verify-coverage` | Passed after repair: sigy 88.28%, sigy-core 94.41%, sigy-service 93.10%, sigy-test-recognizer 90.81%, sigy-xtask 93.00%; no source exclusions |
+| Documentation | Passed: 24 changed/new Markdown files, 796 local links/anchors, complete C49/R68/D43/E33 registers, 27 package definitions, writing rules, README legal/setup preservation and `git diff --check` |
+| Exact-commit CI | Initial run failed as described above; a passing repair commit is required for source-only publication, with its outcome retained in checkpoint metadata |
 
-Private logs remain in ignored `.agents/`. SHA-256 receipts are:
+Private logs remain in ignored `.agents/`. Current repair SHA-256 receipts are:
+
+- `milestone-repair-verify-20261003.log`: `6bcb7418b217cc39b912ccd71e807858353797fca9b0d5103c073048db31a032`.
+- `milestone-repair-media-20261003.log`: `bf261f27f12f71011c27da0417e61234b746eeae41525950d3d93087dfff0105`.
+- `milestone-repair-coverage-20261003.log`: `fe0f324eda110983679576c3a9f96812af2d2ea24000605711fbc87c2faae9cf`.
+- Coverage JSON `target/coverage-reports/workspace-13848-1791049260152704400.json`: `99d1c0881d13221a2f95f57974e6711aac263f22fb8a5c29af801f7687fae57c`.
+- The 388-file repair runtime/manifests source map: `f6cc0111a8c35ce33b23b5b4c4e8af7f6f290c40ea021233b233121fd5f690c5`. Runtime/manifests and all 14 asset/legal hashes stayed unchanged throughout these repair gates.
+
+The following initial-gate receipts retain their historical source scope:
 
 - `milestone-verify-final-20261003.log`: `0b477d7381f10b0abbc71a604fe0094ab5e50f15caab8b2d82eb59b105dfe492`.
 - `milestone-media-20261003.log`: `cb918667a33c728467c56427e0e0673fa4680919bac4cb462ad7ed7726bf75ad`.
 - `milestone-coverage-20261003.log`: `0df7110fd482a1baad73f90dcf2f36507f6d41d3a1e8c0d2f4feccb3a55ea581`.
 - Coverage JSON `target/coverage-reports/workspace-3156-1791045644594465500.json`: `36a7e73621c1987a48ad75436d285d87576dd4f733da7ab5d42a587d52331fcf`.
 - The 387-file runtime/manifests source map: `d61fc0729b570ab28b252541cf22cc966bed6192b51cbd85e37290c2fa2b8472`.
+- The post-commit 387-file source map: `c1bcef9fa65d5f049f6fe4280554c58626282e301912c590870e8367fc025e08`. Git normalized mixed/CRLF line endings to LF in control task dispatch, snapshot audit and its recovery fixture; the other 384 source hashes match. Fresh hosted verification checks the committed checkout.
 - The 14-file asset/legal source map: `85ab4f626ef43cc35c995cf0806104f63258f6e2a7f7534d40a1ac6bdaf99b87`.
 - Native console receipt `country-native-20261003/20261003T162956Z/validation-receipt.json`: `235ab1f7d5307646c2011cc5db6f676a38b501ca6ab3d8bb0e7ca0a4cf469f45`.
 

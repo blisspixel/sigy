@@ -7,6 +7,8 @@ use super::{
 };
 use crate::monitor::FindingOriginal;
 
+mod findings;
+
 struct RawGrant {
     request: String,
     json: String,
@@ -41,6 +43,14 @@ impl Store {
     }
 
     pub(super) fn checked_run_grant(&self, id: &str) -> Result<Option<Grant>> {
+        self.checked_run_grant_reusing(id, None)
+    }
+
+    pub(super) fn checked_run_grant_reusing(
+        &self,
+        id: &str,
+        prior: Option<&Grant>,
+    ) -> Result<Option<Grant>> {
         let Some(raw) = self.raw_run_grant(id)? else {
             return Ok(None);
         };
@@ -49,14 +59,7 @@ impl Store {
             serde_json::from_str(&raw.json).map_err(|_| Error::StorageIntegrity)?;
         spec.validate().map_err(|_| Error::StorageIntegrity)?;
         let scope = self.checked_task_scope(id)?;
-        let observation = match &spec {
-            TaskRunSelection::Checkpoint(s) => {
-                Observation::Checkpoint(Box::new(self.task_checkpoint(id, s.checkpoint_ordinal)?))
-            }
-            TaskRunSelection::Snapshot(s) => Observation::Snapshot(Box::new(
-                self.checked_evidence_snapshot(id, s.snapshot_ordinal)?,
-            )),
-        };
+        let observation = self.run_observation(id, &spec, prior, &raw.observation_digest)?;
         let digest: String = self.connection.query_row(
             match &spec {TaskRunSelection::Checkpoint(_)=>"SELECT payload_sha256 FROM task_checkpoints WHERE task_id = ?1 AND ordinal = ?2",TaskRunSelection::Snapshot(_)=>"SELECT payload_sha256 FROM task_evidence_snapshots WHERE task_id = ?1 AND ordinal = ?2"},
             params![id, spec.ordinal()],
@@ -116,6 +119,7 @@ impl Store {
             request_id: raw.request,
             spec,
             sha256: raw.digest,
+            observation_sha256: digest,
             created_ms: raw.created,
             planned_findings: raw.planned,
             initial_partial: partial,
@@ -138,6 +142,29 @@ impl Store {
         Ok(Some(grant))
     }
 
+    fn run_observation(
+        &self,
+        id: &str,
+        spec: &TaskRunSelection,
+        prior: Option<&Grant>,
+        digest: &str,
+    ) -> Result<Observation> {
+        if let Some(prior) = prior {
+            if prior.spec != *spec || prior.observation_sha256 != digest {
+                return Err(Error::StorageIntegrity);
+            }
+            return Ok(prior.observation.clone());
+        }
+        match spec {
+            TaskRunSelection::Checkpoint(s) => Ok(Observation::Checkpoint(Box::new(
+                self.task_checkpoint(id, s.checkpoint_ordinal)?,
+            ))),
+            TaskRunSelection::Snapshot(s) => Ok(Observation::Snapshot(Box::new(
+                self.checked_evidence_snapshot(id, s.snapshot_ordinal)?,
+            ))),
+        }
+    }
+
     pub(super) fn validate_run_history(
         &self,
         id: &str,
@@ -152,6 +179,7 @@ impl Store {
         let mut previous_ms = grant.created_ms;
         let mut selected = Vec::new();
         let mut partial = grant.initial_partial;
+        let mut findings = self.connection.prepare(findings::SQL)?;
         for (index, event) in history.iter().enumerate() {
             let ordinal = u32::try_from(index + 1).map_err(|_| Error::StorageIntegrity)?;
             if event.step.ordinal != ordinal
@@ -182,7 +210,7 @@ impl Store {
             }
             match intent.kind.as_str() {
                 "finding" => {
-                    self.validate_finding_event(&monitor, grant, event)?;
+                    self.validate_finding_event(&monitor, grant, event, &mut findings)?;
                     if let Some(finding) = &event.step.finding_id {
                         selected.push(finding.clone());
                     }
@@ -197,7 +225,13 @@ impl Store {
         Ok(())
     }
 
-    fn validate_finding_event(&self, monitor: &str, grant: &Grant, event: &Event) -> Result<()> {
+    fn validate_finding_event(
+        &self,
+        monitor: &str,
+        grant: &Grant,
+        event: &Event,
+        statement: &mut rusqlite::Statement<'_>,
+    ) -> Result<()> {
         if event.state != TaskRunState::Running {
             return Err(Error::StorageIntegrity);
         }
@@ -213,7 +247,7 @@ impl Store {
             .citations()
             .get(event.step.ordinal as usize - 1)
             .ok_or(Error::StorageIntegrity)?;
-        let page = self.finding(monitor, finding)?;
+        let page = findings::read(statement, monitor, finding)?;
         let reason = match page.original {
             FindingOriginal::Retained => None,
             FindingOriginal::Expired => Some("original-expired"),
@@ -232,12 +266,7 @@ impl Store {
         {
             return Err(Error::StorageIntegrity);
         }
-        let created: i64 = self.connection.query_row(
-            "SELECT created_ms FROM monitor_findings WHERE monitor_id = ?1 AND id = ?2",
-            params![monitor, finding],
-            |row| row.get(0),
-        )?;
-        if created != event.step.recorded_ms {
+        if page.created_ms != event.step.recorded_ms {
             return Err(Error::StorageIntegrity);
         }
         Ok(())
@@ -277,8 +306,11 @@ impl Store {
             return Err(Error::StorageIntegrity);
         }
         if let Observation::Snapshot(snapshot) = &grant.observation {
-            let page =
-                self.task_evidence_briefing_record(&snapshot.task_id, &event.step.effect_id)?;
+            let page = self.task_evidence_briefing_record(
+                snapshot,
+                &grant.observation_sha256,
+                &event.step.effect_id,
+            )?;
             let mut actual = page
                 .members
                 .iter()

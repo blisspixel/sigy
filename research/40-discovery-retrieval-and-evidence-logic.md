@@ -6,6 +6,8 @@ The [implementation plan](../docs/development/reliability-and-scale.md) keeps co
 
 ## Current owners and behavior
 
+This table records source inspection before decision0080. Its country entry describes the earlier code editor. The now implemented reference/resolver follows [decision0080](../docs/decisions/0080-offline-country-reference.md); station-ID paging and literal archive matching remain as described. The proposals below preserve reviewed alternatives rather than overriding that selected contract.
+
 | Owner inspected | Current behavior and limit |
 | --- | --- |
 | [Directory contracts](../crates/sigy-service/src/discovery/mod.rs) | Text filters have a 128-byte bound; country is blank or two uppercase ASCII letters. This checks syntax, not membership in a country reference. The cache ceiling is 10,000 stations; one refresh accepts at most 500 rows |
@@ -25,6 +27,8 @@ Archive deadlines are checked between scanning steps; they are not proof of inte
 
 Proposed first country package:
 
+These pre-implementation alternatives preceded decision0080. The implemented resolver preserves ambiguity across the complete normalized candidate set; the ranked alias shortcut below is not selected behavior.
+
 1. Declare the selectable country/territory code set and upstream version. Preserve an explicit policy for provider-specific, deprecated, unknown and non-country codes. Do not accidentally include world or continent grouping codes as two-letter country choices.
 2. Resolve a recognized two-letter code first. Names and aliases map to a set of codes, not directly to one presumed answer. Keep each alias's locale, provenance, validity and preferred or historical status.
 3. Show current-locale names with a documented fallback chain and the stable code beside them. Search supported original-script aliases as well as display names. State the supplied locales and aliases; a complete selectable code set does not establish complete multilingual alias coverage.
@@ -35,6 +39,14 @@ Proposed first country package:
 Keep station-ID paging for this package. Name ordering requires a separate decision about collation, tie breakers, locale and index cost. Its future cursor must bind canonical query, ordering policy, reference/index generation and continuation key. Editing a name or changing locale invalidates an incompatible cursor. Names alone cannot be identities because they change and collide.
 
 Acceptance uses the entire declared code set plus explicit ambiguous aliases, an uncached country, deprecated codes, unavailable locale fallback and missing names. Measure finite query bytes, candidate count, memory and response time. A table over every declared country is an exhaustive reference check, while a few station examples are a convenience sample.
+
+## Ordered station search followup
+
+Reviewed again: 2026-10-03. The country resolver is now implemented; existing station pages still use UUID order. [SQLite comparison rules](https://www.sqlite.org/datatype3.html#collation) specify ASCII-only folding for built-in `NOCASE`. Evaluate explicit UTF-8 comparison keys against the pinned normalization/folding profile instead of claiming multilingual collation from that setting. Keep original display names and station-ID tie breakers.
+
+[SQLite transactions](https://www.sqlite.org/lang_transaction.html) support consistent reads while other connections commit changes. A new page operation should read its catalog revision, entries and lookahead together. A versioned revision-bound cursor can refuse later cache drift; it does not preserve that historical snapshot across requests.
+
+[SQLite query planning](https://www.sqlite.org/queryplanner.html) describes indexed search and ordering. Inspect actual plans for the selected query and measure rejected rows and metadata predicates as well as returned rows. A small page alone cannot establish bounded work. The [EX-01C brief](../docs/development/near-term-implementation.md#ex-01c-stable-station-name-ordering-and-catalog-drift) proposes finite migration, query, cursor and race acceptance requirements. No ordering migration or new search operation is implemented by this review.
 
 ## Unicode matching and terminal editing
 

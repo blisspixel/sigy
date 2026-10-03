@@ -86,6 +86,44 @@ fn removing_a_literal_match_from_a_rehashed_complete_selection_is_refused() -> T
 }
 
 #[test]
+fn swapping_valid_citations_in_a_rehashed_complete_selection_is_refused() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    super::super::bounded_evidence::populated(&mut store, 2, "agua", "quiet")?;
+    let now = clock(&store)?;
+    let snapshot = store.freeze_task_evidence("task", "freeze", 0, now + 1)?;
+    assert_eq!(snapshot.evidence.outcome, TaskOutcome::Cited);
+    assert!(!snapshot.evidence.more);
+    assert_eq!(snapshot.evidence.citations.len(), 2);
+    assert_ne!(
+        snapshot.evidence.citations[0].cue_ordinal,
+        snapshot.evidence.citations[1].cue_ordinal
+    );
+    assert_eq!(store.task_evidence_snapshot("task", 1)?, snapshot);
+    store
+        .connection
+        .busy_timeout(std::time::Duration::from_millis(37))?;
+    let mut swapped = snapshot.clone();
+    swapped.evidence.citations.swap(0, 1);
+    replace(&store, &swapped)?;
+    assert!(matches!(
+        store.task_evidence_snapshot("task", 1),
+        Err(Error::StorageIntegrity)
+    ));
+    let wait: u32 = store
+        .connection
+        .pragma_query_value(None, "busy_timeout", |row| row.get(0))?;
+    assert_eq!(wait, 37);
+    replace(&store, &snapshot)?;
+    assert_eq!(store.task_evidence_snapshot("task", 1)?, snapshot);
+    let wait: u32 = store
+        .connection
+        .pragma_query_value(None, "busy_timeout", |row| row.get(0))?;
+    assert_eq!(wait, 37);
+    Ok(())
+}
+
+#[test]
 fn a_rehashed_false_no_literal_match_is_refused() -> TestResult {
     let directory = tempfile::tempdir()?;
     let (mut store, recordings) = recognized(&directory.path().join("catalog"))?;

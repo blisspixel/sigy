@@ -87,6 +87,7 @@ impl Store {
             request_id: request.into(),
             spec: spec.clone(),
             sha256,
+            observation_sha256: digest.clone(),
             created_ms: now,
             planned_findings: u32::try_from(observation.citations().len())
                 .map_err(|_| Error::StorageIntegrity)?
@@ -102,7 +103,10 @@ impl Store {
         for intent in intents(&grant) {
             tx.execute("INSERT INTO task_run_intents(task_id,ordinal,kind,effect_id,citation_ordinal) VALUES (?1,?2,?3,?4,?5)",params![id,intent.ordinal,intent.kind,intent.effect_id,intent.citation_ordinal])?;
         }
-        let view = self.task_run_in_work(id)?.ok_or(Error::StorageIntegrity)?;
+        let grant = self
+            .checked_run_grant_reusing(id, Some(&grant))?
+            .ok_or(Error::StorageIntegrity)?;
+        let view = self.task_run_with_grant(id, &grant)?;
         work.check()?;
         tx.commit()?;
         Ok(view)

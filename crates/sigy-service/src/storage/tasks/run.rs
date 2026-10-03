@@ -30,12 +30,14 @@ struct Grant {
     request_id: String,
     spec: TaskRunSelection,
     sha256: String,
+    observation_sha256: String,
     created_ms: i64,
     planned_findings: u32,
     initial_partial: bool,
     observation: Observation,
 }
 
+#[derive(Clone)]
 enum Observation {
     Checkpoint(Box<TaskCheckpoint>),
     Snapshot(Box<TaskEvidenceSnapshot>),
@@ -274,16 +276,29 @@ impl Store {
             crate::storage::query_work::Limits::TASK_EVIDENCE,
         )?;
         let result = (|| {
-            let Some(run) = self.task_run_in_work(id)? else {
+            let tx = rusqlite::Transaction::new_unchecked(
+                &self.connection,
+                rusqlite::TransactionBehavior::Deferred,
+            )?;
+            validate_key(id, "task ID")?;
+            let Some(grant) = self.checked_run_grant(id)? else {
                 return Ok(None);
             };
+            let run = self.task_run_with_grant(id, &grant)?;
             if !matches!(run.spec, TaskRunSelection::Snapshot(_)) {
                 return Ok(None);
             }
             let Some(briefing) = run.briefing_id else {
                 return Ok(None);
             };
-            self.task_evidence_briefing_record(id, &briefing).map(Some)
+            let Observation::Snapshot(snapshot) = &grant.observation else {
+                return Err(Error::StorageIntegrity);
+            };
+            let page =
+                self.task_evidence_briefing_record(snapshot, &grant.observation_sha256, &briefing)?;
+            work.check()?;
+            tx.commit()?;
+            Ok(Some(page))
         })();
         let result = result.and_then(|page| {
             work.check()?;
@@ -301,7 +316,16 @@ impl Store {
             &self.connection,
             crate::storage::query_work::Limits::TASK_EVIDENCE,
         )?;
-        let result = self.task_run_in_work(id);
+        let result = (|| {
+            let tx = rusqlite::Transaction::new_unchecked(
+                &self.connection,
+                rusqlite::TransactionBehavior::Deferred,
+            )?;
+            let view = self.task_run_in_work(id)?;
+            work.check()?;
+            tx.commit()?;
+            Ok(view)
+        })();
         let result = result.and_then(|view| {
             work.check()?;
             Ok(view)
@@ -315,13 +339,17 @@ impl Store {
         let Some(grant) = self.checked_run_grant(id)? else {
             return Ok(None);
         };
+        self.task_run_with_grant(id, &grant).map(Some)
+    }
+
+    fn task_run_with_grant(&self, id: &str, grant: &Grant) -> Result<TaskRunView> {
         let history = events(&self.connection, id)?;
-        self.validate_run_history(id, &grant, &history)?;
+        self.validate_run_history(id, grant, &history)?;
         let latest = history.last();
-        Ok(Some(TaskRunView {
+        Ok(TaskRunView {
             task_id: id.into(),
-            request_id: grant.request_id,
-            spec: grant.spec,
+            request_id: grant.request_id.clone(),
+            spec: grant.spec.clone(),
             generation: latest.map_or(1, |event| event.generation),
             state: latest.map_or(TaskRunState::Running, |event| event.state),
             created_ms: grant.created_ms,
@@ -352,7 +380,7 @@ impl Store {
                 })
                 .map(|event| event.step.effect_id.clone()),
             steps: history.into_iter().map(|event| event.step).collect(),
-        }))
+        })
     }
 
     /// Read a bounded page of accepted unfinished runs for the service's existing tick.

@@ -97,18 +97,17 @@ pub(super) fn selected_citations(
     monitor: &str,
     ids: &BTreeSet<String>,
 ) -> Result<Vec<Cited>> {
+    let mut statement = connection.prepare("SELECT c.script FROM monitor_findings f JOIN transcript_cues c ON c.transcript_id = f.transcript_id AND c.revision = f.transcript_revision AND c.ordinal = f.cue_ordinal WHERE f.monitor_id = ?1 AND f.id = ?2")?;
     ids.iter()
         .map(|id| {
-            let script: String = connection
-                .query_row(
-                    "SELECT c.script FROM monitor_findings f JOIN transcript_cues c ON c.transcript_id = f.transcript_id AND c.revision = f.transcript_revision AND c.ordinal = f.cue_ordinal WHERE f.monitor_id = ?1 AND f.id = ?2",
-                    params![monitor, id],
-                    |row| {
-                        let value=row.get_ref(0)?.as_str()?;
-                        if value.is_empty()||value.len()>4096 {return Err(rusqlite::Error::InvalidQuery);}
-                        Ok(value.to_owned())
-                    },
-                )
+            let script: String = statement
+                .query_row(params![monitor, id], |row| {
+                    let value = row.get_ref(0)?.as_str()?;
+                    if value.is_empty() || value.len() > 4096 {
+                        return Err(rusqlite::Error::InvalidQuery);
+                    }
+                    Ok(value.to_owned())
+                })
                 .optional()?
                 .ok_or(Error::NotFound)?;
             Ok(Cited {

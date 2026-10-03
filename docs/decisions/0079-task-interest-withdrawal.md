@@ -1,6 +1,6 @@
 # Explicit task interest withdrawal
 
-Date: 2026-10-03. Status: implemented increment; focused verification is recorded below. Full integration gates and platform qualification remain separate. Catalog schema advances from v44 to v45 and local IPC from v45 to v46.
+Date: 2026-10-03. Status: implemented bounded increment with passing integrated local gates; focused verification is recorded below. Exact-commit CI and platform qualification are recorded separately in active work. This increment advances schema v44 to v45 and IPC v45 to v46; the combined exact-publication increment is schema v47 and IPC v48.
 
 ## Separate authority and compatible history
 
@@ -62,6 +62,6 @@ Focused Windows checks on 2026-10-03 passed:
 | `cargo clippy -p sigy-service -p sigy --all-targets -- -D warnings` | Passed |
 | `cargo fmt --all -- --check` and `git diff --check` | Passed |
 
-The filters overlap; their counts are not distinct totals. Full `cargo verify`, coverage, media gates, CI and integration receipts belong to active work and remain required before a qualified checkpoint.
+The filters overlap; their counts are not distinct totals. Passing integrated `cargo verify`, coverage and media receipts belong to active work, along with exact-commit CI and integration state. These local checks establish no qualified platform or release.
 
 Integrated verification repaired the intermediate snapshot/control lint findings without allowances. The final combined tree passes `cargo verify`, including warnings-denied Clippy; current full-gate receipts belong to active work.

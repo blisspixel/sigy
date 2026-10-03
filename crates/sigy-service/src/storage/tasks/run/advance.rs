@@ -171,7 +171,9 @@ impl Store {
         work: &QueryWork<'_>,
     ) -> Result<TaskRunView> {
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
-        let view = self.task_run_in_work(id)?.ok_or(Error::NotFound)?;
+        super::validate_key(id, "task ID")?;
+        let grant = self.checked_run_grant(id)?.ok_or(Error::NotFound)?;
+        let view = self.task_run_with_grant(id, &grant)?;
         if view.generation != expected_generation {
             return Err(Error::IdempotencyConflict);
         }
@@ -183,7 +185,6 @@ impl Store {
         if now < view.updated_ms {
             return Err(Error::InvalidInput("task run clock"));
         }
-        let grant = self.checked_run_grant(id)?.ok_or(Error::StorageIntegrity)?;
         let task_scope = self.checked_task_scope(id)?.0;
         let current = scope_current(self, &task_scope)?;
         let event = if current {
@@ -214,7 +215,10 @@ impl Store {
             }
         };
         insert_event(&tx, id, &event)?;
-        let view = self.task_run_in_work(id)?.ok_or(Error::StorageIntegrity)?;
+        let grant = self
+            .checked_run_grant_reusing(id, Some(&grant))?
+            .ok_or(Error::StorageIntegrity)?;
+        let view = self.task_run_with_grant(id, &grant)?;
         work.check()?;
         tx.commit()?;
         Ok(view)

@@ -77,7 +77,8 @@ impl Store {
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         validate_key(id, "task ID")?;
         validate_key(request_id, "task cancellation request")?;
-        let view = self.task_run_in_work(id)?.ok_or(Error::NotFound)?;
+        let grant = self.checked_run_grant(id)?.ok_or(Error::NotFound)?;
+        let view = self.task_run_with_grant(id, &grant)?;
         let replay: Option<u32> = self.connection.query_row(
             "SELECT expected_generation FROM task_run_events WHERE task_id = ?1 AND request_id = ?2",
             params![id, request_id], |row| row.get(0),
@@ -99,7 +100,6 @@ impl Store {
         if now < view.updated_ms {
             return Err(Error::InvalidInput("task run clock"));
         }
-        let grant = self.checked_run_grant(id)?.ok_or(Error::StorageIntegrity)?;
         let event = Event {
             step: TaskRunStep {
                 ordinal: expected_generation,
@@ -116,7 +116,10 @@ impl Store {
             expected_generation: Some(expected_generation),
         };
         insert_event(&tx, id, &event)?;
-        let view = self.task_run_in_work(id)?.ok_or(Error::StorageIntegrity)?;
+        let grant = self
+            .checked_run_grant_reusing(id, Some(&grant))?
+            .ok_or(Error::StorageIntegrity)?;
+        let view = self.task_run_with_grant(id, &grant)?;
         work.check()?;
         tx.commit()?;
         Ok(view)

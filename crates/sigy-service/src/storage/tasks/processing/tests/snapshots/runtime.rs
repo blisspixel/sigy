@@ -252,16 +252,22 @@ fn full_exact_membership_measures_guarded_admission_read_and_tick() -> TestResul
     let mut store = setup(&path, false)?;
     super::super::bounded_evidence::populated(&mut store, 64, "agua", "No target term")?;
     let now = clock(&store)?;
-    let snapshot = store.freeze_task_evidence("task", "freeze", 0, now + 1)?;
+    let snapshot = store
+        .freeze_task_evidence("task", "freeze", 0, now + 1)
+        .map_err(|error| format!("64-member freeze: {error:?}"))?;
     assert_eq!(snapshot.evidence.citations.len(), 64);
     assert!(!snapshot.evidence.more);
     let began = std::time::Instant::now();
-    store.start_task_snapshot_run("task", "publish", &selection(), 0, now + 2)?;
+    store
+        .start_task_snapshot_run("task", "publish", &selection(), 0, now + 2)
+        .map_err(|error| format!("64-member admission: {error:?}"))?;
     let admission = began.elapsed();
     let mut maximum_tick = std::time::Duration::ZERO;
     for generation in 1..=65 {
         let began = std::time::Instant::now();
-        let page = store.advance_task_run("task", generation, now + i64::from(generation) + 2)?;
+        let page = store
+            .advance_task_run("task", generation, now + i64::from(generation) + 2)
+            .map_err(|error| format!("64-member tick {generation}: {error:?}"))?;
         maximum_tick = maximum_tick.max(began.elapsed());
         if generation == 65 {
             assert_eq!(page.state, TaskRunState::Completed);
@@ -269,7 +275,10 @@ fn full_exact_membership_measures_guarded_admission_read_and_tick() -> TestResul
         }
     }
     let began = std::time::Instant::now();
-    let page = store.task_evidence_briefing("task")?.ok_or("briefing")?;
+    let page = store
+        .task_evidence_briefing("task")
+        .map_err(|error| format!("64-member final read: {error:?}"))?
+        .ok_or("briefing")?;
     let read = began.elapsed();
     assert_eq!(page.members.len(), 64);
     assert_eq!(page.snapshot.as_ref(), &snapshot);
@@ -283,7 +292,9 @@ fn full_exact_membership_measures_guarded_admission_read_and_tick() -> TestResul
     );
     drop(store);
     assert_eq!(
-        Store::open(&path)?.task_evidence_briefing("task")?,
+        Store::open(&path)?
+            .task_evidence_briefing("task")
+            .map_err(|error| format!("64-member reopened read: {error:?}"))?,
         Some(page)
     );
     Ok(())

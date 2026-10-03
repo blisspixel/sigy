@@ -268,6 +268,11 @@ impl Store {
             if !seen.insert(serde_json::to_string(citation)?) {
                 return Err(Error::StorageIntegrity);
             }
+            // The complete ordered scan below checks every citation and its lineage.
+            // Point queries are needed only for a partial prefix with unknown remainder.
+            if !snapshot.evidence.more {
+                continue;
+            }
             literal::validate(&self.connection, snapshot, &policy.terms, citation)?;
             let entry = snapshot
                 .evidence
@@ -282,10 +287,9 @@ impl Store {
                 .ok_or(Error::StorageIntegrity)?;
             let start = i64::try_from(citation.start_us).map_err(|_| Error::StorageIntegrity)?;
             let end = i64::try_from(citation.end_us).map_err(|_| Error::StorageIntegrity)?;
-            let valid: bool = self.connection.query_row(
+            let valid: bool = self.connection.prepare(
                 "SELECT EXISTS(SELECT 1 FROM transcripts t JOIN transcript_cues c ON c.transcript_id = t.id AND c.revision = t.revision WHERE t.id = ?1 AND t.revision = ?2 AND t.job_id = ?3 AND t.recording_id = ?4 AND c.ordinal = ?5 AND c.start_us = ?6 AND c.end_us = ?7)",
-                params![citation.transcript_id, citation.transcript_revision, job.job_id, citation.recording_id, citation.cue_ordinal, start, end], |row| row.get(0),
-            )?;
+            )?.query_row(params![citation.transcript_id, citation.transcript_revision, job.job_id, citation.recording_id, citation.cue_ordinal, start, end], |row| row.get(0))?;
             if !valid
                 || citation.source != entry.source_revision
                 || Some(citation.transcript_revision) != entry.transcript_revision
@@ -299,10 +303,9 @@ impl Store {
                     .iter()
                     .find(|j| j.ordinal == entry.ordinal && j.stage == "translation")
                     .ok_or(Error::StorageIntegrity)?;
-                let valid: bool = self.connection.query_row(
+                let valid: bool = self.connection.prepare(
                     "SELECT EXISTS(SELECT 1 FROM translations WHERE transcript_id = ?1 AND transcript_revision = ?2 AND revision = ?3 AND job_id = ?4 AND target = 'en')",
-                    params![citation.transcript_id, citation.transcript_revision, revision, translated.job_id], |row| row.get(0),
-                )?;
+                )?.query_row(params![citation.transcript_id, citation.transcript_revision, revision, translated.job_id], |row| row.get(0))?;
                 if !valid {
                     return Err(Error::StorageIntegrity);
                 }
