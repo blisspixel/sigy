@@ -27,6 +27,199 @@ fn boxed_null_failure_keeps_its_concrete_evidence_at_the_client_boundary() {
     );
 }
 
+fn unresolved_receipt() -> RetainedReadView {
+    let mut view = excerpt_receipt(false);
+    view.state = "running".into();
+    view.completion_reason = None;
+    view.updated_ms = view.admitted_ms;
+    view
+}
+
+fn render_fault(result: &PlayResult) -> TestResult {
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, result, None, true, true)?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(json["reader"]["state"], "running");
+    assert!(json["reader"]["completion_reason"].is_null());
+    assert!(
+        json["reader_closure_failure"]
+            .as_str()
+            .is_some_and(|value| value.contains("reader service unavailable"))
+    );
+    assert_eq!(json["reader"]["spec"]["request_id"], "reader-1");
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, result, None, true, false)?;
+    let text = String::from_utf8(bytes)?;
+    assert!(text.contains("reader service unavailable"));
+    assert!(!text.contains("Original-file reader closed."));
+    assert!(check_outcome(result).is_err());
+    Ok(())
+}
+
+#[test]
+fn reader_service_loss_preserves_completed_decoder_and_observed_native_closure() -> TestResult {
+    let error = recordings::audio::ExcerptNullError {
+        reason: "completed decoder observation".into(),
+        operation_failure: None,
+        completed_decoder: Some(RetainedPlaybackReport {
+            file_playhead_us: 2_000_000,
+            reported_elapsed_us: 1_000_000,
+            boundary_tolerance_us: 21,
+            progress_advanced: true,
+        }),
+        decoder_failure: None,
+        native_closure: Some(recordings::audio::AudioClosure {
+            mechanism: "fixture-empty-group".into(),
+            peak_memory_bytes: Some(1234),
+            cpu_time_us: Some(5678),
+        }),
+        native_failure: None,
+    };
+    let admitted = unresolved_receipt();
+    let result = finish_play(
+        admitted.clone(),
+        PlaybackDestination::Null,
+        failed_decode(&error),
+        Err("reader service unavailable".into()),
+    );
+    assert_eq!(result.receipt, admitted);
+    assert!(result.decoder.is_some());
+    assert!(result.decoder_failure.is_none() && result.native_failure.is_none());
+    render_fault(&result)?;
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, &result, None, true, true)?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(json["decoder_completed"], true);
+    assert_eq!(json["reported_elapsed_us"], 1_000_000);
+    assert_eq!(
+        json["audio_output"]["native_closure"]["mechanism"],
+        "fixture-empty-group"
+    );
+    assert_eq!(
+        json["audio_output"]["native_closure"]["peak_memory_bytes"],
+        1234
+    );
+    let terminal = receipt();
+    let completed = finish_play(
+        admitted,
+        PlaybackDestination::Null,
+        failed_decode(&error),
+        Ok(terminal.clone()),
+    );
+    assert_eq!(completed.receipt, terminal);
+    assert!(completed.reader_closure_failure.is_none());
+    assert!(completed.decoder.is_some());
+    Ok(())
+}
+
+#[test]
+fn reader_loss_and_decoder_native_failures_remain_independent() -> TestResult {
+    let error = recordings::audio::ExcerptNullError {
+        reason: "playback failed".into(),
+        operation_failure: Some("deadline elapsed".into()),
+        completed_decoder: None,
+        decoder_failure: Some("short PCM input".into()),
+        native_closure: None,
+        native_failure: Some("native closure unproven".into()),
+    };
+    let result = finish_play(
+        unresolved_receipt(),
+        PlaybackDestination::Null,
+        failed_decode(&error),
+        Err("reader service unavailable".into()),
+    );
+    render_fault(&result)?;
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, &result, None, true, true)?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(json["decoder_completed"], false);
+    assert_eq!(json["decoder_failure"], "short PCM input");
+    assert_eq!(json["native_failure"], "native closure unproven");
+    assert_eq!(json["operation_failure"], "deadline elapsed");
+    assert!(json["output_failure"].is_null());
+    assert!(json["audio_output"]["native_closure"].is_null());
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, &result, None, true, false)?;
+    let text = String::from_utf8(bytes)?;
+    for evidence in [
+        "short PCM input",
+        "native closure unproven",
+        "deadline elapsed",
+    ] {
+        assert!(text.contains(evidence));
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn missing_service_close_preserves_admission_and_completed_stage_evidence() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    drop(sigy_service::library::Library::open(
+        directory.path(),
+        true,
+    )?);
+    let admitted = unresolved_receipt();
+    let closed = tokio::time::timeout(
+        Duration::from_secs(2),
+        close_reader(directory.path(), &admitted),
+    )
+    .await?;
+    let failure = closed
+        .as_ref()
+        .err()
+        .ok_or("absent service proved reader closure")?
+        .to_string();
+    let observed = recordings::audio::ExcerptNullError {
+        reason: "synthetic completed-stage observation".into(),
+        operation_failure: None,
+        completed_decoder: Some(RetainedPlaybackReport {
+            file_playhead_us: 2_000_000,
+            reported_elapsed_us: 1_000_000,
+            boundary_tolerance_us: 21,
+            progress_advanced: true,
+        }),
+        decoder_failure: None,
+        native_closure: Some(recordings::audio::AudioClosure {
+            mechanism: "fixture-empty-group".into(),
+            peak_memory_bytes: None,
+            cpu_time_us: None,
+        }),
+        native_failure: None,
+    };
+    let result = finish_play(
+        admitted.clone(),
+        PlaybackDestination::Null,
+        failed_decode(&observed),
+        closed,
+    );
+    assert_eq!(result.receipt, admitted);
+    assert!(
+        result
+            .reader_closure_failure
+            .as_deref()
+            .is_some_and(|value| value.contains(&super::super::clean(&failure)))
+    );
+    assert!(result.decoder.is_some());
+    assert!(check_outcome(&result).is_err());
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, &result, None, true, true)?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(json["reader"]["state"], "running");
+    assert!(json["reader"]["completion_reason"].is_null());
+    assert_eq!(json["decoder_completed"], true);
+    assert_eq!(
+        json["audio_output"]["native_closure"]["mechanism"],
+        "fixture-empty-group"
+    );
+    assert!(json["reader_closure_failure"].is_string());
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, &result, None, true, false)?;
+    let text = String::from_utf8(bytes)?;
+    assert!(!text.contains("Original-file reader closed."));
+    assert!(text.contains("Native group closure observed."));
+    Ok(())
+}
+
 #[test]
 fn excerpt_parser_preserves_end_and_requires_explicit_finding_request() -> TestResult {
     let cli = crate::Cli::try_parse_from([
@@ -238,6 +431,7 @@ fn null_native_failure_preserves_completed_decoder_without_inventing_output_fail
         native_failure: observed.native_failure,
         operation_failure: observed.operation_failure,
         audio_output: observed.audio_output,
+        reader_closure_failure: None,
         replayed: false,
     };
     let mut bytes = Vec::new();
@@ -317,6 +511,7 @@ fn output_failure_preserves_completed_decoder_and_observed_native_closure() -> T
         native_failure: None,
         operation_failure: None,
         audio_output: failed.audio_output,
+        reader_closure_failure: None,
         replayed: false,
     };
     let mut bytes = Vec::new();
@@ -511,6 +706,7 @@ fn reported_progress_is_unclamped_and_transfer_failure_is_separate() -> TestResu
         native_failure: None,
         operation_failure: None,
         audio_output: None,
+        reader_closure_failure: None,
         replayed: false,
     };
     let mut bytes = Vec::new();
@@ -564,6 +760,7 @@ fn replay_and_recovery_render_no_decoder_success_and_sanitize_plain_text() -> Te
         native_failure: None,
         operation_failure: None,
         audio_output: None,
+        reader_closure_failure: None,
         replayed: true,
     };
     bytes = Vec::new();

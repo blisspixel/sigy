@@ -43,6 +43,7 @@ pub(super) struct PlayResult {
     output_failure: Option<String>,
     native_failure: Option<String>,
     operation_failure: Option<String>,
+    reader_closure_failure: Option<String>,
     audio_output: Option<serde_json::Value>,
     replayed: bool,
 }
@@ -227,7 +228,6 @@ pub(super) async fn play_scoped(
         }
         Ok(()) => Box::pin(decode(directory, &decoder, destination, *page, &receipt)).await,
     };
-    let closed = close_reader(directory, &receipt).await?;
     let observed = match played {
         Ok((report, output)) => DecodeObservation {
             decoder: Some(report),
@@ -239,17 +239,35 @@ pub(super) async fn play_scoped(
         },
         Err(error) => failed_decode(error.as_ref()),
     };
-    Ok(PlayResult {
-        receipt: closed,
+    let closed = close_reader(directory, &receipt).await;
+    Ok(finish_play(receipt, destination, observed, closed))
+}
+
+fn finish_play(
+    receipt: RetainedReadView,
+    destination: PlaybackDestination,
+    observed: DecodeObservation,
+    closed: Result<RetainedReadView, Failure>,
+) -> PlayResult {
+    let (receipt, reader_closure_failure) = match closed {
+        Ok(closed) => (closed, None),
+        Err(error) => {
+            let failure = unresolved(&receipt.spec.request_id, &super::clean(&error.to_string()));
+            (receipt, Some(failure))
+        }
+    };
+    PlayResult {
+        receipt,
         destination,
         decoder: observed.decoder,
         decoder_failure: observed.decoder_failure,
         output_failure: observed.output_failure,
         native_failure: observed.native_failure,
         operation_failure: observed.operation_failure,
+        reader_closure_failure,
         audio_output: observed.audio_output,
         replayed: false,
-    })
+    }
 }
 
 async fn existing_replay(
@@ -281,6 +299,7 @@ fn receipt_replay(receipt: RetainedReadView, destination: PlaybackDestination) -
         output_failure: None,
         native_failure: None,
         operation_failure: None,
+        reader_closure_failure: None,
         audio_output: None,
         replayed: true,
     }
@@ -606,6 +625,9 @@ pub(super) fn write_play(
 }
 
 fn check_outcome(result: &PlayResult) -> Result<(), Failure> {
+    if let Some(failure) = &result.reader_closure_failure {
+        return Err(failure.clone().into());
+    }
     if !result.replayed
         && result.receipt.state == "failed"
         && (result.decoder.is_none()
@@ -663,6 +685,7 @@ fn render_play(
                 "decoder_completed": result.decoder.is_some(), "decoder_failure": result.decoder_failure,
                 "audio_output": result.audio_output, "output_failure": result.output_failure,
                 "native_failure": result.native_failure, "operation_failure": result.operation_failure,
+                "reader_closure_failure": result.reader_closure_failure,
                 "reported_elapsed_us": result.decoder.as_ref().map(|report| report.reported_elapsed_us),
                 "boundary_tolerance_us": result.decoder.as_ref().map(|report| report.boundary_tolerance_us),
                 "progress_advanced": result.decoder.as_ref().map(|report| report.progress_advanced),
@@ -678,6 +701,8 @@ fn render_play(
             super::clean(&result.receipt.state),
             if result.replayed {
                 "Receipt replay; no audio started."
+            } else if result.reader_closure_failure.is_some() {
+                "Original-file reader closure is unproven."
             } else {
                 "Original-file reader closed."
             }
@@ -705,6 +730,9 @@ fn render_play(
             )?;
         }
         render_decode_outcomes(output, result)?;
+        if let Some(failure) = &result.reader_closure_failure {
+            writeln!(output, "{}", super::clean(failure))?;
+        }
         if let Some(reason) = &result.receipt.completion_reason {
             writeln!(output, "Reader outcome: {}", super::clean(reason))?;
         }
