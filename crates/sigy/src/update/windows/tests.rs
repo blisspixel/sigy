@@ -79,6 +79,11 @@ impl Fixture {
         let cargo_bin = base.join("custom cargo/bin");
         fs::create_dir_all(&cargo_bin)?;
         fs::write(cargo_bin.join("cargo.cmd"), stub.replace('\n', "\r\n"))?;
+        fs::write(
+            cargo_bin.join("gh.cmd"),
+            "@echo off\r\necho %*>\"%SIGY_FIXTURE_GH_CALLED%\"\r\nexit /b 1\r\n",
+        )?;
+        fs::write(base.join("empty-gitconfig"), "")?;
         let status = base.join("status.json");
         let marker = base.join("installed-commit");
         fs::write(&marker, "previous commit")?;
@@ -145,7 +150,12 @@ impl Fixture {
             .env("SIGY_FIXTURE_STAGE", base.join("stage"))
             .env("SIGY_FIXTURE_SOURCE", &self.source)
             .env("SIGY_FIXTURE_CALLED", base.join("called"))
+            .env("SIGY_FIXTURE_GH_CALLED", base.join("gh-called"))
             .env("GIT_ALLOW_PROTOCOL", "file")
+            .env("GIT_CONFIG_GLOBAL", base.join("empty-gitconfig"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env_remove("GIT_CONFIG_COUNT")
+            .env_remove("GIT_CONFIG_PARAMETERS")
             .current_dir(self.directory.path());
         Ok(command)
     }
@@ -157,7 +167,7 @@ impl Fixture {
                 .stderr(Stdio::piped())
                 .spawn()?,
         );
-        wait_bounded(&mut child)?;
+        self.wait(&mut child, "update helper")?;
         let output = child.output()?;
         if !output.status.success() {
             eprintln!(
@@ -168,6 +178,37 @@ impl Fixture {
             );
         }
         Ok(output)
+    }
+
+    fn wait(
+        &self,
+        child: &mut std::process::Child,
+        phase: &str,
+    ) -> Result<std::process::ExitStatus> {
+        use std::io::Read as _;
+        match wait_bounded(child) {
+            Ok(status) => Ok(status),
+            Err(error) => {
+                let base = self.config.parent().ok_or("fixture base")?;
+                for name in [
+                    "installer-stdout.txt",
+                    "installer-stderr.txt",
+                    "validation-error.txt",
+                    "gh-called",
+                    "direct-called",
+                    "scope.json",
+                    "home/.sigy/update-status.json",
+                ] {
+                    if let Ok(file) = fs::File::open(base.join(name)) {
+                        let mut bytes = Vec::new();
+                        if file.take(8192).read_to_end(&mut bytes).is_ok() {
+                            eprintln!("{phase} {name}: {}", String::from_utf8_lossy(&bytes));
+                        }
+                    }
+                }
+                Err(format!("{phase}: {error}").into())
+            }
+        }
     }
     fn outcome(&self) -> Result<serde_json::Value> {
         Ok(serde_json::from_slice(&fs::read(&self.status)?)?)
@@ -333,6 +374,9 @@ fn direct_installer_command(fixture: &Fixture, metadata: &Path) -> Result<Comman
         .env("USERPROFILE", home)
         .env("SIGY_SRC", &fixture.source)
         .env("GIT_CONFIG_GLOBAL", gitconfig)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_CONFIG_COUNT")
+        .env_remove("GIT_CONFIG_PARAMETERS")
         .env("GIT_ALLOW_PROTOCOL", "file")
         .env("CARGO_HOME", base.join("custom cargo"))
         .env(
@@ -345,14 +389,16 @@ fn direct_installer_command(fixture: &Fixture, metadata: &Path) -> Result<Comman
         )
         .env("SIGY_DIRECT_BINARY", &fixture.target)
         .env("SIGY_FIXTURE_CALLED", base.join("direct-called"))
+        .env("SIGY_FIXTURE_GH_CALLED", base.join("gh-called"))
         .env("SIGY_FIXTURE_STAGE", base.join("direct-stage"))
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        // Regular fixture files cannot fill a pipe while waiting for child exit.
+        .stdout(fs::File::create(base.join("installer-stdout.txt"))?)
+        .stderr(fs::File::create(base.join("installer-stderr.txt"))?);
     Ok(direct)
 }
 
 #[test]
-fn direct_installer_fences_a_real_waiting_helper_before_build() -> Result<()> {
+fn direct_installer_fences_a_real_helper_before_build() -> Result<()> {
     let fixture = Fixture::new(&SUCCESS.replace("exit /b 0", "if defined SIGY_DIRECT_BINARY echo direct newer executable>\"%SIGY_DIRECT_BINARY%\"\nexit /b 0"))?;
     let (mut parent, newer, metadata) = prepare_supersession(&fixture)?;
     let mut helper = OwnedChild::from(
@@ -364,13 +410,24 @@ fn direct_installer_fences_a_real_waiting_helper_before_build() -> Result<()> {
     );
     let mut direct = direct_installer_command(&fixture, &metadata)?;
     let mut installer_child = OwnedChild::from(direct.spawn()?);
-    let publication_status = wait_bounded(&mut installer_child)?;
+    let publication_status = fixture.wait(&mut installer_child, "direct installer")?;
     parent.kill()?;
     parent.wait()?;
-    let helper_status = wait_bounded(&mut helper)?;
+    let helper_status = fixture.wait(&mut helper, "superseded helper")?;
     assert!(publication_status.success());
     assert!(!helper_status.success());
     assert!(!fixture.called());
+    assert_eq!(
+        fs::read_to_string(
+            fixture
+                .config
+                .parent()
+                .ok_or("fixture base")?
+                .join("gh-called")
+        )?
+        .trim(),
+        "auth status"
+    );
     assert_eq!(
         fs::read_to_string(&fixture.target)?.trim(),
         "direct newer executable"
