@@ -612,6 +612,7 @@ mod tests {
         match operation {
             Operation::Stop {}
             | Operation::Listen { .. }
+            | Operation::Retained { .. }
             | Operation::Playback { .. }
             | Operation::Podcast { .. }
             | Operation::Schedule { .. }

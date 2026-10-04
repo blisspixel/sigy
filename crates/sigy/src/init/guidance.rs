@@ -184,6 +184,10 @@ fn record_missing(command: &RecordCommand) -> (String, &'static str) {
 
 fn listen_missing(command: &ListenCommand) -> (String, &'static str) {
     match command {
+        ListenCommand::Reader { .. } => (
+            "that retained reader was not found".into(),
+            "listen reader list",
+        ),
         ListenCommand::File { id, .. } | ListenCommand::Attach { recording: id, .. } => {
             (named("recording", id), "record list")
         }

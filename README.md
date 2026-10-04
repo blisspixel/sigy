@@ -10,6 +10,8 @@ The explorer rendered on 2026-10-02 with one real cached station page. Map posit
 
 Press Enter in Explore or Globe to inspect full cached station context; Escape returns to the same search and selection. Wider terminals keep results alongside the details. Receiver experiences and an optional playable learning campaign are [planned extensions](docs/design/learning-experiences.md), including modern signal puzzles and historical cases with inspectable evidence.
 
+Retained CLI listening uses a protected service reader, with explicit request replay and inspectable cancellation. It plays one sealed interval and accounts for recording gaps; exact cited excerpts and interactive DVR navigation remain [next increments](docs/development/near-term-implementation.md#dv-01-and-s-07-protected-playback-before-an-interactive-dvr).
+
 ## Install
 
 Windows PowerShell:

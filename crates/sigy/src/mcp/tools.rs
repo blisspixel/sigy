@@ -430,7 +430,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "listen_status",
-        description: "Show one direct-listen receipt. Episode playback does not create a receipt.",
+        description: "Show one direct-listen receipt. Retained playback uses separate reader receipts.",
         hints: HINT_QUERY,
         words: &["listen", "status"],
         slots: &[pos("id", "Listen id.")],
@@ -502,11 +502,27 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "listen_file",
-        description: "Play one retained recording, or one sealed segment, in this process for at most 120 seconds. destination null discards samples. This does not contact the source or stop capture.",
+        description: "Play one protected retained interval through the service for at most 120 seconds. An explicit request replays its receipt without audio. destination null discards samples. This does not contact the source or stop capture.",
         hints: HINT_CHANGE,
         words: &["listen", "file"],
         slots: LISTEN_FILE,
         timeout: PLAY,
+    },
+    Tool {
+        name: "listen_reader_show",
+        description: "Inspect one durable retained-reader receipt without opening audio or releasing protection.",
+        hints: HINT_QUERY,
+        words: &["listen", "reader", "show"],
+        slots: &[pos("id", "Retained-reader request id.")],
+        timeout: SHORT,
+    },
+    Tool {
+        name: "listen_reader_list",
+        description: "List at most 16 retained-reader receipts, with unresolved protection first. Starts no work.",
+        hints: HINT_QUERY,
+        words: &["listen", "reader", "list"],
+        slots: &[],
+        timeout: SHORT,
     },
     Tool {
         name: "listen_attach",
@@ -1234,6 +1250,13 @@ const LISTEN_FILE: &[Slot] = &[
         3_600_000_000,
         "Start offset in microseconds, inside the published duration.",
     ),
+    text_bound(
+        "request",
+        "--request",
+        false,
+        128,
+        "Exact replay identity. ASCII letters, digits, hyphen, underscore, colon or period; at most 128 bytes.",
+    ),
 ];
 
 const RECORD_START: &[Slot] = &[
@@ -1267,6 +1290,40 @@ const RECORD_START: &[Slot] = &[
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retained_reader_adapter_preserves_request_and_query_authority() -> Result<(), String> {
+        use super::*;
+        let file = TOOLS
+            .iter()
+            .find(|tool| tool.name == "listen_file")
+            .ok_or("file tool")?;
+        let value = json!({"id":"recording", "destination":"null", "request":"reader:one"});
+        assert_eq!(
+            argv(file, value.as_object().ok_or("object")?)?,
+            [
+                "listen",
+                "file",
+                "recording",
+                "--destination",
+                "null",
+                "--request",
+                "reader:one"
+            ]
+        );
+        let oversized = json!({"id":"recording", "destination":"null", "request":"x".repeat(129)});
+        assert!(argv(file, oversized.as_object().ok_or("object")?).is_err());
+        for name in ["listen_reader_show", "listen_reader_list"] {
+            let tool = TOOLS
+                .iter()
+                .find(|tool| tool.name == name)
+                .ok_or("reader tool")?;
+            assert_eq!(tool.hints, HINT_QUERY);
+            let escaped = json!({"id":"reader", "data_dir":"other", "shell":"execute"});
+            assert!(argv(tool, escaped.as_object().ok_or("object")?).is_err());
+        }
+        assert!(TOOLS.iter().all(|tool| tool.name != "listen_reader_stop"));
+        Ok(())
+    }
     use super::*;
 
     #[test]

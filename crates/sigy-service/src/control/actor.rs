@@ -27,9 +27,20 @@ mod listen;
 mod monitor;
 mod playlist;
 mod podcast;
+mod retained;
 mod task;
 
 pub(super) enum Message {
+    RetainedReady {
+        id: String,
+        generation: u64,
+        nonce: String,
+    },
+    RetainedFinished {
+        id: String,
+        generation: u64,
+        result: Result<crate::recordings::retained::RetainedReadReceipt>,
+    },
     AnalysisFinished {
         id: String,
         generation: u32,
@@ -127,6 +138,7 @@ struct Actor {
     text_worker: Option<Worker>,
     pool: analysis::Pool,
     listen_workers: HashMap<String, LiveListen>,
+    retained_workers: HashMap<String, retained::LiveRetained>,
     playback: super::playback::PlaySessions,
     acquirer: HttpAcquirer,
     /// Earliest time of the next monitor pass.
@@ -141,6 +153,7 @@ impl Actor {
     fn apply(&mut self, operation: Operation) -> Result<Snapshot> {
         let mut created = None;
         let operation = match operation {
+            Operation::Retained { command } => return self.apply_retained(command),
             Operation::Analysis { command } => self.analysis(command)?,
             Operation::Radio {
                 command: super::DirectoryOperation::Refresh { id, request },
@@ -777,6 +790,7 @@ impl Actor {
     }
 
     fn stop(&mut self) {
+        self.stop_retained();
         self.pool.stop();
         if let Some(worker) = &self.directory_worker {
             worker.stop.send_replace(true);
@@ -804,6 +818,7 @@ impl Actor {
     fn idle(&self) -> bool {
         self.workers.is_empty()
             && self.listen_workers.is_empty()
+            && self.retained_workers.is_empty()
             && self.directory_worker.is_none()
             && self.playlist_worker.is_none()
             && self.click_worker.is_none()
@@ -845,6 +860,7 @@ pub(super) fn spawn(
             crate::storage::now_ms()?,
         )),
         listen_workers: HashMap::new(),
+        retained_workers: HashMap::new(),
         playback: super::playback::PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
         next_monitor_pass_ms: 0,
@@ -892,6 +908,22 @@ fn dispatch(
     started: Instant,
 ) {
     match message {
+        Message::RetainedReady {
+            id,
+            generation,
+            nonce,
+        } => {
+            let failed = actor.ready_retained(&id, generation, nonce).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
+        Message::RetainedFinished {
+            id,
+            generation,
+            result,
+        } => {
+            let failed = actor.finish_retained(&id, generation, result).is_err();
+            mark_failed(actor, stopping, stopped, failed);
+        }
         Message::AnalysisFinished {
             id,
             generation,
@@ -946,11 +978,7 @@ fn dispatch(
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::Schedules => {
-            let failed = !*stopped
-                && (actor.reconcile_schedules().is_err()
-                    || actor.reconcile_directory().is_err()
-                    || actor.reconcile_monitors().is_err()
-                    || actor.reconcile_tasks().is_err());
+            let failed = reconcile_scheduled_work(actor, *stopped).is_err();
             mark_failed(actor, stopping, stopped, failed);
         }
         Message::Shutdown => {
@@ -977,6 +1005,16 @@ fn dispatch(
             answer(actor, operation, reply, stopping, stopped, started);
         }
     }
+}
+
+fn reconcile_scheduled_work(actor: &mut Actor, stopped: bool) -> Result<()> {
+    if !stopped {
+        actor.reconcile_schedules()?;
+        actor.reconcile_directory()?;
+        actor.reconcile_monitors()?;
+        actor.reconcile_tasks()?;
+    }
+    Ok(())
 }
 
 fn answer(

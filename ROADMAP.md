@@ -14,7 +14,7 @@ The [near-term implementation briefs](docs/development/near-term-implementation.
 
 | Next change | Useful result | Completion evidence |
 | --- | --- | --- |
-| **Retained passage playback (DV-01/S-07)** | Follow a finding to available audio and move safely through retained segments | Bounded leases, exact cue bounds, gap/expiry/open-tail refusal, decoder completion, cancellation and client-death checks |
+| **Retained passage playback (DV-01/S-07)** | Extend the service-owned protected reader to exact cited excerpts, then safe segment navigation | DV-01A's first protection increment exists; exact cue ends, qualified native lifetime, bounded handoffs, actual player state and terminal/capture measurements remain |
 | **Linked source context (EX-02B)** | Connect cached station inspection to its exact historical registrations and recordings | Narrow indexed directory-link/recording projection, bounded pages, catalog/revision fences and deletion/retention truth; no name/URL inference |
 | **Native profiles and aggregate admission (S-04/S-06)** | Run useful mixed capture/processing workloads within measured host limits | Real manager/descendant lifecycle, quiet and contended costs, pressure/fairness checks and reserved capture headroom |
 | **Target-aware history (S-05)** | Choose independently qualified translation directions while preserving today's English results | Populated migration/restore, directed sharing/selection and explicit unsupported-pair refusal; quality qualifies separately |

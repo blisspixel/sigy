@@ -456,6 +456,7 @@ async fn a_receipt_fault_rolls_back_its_job_and_a_restart_admits_the_rest_once()
         text_worker: None,
         pool: super::super::Pool::new("local-restarted".into()),
         listen_workers: HashMap::new(),
+        retained_workers: HashMap::new(),
         playback: PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
         next_monitor_pass_ms: 0,

@@ -18,6 +18,7 @@ pub(crate) mod podcast_feeds;
 pub(crate) mod podcast_text;
 pub mod podcasts;
 pub mod recognition;
+pub(crate) mod retained_readers;
 pub use clicks::ClickStatus;
 pub(crate) mod analysis;
 pub(crate) mod analysis_jobs;
@@ -44,7 +45,7 @@ mod widen;
 mod widen_tests;
 pub(crate) mod withdrawals;
 
-pub const SCHEMA_VERSION: u32 = 48;
+pub const SCHEMA_VERSION: u32 = 49;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -116,6 +117,7 @@ impl Store {
         store.audit_playlists()?;
         store.audit_clicks()?;
         store.audit_listens()?;
+        store.audit_retained_readers()?;
         store.audit_podcasts()?;
         store.audit_schedules()?;
         store.audit_monitor_capture()?;
@@ -320,6 +322,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=47).contains(&version) {
         discovery::ordered::migrate_048(transaction)?;
+    }
+    if (0..=48).contains(&version) {
+        transaction.execute_batch(include_str!("049-retained-readers.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

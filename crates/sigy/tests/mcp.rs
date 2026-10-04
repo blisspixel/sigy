@@ -35,6 +35,7 @@ fn mcp_stdio_reads_one_library_and_rejects_another_directory() -> TestResult {
         r#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#,
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"library_status","arguments":{"data_dir":"elsewhere"}}}"#,
         r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"library_status","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"listen_reader_list","arguments":{}}}"#,
     ] {
         stdin.write_all(line.as_bytes())?;
         stdin.write_all(b"\n")?;
@@ -44,6 +45,7 @@ fn mcp_stdio_reads_one_library_and_rejects_another_directory() -> TestResult {
     let discover: serde_json::Value = serde_json::from_str(&lines.next().ok_or("discover")??)?;
     let rejected: serde_json::Value = serde_json::from_str(&lines.next().ok_or("rejected")??)?;
     let status: serde_json::Value = serde_json::from_str(&lines.next().ok_or("status")??)?;
+    let readers: serde_json::Value = serde_json::from_str(&lines.next().ok_or("readers")??)?;
     let _ = child.wait();
     if discover["result"]["supportedVersions"][0] != "2026-07-28" {
         return Err(discover.to_string().into());
@@ -59,6 +61,11 @@ fn mcp_stdio_reads_one_library_and_rejects_another_directory() -> TestResult {
     {
         return Err(status.to_string().into());
     }
+    assert_eq!(readers["result"]["isError"], false, "{readers}");
+    assert_eq!(
+        readers["result"]["structuredContent"]["entries"],
+        serde_json::json!([])
+    );
     Ok(())
 }
 

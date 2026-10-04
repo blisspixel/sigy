@@ -1,4 +1,6 @@
 use super::{RunningChild, TestResult, invoke, success};
+#[path = "retained_fixtures.rs"]
+mod retained_fixtures;
 use std::{
     io::{Read, Write},
     net::TcpListener,
@@ -1189,6 +1191,47 @@ fn publish_clip(directory: &std::path::Path, origin: &str, name: &str, format: &
         .as_u64()
         .ok_or("missing decoded duration")?;
     assert!(decoded > 0, "{record}");
+    play_ladder_clip(directory, &id, format, decoded)?;
+    Ok(())
+}
+
+fn play_ladder_clip(
+    directory: &std::path::Path,
+    id: &str,
+    format: &str,
+    decoded: u64,
+) -> TestResult {
+    let seek = 250_000_u64;
+    let expected = decoded
+        .checked_sub(seek)
+        .ok_or("fixture shorter than seek")?;
+    let played = success(
+        directory,
+        &[
+            "listen",
+            "file",
+            id,
+            "--destination",
+            "null",
+            "--seek-us",
+            "250000",
+            "--request",
+            &format!("ladder-reader-{format}"),
+        ],
+    )?;
+    assert_eq!(played["decoder_completed"], true, "{played}");
+    assert_eq!(played["progress_advanced"], true, "{played}");
+    assert_eq!(played["reader"]["spec"]["format"], format);
+    assert_eq!(played["reader"]["spec"]["file_seek_us"], seek);
+    assert_eq!(played["reader"]["spec"]["file_duration_us"], decoded);
+    assert_eq!(played["boundary_tolerance_us"], 100_000);
+    let elapsed = played["reported_elapsed_us"]
+        .as_u64()
+        .ok_or("missing raw elapsed")?;
+    assert!(elapsed.abs_diff(expected) <= 100_000, "{played}");
+    eprintln!(
+        "retained format={format} decoded_us={decoded} seek_us={seek} raw_elapsed_us={elapsed} expected_us={expected}"
+    );
     Ok(())
 }
 

@@ -23,6 +23,8 @@ mod signal_tests;
 
 #[path = "tests/monitor_admission_tests.rs"]
 mod monitor_admission_tests;
+#[path = "tests/retained_tests.rs"]
+mod retained_tests;
 #[path = "tests/schedule_launch_tests.rs"]
 mod schedule_launch_tests;
 #[path = "tests/task_processing_tests.rs"]
@@ -90,6 +92,7 @@ fn actor(root: &Path, sender: &mpsc::Sender<Message>) -> Result<Actor> {
         text_worker: None,
         pool: super::Pool::new("local-test".into()),
         listen_workers: HashMap::new(),
+        retained_workers: HashMap::new(),
         playback: PlaySessions::default(),
         acquirer: HttpAcquirer::default(),
         next_monitor_pass_ms: 0,

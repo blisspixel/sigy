@@ -32,8 +32,10 @@ impl Store {
     /// # Errors
     /// Refuses invalid stored rows.
     pub(crate) fn retained_objects(&self) -> Result<Vec<RetainedObject>> {
+        // A running or interrupted capture can remain reserved while its sealed
+        // intervals are published. The open tail is never backup media.
         let mut statement = self.connection.prepare(
-            "SELECT DISTINCT s.object_key, s.sha256, s.byte_end - s.byte_start FROM recording_intervals s JOIN recordings r ON r.id = s.recording_id WHERE r.storage_state = 'retained' AND NOT EXISTS (SELECT 1 FROM recording_releases x WHERE x.recording_id = s.recording_id AND x.segment_ordinal = s.ordinal) ORDER BY s.object_key",
+            "SELECT DISTINCT s.object_key, s.sha256, s.byte_end - s.byte_start FROM recording_intervals s JOIN recordings r ON r.id = s.recording_id WHERE r.storage_state IN ('reserved','retained') AND (r.open_object_key IS NULL OR r.open_object_key != s.object_key) AND NOT EXISTS (SELECT 1 FROM recording_releases x WHERE x.recording_id = s.recording_id AND x.segment_ordinal = s.ordinal) ORDER BY s.object_key",
         )?;
         let rows = statement
             .query_map([], |row| {

@@ -116,6 +116,7 @@ pub(in crate::storage) fn migrate_048(connection: &Connection) -> Result<()> {
 
 #[cfg(test)]
 pub(in crate::storage) fn revert_048_for_tests(connection: &Connection) -> Result<()> {
+    crate::storage::retained_readers::revert_049_for_tests(connection)?;
     let present:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('directory_stations') WHERE name='name_ordered')",[],|row|row.get(0))?;
     connection.execute_batch(
         "DROP INDEX IF EXISTS directory_name_order; DROP TABLE IF EXISTS directory_catalog",

@@ -288,6 +288,29 @@ fn assert_skip_publication(
     assert_eq!(gaps[0]["cause"], "sequence_skip");
     assert_eq!(gaps[0]["start_us"], measured_us);
     assert_eq!(gaps[0]["end_us"], 30_000_000);
+    let playback = success(
+        directory,
+        &[
+            "listen",
+            "file",
+            "live-ts",
+            "--destination",
+            "null",
+            "--seek-us",
+            "250000",
+            "--request",
+            "retained-ts",
+        ],
+    )?;
+    assert_eq!(playback["decoder_completed"], true, "{playback}");
+    assert_eq!(playback["reader"]["spec"]["format"], "mpegts");
+    let elapsed = playback["reported_elapsed_us"]
+        .as_u64()
+        .ok_or("TS progress")?;
+    assert!(
+        elapsed.abs_diff(measured_us - 250_000) <= 100_000,
+        "{playback}"
+    );
     Ok(measured_us)
 }
 

@@ -13,6 +13,7 @@ mod playback;
 mod playlist;
 mod podcast;
 mod provider;
+mod retained;
 mod schedule;
 mod server;
 mod task;
@@ -51,11 +52,12 @@ pub use provider::{
     LanguagePairView, PriceSnapshotView, ProviderOperation, ProviderPage, ProviderRouteView,
     RateView,
 };
+pub use retained::{RetainedOperation, RetainedPage, RetainedReadSpec, RetainedReadView};
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 pub use task::{TaskOperation, TaskPage};
 
-pub const PROTOCOL_VERSION: u32 = 49;
+pub const PROTOCOL_VERSION: u32 = 50;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -117,6 +119,9 @@ pub enum Operation {
     Listen {
         command: ListenOperation,
     },
+    Retained {
+        command: RetainedOperation,
+    },
     Playback {
         command: PlaybackOperation,
     },
@@ -161,6 +166,7 @@ impl std::fmt::Debug for Operation {
             Self::ShowSource { .. } => "show_source",
             Self::Playlist { .. } => "playlist",
             Self::Listen { .. } => "listen",
+            Self::Retained { .. } => "retained",
             Self::Playback { .. } => "playback",
             Self::Podcast { .. } => "podcast",
             Self::Schedule { .. } => "schedule",
@@ -231,6 +237,8 @@ pub struct Snapshot {
     pub playlist: Option<PlaylistView>,
     pub directory_click: Option<crate::storage::ClickStatus>,
     pub listen: Option<ListenView>,
+    #[serde(default)]
+    pub retained: Option<Box<RetainedPage>>,
     #[serde(default)]
     pub playback: Option<PlaybackView>,
     pub podcast_page: Option<PodcastPage>,
@@ -316,6 +324,7 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         Operation::Radio { command } => return discovery::apply(store, command),
         Operation::Playlist { command } => return playlist::apply(store, command),
         Operation::Listen { command } => return listen::apply(store, command),
+        Operation::Retained { command } => return retained::apply(store, command),
         Operation::Playback { .. } => {
             return Err(Error::ServiceRequired);
         }
@@ -442,6 +451,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         playlist: None,
         directory_click: None,
         listen: None,
+        retained: None,
         playback: None,
         podcast_page: None,
         podcast_feed: None,

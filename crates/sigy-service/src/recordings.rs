@@ -4,11 +4,14 @@ mod decoder;
 mod live;
 pub mod metadata;
 mod pipe;
+pub(crate) mod retained;
 mod seal;
 mod segment;
 mod timeline;
 
 pub(crate) use live::stream_revision;
+#[cfg(test)]
+pub(crate) use pipe::connect_listen_pipe as connect_retained_for_test;
 pub(crate) use pipe::valid_listen_nonce as pipe_nonce_valid;
 pub(crate) use seal::{SealAction, SealReply};
 pub use timeline::{Located, earliest_retained, live_edge, locate, position_expired};
@@ -66,10 +69,53 @@ pub struct PlaybackReport {
     pub progress_advanced: bool,
 }
 
-/// Play one local published file in the calling process.
-///
-/// The decoder receives this path only. Playback does not reserve quota or open a source URL.
-///
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetainedPlaybackReport {
+    pub file_playhead_us: u64,
+    pub reported_elapsed_us: u64,
+    pub boundary_tolerance_us: u64,
+    pub progress_advanced: bool,
+}
+
+/// Create an opaque request identity without admitting work.
+/// # Errors
+/// Returns an error when the operating system entropy source is unavailable.
+pub fn new_retained_request_id() -> Result<String> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|_| Error::Acquisition("retained request entropy"))?;
+    Ok(format!("reader-{:032x}", u128::from_be_bytes(bytes)))
+}
+
+/// Decode a protected service-owned object through its private byte pipe.
+/// Progress describes decoder output, not samples heard at an audio device.
+/// # Errors
+/// Refuses invalid bounds, unavailable pipes and incomplete decoder output.
+pub async fn play_retained_stream(
+    executable: &str,
+    directory: &Path,
+    nonce: &str,
+    spec: &crate::control::RetainedReadSpec,
+    destination: PlaybackDestination,
+) -> Result<RetainedPlaybackReport> {
+    let input = pipe::connect_listen_pipe(directory, nonce).await?;
+    let report = decoder::play_range_reader(
+        executable,
+        input,
+        &spec.format,
+        destination == PlaybackDestination::System,
+        spec.file_seek_us,
+        spec.file_duration_us,
+        spec.bytes,
+    )
+    .await?;
+    Ok(RetainedPlaybackReport {
+        file_playhead_us: report.playhead_us,
+        reported_elapsed_us: report.reported_elapsed_us,
+        boundary_tolerance_us: report.boundary_tolerance_us,
+        progress_advanced: report.progress_advanced,
+    })
+}
+
 /// Decode one local pipe of bytes the service already fetched.
 ///
 /// The decoder receives `pipe:0` only. This does not reserve quota or open a source URL.
@@ -96,6 +142,8 @@ pub async fn play_direct_listen(
     })
 }
 
+/// Decode a caller-owned local file. The caller must retain its own file protection.
+/// Library CLI playback instead uses `play_retained_stream`.
 /// # Errors
 /// Rejects an unsupported format, a seek outside the published duration, a missing file,
 /// or a decoder that cannot finish.

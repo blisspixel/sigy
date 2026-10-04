@@ -68,13 +68,14 @@ pub(crate) async fn verify(
     .await
 }
 
-async fn supervise<F>(
+pub(crate) async fn supervise<T, F>(
     ownership: Arc<File>,
     mut signal: watch::Receiver<bool>,
     work: F,
-) -> Result<VerificationReceipt>
+) -> Result<T>
 where
-    F: FnOnce(&AtomicBool) -> Result<VerificationReceipt> + Send + 'static,
+    T: Send + 'static,
+    F: FnOnce(&AtomicBool) -> Result<T> + Send + 'static,
 {
     let stop = Arc::new(AtomicBool::new(*signal.borrow()));
     let guard = StopOnDrop(Arc::clone(&stop));

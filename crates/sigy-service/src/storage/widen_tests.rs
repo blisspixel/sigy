@@ -132,6 +132,26 @@ fn dependents(connection: &Connection) -> Result<Vec<(String, String, String)>> 
     Ok(rows)
 }
 
+fn retained_guards(connection: &Connection) -> Result<Vec<(String, String, String)>> {
+    let mut statement = connection.prepare(
+        "SELECT type, name, sql FROM sqlite_schema WHERE name IN ('retained_reader_delete_guard', 'retained_reader_release_guard') ORDER BY name",
+    )?;
+    Ok(statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+fn expected_retained_guards() -> Result<Vec<(String, String, String)>> {
+    // Parse the selected migration independently through SQLite. This preserves
+    // its complete guard DDL, without filtering new protection out of the oracle.
+    let connection = Connection::open_in_memory()?;
+    for sql in V29 {
+        connection.execute_batch(sql)?;
+    }
+    connection.execute_batch(include_str!("049-retained-readers.sql"))?;
+    retained_guards(&connection)
+}
+
 const PRESERVED: [&str; 6] = [
     "recordings",
     "recording_intervals",
@@ -155,7 +175,7 @@ fn genuine_v29_migrates_to_v30_preserving_rows_triggers_and_children() -> TestRe
         (snapshot, dependents(&connection)?)
     };
     assert!(before[2].len() == 1, "the paused capture has one gap");
-    let store = Store::open(&path)?;
+    let mut store = Store::open(&path)?;
     let version: u32 = store
         .connection
         .pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -163,7 +183,19 @@ fn genuine_v29_migrates_to_v30_preserving_rows_triggers_and_children() -> TestRe
     for (table, expected) in PRESERVED.iter().zip(&before) {
         assert_eq!(&rows(&store.connection, table)?, expected, "{table}");
     }
-    assert_eq!(dependents(&store.connection)?, triggers);
+    let new_guards = expected_retained_guards()?;
+    assert_eq!(new_guards.len(), 2);
+    assert_eq!(retained_guards(&store.connection)?, new_guards);
+    // All original dependent definitions remain byte-for-byte equal. The latest
+    // schema adds exactly the independently verified delete guard on this set.
+    let mut expected_dependents = triggers;
+    expected_dependents.extend(
+        new_guards
+            .into_iter()
+            .filter(|(_, name, _)| name == "retained_reader_delete_guard"),
+    );
+    expected_dependents.sort_by(|left, right| left.1.cmp(&right.1));
+    assert_eq!(dependents(&store.connection)?, expected_dependents);
     let violations: i64 =
         store
             .connection
@@ -178,6 +210,18 @@ fn genuine_v29_migrates_to_v30_preserving_rows_triggers_and_children() -> TestRe
         store.recording("two")?.gaps[0].cause,
         GapCause::CapturePause
     );
+    store.admit_retained_reader("reader", "one", 0, 20)?;
+    assert!(
+        store
+            .connection
+            .execute(
+                "UPDATE recordings SET storage_state='deleting' WHERE id='one'",
+                []
+            )
+            .is_err()
+    );
+    assert!(store.connection.execute("INSERT INTO recording_releases(recording_id, segment_ordinal, byte_length) VALUES('one',0,100)", []).is_err());
+    assert_eq!(store.retained_reader("reader")?.state, "running");
     Ok(())
 }
 

@@ -52,6 +52,8 @@ This folder records primary-source findings, measured experiments, design implic
 
 ## Evidence discipline
 
+The [protected retained playback validation](experiments/protected-retained-playback-2026-10-03.md) records service-owned original-file protection, exact replay, offset handling, cancellation/restart holds, bounded decoder progress and protected-segment backup behavior. Physical close, decoder output and audible completion retain separate evidence boundaries.
+
 The [focused context validation](experiments/focused-context-2026-10-03.md) records frozen station inspection, exact browser return, terminal trust boundaries, cache-statistics invalidation and a bounded snapshot encoding repair, with successful and failed evidence kept distinct.
 
 The [HackRF Pro identity experiment](experiments/hackrf-pro-identity-2026-10-03.md) records one bounded Windows native identity run, exact board/firmware and tooling provenance, process measurements and separate hardware-state limits. It qualifies no RF receiver adapter or throughput.
