@@ -1,5 +1,6 @@
 //! Bounded directory cache and refresh intent owned by the existing catalog actor.
 
+pub(crate) mod linked;
 pub(crate) mod ordered;
 #[cfg(test)]
 mod tests;

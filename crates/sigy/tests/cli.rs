@@ -4,6 +4,43 @@ mod common;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
+fn plain_directory_reads_render_their_scoped_results_instead_of_library_status() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let initialized = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(directory.path())
+            .args(["library", "init"]),
+    )?;
+    assert!(initialized.status.success());
+    for (arguments, expected) in [
+        (
+            vec!["radio", "linked", "00000000-0000-0000-0000-000000000001"],
+            "Linked station 00000000-0000-0000-0000-000000000001",
+        ),
+        (vec!["radio", "search", "--order", "name"], "Name order"),
+    ] {
+        let output = common::output(
+            Command::new(env!("CARGO_BIN_EXE_sigy"))
+                .arg("--data-dir")
+                .arg(directory.path())
+                .env("NO_COLOR", "1")
+                .args(arguments),
+        )?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let display = String::from_utf8(output.stdout)?;
+        assert!(display.contains(expected), "{display}");
+        assert!(!display.contains("Library ready.") && !display.contains("Provider dispatch"));
+    }
+    assert!(!directory.path().join("service.json").exists());
+    Ok(())
+}
+
+#[test]
 fn update_help_needs_no_home_and_missing_default_guides_initialization() -> TestResult {
     let directory = tempfile::tempdir()?;
     let home = directory.path().join("isolated user home");

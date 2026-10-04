@@ -1,4 +1,6 @@
 use super::{RunningChild, TestResult, invoke, success};
+#[path = "audio_fixtures.rs"]
+mod audio_fixtures;
 #[path = "retained_fixtures.rs"]
 mod retained_fixtures;
 use std::{

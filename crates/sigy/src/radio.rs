@@ -107,6 +107,11 @@ pub enum RadioCommand {
         /// Station UUID from radio search.
         id: String,
     },
+    /// Inspect exact historical registrations and their recording metadata, without tuning.
+    Linked {
+        /// Canonical station UUID. Historical registrations remain readable after cache removal.
+        id: String,
+    },
     /// Save a cached station as a favorite without tuning or recording.
     Favorite {
         /// Station UUID from radio search.
@@ -253,6 +258,10 @@ impl RadioCommand {
                 },
             },
             Self::Show { id } => DirectoryOperation::Show { id: id.clone() },
+            Self::Linked { id } => DirectoryOperation::Linked {
+                id: id.clone(),
+                catalog: None,
+            },
             Self::Favorite { id } => DirectoryOperation::SetFavorite {
                 id: id.clone(),
                 favorite: true,
@@ -406,6 +415,18 @@ fn write_countries(
 }
 
 pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<()> {
+    if let Some(page) = &view.linked_station_context {
+        writeln!(
+            writer,
+            "Linked station {} | catalog {} revision {}",
+            clean(&page.station_id),
+            clean(&page.catalog.namespace),
+            page.catalog.revision
+        )?;
+        for line in crate::explorer::context::linked_lines(page) {
+            writeln!(writer, "{line}")?;
+        }
+    }
     if let Some(status) = &view.directory {
         writeln!(
             writer,

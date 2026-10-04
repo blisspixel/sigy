@@ -44,6 +44,7 @@ ratatui = { version = "=0.30.2", default-features = false, features = ["std", "t
 termina = "=0.3.3"
 process-wrap = { version = "10.0.0", default-features = false, features = ["tokio1", "job-object", "kill-on-drop", "process-group", "creation-flags"] }
 processkit = { version = "=3.3.4", default-features = false, features = ["limits"] }
+cpal = { version = "=0.18.2", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -8,9 +8,9 @@
 
 The explorer rendered on 2026-10-02 with one real cached station page. Map positions come from directory metadata; selecting a station does not start playback or recording. [Explore the current controls](docs/usage.md#list-explorer).
 
-Press Enter in Explore or Globe to inspect full cached station context; Escape returns to the same search and selection. Wider terminals keep results alongside the details. Receiver experiences and an optional playable learning campaign are [planned extensions](docs/design/learning-experiences.md), including modern signal puzzles and historical cases with inspectable evidence.
+Press Enter in Explore or Globe to inspect full cached station context; Escape returns to the same search and selection. Press `i` inside that context to read exact historical registrations and recording metadata. Wider terminals keep results alongside the details. Receiver experiences and an optional playable learning campaign are [planned extensions](docs/design/learning-experiences.md), including modern signal puzzles and historical cases with inspectable evidence.
 
-Retained CLI listening uses a protected service reader, with explicit request replay and inspectable cancellation. It plays one sealed interval and accounts for recording gaps; exact cited excerpts and interactive DVR navigation remain [next increments](docs/development/near-term-implementation.md#dv-01-and-s-07-protected-playback-before-an-interactive-dvr).
+Retained CLI listening uses a protected service reader, with explicit request replay and inspectable cancellation. Windows system output has a [bounded native output adapter](docs/decisions/0084-bounded-windows-audio-output.md), with decoder, estimated presentation and process closure reported separately. Listening plays one sealed interval and accounts for recording gaps; exact cited excerpts and interactive DVR navigation remain [next increments](docs/development/near-term-implementation.md#dv-01-and-s-07-protected-playback-before-an-interactive-dvr).
 
 ## Install
 

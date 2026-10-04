@@ -1,6 +1,6 @@
 # Research index
 
-Research baseline: **September 20, 2026**. Latest research/evidence update: **October 3, 2026**. Individual notes retain their review dates and distinguish research from measurements.
+Research baseline: **September 20, 2026**. Latest research/evidence update: **October 4, 2026**. Individual notes retain their review dates and distinguish research from measurements.
 
 This folder records primary-source findings, measured experiments, design implications, competing approaches, and unanswered questions. It supports the [intent](../INTENT.md) and [design documents](../docs/README.md). Each note distinguishes completed measurements from proposed work and technology selection.
 
@@ -49,8 +49,11 @@ This folder records primary-source findings, measured experiments, design implic
 | Cited unusual claims, public SETI archives, calibration, interference controls and finite watches | [41. Strange signals and claim exploration](41-strange-signals-and-claim-exploration.md) |
 | Calm world listening, distinct IQ/audio/packet observations and measured receive-only device boundaries | [42. Calm listening and receive-only sources](42-calm-listening-and-receive-only-sources.md) |
 | Authentic historical cases, Indigenous code-talking, current post-quantum standards, noise/detection mathematics and optional modern learning challenges | [43. Historical and modern learning](43-historical-and-modern-learning.md) |
+| Fixed Windows output profiles, callback timing, native child closure, finite PCM and complete dependency retention | [44. Bounded Windows audio output](44-bounded-windows-audio-output.md) |
 
 ## Evidence discipline
+
+The [Windows audio and linked context validation](experiments/windows-audio-and-linked-context-2026-10-04.md) records independent PCM/frame oracles, bounded native closure and immutable station-to-recording projections. Device presentation estimates, original-reader closure and catalog observations remain separate evidence.
 
 The [protected retained playback validation](experiments/protected-retained-playback-2026-10-03.md) records service-owned original-file protection, exact replay, offset handling, cancellation/restart holds, bounded decoder progress and protected-segment backup behavior. Physical close, decoder output and audible completion retain separate evidence boundaries.
 

@@ -1,0 +1,57 @@
+# Windows retained audio and linked station context validation
+
+Date: 2026-10-04. Status: local integrated verification passed. This record separates implemented contracts, independent fixtures and actual measurements. Exact-commit hosted verification gates source-only publication. No stage exit or supported platform is established.
+
+## Selected scope
+
+[Decision0084](../../docs/decisions/0084-bounded-windows-audio-output.md) adds a client-owned bounded Windows system-output adapter for retained media. [Decision0085](../../docs/decisions/0085-exact-linked-station-context.md) adds explicit read-only historical context to focused station inspection and the CLI. Original-file protection remains [Decision0083](../../docs/decisions/0083-protected-retained-readers.md). Linked indexes advance schema 49 to 50 and local IPC 50 to 51 without rewriting existing history.
+
+The selected Windows output profile uses the existing configured FFmpeg and pinned CPAL 0.18.2, with one fixed helper and decoder in the existing native group. No driver, firmware, volume setting, microphone, source survey, model, language target or paid provider is changed. Review preserves original script and source revision identity. Complete decoder identity qualification, native creation-time assignment, acoustic delivery, aggregate host admission and full DVR controls remain open.
+
+## Independent checks and repairs
+
+Hand-declared stereo bytes exercise partial-channel transport, frame alignment, explicit End and clean EOF. Full-queue retries must count no clipping; accepted overshoot saturates only output and counts scalar samples exactly, preserving signed zero. NaN, infinity, malformed framing, oversized configuration/messages, incomplete input and counter overflow refuse. Presentation estimates cannot assert audibility. A fixed clock oracle refuses End at or after the helper deadline and refuses device failure before it. That oracle covers a review-discovered late-End gap, now repaired by checking immediately after input returns.
+
+A real sleeping child performs no device operation. Its parent explicitly terminates the native group, requires an actual empty-group memory/CPU snapshot and refuses subsequent spawning after sealing. This checks lifecycle mechanics, not an actual driver hang or abrupt-parent-death assignment window.
+
+The native PCM fixture independently constructs a one-second 48 kHz stereo WAV. Every decoded sample after a 125 ms seek is compared against an independent expected tail: 42,000 frames and 336,000 bytes, including a later sentinel. A separate 250 ms hand oracle remains a prospective exact-excerpt fixture; the product currently plays to sealed-file EOF. The service original-reader terminal receipt and native group snapshot are checked separately.
+
+Linked-context fixtures use real registration, publication, directory refresh, deletion and gap operations. They distinguish duplicate names, immutable older station metadata and current cache membership. Four-row pages and fifth-ID lookahead are checked independently at source and recording levels. Query plans require selected indexes. Raw corrupt multibyte metadata refuses before copying, followed by a healthy read. Populated 49-to-50 reopen preserves source links and recording identities. Controlled removal of a cache row is synthetic resilience evidence because current public refresh merges rows.
+
+Initial linked tests passed five of seven cases. One refresh fixture violated the existing two-second interval and was corrected from actual stored refresh time. The exhaustion fixture used a 1000-operation per-statement checkpoint that short indexed statements did not reach. A test-only one-operation checkpoint now injects interruption inside the actual linked projection, proves callback observation and guard cleanup, and requires a subsequent read under unchanged production limits. Production uses 1000-operation checkpoints, a 100 ms cooperative deadline, four million counted VM operations and 10 ms lock wait; this is not exact aggregate counting of many short statements. The separate 4x4 result bounds remain enforced.
+
+Compilation and warnings-denied lint checks caught an invalid redraw field, fixture hash formatting incompatible with the pinned digest API, large futures/buffers and exact-float test style. Repairs use the actual draw enum, existing hex-writing pattern, finite heap buffers, boxed future boundaries and exact IEEE bit oracles. No lint allowance, weakened expectation, added dependency for test formatting or test exclusion is used.
+
+Production CLI inspection found that plain linked-context output fell through to general library status while JSON was correct. The same routing defect affected existing name-ordered search. Both projections now select the directory renderer; a subprocess regression exercises the actual parser, local library and plain output. Its initial no-service assertion incorrectly used the persistent ownership lock file. The repaired assertion checks the service endpoint marker instead. Rendering is extracted from command execution to preserve the existing function-size lint. Preliminary coverage was deliberately stopped before changing source; that interrupted run is not a passing receipt.
+
+## Dependency and history review
+
+An initial broad lockfile regeneration was discarded. Selective resolution preserves pre-existing package versions and checksums while retaining 29 new package/version pairs. Only CPAL and dasp_sample are new in the selected Windows normal target traversal; inactive platform retention is not support qualification. The normalized manifests' license declarations were reviewed. ASIO configuration is absent, optional output backends stay disabled and existing legal notices remain. [Primary-source audio research](../44-bounded-windows-audio-output.md) records alternatives, lifecycle facts and distribution limitations.
+
+## Measured outcomes
+
+The first silent native gate passed 19 fixtures in 127.01 seconds. The first explicitly opted-in endpoint trial refused on an invalid decoder progress timestamp, while preserving an actual empty Job Object snapshot: 23,736,320 bytes peak committed memory and 78,125 microseconds CPU. Original-reader completion was separately observed. That failure qualifies no output. Its private raw receipt SHA-256 is `76e7f3df0d6737f4a0e450dace2eceb08680290fc9be6753ffae3dabe6abe687`.
+
+Released FFmpeg documents an initial `N/A` timestamp when no output timestamp exists. The repaired parser preserves that state as unknown, requires a numeric final timestamp and refuses unknown observations after numeric progress. Independent controls cover unknown, signed, conflicting, regressing and excessive values. The original failing value was not captured; identifying it as `N/A` is an inference. Subsequent silent probes at 44.1, 48 and 96 kHz, including paused PCM reads, did not reproduce that first failure.
+
+The fresh endpoint trial passed through the production CLI using a one-second independently generated 48 kHz stereo source with a peak of 16/32,768. The negotiated output was 48 kHz, two channels and floating-point PCM, with a 12,000-frame ring. It reported 48,000 decoded/content frames, zero clipped samples, zero underrun frames, 2,016 drain-zero frames, 103 callbacks and a 12,000-frame high-water mark. Predicted final presentation was 1,059,953 microseconds and remained explicitly estimated; acoustic delivery is unproven. The actual empty Job Object snapshot recorded 23,830,528 bytes peak committed memory and 109,375 microseconds CPU. The original reader completed separately. Exact replay reported no output and no completed decoder; separate stop-before-output inspection observed terminal reader state without starting output. The private successful receipt SHA-256 is `a58fca15a11607e07177a6d9545a5dedb615067fd22fe8f688b6ded11de4040f`.
+
+Two actual Windows console journeys at 80x24 and 132x40 performed four explicit linked reads over a retained 16-station metadata copy. Exact registration identity, scrolling and Back restoration passed. Directory, recording, schedule, doctor and budget snapshots remained byte-identical after local setup. Twenty real console-cell captures retain dimensions and content; native pixel capture was unavailable. One initial wide wait failed because its harness interleaved the station list into wrapped detail text. Pane extraction repairs the harness while retaining the original assertions and failed receipt. Successful validation SHA-256 is `b6e6a6eadd49c167499b63f673587a13a85b15f858fc2d03843f9267fe039250`. Its inherited resource-scope label mentions concurrent coverage compilation incorrectly; this was an uncontrolled short local journey and establishes no load profile.
+
+The same actual console journeys passed again against the final ordinary-gated binary. Actual plain linked and name-ordered CLI reads showed their scoped results, preserved before/after doctor state and created no service endpoint. Six production test-backend frames cover pending, loaded and failed context at both sizes. Loaded compact/wide and failed compact rasters were inspected. These constructed observations are distinct from actual console cells and establish neither worldwide station availability nor native font shaping.
+
+The final ordinary gate passes 1,046 test executions with 21 ignored, formatting, warnings-denied Clippy, build, native-source hashes and an audit of 342 dependencies against 1,290 advisories. The ordinary log SHA-256 is `e4731ec988032c977de427681c8e80422c479b5788886d6085f73e9b1478453e`. The final silent native-media gate passes all 19 fixtures in 112.50 seconds. Full per-crate coverage passes on the same 471-entry frozen source/configuration set, including the ignored measurement and all 19 native fixtures. The gate elapsed 496,391 ms, which is verification time rather than a supported workload profile.
+
+| Workspace crate | Covered / executable lines | Line coverage |
+| --- | --- | --- |
+| `sigy` | 24,017 / 26,840 | 89.48% |
+| `sigy-core` | 1,436 / 1,521 | 94.41% |
+| `sigy-service` | 57,497 / 61,699 | 93.18% |
+| `sigy-test-recognizer` | 257 / 283 | 90.81% |
+| `sigy-xtask` | 1,130 / 1,215 | 93.00% |
+
+The unique coverage receipt is `target/coverage-reports/workspace-6680-1791115272124164700.json`, SHA-256 `93ca4abd50221a3b80ca9d3ad9201c25232e82b4086ca3182038d0d37f968c18`. No crate/source is excluded; build scripts and test sources are measured. Exact integer counts enforce 80% separately per crate. This is compiled Windows line coverage, without branch or portable-platform qualification.
+
+The explicitly opted-in instrumented endpoint trial also passes at the same 48 kHz stereo profile: 48,000 decoded/content frames, zero underruns/clipping, 103 callbacks and 2,016 drain-zero frames. Predicted final presentation remains estimated at 1,085,154 microseconds. Actual empty-group accounting records 25,149,440 bytes peak committed memory and 125,000 microseconds CPU. The original reader completes and exact replay dispatches no output. Its private receipt SHA-256 is `769a01974895a8a00d15d1ef4d219e65e8658bcf65605f7dba5a46e98c6a1e22`. Instrumented and ordinary observations are distinct profiles, not repeated acoustic acceptance.
+
+A requested endpoint experiment fails if no device is available and cannot become a passing skip. Raw private receipts retain unsuccessful outcomes before interpretation. External spend remains USD 0.

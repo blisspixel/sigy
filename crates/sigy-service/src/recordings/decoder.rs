@@ -7,7 +7,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[cfg(test)]
 mod hostile_tests;
+mod pcm;
 mod progress;
+pub(super) use pcm::decode_pcm;
 
 use progress::{Limits as ProgressLimits, Progress, read_progress};
 

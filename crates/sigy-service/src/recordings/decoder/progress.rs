@@ -64,7 +64,13 @@ pub(super) struct Progress {
     pub(super) advanced: bool,
     pub(super) finished: bool,
     previous: Option<u64>,
-    frame_time: Option<u64>,
+    frame_time: Option<Observation>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Observation {
+    Unknown,
+    Measured(u64),
 }
 
 impl Progress {
@@ -87,7 +93,11 @@ impl Progress {
         match key {
             "out_time_us" => self.time(value, maximum_us),
             "progress" => {
-                if self.frame_time.take().is_none() || !matches!(value, "continue" | "end") {
+                let observation = self.frame_time.take();
+                if observation.is_none()
+                    || !matches!(value, "continue" | "end")
+                    || (value == "end" && observation == Some(Observation::Unknown))
+                {
                     return Err(Error::Acquisition("invalid decoder progress frame"));
                 }
                 self.finished = value == "end";
@@ -98,6 +108,19 @@ impl Progress {
     }
 
     fn time(&mut self, value: &str, maximum_us: u64) -> Result<()> {
+        if value == "N/A" {
+            if self.previous.is_some()
+                || self
+                    .frame_time
+                    .is_some_and(|time| time != Observation::Unknown)
+            {
+                return Err(Error::Acquisition(
+                    "decoder progress became unknown or conflicted",
+                ));
+            }
+            self.frame_time = Some(Observation::Unknown);
+            return Ok(());
+        }
         let time = value
             .parse::<u64>()
             .ok()
@@ -105,7 +128,9 @@ impl Progress {
             .filter(|time| *time <= maximum_us)
             .ok_or(Error::Acquisition("invalid decoder progress time"))?;
         if self.previous.is_some_and(|previous| time < previous)
-            || self.frame_time.is_some_and(|previous| time != previous)
+            || self
+                .frame_time
+                .is_some_and(|previous| previous != Observation::Measured(time))
         {
             return Err(Error::Acquisition(
                 "decoder progress regressed or conflicted",
@@ -115,7 +140,7 @@ impl Progress {
         // frame. A positive first observation is progress, not a missing delta.
         self.advanced |= time > 0;
         self.previous = Some(time);
-        self.frame_time = Some(time);
+        self.frame_time = Some(Observation::Measured(time));
         self.max_out_us = time;
         Ok(())
     }

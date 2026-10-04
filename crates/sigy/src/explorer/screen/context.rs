@@ -101,7 +101,7 @@ fn footer(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
         return;
     };
     let help = if area.width < 60 {
-        format!("Esc back q quit\nUp/Down {}", context.position())
+        format!("Esc back q quit i links\nUp/Down {}", context.position())
     } else if model.restart_required() {
         format!(
             "Esc back, then g restarts cached page 1 | q quit\nUp/Down scroll | {}",
@@ -109,7 +109,7 @@ fn footer(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
         )
     } else {
         format!(
-            "Esc/Backspace back | q quit\nUp/Down scroll | {}",
+            "Esc/Backspace back | q quit | i linked history\nUp/Down scroll | {}",
             context.position()
         )
     };

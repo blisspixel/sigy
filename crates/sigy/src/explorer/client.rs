@@ -51,6 +51,34 @@ pub async fn load_desk(
 pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) -> Result<(), Error> {
     match effect {
         Effect::None | Effect::Detach => Ok(()),
+        Effect::LinkedContext {
+            generation,
+            id,
+            catalog,
+        } => {
+            let operation = Operation::Radio {
+                command: DirectoryOperation::Linked {
+                    id: id.clone(),
+                    catalog: Some(catalog.clone()),
+                },
+            };
+            match fetch(directory, operation).await {
+                Ok((_, snapshot)) => {
+                    if snapshot.directory_catalog.as_ref() == Some(catalog)
+                        && let Some(page) = snapshot.linked_station_context
+                    {
+                        model.apply_linked_context(*generation, id, catalog, page);
+                    } else {
+                        model.fail_linked_context(
+                            *generation,
+                            "missing or mismatched catalog response",
+                        );
+                    }
+                }
+                Err(error) => model.fail_linked_context(*generation, &error.to_string()),
+            }
+            Ok(())
+        }
         Effect::Reload => Box::pin(reload(directory, model)).await,
         Effect::MonitorList => {
             apply_fetched(
@@ -117,6 +145,12 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
 pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
     match effect {
         Effect::None | Effect::Detach => Vec::new(),
+        Effect::LinkedContext { id, catalog, .. } => vec![Operation::Radio {
+            command: DirectoryOperation::Linked {
+                id: id.clone(),
+                catalog: Some(catalog.clone()),
+            },
+        }],
         Effect::Search(query) => vec![search_operation(query)],
         Effect::SetFavorite { id, favorite, .. } => vec![favorite_operation(id, *favorite)],
         Effect::MonitorList => vec![monitor_operation(MonitorOperation::List {})],
@@ -637,6 +671,7 @@ mod tests {
             Operation::Radio { command } => !matches!(
                 command,
                 DirectoryOperation::Status {}
+                    | DirectoryOperation::Linked { .. }
                     | DirectoryOperation::SearchOrdered { .. }
                     | DirectoryOperation::SetFavorite { .. }
             ),
@@ -679,6 +714,15 @@ mod tests {
             },
             Effect::FindingOriginal {
                 recording: "rec".into(),
+            },
+            Effect::LinkedContext {
+                generation: 1,
+                id: "00000000-0000-0000-0000-000000000001".into(),
+                catalog: sigy_service::control::DirectoryCatalog {
+                    namespace: "a".repeat(32),
+                    revision: 1,
+                    comparison: "fixture".into(),
+                },
             },
         ] {
             for operation in operations_for(&effect, &explorer) {

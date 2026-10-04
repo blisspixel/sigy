@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 Commands use `~/.sigy/library` by default: `%USERPROFILE%\.sigy\library` on Windows, `$HOME/.sigy/library` on Unix. `--data-dir PATH` selects another library and works before or after a subcommand. Use a private directory outside the checkout. MCP requires an explicit `--data-dir`; help, version, updates and backup verification or restore do not need a library. `--json` emits one structured response for automation. Every argument in `--help` states its meaning, unit or accepted range. Page sizes outside the service bounds are refused before any request, for example `radio search --limit` accepts 1 to 16. Common failures add the next command: a missing recording names `sigy record list`, `service status` without a running service says so, a service-only command says to run `sigy service start`, and an unresolved `--decoder` asks for an absolute ffmpeg path. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v49 and local IPC is v50. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v50 and local IPC is v51. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Quick start
 
@@ -104,6 +104,7 @@ sigy --data-dir PATH_TO_LIBRARY radio refresh french-news-001 --language french 
 sigy --data-dir PATH_TO_LIBRARY radio refresh-status french-news-001
 sigy --data-dir PATH_TO_LIBRARY radio search --language french --tag news
 sigy --data-dir PATH_TO_LIBRARY radio show STATION_UUID
+sigy --data-dir PATH_TO_LIBRARY radio linked STATION_UUID
 sigy --data-dir PATH_TO_LIBRARY radio add STATION_UUID --revision selected:v1 --redirects public
 ```
 
@@ -137,6 +138,8 @@ sigy --data-dir PATH_TO_LIBRARY radio click-status heard-001
 A click does not play the station. The stream address in the provider response is discarded. Search, show, favorite, and refresh do not send this request. Reusing the click id does not send it again. See [directory clicks](decisions/0010-directory-clicks.md).
 
 `radio add` stores a metadata snapshot and registers the chosen public stream as an immutable source. Use that revision with `record start --source`. `--redirects public` permits at most three redirects to checked public-internet destinations. Omit `--redirects` to deny them, or choose `same-origin` to stay within the original scheme, host, and port. HTTPS cannot downgrade to HTTP. Existing revisions keep their policy. Choose a new revision key to change it. See [directory behavior](decisions/0006-radio-discovery.md) and [redirect policy](decisions/0007-authorized-redirects.md).
+
+`radio linked` reads up to four immutable source registrations for the exact station UUID and up to four recordings per revision. Real more markers disclose later results; this view has no pagination or total counts. Names and URLs never establish the relationship. Earlier registrations retain their own metadata after the listing changes, and current cache presence is reported separately. Recording states, retention, sealed-media/release presence and gaps are catalog observations, not file-availability checks or playback grants. The command contacts no station, registers nothing and starts no audio. See [exact linked context](decisions/0085-exact-linked-station-context.md).
 
 ## Playlists
 
@@ -452,11 +455,11 @@ sigy --data-dir PATH_TO_LIBRARY listen reader list
 sigy --data-dir PATH_TO_LIBRARY listen reader stop replay-morning --generation 1
 ```
 
-Retained playback requires the background service and a configured decoder. The service protects and reads one sealed interval; the client receives a private byte stream. `--destination null` discards samples and is the tested path. `--destination system` needs a local output in that FFmpeg build. `--seek-us` is a recording-timeline offset, including any gaps; it is converted to the selected file's relative offset. Playback ends at that interval's end without stitching another segment.
+Retained playback requires the background service and a configured decoder. The service protects and reads one sealed interval; the client receives a private byte stream. `--destination null` discards samples and retains the existing headless path. On Windows, retained `--destination system` uses a supervised local CPAL output helper with the current default floating-point mono/stereo device at 8 to 192 kHz. Unsupported or changed endpoints refuse without fallback. Other platforms and direct live listening retain their existing decoder-output paths. `--seek-us` is a recording-timeline offset, including any gaps; it is converted to the selected file's relative offset. Playback ends at that interval's end without stitching another segment. Actual endpoint qualification and current gate outcomes belong in [active work](development/progress.md); this implemented adapter establishes no acoustic-delivery or platform-support claim. See [bounded Windows output](decisions/0084-bounded-windows-audio-output.md).
 
 An explicit `--request` makes replay inspectable: repeating the same request returns its stored receipt and starts no audio. Omit it or choose a new ID for another playback. Ctrl+C stops client decoding and requests the exact reader's stop. Original-file protection remains until actual service reader closure; an uncertain restart preserves a visible `recovery_held` receipt and can hold reclamation. Show/list remain read-only after service exit. Stop requires the service and the inspected generation. At most four unresolved readers and 4,096 lifetime receipts are admitted per library. See [protected retained readers](decisions/0083-protected-retained-readers.md) for bounds and limitations.
 
-The report separates raw decoder progress, requested range and reader outcome; it does not prove sound heard at a device. Playback does not stop recording, change retention or reserve quota. Partial files and open tails are not playable. `record metadata` emits a versioned JSON sidecar. Reusing a recording ID reconciles its recording request independently of playback IDs.
+The report separates raw decoder progress, requested range, reader outcome and Windows output evidence. Output reports include underruns, output-only clipped samples and estimated presentation; successful native completion does not prove sound heard at a device. Only actual service reader closure can release original-file protection; output reports cannot. Playback does not stop recording, change retention or reserve quota. Partial files and open tails are not playable. `record metadata` emits a versioned JSON sidecar. Reusing a recording ID reconciles its recording request independently of playback IDs.
 
 ```text
 sigy --data-dir PATH_TO_LIBRARY listen source live-001 --revision demo:v1 --destination null
@@ -468,7 +471,7 @@ The service fetches the bytes. This client decodes a private local pipe and does
 
 ## List explorer
 
-In Explore (`1`) or Globe (`7`), Enter opens focused station inspection from the current cached page. Up/Down scrolls full directory metadata; Escape or Backspace returns to the same query, page, station and focus. Wide nonlinear terminals keep results beside the pane. While inspecting, browser/filter/favorite keys are held. Opening and closing send no request and start no player. Directory language, location and health remain listing observations; registered station recordings are not yet linked in this view. [Focused context](decisions/0082-focused-station-context.md) records the boundary.
+In Explore (`1`) or Globe (`7`), Enter opens focused station inspection from the current cached page. Up/Down scrolls full directory metadata; Escape or Backspace returns to the same query, page, station and focus. Wide nonlinear terminals keep results beside the pane. While inspecting, browser/filter/favorite keys are held. Opening and closing send no request and start no player. Press `i` for a separate read of exact linked registrations and recording metadata, with the same four-by-four bounds as `radio linked`. The frozen UUID, catalog namespace/revision/comparison and request generation fence replies. Catalog drift refuses that read; failures preserve any earlier linked observation. Directory language, location and health remain listing observations. [Focused context](decisions/0082-focused-station-context.md) and [exact linked context](decisions/0085-exact-linked-station-context.md) record these boundaries.
 
 ![Station list rendered from a real cached directory page](images/explorer-list.png)
 

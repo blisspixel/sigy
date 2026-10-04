@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 
 Build Sigy into a dependable multilingual listening and analysis instrument: discover sources, retain observations, understand them in context and trace each result back to evidence. A complete CLI and an expressive terminal explorer share the same persistent service. Local processing remains useful with paid inference disabled.
 
@@ -15,13 +15,13 @@ The [near-term implementation briefs](docs/development/near-term-implementation.
 | Next change | Useful result | Completion evidence |
 | --- | --- | --- |
 | **Retained passage playback (DV-01/S-07)** | Extend the service-owned protected reader to exact cited excerpts, then safe segment navigation | DV-01A's first protection increment exists; exact cue ends, qualified native lifetime, bounded handoffs, actual player state and terminal/capture measurements remain |
-| **Linked source context (EX-02B)** | Connect cached station inspection to its exact historical registrations and recordings | Narrow indexed directory-link/recording projection, bounded pages, catalog/revision fences and deletion/retention truth; no name/URL inference |
+| **Linked listening journey (EX-02/DV-02)** | Build on exact cached inspection and historical registration/recording context | EX-02B implements bounded indexed context; explicit retained playback actions and actual player controls require excerpt bounds and measured handoffs |
 | **Native profiles and aggregate admission (S-04/S-06)** | Run useful mixed capture/processing workloads within measured host limits | Real manager/descendant lifecycle, quiet and contended costs, pressure/fairness checks and reserved capture headroom |
 | **Target-aware history (S-05)** | Choose independently qualified translation directions while preserving today's English results | Populated migration/restore, directed sharing/selection and explicit unsupported-pair refusal; quality qualifies separately |
 
 The new publication provenance records today's `en` target explicitly. Target-aware schema and processing expansion follows as its own migration, preserving English history. A finite local planner (S-08) can be developed and evaluated against the established task toolkit while longer operational qualification continues.
 
-[Focused cached inspection](docs/decisions/0082-focused-station-context.md) now preserves search/page/selection, full directory metadata and a dependable Back action. Protected readers and exact excerpt bounds come next because the current client decoder can read media without retention protection and plays the remainder rather than a cited end bound. A pleasant DVR needs those correctness guarantees before adding player controls.
+[Focused cached inspection](docs/decisions/0082-focused-station-context.md) preserves search/page/selection, full directory metadata and a dependable Back action. [Exact linked context](docs/decisions/0085-exact-linked-station-context.md) connects that view to immutable registrations and recording metadata without a stream request. [Protected readers](docs/decisions/0083-protected-retained-readers.md) now protect original-file reads, and the [Windows output adapter](docs/decisions/0084-bounded-windows-audio-output.md) separates decoder, estimated device presentation and native closure. Playback still ends at the sealed interval's end. Exact cited start/end bounds come next so a finding can lead to its passage before full player controls and segment navigation.
 
 The explorer advances alongside the workflow. The implemented filter editor and worldwide country-name/code resolver preserve legacy CLI station-ID paging; the offline picker supplies eight display locales, explicit ambiguity and English fallback. [Name-ordered paging](docs/decisions/0081-ordered-station-search.md) adds query/catalog-bound cursors for the terminal and explicit CLI/MCP selection. Active work owns its exact verification. Focused full-screen composition, disambiguated capital/major-city lookup, broader bounded refresh and explicitly authorized local validation/repair follow. Geography remains selectable with an empty cache, with truthful station coverage and fallback searches. Retained timeline playback and an interactive DVR desk have separate packages because today's player reads one segment and today's TUI timeline is metadata-only. CLI and TUI use the same service authority. Opening a view does not grant stream contact. See the [explorer and DVR packages](docs/development/reliability-and-scale.md#explorer-increments).
 

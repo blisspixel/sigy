@@ -53,7 +53,7 @@ impl Write for Capped {
     }
 }
 
-fn encode(value: &impl Serialize, maximum: usize) -> Result<Vec<u8>> {
+pub(super) fn encode(value: &impl Serialize, maximum: usize) -> Result<Vec<u8>> {
     let mut writer = Capped {
         bytes: Vec::new(),
         maximum,

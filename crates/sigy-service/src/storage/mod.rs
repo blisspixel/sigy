@@ -45,7 +45,7 @@ mod widen;
 mod widen_tests;
 pub(crate) mod withdrawals;
 
-pub const SCHEMA_VERSION: u32 = 49;
+pub const SCHEMA_VERSION: u32 = 50;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -325,6 +325,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=48).contains(&version) {
         transaction.execute_batch(include_str!("049-retained-readers.sql"))?;
+    }
+    if (0..=49).contains(&version) {
+        transaction.execute_batch(include_str!("050-linked-station-context.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

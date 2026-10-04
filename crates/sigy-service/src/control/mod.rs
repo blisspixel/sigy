@@ -35,8 +35,8 @@ pub use analysis::{
     RecognitionView, TranscriptCueView, TranscriptView, TranslationProfileOperation,
 };
 pub use discovery::{
-    DirectoryCatalog, DirectoryOperation, DirectoryPolicyPage, OrderedStationPage,
-    PolicyDisposition, StationPage,
+    DirectoryCatalog, DirectoryOperation, DirectoryPolicyPage, LinkedRecording, LinkedSource,
+    LinkedStationContext, OrderedStationPage, PolicyDisposition, StationPage,
 };
 pub use doctor::{DoctorCheck, DoctorReport, DoctorState};
 pub use dvr::{DvrOperation, RecordingOperation, RecordingPage, apply_library};
@@ -57,7 +57,7 @@ pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, Sche
 pub use server::{request, run};
 pub use task::{TaskOperation, TaskPage};
 
-pub const PROTOCOL_VERSION: u32 = 50;
+pub const PROTOCOL_VERSION: u32 = 51;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -224,6 +224,8 @@ pub struct Snapshot {
     pub station_page: Option<StationPage>,
     pub ordered_station_page: Option<OrderedStationPage>,
     pub directory_catalog: Option<DirectoryCatalog>,
+    #[serde(default)]
+    pub linked_station_context: Option<crate::discovery::linked::LinkedStationContext>,
     pub schema_version: u32,
     pub sqlite_version: String,
     pub provider_dispatch_available: bool,
@@ -268,7 +270,7 @@ pub struct Snapshot {
     pub task: Option<Box<TaskPage>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceView {
     pub revision_id: String,
@@ -439,6 +441,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         station_page: None,
         ordered_station_page: None,
         directory_catalog: Some(store.directory_catalog()?),
+        linked_station_context: None,
         schema_version: crate::storage::SCHEMA_VERSION,
         sqlite_version: store.sqlite_version()?,
         provider_dispatch_available: false,

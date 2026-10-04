@@ -12,6 +12,7 @@ use sigy_service::{
 };
 
 mod analysis;
+mod audio;
 mod backup;
 mod dvr;
 mod explorer;
@@ -315,55 +316,68 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    if cli.json {
-        serde_json::to_writer(&mut stdout, &view)?;
-        writeln!(stdout)?;
-    } else if let Some(report) = &view.doctor {
-        render_doctor(&mut stdout, &view, report, cli.explicit_data_dir, ink)?;
-    } else if let Some(policy) = view.dvr {
-        dvr::render_policy(&mut stdout, &policy, ink)?;
-    } else if let Some(page) = view.recording_page {
-        dvr::render_records(&mut stdout, &page, ink)?;
-    } else if let Some(page) = &view.monitor {
-        monitor::render(&mut stdout, page)?;
-    } else if let Some(page) = &view.task {
-        task::render(&mut stdout, page)?;
-    } else if let Some(page) = &view.provider {
-        provider::render(&mut stdout, page)?;
-    } else if let Some(page) = view.schedule {
-        schedule::render(&mut stdout, &page)?;
-    } else if let Some(recognition) = &view.recognition {
-        analysis::render_recognition(&mut stdout, recognition)?;
-    } else if let Some(job) = &view.analysis_job {
-        analysis::render_job(&mut stdout, job)?;
-    } else if let Some(page) = &view.analysis {
-        analysis::render(&mut stdout, page, ink)?;
-    } else if view.playlist.is_some() || view.source_page.is_some() {
-        if let Some(playlist) = &view.playlist {
-            sources::render_playlist(&mut stdout, playlist)?;
-        }
-        if let Some(page) = &view.source_page {
-            sources::render(&mut stdout, page)?;
-        }
-    } else if view.podcast_page.is_some() || view.podcast_feed.is_some() {
-        if let Some(page) = &view.podcast_page {
-            podcast::render(&mut stdout, page)?;
-        }
-        if let Some(feed) = &view.podcast_feed {
-            podcast::render_feed(&mut stdout, feed)?;
-        }
-    } else if let Some(text) = &view.publisher_text {
-        podcast::render_text(&mut stdout, text)?;
-    } else if view.directory.is_some() {
-        radio::render(&mut stdout, &view, ink)?;
-    } else {
-        render_status(&mut stdout, &view, ink)?;
-    }
+    render_library_snapshot(&mut stdout, cli, &view, ink)?;
     if let Command::Doctor { strict } = &cli.command {
         let report = view.doctor.as_ref().ok_or("doctor report is missing")?;
         if report.blocked() || (*strict && report.attention()) {
             return Err("doctor found a check that needs action".into());
         }
+    }
+    Ok(())
+}
+
+fn render_library_snapshot(
+    stdout: &mut impl Write,
+    cli: &Cli,
+    view: &Snapshot,
+    ink: style::Ink,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if cli.json {
+        serde_json::to_writer(&mut *stdout, view)?;
+        writeln!(stdout)?;
+    } else if let Some(report) = &view.doctor {
+        render_doctor(stdout, view, report, cli.explicit_data_dir, ink)?;
+    } else if let Some(policy) = &view.dvr {
+        dvr::render_policy(stdout, policy, ink)?;
+    } else if let Some(page) = &view.recording_page {
+        dvr::render_records(stdout, page, ink)?;
+    } else if let Some(page) = &view.monitor {
+        monitor::render(stdout, page)?;
+    } else if let Some(page) = &view.task {
+        task::render(stdout, page)?;
+    } else if let Some(page) = &view.provider {
+        provider::render(stdout, page)?;
+    } else if let Some(page) = &view.schedule {
+        schedule::render(stdout, page)?;
+    } else if let Some(recognition) = &view.recognition {
+        analysis::render_recognition(stdout, recognition)?;
+    } else if let Some(job) = &view.analysis_job {
+        analysis::render_job(stdout, job)?;
+    } else if let Some(page) = &view.analysis {
+        analysis::render(stdout, page, ink)?;
+    } else if view.playlist.is_some() || view.source_page.is_some() {
+        if let Some(playlist) = &view.playlist {
+            sources::render_playlist(stdout, playlist)?;
+        }
+        if let Some(page) = &view.source_page {
+            sources::render(stdout, page)?;
+        }
+    } else if view.podcast_page.is_some() || view.podcast_feed.is_some() {
+        if let Some(page) = &view.podcast_page {
+            podcast::render(stdout, page)?;
+        }
+        if let Some(feed) = &view.podcast_feed {
+            podcast::render_feed(stdout, feed)?;
+        }
+    } else if let Some(text) = &view.publisher_text {
+        podcast::render_text(stdout, text)?;
+    } else if view.directory.is_some()
+        || view.ordered_station_page.is_some()
+        || view.linked_station_context.is_some()
+    {
+        radio::render(stdout, view, ink)?;
+    } else {
+        render_status(stdout, view, ink)?;
     }
     Ok(())
 }
@@ -500,6 +514,14 @@ fn render_status(stdout: &mut impl Write, view: &Snapshot, ink: style::Ink) -> i
 }
 
 fn main() -> ExitCode {
+    if std::env::args_os().nth(1).as_deref()
+        == Some(std::ffi::OsStr::new("--internal-audio-output-v1"))
+    {
+        if std::env::args_os().count() != 2 || audio::run_helper().is_err() {
+            return ExitCode::FAILURE;
+        }
+        return ExitCode::SUCCESS;
+    }
     let mut cli = Cli::parse();
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
         init::resolve_directory(&mut cli)?;

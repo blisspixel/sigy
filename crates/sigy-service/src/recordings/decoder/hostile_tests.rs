@@ -8,6 +8,38 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+#[tokio::test]
+async fn unknown_initial_timestamps_never_invent_progress_or_replace_measured_final_time()
+-> TestResult {
+    let mut initial = b"out_time_us=N/A\nprogress=continue\n".repeat(3);
+    let unknown = read_progress(initial.as_slice(), Limits::exact(100, 4)).await?;
+    assert_eq!(unknown.max_out_us, 0);
+    assert!(!unknown.advanced && !unknown.finished);
+    initial.extend_from_slice(b"out_time_us=100\nprogress=end\n");
+    let complete = read_progress(initial.as_slice(), Limits::exact(100, 4)).await?;
+    assert_eq!(complete.max_out_us, 100);
+    assert!(complete.advanced && complete.finished);
+    assert!(
+        read_progress(initial.as_slice(), Limits::exact(100, 3))
+            .await
+            .is_err()
+    );
+    for input in [
+        b"out_time_us=N/A\nprogress=end\n".as_slice(),
+        b"out_time_us=N/A\nout_time_us=1\nprogress=end\n",
+        b"out_time_us=1\nout_time_us=N/A\nprogress=end\n",
+        b"out_time_us=0\nprogress=continue\nout_time_us=N/A\nprogress=continue\n",
+        b"out_time_us=N/Ax\nprogress=continue\n",
+        b"out_time_us=n/a\nprogress=continue\n",
+        b"out_time_us= N/A\nprogress=continue\n",
+        b"out_time_us=-1\nprogress=continue\n",
+        b"out_time_us=+1\nprogress=continue\n",
+    ] {
+        assert!(read_progress(input, Limits::exact(100, 4)).await.is_err());
+    }
+    Ok(())
+}
+
 #[test]
 fn retained_pipe_seek_is_unthrottled_and_output_bounded_without_changing_live_pacing() -> TestResult
 {

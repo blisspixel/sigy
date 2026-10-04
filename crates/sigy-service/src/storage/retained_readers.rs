@@ -149,6 +149,7 @@ impl Store {
 
 #[cfg(test)]
 pub(crate) fn revert_049_for_tests(connection: &rusqlite::Connection) -> Result<()> {
+    crate::storage::discovery::linked::revert_050_for_tests(connection)?;
     let exists: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='retained_readers')",
         [],

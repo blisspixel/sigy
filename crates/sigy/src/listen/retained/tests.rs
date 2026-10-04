@@ -3,6 +3,65 @@ use clap::Parser;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+#[cfg(windows)]
+#[test]
+fn output_failure_preserves_completed_decoder_and_observed_native_closure() -> TestResult {
+    let error = crate::audio::play::OutputError {
+        reason: "audio-device-failed".into(),
+        native_closure: Some(Box::new(sigy_service::recordings::audio::AudioClosure {
+            mechanism: "job_object".into(),
+            peak_memory_bytes: Some(1234),
+            cpu_time_us: Some(5678),
+        })),
+        decoder: Some(RetainedPlaybackReport {
+            file_playhead_us: 10_000_000,
+            reported_elapsed_us: 9_000_000,
+            boundary_tolerance_us: 100_000,
+            progress_advanced: true,
+        }),
+        decoder_failure: None,
+    };
+    let failed = failed_decode(&error);
+    assert!(failed.decoder.is_some());
+    assert!(failed.decoder_failure.is_none());
+    assert!(
+        failed
+            .output_failure
+            .as_deref()
+            .is_some_and(|message| message.contains("audio-device-failed"))
+    );
+    assert_eq!(
+        failed
+            .audio_output
+            .as_ref()
+            .ok_or("missing output observation")?["native_closure"]["peak_memory_bytes"],
+        1234
+    );
+    let result = PlayResult {
+        receipt: receipt(),
+        destination: PlaybackDestination::System,
+        decoder: failed.decoder,
+        decoder_failure: failed.decoder_failure,
+        output_failure: failed.output_failure,
+        audio_output: failed.audio_output,
+        replayed: false,
+    };
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, &result, None, false, true)?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(json["decoder_completed"], true);
+    assert!(json["decoder_failure"].is_null());
+    assert!(!json["output_failure"].is_null());
+    assert_eq!(
+        json["audio_output"]["native_closure"]["mechanism"],
+        "job_object"
+    );
+    let generic = failed_decode(&std::io::Error::other("decoder failed"));
+    assert!(generic.decoder.is_none() && generic.output_failure.is_none());
+    assert_eq!(generic.decoder_failure.as_deref(), Some("decoder failed"));
+    Ok(())
+}
+
 #[test]
 fn only_exact_local_or_remote_missing_receipt_allows_fresh_admission() {
     assert!(is_not_found(&sigy_service::Error::NotFound));
@@ -174,6 +233,8 @@ fn reported_progress_is_unclamped_and_transfer_failure_is_separate() -> TestResu
             progress_advanced: true,
         }),
         decoder_failure: None,
+        output_failure: None,
+        audio_output: None,
         replayed: false,
     };
     let mut bytes = Vec::new();
@@ -223,6 +284,8 @@ fn replay_and_recovery_render_no_decoder_success_and_sanitize_plain_text() -> Te
         destination: PlaybackDestination::Null,
         decoder: None,
         decoder_failure: None,
+        output_failure: None,
+        audio_output: None,
         replayed: true,
     };
     bytes = Vec::new();

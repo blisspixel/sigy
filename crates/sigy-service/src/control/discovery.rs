@@ -1,4 +1,5 @@
 use super::{Operation, Snapshot, SourcePage};
+pub use crate::discovery::linked::{LinkedRecording, LinkedSource, LinkedStationContext};
 pub use crate::discovery::ordered::{DirectoryCatalog, OrderedStationPage};
 use crate::{
     Error, Result,
@@ -39,6 +40,10 @@ pub enum DirectoryOperation {
     },
     Show {
         id: String,
+    },
+    Linked {
+        id: String,
+        catalog: Option<DirectoryCatalog>,
     },
     SetFavorite {
         id: String,
@@ -127,6 +132,9 @@ impl StationPage {
 }
 
 pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Snapshot> {
+    if let DirectoryOperation::Linked { id, catalog } = &command {
+        return apply_linked(store, id, catalog.as_ref());
+    }
     if matches!(command, DirectoryOperation::SearchOrdered { .. }) {
         return apply_ordered(store, command);
     }
@@ -151,7 +159,9 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
             (None, None)
         }
         DirectoryOperation::Status {} => (None, None),
-        DirectoryOperation::SearchOrdered { .. } => return Err(Error::RequestState),
+        DirectoryOperation::SearchOrdered { .. } | DirectoryOperation::Linked { .. } => {
+            return Err(Error::RequestState);
+        }
         DirectoryOperation::Search {
             filter,
             favorites_only,
@@ -217,6 +227,16 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
     view.directory = Some(store.directory_status()?);
     view.directory_catalog = Some(store.directory_catalog()?);
     Ok(view)
+}
+
+fn apply_linked(store: &Store, id: &str, catalog: Option<&DirectoryCatalog>) -> Result<Snapshot> {
+    store.guarded_directory_read(|store| {
+        let mut view = super::snapshot(store)?;
+        let page = store.linked_station_context_in_work(id, catalog)?;
+        view.directory_catalog = Some(page.catalog.clone());
+        view.linked_station_context = Some(page);
+        Ok(view)
+    })
 }
 
 fn apply_ordered(store: &Store, command: DirectoryOperation) -> Result<Snapshot> {

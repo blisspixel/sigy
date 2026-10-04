@@ -35,6 +35,7 @@ pub(crate) use files::{hash_file, runtime_manifest};
 #[cfg(all(test, windows))]
 pub(crate) use local::contained_cancellation_fixture;
 pub(crate) use local::{GroupAccount, GroupSnapshot, LocalProcessExecutor, clear_scratch};
+pub(crate) use local::{contained, drain};
 pub(crate) use spec::{
     AssetRef, AssetRole, BlobRef, DECODER_DEADLINE_MS, DECODER_MEMORY, DECODER_TEMPLATE,
     DecoderLimits, InlineText, RECOGNITION_OUTPUT_BYTES, RecognitionParams, SPEC_VERSION,

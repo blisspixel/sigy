@@ -50,9 +50,28 @@ pub(crate) struct QueryWork<'a> {
 impl<'a> QueryWork<'a> {
     /// Installs one connection-local hook and short lock wait, also inside transactions.
     pub(crate) fn start(connection: &'a Connection, limits: Limits) -> Result<Self> {
-        if limits.wall.is_zero() || limits.vm_ops == 0 {
+        Self::start_with_checkpoint(connection, limits, CHECKPOINT_OPS)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_for_test(
+        connection: &'a Connection,
+        limits: Limits,
+        checkpoint: i32,
+    ) -> Result<Self> {
+        Self::start_with_checkpoint(connection, limits, checkpoint)
+    }
+
+    fn start_with_checkpoint(
+        connection: &'a Connection,
+        limits: Limits,
+        checkpoint: i32,
+    ) -> Result<Self> {
+        if limits.wall.is_zero() || limits.vm_ops == 0 || checkpoint <= 0 {
             return Err(Error::InvalidInput("query work bounds"));
         }
+        let checkpoint_work =
+            u64::try_from(checkpoint).map_err(|_| Error::InvalidInput("query work checkpoint"))?;
         let deadline = Instant::now()
             .checked_add(limits.wall)
             .ok_or(Error::InvalidInput("query work deadline"))?;
@@ -69,10 +88,11 @@ impl<'a> QueryWork<'a> {
         };
         let ops = Arc::clone(&guard.ops);
         connection.progress_handler(
-            CHECKPOINT_OPS,
+            checkpoint,
             Some(move || {
-                let previous = ops.fetch_add(1_000, Ordering::Relaxed);
-                previous >= limits.vm_ops.saturating_sub(1_000) || Instant::now() >= deadline
+                let previous = ops.fetch_add(checkpoint_work, Ordering::Relaxed);
+                previous >= limits.vm_ops.saturating_sub(checkpoint_work)
+                    || Instant::now() >= deadline
             }),
         )?;
         Ok(guard)

@@ -1115,6 +1115,7 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
 
 #[cfg(test)]
 mod tests {
+    mod linked;
     use super::{HELP_PRIMARY, HELP_SELECTION, render};
     use crate::explorer::state::{
         BudgetLine, Coordinates, Desk, DirectoryView, Explorer, Health, Key, Link, Modes,
@@ -1758,7 +1759,7 @@ mod tests {
                         crate::explorer::state::Effect::None
                     );
                 }
-                assert!(seen.contains("not resolved for this station"));
+                assert!(seen.contains("not inspected. i reads exact links"));
                 model.note_cursor_changed();
                 let (changed, _) = frame(&model, width, height);
                 assert!(changed.contains("changed"), "{changed}");

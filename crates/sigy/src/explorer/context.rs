@@ -18,6 +18,9 @@ pub(super) struct StationContext {
     pub row: StationRow,
     pub catalog: Option<DirectoryCatalog>,
     pub return_focus: Focus,
+    pub linked_generation: Option<u64>,
+    pub linked: Option<sigy_service::discovery::linked::LinkedStationContext>,
+    pub linked_message: String,
     library: String,
     playback: Option<PlaybackView>,
     offset: usize,
@@ -36,6 +39,10 @@ impl StationContext {
             row,
             catalog,
             return_focus,
+            linked_generation: None,
+            linked: None,
+            linked_message:
+                "Registered revisions and recordings: not inspected. i reads exact links.".into(),
             library,
             playback,
             offset: 0,
@@ -103,11 +110,14 @@ impl StationContext {
             String::new(),
             "Audio: inspection only. No player or station connection was started.".into(),
             "Recognized language and captions: not inspected.".into(),
-            "Registered revisions and recordings: not resolved for this station.".into(),
+            self.linked_message.clone(),
             "Matching a name or URL would not establish that relationship.".into(),
             String::new(),
             self.library.clone(),
         ]);
+        if let Some(page) = &self.linked {
+            lines.extend(linked_lines(page));
+        }
         if let Some(playback) = &self.playback {
             lines.extend([
                 format!("Library play-session snapshot: {} | {}", sanitize(&playback.id, 64), sanitize(&playback.state, 32)),
@@ -125,6 +135,57 @@ impl StationContext {
         ]);
         lines
     }
+}
+
+pub(crate) fn linked_lines(
+    page: &sigy_service::discovery::linked::LinkedStationContext,
+) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Current cache entry: {}. Historical registrations retain their own metadata.",
+        if page.cached { "present" } else { "absent" }
+    )];
+    if page.sources.is_empty() {
+        lines
+            .push("No immutable registrations for this directory identity in this library.".into());
+    }
+    for entry in &page.sources {
+        lines.push(format!(
+            "Revision: {} | registered name: {}",
+            sanitize(&entry.source.revision_id, 128),
+            sanitize(&entry.source.name, 256)
+        ));
+        lines.push(format!(
+            "Registered origin: {} | directory observation {}",
+            sanitize(&entry.source.origin, 2048),
+            entry.registered_station.observed_ms
+        ));
+        if entry.recordings.is_empty() {
+            lines.push("  No recordings for this exact revision.".into());
+        }
+        for recording in &entry.recordings {
+            lines.push(format!(
+                "  Recording {} | {} / {} / {}",
+                sanitize(&recording.id, 128),
+                sanitize(&recording.state, 32),
+                sanitize(&recording.storage_state, 32),
+                sanitize(&recording.retention, 32)
+            ));
+            lines.push(format!(
+                "  Catalog sealed media: retained {} | released {} | gaps {}.",
+                recording.retained_segments, recording.released_segments, recording.has_gaps
+            ));
+            lines.push(
+                "  File availability was not probed. Metadata is not a playback grant.".into(),
+            );
+        }
+        if entry.more_recordings {
+            lines.push("  More recordings available; this view shows the first four.".into());
+        }
+    }
+    if page.more_sources {
+        lines.push("More registrations available; this view shows the first four.".into());
+    }
+    lines
 }
 
 fn inspection_command(id: &str) -> String {

@@ -40,6 +40,8 @@ pub(super) struct PlayResult {
     destination: PlaybackDestination,
     decoder: Option<RetainedPlaybackReport>,
     decoder_failure: Option<String>,
+    output_failure: Option<String>,
+    audio_output: Option<serde_json::Value>,
     replayed: bool,
 }
 
@@ -105,18 +107,25 @@ pub(super) async fn play(
         Ok(()) if page.newly_started != Some(true) || receipt.spec.generation != 1 => {
             Err("reader admission omitted or contradicted fresh generation".into())
         }
-        Ok(()) => decode(directory, &decoder, destination, *page, &receipt).await,
+        Ok(()) => Box::pin(decode(directory, &decoder, destination, *page, &receipt)).await,
     };
     let closed = close_reader(directory, &receipt).await?;
-    let (decoder, decoder_failure) = match played {
-        Ok(report) => (Some(report), None),
-        Err(error) => (None, Some(super::clean(&error.to_string()))),
+    let observed = match played {
+        Ok((report, output)) => DecodeObservation {
+            decoder: Some(report),
+            decoder_failure: None,
+            output_failure: None,
+            audio_output: output,
+        },
+        Err(error) => failed_decode(error.as_ref()),
     };
     Ok(PlayResult {
         receipt: closed,
         destination,
-        decoder,
-        decoder_failure,
+        decoder: observed.decoder,
+        decoder_failure: observed.decoder_failure,
+        output_failure: observed.output_failure,
+        audio_output: observed.audio_output,
         replayed: false,
     })
 }
@@ -148,6 +157,8 @@ fn receipt_replay(receipt: RetainedReadView, destination: PlaybackDestination) -
         destination,
         decoder: None,
         decoder_failure: None,
+        output_failure: None,
+        audio_output: None,
         replayed: true,
     }
 }
@@ -271,20 +282,62 @@ async fn decode(
     destination: PlaybackDestination,
     page: RetainedPage,
     receipt: &RetainedReadView,
-) -> Result<RetainedPlaybackReport, Failure> {
+) -> Result<(RetainedPlaybackReport, Option<serde_json::Value>), Failure> {
     let nonce = ready_nonce(directory, page, receipt).await?;
+    #[cfg(windows)]
+    if destination == PlaybackDestination::System {
+        let playback = Box::pin(crate::audio::play::retained(
+            executable,
+            directory,
+            &nonce,
+            &receipt.spec,
+        ))
+        .await?;
+        return Ok((
+            playback.decoder,
+            Some(serde_json::to_value(playback.output)?),
+        ));
+    }
     let deadline = tokio::time::Instant::now()
         .checked_add(Duration::from_secs(
             receipt.spec.file_duration_us / 1_000_000 + 35,
         ))
         .ok_or("invalid retained decoder deadline")?;
     tokio::select! {
-        result = Box::pin(recordings::play_retained_stream(executable, directory, &nonce, &receipt.spec, destination)) => Ok(result?),
+        result = Box::pin(recordings::play_retained_stream(executable, directory, &nonce, &receipt.spec, destination)) => Ok((result?, None)),
         () = tokio::time::sleep_until(deadline) => Err("retained decoder connection/execution deadline exceeded".into()),
         interrupted = tokio::signal::ctrl_c() => {
             interrupted?;
             Err("playback interrupted; stopping protected reader".into())
         }
+    }
+}
+
+struct DecodeObservation {
+    decoder: Option<RetainedPlaybackReport>,
+    decoder_failure: Option<String>,
+    output_failure: Option<String>,
+    audio_output: Option<serde_json::Value>,
+}
+
+fn failed_decode(error: &(dyn std::error::Error + 'static)) -> DecodeObservation {
+    #[cfg(windows)]
+    if let Some(output) = error.downcast_ref::<crate::audio::play::OutputError>() {
+        return DecodeObservation {
+            decoder: output.decoder,
+            decoder_failure: output
+                .decoder_failure
+                .as_ref()
+                .map(|reason| super::clean(reason)),
+            output_failure: Some(super::clean(&output.to_string())),
+            audio_output: serde_json::to_value(output).ok(),
+        };
+    }
+    DecodeObservation {
+        decoder: None,
+        decoder_failure: Some(super::clean(&error.to_string())),
+        output_failure: None,
+        audio_output: None,
     }
 }
 
@@ -373,6 +426,9 @@ pub(super) fn write_play(
     if let Some(failure) = &result.decoder_failure {
         return Err(failure.clone().into());
     }
+    if let Some(failure) = &result.output_failure {
+        return Err(failure.clone().into());
+    }
     check_outcome(result)?;
     Ok(())
 }
@@ -429,6 +485,7 @@ fn render_play(
                 "segment_ordinal": spec.ordinal, "replayed": result.replayed,
                 "detached": session.map(|_| detached), "reader": result.receipt,
                 "decoder_completed": result.decoder.is_some(), "decoder_failure": result.decoder_failure,
+                "audio_output": result.audio_output, "output_failure": result.output_failure,
                 "reported_elapsed_us": result.decoder.as_ref().map(|report| report.reported_elapsed_us),
                 "boundary_tolerance_us": result.decoder.as_ref().map(|report| report.boundary_tolerance_us),
                 "progress_advanced": result.decoder.as_ref().map(|report| report.progress_advanced),
@@ -457,6 +514,14 @@ fn render_play(
         }
         if let Some(failure) = &result.decoder_failure {
             writeln!(output, "Decoder failed: {}", super::clean(failure))?;
+        }
+        if let Some(failure) = &result.output_failure {
+            writeln!(output, "Output failed: {}", super::clean(failure))?;
+        } else if result.audio_output.is_some() {
+            writeln!(
+                output,
+                "Output frames submitted; final presentation timing is estimated. Native group closure observed."
+            )?;
         }
         if let Some(reason) = &result.receipt.completion_reason {
             writeln!(output, "Reader outcome: {}", super::clean(reason))?;

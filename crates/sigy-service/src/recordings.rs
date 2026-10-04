@@ -1,5 +1,6 @@
 //! Owned media files. Only the library owner may publish or reclaim these paths.
 
+pub mod audio;
 mod decoder;
 mod live;
 pub mod metadata;
@@ -69,7 +70,7 @@ pub struct PlaybackReport {
     pub progress_advanced: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct RetainedPlaybackReport {
     pub file_playhead_us: u64,
     pub reported_elapsed_us: u64,

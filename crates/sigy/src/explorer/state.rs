@@ -285,6 +285,11 @@ pub struct SearchQuery {
 pub enum Effect {
     None,
     Detach,
+    LinkedContext {
+        generation: u64,
+        id: String,
+        catalog: DirectoryCatalog,
+    },
     Search(SearchQuery),
     SetFavorite {
         generation: u64,
@@ -326,6 +331,7 @@ pub enum Key {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Explorer {
     pub(super) context: Option<super::context::StationContext>,
+    context_generation: u64,
     focus: Focus,
     workspace: Workspace,
     modes: Modes,
@@ -389,6 +395,7 @@ impl Explorer {
     pub fn new(modes: Modes, now_ms: i64) -> Self {
         Self {
             context: None,
+            context_generation: 0,
             focus: Focus::Results,
             workspace: Workspace::Explore,
             modes,

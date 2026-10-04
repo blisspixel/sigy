@@ -86,7 +86,7 @@ pub(super) async fn blocking<T: Send + 'static>(
     joined.map_err(|_| Error::Analysis("worker-panicked"))
 }
 
-pub(super) fn contained(options: ProcessGroupOptions) -> Option<ProcessGroup> {
+pub(crate) fn contained(options: ProcessGroupOptions) -> Option<ProcessGroup> {
     ProcessGroup::with_options(options).ok()
 }
 
@@ -122,7 +122,7 @@ impl GroupSnapshot {
 
 /// Wait until the group reports no active member, and return that same snapshot.
 /// A later `stats` call is a different observation.
-pub(super) async fn drain(group: &ProcessGroup) -> Result<GroupSnapshot> {
+pub(crate) async fn drain(group: &ProcessGroup) -> Result<GroupSnapshot> {
     let end = tokio::time::Instant::now() + DRAIN_DEADLINE;
     loop {
         let stats = group

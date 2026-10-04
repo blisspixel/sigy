@@ -20,7 +20,7 @@ pub enum ListenCommand {
     File {
         /// Recording ID from record list.
         id: String,
-        /// `null` discards samples. `system` uses a local output device when the decoder has one.
+        /// `null` discards samples. `system` uses a local output adapter when available.
         #[arg(long, default_value = "system", value_parser = ["system", "null"])]
         destination: String,
         /// Timeline offset in microseconds, inside one sealed retained interval.
@@ -37,7 +37,7 @@ pub enum ListenCommand {
         /// Immutable `http_audio` revision. This command does not accept a URL.
         #[arg(long)]
         revision: String,
-        /// `null` discards samples. `system` uses a local output device when the decoder has one.
+        /// `null` discards samples. `system` uses a local output adapter when available.
         #[arg(long, default_value = "system", value_parser = ["system", "null"])]
         destination: String,
     },
@@ -71,7 +71,7 @@ pub enum ListenCommand {
     Play {
         /// Playhead name from listen attach.
         session: String,
-        /// `null` discards samples. `system` uses a local output device when the decoder has one.
+        /// `null` discards samples. `system` uses a local output adapter when available.
         #[arg(long, default_value = "system", value_parser = ["system", "null"])]
         destination: String,
     },
