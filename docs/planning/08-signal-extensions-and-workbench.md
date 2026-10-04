@@ -120,6 +120,8 @@ The selected International Morse profile and any extra alphabet tables must be e
 
 The workbench is a first-class exploration destination, reachable from a standalone demo or an artifact in the library. Enigma is the initial confirmed example; additional cipher families fit named historical transforms.
 
+The optional [learning campaign](../design/learning-experiences.md) composes these real operations with modern packet, media, signal-detection and cryptographic lessons. Authentic archived messages require item-level procedure, expected-answer and reuse evidence; self-authored examples and simulated radio presentation keep distinct labels. Guided challenges, advanced traces and achievements share the same finite toolkit authority. [Current historical and modern research](../../research/43-historical-and-modern-learning.md) includes Polish/French/British and Indigenous perspectives without making history the campaign's only track.
+
 ### Offline cipher laboratory
 
 The initial laboratory uses self-generated local messages and clearly marked synthetic artifacts. A complete exercise follows this flow:
@@ -134,7 +136,7 @@ Hiding the answer in the interface is insufficient. The service must keep the so
 
 Historical search has explicit time, CPU, memory, candidate-count, and output bounds. Save the search method/version, declared key domain, tested coverage, cribs, stopping reason, and candidate uncertainty. Heuristic scores are rankings, not probabilities or proof of recovery. An exhausted budget is not proof that no solution exists. Exact success means equality with the declared challenge plaintext after its recorded alphabet conversion; plaintext recovery, recovery of the original settings, and equivalent settings are separate outcomes.
 
-Add later cipher families through the same typed transform and challenge contracts, with their own normalization rules and independent fixtures. This bounded classical cryptanalysis path does not authorize unknown-key attacks on modern encryption. Offline self-generated exercises are the planned scope; they require no radio transmission.
+Add later cipher families through the same typed transform and challenge contracts, with their own normalization rules and independent fixtures. This bounded classical cryptanalysis path does not authorize unknown-key attacks on modern encryption. Start with offline self-generated exercises; authentic archived-message lessons follow their item-specific procedure, provenance and reuse gates. Neither requires radio transmission.
 
 Initial setup asks for country and applicable state/region, with United States guidance as the default. Keep that setting local, editable, and separate from source or device permissions; infer no location through GPS or IP addresses. The selection chooses guidance, not legal authority. Follow the shared [legal and privacy design](09-security-privacy-and-release.md).
 

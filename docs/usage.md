@@ -460,6 +460,8 @@ The service fetches the bytes. This client decodes a private local pipe and does
 
 ## List explorer
 
+In Explore (`1`) or Globe (`7`), Enter opens focused station inspection from the current cached page. Up/Down scrolls full directory metadata; Escape or Backspace returns to the same query, page, station and focus. Wide nonlinear terminals keep results beside the pane. While inspecting, browser/filter/favorite keys are held. Opening and closing send no request and start no player. Directory language, location and health remain listing observations; registered station recordings are not yet linked in this view. [Focused context](decisions/0082-focused-station-context.md) records the boundary.
+
 ![Station list rendered from a real cached directory page](images/explorer-list.png)
 
 These interface renders show the 2026-10-02 application over one retained 16-station directory page. The cache age and idle playback remain visible; they are not a live station survey. Current filter controls are described below.

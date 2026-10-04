@@ -52,6 +52,7 @@ fn rows(names: &[&str], offset: usize) -> Vec<StationRow> {
             observed_ms: 1000,
             hls: false,
             coordinates: None,
+            metadata: None,
         })
         .collect()
 }

@@ -109,6 +109,58 @@ fn mandatory_snapshot_exactly_at_byte_limit_fits_but_one_more_byte_is_refused() 
 }
 
 #[test]
+fn citation_prefix_exact_boundary_preserves_escaped_bytes_and_truncation_flags() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let (mut store, _) = recognized(&directory.path().join("catalog"))?;
+    let start = clock(&store)?;
+    let frozen = store.freeze_task_evidence("task", "freeze", 0, start + 93_000)?;
+    let mut original = frozen.clone();
+    let first = original.evidence.citations.first_mut().ok_or("citation")?;
+    first.source = "é水\n\"\\\u{0}".into();
+    let mut second = first.clone();
+    second.cue_ordinal = 1;
+    original.evidence.citations.push(second);
+    // Independently declare the required partial result and use the ordinary
+    // serializer to place its first member exactly at the byte boundary.
+    let mut expected = original.clone();
+    expected.evidence.citations.truncate(1);
+    expected.evidence.more = true;
+    expected.evidence.outcome = TaskOutcome::Partial;
+    expected
+        .evidence
+        .reasons
+        .push("snapshot-citations-truncated".into());
+    expected.scope.goal.clear();
+    let overhead = serde_json::to_vec(&expected)?.len();
+    let padding = MAX_SNAPSHOT_BYTES.checked_sub(overhead).ok_or("overhead")?;
+    expected.scope.goal = "x".repeat(padding);
+    original.scope.goal.clone_from(&expected.scope.goal);
+    let expected_json = serde_json::to_string(&expected)?;
+    assert_eq!(expected_json.len(), MAX_SNAPSHOT_BYTES);
+    let actual = crate::storage::tasks::snapshot::fit_for_test(&mut original)?;
+    assert_eq!(original, expected);
+    assert_eq!(actual, expected_json);
+    // One additional mandatory byte excludes even the first citation.
+    let mut extra = frozen.clone();
+    extra.scope.goal = format!("{}x", expected.scope.goal);
+    extra.evidence.citations = expected.evidence.citations.clone();
+    let actual = crate::storage::tasks::snapshot::fit_for_test(&mut extra)?;
+    assert!(extra.evidence.citations.is_empty());
+    assert_eq!(extra.evidence.outcome, TaskOutcome::Partial);
+    assert!(actual.len() <= MAX_SNAPSHOT_BYTES);
+    // Fitting all members keeps original flags and exact serialized/hash bytes.
+    let mut fits = frozen;
+    let expected_json = serde_json::to_string(&fits)?;
+    let before = fits.clone();
+    assert_eq!(
+        crate::storage::tasks::snapshot::fit_for_test(&mut fits)?,
+        expected_json
+    );
+    assert_eq!(fits, before);
+    Ok(())
+}
+
+#[test]
 fn rehashed_zero_or_impossible_frozen_media_bytes_fail_lineage_audit() -> TestResult {
     for bytes in [0, u64::MAX] {
         let directory = tempfile::tempdir()?;

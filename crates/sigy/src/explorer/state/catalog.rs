@@ -3,6 +3,9 @@
 use super::{DirectoryCatalog, DirectoryView, Explorer, PageMove, StationRow};
 
 impl Explorer {
+    pub fn directory_catalog(&self) -> Option<&DirectoryCatalog> {
+        self.catalog.as_ref()
+    }
     pub(super) fn catalog_fresh(&self, incoming: &DirectoryCatalog, allow_reset: bool) -> bool {
         if incoming.namespace.len() != 32
             || !incoming

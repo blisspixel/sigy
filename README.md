@@ -8,6 +8,8 @@
 
 The explorer rendered on 2026-10-02 with one real cached station page. Map positions come from directory metadata; selecting a station does not start playback or recording. [Explore the current controls](docs/usage.md#list-explorer).
 
+Press Enter in Explore or Globe to inspect full cached station context; Escape returns to the same search and selection. Wider terminals keep results alongside the details. Receiver experiences and an optional playable learning campaign are [planned extensions](docs/design/learning-experiences.md), including modern signal puzzles and historical cases with inspectable evidence.
+
 ## Install
 
 Windows PowerShell:

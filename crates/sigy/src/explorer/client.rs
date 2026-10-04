@@ -282,7 +282,7 @@ async fn search(directory: &Path, model: &mut Explorer, query: &SearchQuery) -> 
             if model.apply_ordered_search(
                 query.generation,
                 rows_from(page),
-                directory_from(&snapshot),
+                directory_from(&snapshot, model),
                 page.next_after.clone(),
                 &page.catalog,
             ) {
@@ -445,14 +445,26 @@ impl Link {
     }
 }
 
-fn directory_from(snapshot: &Snapshot) -> DirectoryView {
+fn directory_from(snapshot: &Snapshot, model: &Explorer) -> DirectoryView {
     snapshot.directory.as_ref().map_or(
-        DirectoryView {
-            cached_stations: 0,
-            maximum_stations: 0,
-            favorite_stations: 0,
-            refresh: None,
-        },
+        model
+            .directory()
+            .filter(|_| {
+                model
+                    .directory_catalog()
+                    .zip(snapshot.directory_catalog.as_ref())
+                    .is_some_and(|(known, incoming)| {
+                        known.namespace == incoming.namespace
+                            && known.comparison == incoming.comparison
+                    })
+            })
+            .cloned()
+            .unwrap_or(DirectoryView {
+                cached_stations: 0,
+                maximum_stations: 0,
+                favorite_stations: 0,
+                refresh: None,
+            }),
         directory_status,
     )
 }
@@ -480,7 +492,7 @@ fn rows_from(page: &sigy_service::control::OrderedStationPage) -> Vec<StationRow
     page.entries
         .iter()
         .map(|station| StationRow {
-            id: sanitize(&station.id, 64),
+            id: station.id.clone(),
             name: sanitize(&station.name, 80),
             favorite: page.favorite_ids.iter().any(|id| id == &station.id),
             directory_health: match station.last_check_ok {
@@ -498,6 +510,7 @@ fn rows_from(page: &sigy_service::control::OrderedStationPage) -> Vec<StationRow
                 }),
                 _ => None,
             },
+            metadata: Some(station.clone()),
         })
         .collect()
 }
@@ -733,6 +746,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn replacement_catalog_cannot_inherit_previous_directory_statistics()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        drop(sigy_service::library::Library::open(
+            directory.path(),
+            true,
+        )?);
+        let mut explorer = model();
+        explorer.apply_desk(
+            Box::pin(super::load_desk(
+                directory.path(),
+                &explorer.current_search(),
+                0,
+            ))
+            .await?,
+        );
+        let (_, mut snapshot) = super::fetch(
+            directory.path(),
+            super::search_operation(&explorer.current_search()),
+        )
+        .await?;
+        assert!(snapshot.directory.is_none());
+        assert_eq!(
+            super::directory_from(&snapshot, &explorer).maximum_stations,
+            10_000
+        );
+        let Some(catalog) = &mut snapshot.directory_catalog else {
+            panic!("catalog");
+        };
+        catalog.namespace = if catalog.namespace == "a".repeat(32) {
+            "b".repeat(32)
+        } else {
+            "a".repeat(32)
+        };
+        assert_eq!(
+            super::directory_from(&snapshot, &explorer).maximum_stations,
+            0
+        );
+        snapshot.directory_catalog = None;
+        assert_eq!(
+            super::directory_from(&snapshot, &explorer).maximum_stations,
+            0
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn actual_cache_reads_apply_filters_and_validation_failure_ends_pending_state()
     -> Result<(), Box<dyn std::error::Error>> {
         use crate::explorer::state::{Key, Link};
@@ -743,6 +803,14 @@ mod tests {
         )?);
         let mut explorer = model();
         explorer.note_link(Link::LocalCatalog);
+        let desk = Box::pin(super::load_desk(
+            directory.path(),
+            &explorer.current_search(),
+            0,
+        ))
+        .await?;
+        explorer.apply_desk(desk);
+        let previous_directory = explorer.directory().cloned();
         explorer.handle(Key::Char('F'));
         explorer.handle(Key::Tab);
         explorer.handle(Key::Paste("ca".into()));
@@ -751,6 +819,7 @@ mod tests {
         };
         super::perform(directory.path(), &mut explorer, &Effect::Search(query)).await?;
         assert_eq!(explorer.current_search().filter.country, "CA");
+        assert_eq!(explorer.directory().cloned(), previous_directory);
         assert!(!explorer.search.pending());
         explorer.handle(Key::ClearInput);
         explorer.handle(Key::Paste("fr".into()));

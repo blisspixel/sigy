@@ -148,11 +148,15 @@ Acceptance follows one empty-cache country-selection journey, then 37 offline fi
 
 ## EX-02A: focused listening context
 
-**Outcome:** settle into source discovery and inspect context without losing the applied query or selected identity. This is proposed client composition after ordered paging, under the [calm session contract](../design/terminal-experience.md#calm-listening-sessions). The current TUI remains an inspector; audible control follows the protected reader/player increments below.
+**Outcome:** settle into source discovery and inspect context without losing the applied query or selected identity. [Decision0082](../decisions/0082-focused-station-context.md) implements frozen cached-station context from the already bounded ordered page. Enter opens locally, arrows scroll and Escape/Backspace restores the same browser state. Wide nonlinear terminals keep results beside the context. The current TUI remains an inspector; audible control follows the protected reader/player increments below.
 
-Keep one inspected source identity and a bounded return position. At compact sizes, use an explicit focused pane with a reliable Back action; at wider sizes, show the source summary beside the same name-ordered results and optional geography. Reuse current source and recording reads, finite row/text/response limits and request/catalog fences. Opening or closing context starts no station connection. An empty cache, missing recording or unknown language remains a useful explicit state. Original scripts retain their display and identity.
+The implemented pane preserves full original-script fields, exact UUID and catalog observation, with bounded grapheme wrapping and explicit unknown labels. It refuses opening while a search/favorite request is pending and ignores hidden browser controls while open. Catalog drift and disconnect retain the snapshot. No extra read, station connection or new authority occurs. Global capture/play-session snapshots are labeled separately; registered station revisions and recordings remain unresolved.
 
 Do not create a second queue, catalog or interpretation engine. Display only current known capabilities: audio is eligible for later explicit listening; IQ needs a sample instrument; packets need an event inspector. Validate compact/wide and linear renders, focus/return keys, delayed reads, catalog drift and native-script wrapping. Then implement actual retained listening with DV-01A/B, one audible generation and a separately inspected source; prove stop/drain before replacement and preserve independent background capture.
+
+### EX-02B: exact linked context
+
+This remains proposed. Add a narrow indexed read projection over immutable `source_directory_links` and exact source-bound recordings; existing global source/recording lists cannot establish a station relationship. Require complete bounded identity, revision and retention metadata before formatting. Preserve older registrations when directory endpoints change; never retarget by name, origin or URL. Test changed/deleted cache entries, absent pages, duplicate names, expired media, delayed replies and current versus historical binding. Selection still creates no registration or playback. This can proceed independently of protected retained readers.
 
 ## DV-01 and S-07: protected playback before an interactive DVR
 

@@ -48,8 +48,11 @@ This folder records primary-source findings, measured experiments, design implic
 | Country identity/aliases, Unicode matching, bounded retrieval evaluation, location geometry and exact evidence context | [40. Discovery, retrieval and evidence logic](40-discovery-retrieval-and-evidence-logic.md) |
 | Cited unusual claims, public SETI archives, calibration, interference controls and finite watches | [41. Strange signals and claim exploration](41-strange-signals-and-claim-exploration.md) |
 | Calm world listening, distinct IQ/audio/packet observations and measured receive-only device boundaries | [42. Calm listening and receive-only sources](42-calm-listening-and-receive-only-sources.md) |
+| Authentic historical cases, Indigenous code-talking, current post-quantum standards, noise/detection mathematics and optional modern learning challenges | [43. Historical and modern learning](43-historical-and-modern-learning.md) |
 
 ## Evidence discipline
+
+The [focused context validation](experiments/focused-context-2026-10-03.md) records frozen station inspection, exact browser return, terminal trust boundaries, cache-statistics invalidation and a bounded snapshot encoding repair, with successful and failed evidence kept distinct.
 
 The [HackRF Pro identity experiment](experiments/hackrf-pro-identity-2026-10-03.md) records one bounded Windows native identity run, exact board/firmware and tooling provenance, process measurements and separate hardware-state limits. It qualifies no RF receiver adapter or throughput.
 

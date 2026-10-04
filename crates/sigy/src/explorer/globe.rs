@@ -453,6 +453,7 @@ mod tests {
             directory_languages: "unknown".into(),
             observed_ms: 0,
             hls: false,
+            metadata: None,
             coordinates: Some(Coordinates {
                 latitude,
                 longitude,

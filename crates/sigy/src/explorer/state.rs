@@ -6,6 +6,7 @@ mod filter_tests;
 use crate::explorer::text::{age_label, sanitize};
 use sigy_service::{control::DirectoryCatalog, discovery::StationFilter};
 mod catalog;
+mod context;
 #[cfg(test)]
 mod ordered_tests;
 const PAGE_LIMIT: u32 = 16;
@@ -167,6 +168,8 @@ pub struct StationRow {
     pub observed_ms: i64,
     pub hls: bool,
     pub coordinates: Option<Coordinates>,
+    /// Full metadata from the same bounded ordered page, before preview clipping.
+    pub metadata: Option<sigy_service::discovery::Station>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,6 +325,7 @@ pub enum Key {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Explorer {
+    pub(super) context: Option<super::context::StationContext>,
     focus: Focus,
     workspace: Workspace,
     modes: Modes,
@@ -384,6 +388,7 @@ impl Explorer {
     #[must_use]
     pub fn new(modes: Modes, now_ms: i64) -> Self {
         Self {
+            context: None,
             focus: Focus::Results,
             workspace: Workspace::Explore,
             modes,
@@ -639,6 +644,9 @@ impl Explorer {
     }
 
     pub fn apply_desk(&mut self, desk: Desk) {
+        if self.context.is_some() {
+            return;
+        }
         if let Some(catalog) = &desk.catalog
             && !self.catalog_fresh(catalog, self.page_cursor.is_none())
         {
@@ -814,6 +822,9 @@ impl Explorer {
         if matches!(key, Key::Redraw) {
             return Effect::None;
         }
+        if self.context.is_some() {
+            return self.context_key(&key);
+        }
         if self.workspace == Workspace::Findings
             && let Some(effect) = self.findings.handle(&key)
         {
@@ -836,6 +847,10 @@ impl Explorer {
         if self.workspace == Workspace::Recordings && self.recording_key(&key) {
             return Effect::None;
         }
+        self.handle_browser(&key)
+    }
+
+    fn handle_browser(&mut self, key: &Key) -> Effect {
         match key {
             Key::Char('q') | Key::Quit => Effect::Detach,
             Key::Char('/') => {
@@ -885,6 +900,9 @@ impl Explorer {
             Key::Up => self.move_selection(-1),
             Key::Down => self.move_selection(1),
             Key::Enter => {
+                if matches!(self.workspace, Workspace::Explore | Workspace::Globe) {
+                    return self.open_context();
+                }
                 self.focus = Focus::Detail;
                 Effect::None
             }
@@ -895,9 +913,9 @@ impl Explorer {
                 self.search.draft = self.search.applied.clone();
                 self.submit_search(PageMove::First)
             }
-            Key::Char(direction @ ('n' | 'p')) => self.turn_page(direction == 'n'),
+            Key::Char(direction @ ('n' | 'p')) => self.turn_page(*direction == 'n'),
             Key::Char(character @ '1'..='7') => {
-                self.workspace = workspace_from_digit(character);
+                self.workspace = workspace_from_digit(*character);
                 self.workspace_effect()
             }
             Key::Paste(_)
@@ -1153,6 +1171,7 @@ mod tests {
             observed_ms: 1_000,
             hls: false,
             coordinates: None,
+            metadata: None,
         }
     }
 

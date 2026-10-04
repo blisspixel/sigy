@@ -5,6 +5,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+mod context;
 mod countries;
 mod filters;
 
@@ -15,7 +16,8 @@ use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 
 pub const HELP_PRIMARY: &str =
     "Help: / search F filters C country f save v fav n/p page g first r reload q quit";
-pub const HELP_SELECTION: &str = "Selection does not start audio, capture, refresh, or a click.";
+pub const HELP_SELECTION: &str =
+    "Enter inspects; selection starts no audio, capture, refresh, or click.";
 pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
 const FOCUS_PREFIX: &str = "Focus ";
 /// Station list columns other than the name: marker, favorite, health and languages.
@@ -29,6 +31,10 @@ pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
     let area = frame.area();
     if area.width < 20 || area.height < 8 {
         frame.render_widget(Paragraph::new(RECOVERY), area);
+        return;
+    }
+    if model.context.is_some() {
+        context::render(frame, area, model);
         return;
     }
     if let Some(picker) = &model.search.picker {
@@ -221,8 +227,8 @@ fn compact_help(model: &Explorer) -> &'static str {
         Workspace::Recordings => "Help: q quit, arrows select, r reload",
         Workspace::Monitors => "Help: q quit, Enter read, r reload",
         Workspace::Globe | Workspace::Explore if model.restart_required() => "q quit | g restart",
-        Workspace::Globe => "Help: q quit, h/j/k/l turn, m map",
-        Workspace::Explore => "Help: q quit, / search, n/p page, g first",
+        Workspace::Globe => "q quit Enter inspect | m map",
+        Workspace::Explore => "q quit Enter inspect | / search | n/p page",
         Workspace::Live | Workspace::System => "Help: q quit, r reload, Tab focus",
     }
 }
@@ -374,6 +380,9 @@ fn cache_line(model: &Explorer) -> Line<'static> {
     let Some(directory) = model.directory() else {
         return plain("Partial cache unknown | refresh none | favorites unknown");
     };
+    if directory.maximum_stations == 0 {
+        return plain("Cache statistics unobserved | r reload");
+    }
     let mut spans = vec![paint(
         color,
         Tone::Plain,
@@ -1167,6 +1176,7 @@ mod tests {
                 observed_ms: 4_000,
                 hls: false,
                 coordinates: None,
+                metadata: None,
             }],
             next_after: None,
             catalog: None,
@@ -1445,6 +1455,7 @@ mod tests {
                 observed_ms: 4_000,
                 hls: false,
                 coordinates: None,
+                metadata: None,
             })
             .collect();
         desk.next_after = Some("next".into());
@@ -1690,6 +1701,77 @@ mod tests {
                 width,
                 height,
             )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn focused_context_keeps_back_scroll_and_identity_at_every_size()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (width, height) in [(20, 8), (40, 12), (80, 24), (132, 40), (160, 50)] {
+            for linear in [false, true] {
+                let mut model = sample();
+                model.modes_for_context_fixture(linear);
+                let before = model.current_search();
+                let id = model.selected().map(|row| row.id.clone());
+                assert_eq!(
+                    model.handle(Key::Enter),
+                    crate::explorer::state::Effect::None
+                );
+                let (text, colored) = frame(&model, width, height);
+                assert!(
+                    text.contains("Esc back") || text.contains("Esc/Backspace back"),
+                    "{text}"
+                );
+                assert!(
+                    text.contains("q quit") && text.contains("Up/Down"),
+                    "{text}"
+                );
+                assert!(!colored);
+                let Some(identity) = &id else {
+                    panic!("selected");
+                };
+                // Compact UUID is wrapped rather than shortened.
+                assert!(text.replace('\n', "").contains(identity), "{text}");
+                assert_eq!(text.contains("Cached results"), !linear && width >= 112);
+                requested_snapshot(
+                    &model,
+                    &format!("context-{width}x{height}-linear-{linear}.json"),
+                    width,
+                    height,
+                )?;
+                let mut seen = String::new();
+                for _ in 0..500 {
+                    frame(&model, width, height);
+                    let Some(context) = &model.context else {
+                        panic!("context");
+                    };
+                    seen.push_str(
+                        &context
+                            .visible(usize::from(width), 3, model.now_ms())
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<String>(),
+                    );
+                    assert_eq!(
+                        model.handle(Key::Down),
+                        crate::explorer::state::Effect::None
+                    );
+                }
+                assert!(seen.contains("not resolved for this station"));
+                model.note_cursor_changed();
+                let (changed, _) = frame(&model, width, height);
+                assert!(changed.contains("changed"), "{changed}");
+                requested_snapshot(
+                    &model,
+                    &format!("context-changed-{width}x{height}-linear-{linear}.json"),
+                    width,
+                    height,
+                )?;
+                model.handle(Key::Escape);
+                assert_eq!(model.current_search(), before);
+                assert_eq!(model.selected().map(|row| row.id.clone()), id);
+            }
         }
         Ok(())
     }

@@ -54,6 +54,44 @@ fn encode(snapshot: &TaskEvidenceSnapshot) -> Result<Option<String>> {
         .map_err(|_| Error::StorageIntegrity)
 }
 
+/// Count exact serialized bytes without retaining another copy of the output.
+struct Counted {
+    bytes: usize,
+    overflowed: bool,
+}
+
+impl Write for Counted {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.len() > MAX_SNAPSHOT_BYTES - self.bytes {
+            self.overflowed = true;
+            return Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "snapshot byte limit",
+            ));
+        }
+        self.bytes += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Counted {
+    fn citation(&mut self, citation: &crate::task::TaskCitation, separated: bool) -> Result<bool> {
+        if separated && self.write(b",").is_err() {
+            return Ok(false);
+        }
+        let result = serde_json::to_writer(&mut *self, citation);
+        if self.overflowed {
+            return Ok(false);
+        }
+        result?;
+        Ok(true)
+    }
+}
+
 /// Mandatory metadata must fit by itself. Citations are appended only while it fits.
 pub(in crate::storage::tasks) fn fit(snapshot: &mut TaskEvidenceSnapshot) -> Result<String> {
     let citations = std::mem::take(&mut snapshot.evidence.citations);
@@ -66,23 +104,24 @@ pub(in crate::storage::tasks) fn fit(snapshot: &mut TaskEvidenceSnapshot) -> Res
             .push("snapshot-citations-truncated".into());
         trial.evidence.outcome = TaskOutcome::Partial;
     }
-    if encode(&trial)?.is_none() {
-        return Err(Error::InvalidInput("task snapshot mandatory size"));
-    }
+    let mandatory_bytes = encode(&trial)?
+        .ok_or(Error::InvalidInput("task snapshot mandatory size"))?
+        .len();
+    let mut count = Counted {
+        bytes: mandatory_bytes,
+        overflowed: false,
+    };
+    // The empty array's brackets are already counted. Each independent citation
+    // adds its exact JSON bytes and, after the first member, one comma. Reserved
+    // truncation flags stay fixed during counting; final encoding rechecks the cap.
     for citation in citations {
-        snapshot.evidence.citations.push(citation);
-        // Reserve the stop reason even when the complete output would just fit.
-        trial
-            .evidence
-            .citations
-            .clone_from(&snapshot.evidence.citations);
-        if encode(&trial)?.is_none() {
-            snapshot.evidence.citations.pop();
+        if !count.citation(&citation, !snapshot.evidence.citations.is_empty())? {
             snapshot.evidence.more = trial.evidence.more;
             snapshot.evidence.reasons = trial.evidence.reasons;
             snapshot.evidence.outcome = trial.evidence.outcome;
             break;
         }
+        snapshot.evidence.citations.push(citation);
     }
     encode(snapshot)?.ok_or(Error::InvalidInput("task snapshot size"))
 }
@@ -123,6 +162,36 @@ mod tests {
         assert!(escaped.overflowed);
         assert!(escaped.bytes.len() <= MAX_SNAPSHOT_BYTES);
         assert_eq!(escaped.bytes.capacity(), capacity);
+        Ok(())
+    }
+
+    #[test]
+    fn counted_json_preserves_declared_escape_and_multibyte_lengths() -> Result<()> {
+        let value = "é\n\"\\\u{0}";
+        // Quotes: 2, UTF-8 é: 2, three short escapes: 6, NUL escape: 6.
+        let mut exact = Counted {
+            bytes: MAX_SNAPSHOT_BYTES - 16,
+            overflowed: false,
+        };
+        serde_json::to_writer(&mut exact, &value)?;
+        assert_eq!(exact.bytes, MAX_SNAPSHOT_BYTES);
+        assert!(!exact.overflowed);
+        let mut short = Counted {
+            bytes: MAX_SNAPSHOT_BYTES - 15,
+            overflowed: false,
+        };
+        assert!(serde_json::to_writer(&mut short, &value).is_err());
+        assert!(short.overflowed);
+        assert!(short.bytes <= MAX_SNAPSHOT_BYTES);
+        let mut array = Counted {
+            bytes: 2,
+            overflowed: false,
+        };
+        serde_json::to_writer(&mut array, &"é")?;
+        array.write_all(b",")?;
+        serde_json::to_writer(&mut array, &"水")?;
+        assert_eq!(array.bytes, 12);
+        assert_eq!(serde_json::to_vec(&["é", "水"])?.len(), 12);
         Ok(())
     }
 }

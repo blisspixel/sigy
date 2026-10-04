@@ -4,13 +4,15 @@ Updated: 2026-10-03. Status: the list explorer is implemented in [0016](../decis
 
 ## Product feel and hierarchy
 
+[Focused cached context](../decisions/0082-focused-station-context.md) is now implemented: Enter inspects a frozen full station observation, Up/Down scrolls and Escape/Backspace returns to the same browser state. Wide nonlinear layouts keep the cached results alongside it; compact/linear views use one column. Actual player controls and exact station-registration/recording links remain open.
+
 The interface is a listening and research desk: clear source identity, readable content, a useful geographic view, and dependable controls. Visual interest comes from the globe, real activity, maps, and timelines. Do not fabricate signal activity or obscure work beneath decorative effects.
 
 The 2026-10-02 visual direction is retro-futuristic: late-1980s computer rooms, WarGames-style geographic command displays and hands-on radio instruments, with modern responsiveness and information design. The intended sense of power comes from moving fluently between worldwide discovery, simultaneous recordings, aligned language tracks and inspectable findings. Treat this as a design reference; it supplies no institutional affiliation or analysis capability.
 
 Use generous instrument space, crisp typography, a restrained phosphor-inspired accent palette and strong focus/status contrast. Offer terminal-default and light/high-contrast alternatives with identical meaning. Character-cell maps, time rulers and real activity histories can establish the atmosphere. Keep text instantly readable: boot theatrics, forced typewriter output, fake traffic, scanline interference and cryptic-only controls cannot delay or distort operational information. A focused instrument may occupy the full screen, with source, clock, capture state and a reliable return action still visible.
 
-The 2026-09-30 clarification emphasizes a professional instrument and operations desk with substantive utility, enjoyable exploration and education. Personal journal presentation is not desired. Proposed status reports and optional task achievements must derive from actual operations and evidence; they remain unimplemented and do not qualify analysis quality or user expertise. Follow [professional utility and exploration](../planning/01-product-and-experience.md#professional-utility-and-exploration).
+The 2026-09-30 clarification emphasizes a professional instrument and operations desk with substantive utility, enjoyable exploration and education. Personal journal presentation is not desired. Status reports remain proposed; optional task achievements became confirmed intent in the 2026-10-03 [learning followup](learning-experiences.md), with mechanics still proposed. Both derive from actual operations and evidence, remain unimplemented and do not qualify analysis quality or user expertise. Follow [professional utility and exploration](../planning/01-product-and-experience.md#professional-utility-and-exploration).
 
 Visual quality, modern interaction and enjoyment are product requirements from the first usable TUI. The interface should invite exploration and reward curiosity through responsive controls, expressive instruments and understandable discoveries. Visual polish belongs in each delivered workflow, including empty, loading, disconnected and error states.
 
