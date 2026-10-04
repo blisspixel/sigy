@@ -22,6 +22,7 @@ fn fixture(directory: &Path, bytes: &[u8]) -> Result<RetainedReadSpec> {
         file_seek_us: 200_000,
         file_duration_us: 2_000_000,
         spec_sha256: "cd".repeat(32),
+        excerpt: None,
     };
     std::fs::write(
         super::super::media_path(directory, &spec.object_key)?,

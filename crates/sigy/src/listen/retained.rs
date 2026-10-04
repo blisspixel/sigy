@@ -41,6 +41,8 @@ pub(super) struct PlayResult {
     decoder: Option<RetainedPlaybackReport>,
     decoder_failure: Option<String>,
     output_failure: Option<String>,
+    native_failure: Option<String>,
+    operation_failure: Option<String>,
     audio_output: Option<serde_json::Value>,
     replayed: bool,
 }
@@ -70,9 +72,125 @@ pub(super) async fn play(
     seek_us: u64,
     request: Option<&str>,
 ) -> Result<PlayResult, Failure> {
-    if let Some(replay) =
-        existing_replay(directory, recording, destination, seek_us, request).await?
-    {
+    play_scoped(
+        directory,
+        Scope::File {
+            recording,
+            seek_us,
+            end_us: None,
+        },
+        destination,
+        request,
+    )
+    .await
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum Scope<'a> {
+    File {
+        recording: &'a str,
+        seek_us: u64,
+        end_us: Option<u64>,
+    },
+    Finding {
+        monitor: &'a str,
+        finding: &'a str,
+    },
+}
+
+impl Scope<'_> {
+    fn operation(self, id: String) -> Result<RetainedOperation, Failure> {
+        Ok(match self {
+            Self::File {
+                recording,
+                seek_us,
+                end_us: Some(end_us),
+            } => {
+                if seek_us >= end_us {
+                    return Err("excerpt requires --seek-us less than --end-us".into());
+                }
+                RetainedOperation::StartRange {
+                    id,
+                    recording_id: recording.into(),
+                    seek_us,
+                    end_us,
+                }
+            }
+            Self::File {
+                recording,
+                seek_us,
+                end_us: None,
+            } => RetainedOperation::Start {
+                id,
+                recording_id: recording.into(),
+                seek_us,
+            },
+            Self::Finding { monitor, finding } => RetainedOperation::StartFinding {
+                id,
+                monitor_id: monitor.into(),
+                finding_id: finding.into(),
+            },
+        })
+    }
+
+    fn validate(self, receipt: &RetainedReadView) -> Result<(), Failure> {
+        let spec = &receipt.spec;
+        let expected = match self {
+            Self::File {
+                recording,
+                seek_us,
+                end_us,
+            } => {
+                if spec.recording_id != recording || receipt.seek_us != seek_us {
+                    return Err("reader receipt scope mismatch".into());
+                }
+                match (end_us, spec.excerpt.as_ref()) {
+                    (None, None) => {}
+                    (Some(end), Some(excerpt))
+                        if excerpt.version == 2
+                            && excerpt.timeline_end_us == end
+                            && excerpt.citation.is_none() => {}
+                    _ => return Err("reader receipt excerpt mode/end mismatch".into()),
+                }
+                seek_us
+            }
+            Self::Finding { monitor, finding } => {
+                let excerpt = spec
+                    .excerpt
+                    .as_ref()
+                    .ok_or("reader receipt finding scope missing")?;
+                let citation = excerpt
+                    .citation
+                    .as_ref()
+                    .ok_or("reader receipt finding citation missing")?;
+                if excerpt.version != 2
+                    || citation.monitor_id != monitor
+                    || citation.finding_id != finding
+                    || citation.transcript_id.is_empty()
+                    || citation.transcript_revision < 0
+                    || citation.translation_revision < 0
+                {
+                    return Err("reader receipt finding identity mismatch".into());
+                }
+                receipt.seek_us
+            }
+        };
+        validate_media(receipt, expected)?;
+        spec.playback_end_us()?;
+        spec.playback_duration_us()?;
+        Ok(())
+    }
+}
+
+pub(super) async fn play_scoped(
+    directory: &Path,
+    scope: Scope<'_>,
+    destination: PlaybackDestination,
+    request: Option<&str>,
+) -> Result<PlayResult, Failure> {
+    // Validate caller syntax before decoder configuration, including replay conflicts.
+    scope.operation("scope-check".into())?;
+    if let Some(replay) = existing_replay(directory, scope, destination, request).await? {
         return Ok(replay);
     }
     let decoder = super::decoder_path(directory).await?;
@@ -80,7 +198,7 @@ pub(super) async fn play(
         .map(str::to_owned)
         .map_or_else(recordings::new_retained_request_id, Ok)?;
     let snapshot = control::request(directory, Operation::Retained {
-        command: RetainedOperation::Start { id: id.clone(), recording_id: recording.into(), seek_us },
+        command: scope.operation(id.clone())?,
     }).await.map_err(|error| {
         format!("{}; admission outcome may be unresolved. Inspect `sigy listen reader show {id}` before retrying.", super::clean(&error.to_string()))
     })?;
@@ -92,17 +210,17 @@ pub(super) async fn play(
     let receipt = match admission {
         Ok(receipt) => receipt,
         Err(error) => {
-            return Err(refuse_reply(directory, &id, recording, seek_us, &error.to_string()).await);
+            return Err(refuse_reply(directory, &id, scope, &error.to_string()).await);
         }
     };
     let Some(page) = snapshot.retained else {
         return Err(unresolved(&id, "admission receipt missing").into());
     };
     if page.newly_started == Some(false) {
-        validate_scope(&receipt, recording, seek_us)?;
+        scope.validate(&receipt)?;
         return Ok(receipt_replay(receipt, destination));
     }
-    let played = match validate_scope(&receipt, recording, seek_us) {
+    let played = match scope.validate(&receipt) {
         Err(error) => Err(error),
         Ok(()) if page.newly_started != Some(true) || receipt.spec.generation != 1 => {
             Err("reader admission omitted or contradicted fresh generation".into())
@@ -115,6 +233,8 @@ pub(super) async fn play(
             decoder: Some(report),
             decoder_failure: None,
             output_failure: None,
+            native_failure: None,
+            operation_failure: None,
             audio_output: output,
         },
         Err(error) => failed_decode(error.as_ref()),
@@ -125,6 +245,8 @@ pub(super) async fn play(
         decoder: observed.decoder,
         decoder_failure: observed.decoder_failure,
         output_failure: observed.output_failure,
+        native_failure: observed.native_failure,
+        operation_failure: observed.operation_failure,
         audio_output: observed.audio_output,
         replayed: false,
     })
@@ -132,16 +254,15 @@ pub(super) async fn play(
 
 async fn existing_replay(
     directory: &Path,
-    recording: &str,
+    scope: Scope<'_>,
     destination: PlaybackDestination,
-    seek_us: u64,
     request: Option<&str>,
 ) -> Result<Option<PlayResult>, Failure> {
     if let Some(id) = request {
         match read_page(directory, id).await {
             Ok(page) => {
                 let receipt = one(&page, id)?;
-                validate_scope(&receipt, recording, seek_us)?;
+                scope.validate(&receipt)?;
                 return Ok(Some(receipt_replay(receipt, destination)));
             }
             Err(error) if is_not_found(error.as_ref()) => {}
@@ -158,6 +279,8 @@ fn receipt_replay(receipt: RetainedReadView, destination: PlaybackDestination) -
         decoder: None,
         decoder_failure: None,
         output_failure: None,
+        native_failure: None,
+        operation_failure: None,
         audio_output: None,
         replayed: true,
     }
@@ -195,13 +318,7 @@ async fn close_reader(
         .map_err(Into::into)
 }
 
-async fn refuse_reply(
-    directory: &Path,
-    id: &str,
-    recording: &str,
-    seek_us: u64,
-    detail: &str,
-) -> Failure {
+async fn refuse_reply(directory: &Path, id: &str, scope: Scope<'_>, detail: &str) -> Failure {
     // A successful but malformed Start reply cannot become a decoder capability.
     // All new request generations are 1; never use an untrusted foreign entry ID.
     let _ = tokio::time::timeout(
@@ -220,7 +337,7 @@ async fn refuse_reply(
     let cleanup = async {
         let page = read_page(directory, id).await?;
         let receipt = one(&page, id)?;
-        validate_scope(&receipt, recording, seek_us)?;
+        scope.validate(&receipt)?;
         if receipt.spec.generation != 1 {
             return Err("unexpected reader generation".into());
         }
@@ -254,14 +371,23 @@ fn one(page: &RetainedPage, id: &str) -> Result<RetainedReadView, Failure> {
     Ok(page.entries[0].clone())
 }
 
+#[cfg(test)]
 fn validate_scope(
     receipt: &RetainedReadView,
     recording: &str,
     seek_us: u64,
 ) -> Result<(), Failure> {
+    Scope::File {
+        recording,
+        seek_us,
+        end_us: None,
+    }
+    .validate(receipt)
+}
+
+fn validate_media(receipt: &RetainedReadView, seek_us: u64) -> Result<(), Failure> {
     let spec = &receipt.spec;
-    if spec.recording_id != recording
-        || receipt.seek_us != seek_us
+    if receipt.seek_us != seek_us
         || spec.generation == 0
         || spec.timeline_start_us.checked_add(spec.file_seek_us) != Some(seek_us)
         || spec.timeline_end_us.checked_sub(spec.timeline_start_us) != Some(spec.file_duration_us)
@@ -284,6 +410,21 @@ async fn decode(
     receipt: &RetainedReadView,
 ) -> Result<(RetainedPlaybackReport, Option<serde_json::Value>), Failure> {
     let nonce = ready_nonce(directory, page, receipt).await?;
+    if destination == PlaybackDestination::Null && receipt.spec.excerpt.is_some() {
+        let (decoder, report) = Box::pin(recordings::audio::decode_retained_excerpt_null(
+            executable,
+            directory,
+            &nonce,
+            &receipt.spec,
+        ))
+        .await
+        .map_err(|error| -> Failure { error })?;
+        return Ok((decoder, Some(serde_json::to_value(report)?)));
+    }
+    #[cfg(not(windows))]
+    if destination == PlaybackDestination::System && receipt.spec.excerpt.is_some() {
+        return Err("bounded excerpt system-output adapter is unavailable on this platform; use --destination null where native containment is available".into());
+    }
     #[cfg(windows)]
     if destination == PlaybackDestination::System {
         let playback = Box::pin(crate::audio::play::retained(
@@ -317,10 +458,31 @@ struct DecodeObservation {
     decoder: Option<RetainedPlaybackReport>,
     decoder_failure: Option<String>,
     output_failure: Option<String>,
+    native_failure: Option<String>,
+    operation_failure: Option<String>,
     audio_output: Option<serde_json::Value>,
 }
 
 fn failed_decode(error: &(dyn std::error::Error + 'static)) -> DecodeObservation {
+    if let Some(null) = error.downcast_ref::<recordings::audio::ExcerptNullError>() {
+        return DecodeObservation {
+            decoder: null.completed_decoder,
+            decoder_failure: null
+                .decoder_failure
+                .as_ref()
+                .map(|reason| super::clean(reason)),
+            native_failure: null
+                .native_failure
+                .as_ref()
+                .map(|reason| super::clean(reason)),
+            operation_failure: null
+                .operation_failure
+                .as_ref()
+                .map(|reason| super::clean(reason)),
+            output_failure: None,
+            audio_output: serde_json::to_value(null).ok(),
+        };
+    }
     #[cfg(windows)]
     if let Some(output) = error.downcast_ref::<crate::audio::play::OutputError>() {
         return DecodeObservation {
@@ -330,6 +492,8 @@ fn failed_decode(error: &(dyn std::error::Error + 'static)) -> DecodeObservation
                 .as_ref()
                 .map(|reason| super::clean(reason)),
             output_failure: Some(super::clean(&output.to_string())),
+            native_failure: None,
+            operation_failure: None,
             audio_output: serde_json::to_value(output).ok(),
         };
     }
@@ -337,6 +501,8 @@ fn failed_decode(error: &(dyn std::error::Error + 'static)) -> DecodeObservation
         decoder: None,
         decoder_failure: Some(super::clean(&error.to_string())),
         output_failure: None,
+        native_failure: None,
+        operation_failure: None,
         audio_output: None,
     }
 }
@@ -429,6 +595,12 @@ pub(super) fn write_play(
     if let Some(failure) = &result.output_failure {
         return Err(failure.clone().into());
     }
+    if let Some(failure) = &result.native_failure {
+        return Err(failure.clone().into());
+    }
+    if let Some(failure) = &result.operation_failure {
+        return Err(failure.clone().into());
+    }
     check_outcome(result)?;
     Ok(())
 }
@@ -465,6 +637,10 @@ fn render_play(
     json: bool,
 ) -> Result<(), Failure> {
     let spec = &result.receipt.spec;
+    let requested_end_us = spec
+        .timeline_start_us
+        .checked_add(spec.playback_end_us()?)
+        .ok_or("requested timeline end overflow")?;
     let playhead_us = result
         .decoder
         .as_ref()
@@ -481,11 +657,12 @@ fn render_play(
                 "id": session.unwrap_or(&spec.recording_id), "recording_id": spec.recording_id,
                 "request_id": spec.request_id, "generation": spec.generation,
                 "destination": result.destination.as_str(), "seek_us": result.receipt.seek_us,
-                "requested_end_us": spec.timeline_end_us, "playhead_us": playhead_us,
+                "requested_end_us": requested_end_us, "playhead_us": playhead_us,
                 "segment_ordinal": spec.ordinal, "replayed": result.replayed,
                 "detached": session.map(|_| detached), "reader": result.receipt,
                 "decoder_completed": result.decoder.is_some(), "decoder_failure": result.decoder_failure,
                 "audio_output": result.audio_output, "output_failure": result.output_failure,
+                "native_failure": result.native_failure, "operation_failure": result.operation_failure,
                 "reported_elapsed_us": result.decoder.as_ref().map(|report| report.reported_elapsed_us),
                 "boundary_tolerance_us": result.decoder.as_ref().map(|report| report.boundary_tolerance_us),
                 "progress_advanced": result.decoder.as_ref().map(|report| report.progress_advanced),
@@ -505,30 +682,87 @@ fn render_play(
                 "Original-file reader closed."
             }
         )?;
+        if let Some(excerpt) = &spec.excerpt {
+            writeln!(
+                output,
+                "Requested half-open excerpt [{}..{}) us; original object ends at {} us.",
+                result.receipt.seek_us, requested_end_us, spec.timeline_end_us
+            )?;
+            if let Some(citation) = &excerpt.citation {
+                writeln!(
+                    output,
+                    "Exact finding: {} / {}.",
+                    super::clean(&citation.monitor_id),
+                    super::clean(&citation.finding_id)
+                )?;
+            }
+        }
         if let Some(position) = playhead_us {
             writeln!(
                 output,
                 "Decoder-reported timeline progress {position} us; requested {}..{} us. This does not prove audible output.",
-                result.receipt.seek_us, spec.timeline_end_us
+                result.receipt.seek_us, requested_end_us
             )?;
         }
-        if let Some(failure) = &result.decoder_failure {
-            writeln!(output, "Decoder failed: {}", super::clean(failure))?;
-        }
-        if let Some(failure) = &result.output_failure {
-            writeln!(output, "Output failed: {}", super::clean(failure))?;
-        } else if result.audio_output.is_some() {
-            writeln!(
-                output,
-                "Output frames submitted; final presentation timing is estimated. Native group closure observed."
-            )?;
-        }
+        render_decode_outcomes(output, result)?;
         if let Some(reason) = &result.receipt.completion_reason {
             writeln!(output, "Reader outcome: {}", super::clean(reason))?;
         }
         if session.is_some() {
             writeln!(output, "Playhead detach confirmed: {detached}.")?;
         }
+    }
+    Ok(())
+}
+
+fn render_decode_outcomes(output: &mut impl Write, result: &PlayResult) -> Result<(), Failure> {
+    if let Some(failure) = &result.decoder_failure {
+        writeln!(output, "Decoder failed: {}", super::clean(failure))?;
+    }
+    if let Some(failure) = &result.native_failure {
+        writeln!(output, "Native closure failed: {}", super::clean(failure))?;
+    }
+    if let Some(failure) = &result.operation_failure {
+        writeln!(
+            output,
+            "Playback operation failed: {}",
+            super::clean(failure)
+        )?;
+    }
+    if result.destination == PlaybackDestination::Null
+        && (result.operation_failure.is_some() || result.native_failure.is_some())
+    {
+        let observed = result
+            .audio_output
+            .as_ref()
+            .and_then(|value| value.get("native_closure"))
+            .is_some_and(|value| !value.is_null());
+        writeln!(
+            output,
+            "Native decoder closure {}.",
+            if observed {
+                "observed"
+            } else {
+                "unproven or not started"
+            }
+        )?;
+    }
+    if let Some(failure) = &result.output_failure {
+        writeln!(output, "Output failed: {}", super::clean(failure))?;
+    } else if result.audio_output.is_some()
+        && result.destination == PlaybackDestination::Null
+        && result.native_failure.is_none()
+        && result.operation_failure.is_none()
+    {
+        writeln!(
+            output,
+            "Silent PCM counted; no device output requested. Native group closure observed."
+        )?;
+    } else if result.audio_output.is_some() && result.destination == PlaybackDestination::System {
+        writeln!(
+            output,
+            "Output frames submitted; final presentation timing is estimated. Native group closure observed."
+        )?;
     }
     Ok(())
 }
@@ -550,7 +784,11 @@ fn render_page(output: &mut impl Write, page: &RetainedPage, json: bool) -> Resu
                 super::clean(&receipt.state),
                 super::clean(&receipt.spec.recording_id),
                 receipt.seek_us,
-                receipt.spec.timeline_end_us
+                receipt
+                    .spec
+                    .timeline_start_us
+                    .checked_add(receipt.spec.playback_end_us()?)
+                    .ok_or("requested timeline end overflow")?
             )?;
             if let Some(reason) = &receipt.recovery_reason {
                 writeln!(output, "Protection held: {}", super::clean(reason))?;

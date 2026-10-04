@@ -453,6 +453,8 @@ Restart without a committed native completion proof retains a visible unresolved
 sigy --data-dir PATH_TO_LIBRARY listen file morning-001 --destination null
 sigy --data-dir PATH_TO_LIBRARY listen file morning-001 --destination system --seek-us 500000
 sigy --data-dir PATH_TO_LIBRARY listen file morning-001 --destination null --request replay-morning
+sigy --data-dir PATH_TO_LIBRARY listen file morning-001 --seek-us 125000 --end-us 375000 --destination null --request excerpt-morning
+sigy --data-dir PATH_TO_LIBRARY listen finding topic-watch finding-001 --destination null --request cited-morning
 sigy --data-dir PATH_TO_LIBRARY listen reader show replay-morning
 sigy --data-dir PATH_TO_LIBRARY listen reader list
 sigy --data-dir PATH_TO_LIBRARY listen reader stop replay-morning --generation 1
@@ -462,7 +464,11 @@ Retained playback requires the background service and a configured decoder. The 
 
 An explicit `--request` makes replay inspectable: repeating the same request returns its stored receipt and starts no audio. Omit it or choose a new ID for another playback. Ctrl+C stops client decoding and requests the exact reader's stop. Original-file protection remains until actual service reader closure; an uncertain restart preserves a visible `recovery_held` receipt and can hold reclamation. Show/list remain read-only after service exit. Stop requires the service and the inspected generation. At most four unresolved readers and 4,096 lifetime receipts are admitted per library. See [protected retained readers](decisions/0083-protected-retained-readers.md) for bounds and limitations.
 
-The report separates raw decoder progress, requested range, reader outcome and Windows output evidence. Output reports include underruns, output-only clipped samples and estimated presentation; successful native completion does not prove sound heard at a device. Only actual service reader closure can release original-file protection; output reports cannot. Playback does not stop recording, change retention or reserve quota. Partial files and open tails are not playable. `record metadata` emits a versioned JSON sidecar. Reusing a recording ID reconciles its recording request independently of playback IDs.
+`--end-us` requests an exclusive excerpt end on the recording timeline. The complete range must fit one sealed, retained segment with no overlapping gap; the end may equal its sealed edge. Changed ends or request modes conflict under the same ID. `listen finding MONITOR FINDING` requires `--request` and resolves that exact stored citation atomically. A stale revision remains the cited revision; expired, released or missing media refuses fresh playback without deleting history. See [exact excerpts](decisions/0087-exact-retained-excerpts.md).
+
+Explicit excerpts select counted PCM samples after resampling and require the exact frame count. Silent excerpts use 48 kHz stereo and open no device; Windows system excerpts use the negotiated helper profile. Every requested native limit must be enforceable; other system-output adapters and uncontained hosts refuse this new path. Legacy requests without an end retain their prior behavior. The same-rate WAV witness is not compressed-format, other-rate or platform qualification.
+
+The report separates raw decoder progress, requested range, reader outcome, operation failures, native closure and Windows output evidence. Output reports include underruns, output-only clipped samples and estimated presentation; successful native completion does not prove sound heard at a device. An excerpt can complete while its full-object transfer ends early, with both outcomes visible. Only actual service reader closure can release original-file protection; output reports cannot. Playback does not stop recording, change retention or reserve quota. Partial files and open tails are not playable. `record metadata` emits a versioned JSON sidecar. Reusing a recording ID reconciles its recording request independently of playback IDs.
 
 ```text
 sigy --data-dir PATH_TO_LIBRARY listen source live-001 --revision demo:v1 --destination null

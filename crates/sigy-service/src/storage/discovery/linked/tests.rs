@@ -345,7 +345,7 @@ fn populated_schema49_migration_preserves_source_links_and_recordings_on_reopen(
         store
             .connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))?,
-        50
+        crate::storage::SCHEMA_VERSION
     );
     drop(store);
     assert_eq!(

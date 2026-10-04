@@ -200,6 +200,7 @@ fn validate(spec: &RetainedReadSpec) -> Result<()> {
         || spec.timeline_end_us.checked_sub(spec.timeline_start_us) != Some(spec.file_duration_us)
         || spec.file_duration_us > RETAINED_READ_DEADLINE_SECONDS * 1_000_000
         || spec.file_seek_us >= spec.file_duration_us
+        || spec.playback_duration_us().is_err()
     {
         return Err(Error::Analysis("retained-read-spec-invalid"));
     }

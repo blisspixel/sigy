@@ -10,7 +10,9 @@ use super::{
 };
 use crate::{Error, Result};
 
+mod excerpt;
 mod read;
+pub use excerpt::{RetainedCitation, RetainedExcerpt};
 #[cfg(test)]
 mod tests;
 mod write;
@@ -35,6 +37,8 @@ pub struct RetainedReadSpec {
     pub file_seek_us: u64,
     pub file_duration_us: u64,
     pub spec_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<RetainedExcerpt>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,7 +55,7 @@ pub struct RetainedReadView {
 
 impl RetainedReadSpec {
     fn digest(&self) -> Result<String> {
-        let digest = spec_digest(
+        let digest = excerpt::digest(
             [
                 &self.request_id,
                 &self.recording_id,
@@ -69,6 +73,7 @@ impl RetainedReadSpec {
                 self.file_seek_us,
                 self.file_duration_us,
             ],
+            self.excerpt.as_ref().map(excerpt::BorrowedExcerpt::from),
         )?;
         Ok(super::dvr::hex(&digest.finalize()))
     }
@@ -148,8 +153,38 @@ impl Store {
 }
 
 #[cfg(test)]
+pub(crate) fn revert_051_for_tests(connection: &rusqlite::Connection) -> Result<()> {
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('retained_readers') WHERE name='excerpt_version')",
+        [], |row| row.get(0),
+    )?;
+    if !exists {
+        return Ok(());
+    }
+    let used: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM retained_readers WHERE excerpt_version IS NOT NULL)",
+        [],
+        |row| row.get(0),
+    )?;
+    if used {
+        return Err(Error::RequestState);
+    }
+    connection.execute_batch("DROP TRIGGER retained_excerpts_admission; DROP TRIGGER retained_readers_identity;
+      ALTER TABLE retained_readers DROP COLUMN excerpt_version;
+      ALTER TABLE retained_readers DROP COLUMN citation_cue_ordinal;
+      ALTER TABLE retained_readers DROP COLUMN citation_translation_revision;
+      ALTER TABLE retained_readers DROP COLUMN citation_transcript_revision;
+      ALTER TABLE retained_readers DROP COLUMN citation_transcript;
+      ALTER TABLE retained_readers DROP COLUMN citation_finding;
+      ALTER TABLE retained_readers DROP COLUMN citation_monitor;
+      ALTER TABLE retained_readers DROP COLUMN excerpt_end_us;
+      CREATE TRIGGER retained_readers_identity BEFORE UPDATE OF id,recording_id,seek_us,generation,source_revision,ordinal,object_key,sha256,format,bytes,timeline_start_us,timeline_end_us,file_seek_us,file_duration_us,spec_sha256,admitted_ms ON retained_readers BEGIN
+        SELECT RAISE(ABORT,'retained reader identity immutable'); END;")?;
+    Ok(())
+}
+
+#[cfg(test)]
 pub(crate) fn revert_049_for_tests(connection: &rusqlite::Connection) -> Result<()> {
-    crate::storage::discovery::linked::revert_050_for_tests(connection)?;
     let exists: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='retained_readers')",
         [],
@@ -165,6 +200,7 @@ pub(crate) fn revert_049_for_tests(connection: &rusqlite::Connection) -> Result<
     if used {
         return Err(Error::RequestState);
     }
+    crate::storage::discovery::linked::revert_050_for_tests(connection)?;
     connection.execute_batch("DROP TRIGGER retained_reader_delete_guard; DROP TRIGGER retained_reader_release_guard; DROP TABLE retained_readers;")?;
     Ok(())
 }

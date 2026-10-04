@@ -158,6 +158,7 @@ impl Store {
 
 #[cfg(test)]
 pub(crate) fn revert_050_for_tests(connection: &rusqlite::Connection) -> Result<()> {
+    crate::storage::retained_readers::revert_051_for_tests(connection)?;
     connection.execute_batch("DROP INDEX IF EXISTS station_source_links; DROP INDEX IF EXISTS captures_by_source_revision;")?;
     Ok(())
 }

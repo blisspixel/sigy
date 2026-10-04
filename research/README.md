@@ -50,6 +50,7 @@ This folder records primary-source findings, measured experiments, design implic
 | Calm world listening, distinct IQ/audio/packet observations and measured receive-only device boundaries | [42. Calm listening and receive-only sources](42-calm-listening-and-receive-only-sources.md) |
 | Authentic historical cases, Indigenous code-talking, current post-quantum standards, noise/detection mathematics and optional modern learning challenges | [43. Historical and modern learning](43-historical-and-modern-learning.md) |
 | Fixed Windows output profiles, callback timing, native child closure, finite PCM and complete dependency retention | [44. Bounded Windows audio output](44-bounded-windows-audio-output.md) |
+| Half-open sample selection, counted completion, resampling conventions and independent retained excerpt witnesses | [45. Excerpt boundaries and evidence](45-excerpt-boundaries-and-evidence.md) |
 
 ## Evidence discipline
 

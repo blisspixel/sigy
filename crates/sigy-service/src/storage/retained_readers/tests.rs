@@ -7,6 +7,7 @@ use crate::{
 type TestResult = std::result::Result<(), Box<dyn std::error::Error + Send + Sync>>;
 mod capacity;
 mod completion;
+mod excerpts;
 mod migration;
 mod refusals;
 mod segments;

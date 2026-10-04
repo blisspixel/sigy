@@ -99,6 +99,67 @@ async fn retained_original_join_publishes_once_and_replay_never_reattaches() -> 
 }
 
 #[tokio::test]
+async fn excerpt_actor_transfers_whole_original_and_replay_or_changed_end_never_dispatches()
+-> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, mut receiver) = mpsc::channel(8);
+    let mut actor = actor(root.path(), &sender)?;
+    let command = || RetainedOperation::StartRange {
+        id: "excerpt".into(),
+        recording_id: "one".into(),
+        seek_us: 125_000,
+        end_us: 375_000,
+    };
+    let first = actor
+        .apply_retained(command())?
+        .retained
+        .ok_or("excerpt page")?;
+    assert_eq!(first.newly_started, Some(true));
+    let spec = first.entries.first().ok_or("excerpt receipt")?.spec.clone();
+    assert_eq!(spec.playback_duration_us()?, 250_000);
+    assert_eq!(
+        spec.bytes,
+        b"checksum fixture, not decoded speech".len() as u64
+    );
+    let nonce = ready(&mut actor, &mut receiver).await?;
+    let replay = actor
+        .apply_retained(command())?
+        .retained
+        .ok_or("excerpt replay")?;
+    assert_eq!(replay.newly_started, Some(false));
+    assert!(replay.pipe_nonce.is_none());
+    assert!(matches!(
+        actor.apply_retained(RetainedOperation::StartRange {
+            id: "excerpt".into(),
+            recording_id: "one".into(),
+            seek_us: 125_000,
+            end_us: 375_001,
+        }),
+        Err(Error::IdempotencyConflict)
+    ));
+    assert_eq!(actor.retained_workers.len(), 1);
+    let mut input = crate::recordings::connect_retained_for_test(root.path(), &nonce).await?;
+    let mut bytes = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), input.read_to_end(&mut bytes)).await??;
+    assert_eq!(bytes, b"checksum fixture, not decoded speech");
+    let (id, generation, result) = finished(&mut receiver).await?;
+    actor.finish_retained(&id, generation, result)?;
+    assert!(actor.idle());
+    assert_eq!(
+        actor.library.store().retained_reader("excerpt")?.state,
+        "completed"
+    );
+    let terminal = actor
+        .apply_retained(command())?
+        .retained
+        .ok_or("terminal replay")?;
+    assert_eq!(terminal.newly_started, Some(false));
+    assert!(terminal.pipe_nonce.is_none());
+    assert!(actor.retained_workers.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn retained_stop_commits_before_signal_and_stale_generation_does_nothing() -> TestResult {
     let root = tempfile::tempdir()?;
     let (sender, mut receiver) = mpsc::channel(8);

@@ -17,6 +17,13 @@ fn maximum_reader_history_layout_audit_and_cleanup_characterization() -> TestRes
     for index in 1..4096 {
         let mut spec = base.clone();
         spec.request_id = format!("layout-{index:04}");
+        if index % 2 == 1 {
+            spec.excerpt = Some(RetainedExcerpt {
+                version: 2,
+                timeline_end_us: 500_000,
+                citation: None,
+            });
+        }
         spec.spec_sha256 = spec.digest()?;
         super::super::write::insert(&tx, &spec, 0, 10)?;
         tx.execute("UPDATE retained_readers SET state='failed',completion_reason='input-unavailable' WHERE id=?1",[&spec.request_id])?;
@@ -46,6 +53,12 @@ fn maximum_reader_history_layout_audit_and_cleanup_characterization() -> TestRes
             .is_err()
     );
     assert_eq!(store.retained_reader("layout-4095")?.state, "failed");
+    assert!(
+        store
+            .admit_retained_range("range-beyond-lifetime", "recording", 125_000, 375_000, 11)
+            .is_err()
+    );
+    assert!(store.retained_reader("layout-4095")?.spec.excerpt.is_some());
     drop(store);
     let store = Store::open(&path)?;
     assert_eq!(store.retained_readers()?.len(), 16);

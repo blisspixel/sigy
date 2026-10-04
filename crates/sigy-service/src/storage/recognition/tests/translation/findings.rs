@@ -4,6 +4,7 @@ use super::*;
 use crate::monitor::{ActionOrigin, FindingCite, FindingOriginal, Proposal};
 use crate::translation::{TranslationOutcome, TranslationResult};
 
+mod retained;
 mod task;
 
 fn cite(original: FindingOriginal) -> FindingCite {

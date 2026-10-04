@@ -52,12 +52,15 @@ pub use provider::{
     LanguagePairView, PriceSnapshotView, ProviderOperation, ProviderPage, ProviderRouteView,
     RateView,
 };
-pub use retained::{RetainedOperation, RetainedPage, RetainedReadSpec, RetainedReadView};
+pub use retained::{
+    RetainedCitation, RetainedExcerpt, RetainedOperation, RetainedPage, RetainedReadSpec,
+    RetainedReadView,
+};
 pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, ScheduleRuleView};
 pub use server::{request, run};
 pub use task::{TaskOperation, TaskPage};
 
-pub const PROTOCOL_VERSION: u32 = 51;
+pub const PROTOCOL_VERSION: u32 = 52;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;

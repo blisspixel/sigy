@@ -10,14 +10,40 @@ use crate::{
     Error, Result, control::RetainedReadSpec, execution, recordings::RetainedPlaybackReport,
 };
 
+mod null;
+pub use null::{ExcerptNullError, ExcerptNullReport, decode_retained_excerpt_null};
+
 /// One explicitly negotiated interleaved little-endian floating-point profile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct PcmFormat {
     pub rate_hz: u32,
     pub channels: u16,
 }
 
 impl PcmFormat {
+    /// Sample onsets in the half-open file-relative interval, after resampling.
+    /// # Errors
+    /// Refuses unsupported profiles, empty sample selections and overflow.
+    pub fn excerpt_frames(self, start_us: u64, end_us: u64) -> Result<(u64, u64)> {
+        self.maximum_bytes(
+            end_us
+                .checked_sub(start_us)
+                .ok_or(Error::Acquisition("invalid PCM excerpt range"))?,
+        )?;
+        let onset = |time: u64| {
+            time.checked_mul(u64::from(self.rate_hz))
+                .and_then(|scaled| scaled.checked_add(999_999))
+                .map(|scaled| scaled / 1_000_000)
+                .ok_or(Error::Acquisition("PCM excerpt frame overflow"))
+        };
+        let first = onset(start_us)?;
+        let after = onset(end_us)?;
+        if first >= after {
+            return Err(Error::Acquisition("PCM excerpt contains no sample onsets"));
+        }
+        Ok((first, after))
+    }
+
     /// # Errors
     /// Refuses unsupported rates, layouts, durations and arithmetic overflow.
     pub fn maximum_bytes(self, duration_us: u64) -> Result<u64> {
@@ -60,6 +86,13 @@ impl NativeAudioGroup {
         if !cfg!(windows) {
             return Err(Error::Acquisition("Windows audio group is unavailable"));
         }
+        Self::for_decoder()
+    }
+
+    /// Enforce the same finite decoder limits on the selected host mechanism.
+    /// # Errors
+    /// Refuses a platform or environment that cannot enforce every requested limit.
+    pub fn for_decoder() -> Result<Self> {
         let options = ProcessGroupOptions::default()
             .max_processes(2)
             .max_memory(768 * 1024 * 1024)
@@ -197,9 +230,12 @@ fn validate(request: PcmReaderRequest<'_>, output: &mpsc::Sender<Vec<u8>>) -> Re
     {
         return Err(Error::Acquisition("invalid protected PCM decode bounds"));
     }
-    request
-        .format
-        .maximum_bytes(spec.file_duration_us - spec.file_seek_us)?;
+    request.format.maximum_bytes(spec.playback_duration_us()?)?;
+    if spec.excerpt.is_some() {
+        request
+            .format
+            .excerpt_frames(spec.file_seek_us, spec.playback_end_us()?)?;
+    }
     Ok(())
 }
 
@@ -230,5 +266,33 @@ mod tests {
                     .is_err()
             );
         }
+    }
+
+    #[test]
+    fn excerpt_samples_use_absolute_endpoints_at_each_negotiated_rate() {
+        let stereo = PcmFormat {
+            rate_hz: 48_000,
+            channels: 2,
+        };
+        assert_eq!(
+            stereo.excerpt_frames(125_000, 375_000).ok(),
+            Some((6000, 18_000))
+        );
+        assert_eq!(stereo.excerpt_frames(1, 21).ok(), Some((1, 2)));
+        assert_eq!(stereo.excerpt_frames(21, 42).ok(), Some((2, 3)));
+        assert!(stereo.excerpt_frames(1, 20).is_err());
+        assert!(stereo.excerpt_frames(21, 21).is_err());
+        assert!(stereo.excerpt_frames(22, 21).is_err());
+        assert!(stereo.excerpt_frames(u64::MAX - 1, u64::MAX).is_err());
+        let mono = PcmFormat {
+            rate_hz: 44_100,
+            channels: 1,
+        };
+        assert_eq!(mono.excerpt_frames(1, 23).ok(), Some((1, 2)));
+        assert!(mono.excerpt_frames(1, 2).is_err());
+        assert_eq!(
+            mono.excerpt_frames(125_000, 375_000).ok(),
+            Some((5513, 16_538))
+        );
     }
 }

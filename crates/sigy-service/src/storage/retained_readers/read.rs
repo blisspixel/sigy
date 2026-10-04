@@ -1,22 +1,24 @@
 use rusqlite::{Connection, Row};
 
-use super::{RetainedReadSpec, RetainedReadView};
+use super::{RetainedCitation, RetainedExcerpt, RetainedReadSpec, RetainedReadView};
 use crate::{Error, Result};
 
 mod borrowed;
 
-const COLUMNS: &str = "id,generation,recording_id,source_revision,ordinal,object_key,sha256,format,bytes,timeline_start_us,timeline_end_us,file_seek_us,file_duration_us,spec_sha256,state,seek_us,admitted_ms,updated_ms,completion_reason,recovery_reason";
+const COLUMNS: &str = "q.id,q.generation,q.recording_id,q.source_revision,q.ordinal,q.object_key,q.sha256,q.format,q.bytes,q.timeline_start_us,q.timeline_end_us,q.file_seek_us,q.file_duration_us,q.spec_sha256,q.state,q.seek_us,q.admitted_ms,q.updated_ms,q.completion_reason,q.recovery_reason,q.excerpt_version,q.excerpt_end_us,q.citation_monitor,q.citation_finding,q.citation_transcript,q.citation_transcript_revision,q.citation_translation_revision,q.citation_cue_ordinal";
+
+const IDENTITY_VALID: &str = "EXISTS(SELECT 1 FROM recording_intervals i JOIN capture_jobs c ON c.id=i.recording_id JOIN recordings r ON r.id=i.recording_id WHERE i.recording_id=q.recording_id AND i.ordinal=q.ordinal AND c.source_revision=q.source_revision AND i.object_key=q.object_key AND i.sha256=q.sha256 AND i.format=q.format AND i.byte_end-i.byte_start=q.bytes AND i.decoded_start_us=q.timeline_start_us AND i.decoded_end_us=q.timeline_end_us AND (q.state IN ('completed','failed') OR (r.storage_state IN ('reserved','retained') AND NOT EXISTS(SELECT 1 FROM recording_releases x WHERE x.recording_id=i.recording_id AND x.segment_ordinal=i.ordinal))) AND (q.excerpt_version IS NULL OR NOT EXISTS(SELECT 1 FROM recording_gaps g WHERE g.recording_id=q.recording_id AND g.start_us<q.excerpt_end_us AND g.end_us>q.seek_us)) AND (q.citation_monitor IS NULL OR EXISTS(SELECT 1 FROM monitor_findings f JOIN transcripts t ON t.id=f.transcript_id AND t.revision=f.transcript_revision JOIN transcript_cues tc ON tc.transcript_id=t.id AND tc.revision=t.revision AND tc.ordinal=f.cue_ordinal WHERE f.monitor_id=q.citation_monitor AND f.id=q.citation_finding AND f.transcript_id=q.citation_transcript AND f.transcript_revision=q.citation_transcript_revision AND f.translation_revision=q.citation_translation_revision AND f.cue_ordinal=q.citation_cue_ordinal AND f.recording_id=q.recording_id AND f.original_state='retained' AND f.start_us=q.seek_us AND f.end_us=q.excerpt_end_us AND tc.start_us=f.start_us AND tc.end_us=f.end_us AND t.recording_id=q.recording_id AND t.role='original' AND t.outcome='text' AND t.kind IN ('recognition','correction') AND t.media_sha256=r.sha256 AND (q.state IN ('completed','failed') OR r.storage_state='retained') AND EXISTS(SELECT 1 FROM translation_cues tr WHERE tr.transcript_id=f.transcript_id AND tr.transcript_revision=f.transcript_revision AND tr.revision=f.translation_revision AND tr.ordinal=f.cue_ordinal))))";
 
 pub(super) fn find(connection: &Connection, id: &str) -> Result<Option<RetainedReadView>> {
     let mut query = connection.prepare(&format!(
-        "SELECT {COLUMNS} FROM retained_readers WHERE id=?1"
+        "SELECT {COLUMNS} FROM retained_readers q WHERE q.id=?1"
     ))?;
     let mut rows = query.query([id])?;
     rows.next()?.map(decode).transpose()
 }
 
 pub(super) fn list(connection: &Connection) -> Result<Vec<RetainedReadView>> {
-    let mut query = connection.prepare(&format!("SELECT {COLUMNS} FROM retained_readers ORDER BY (state IN ('running','cancelling','recovery_held')) DESC,admitted_ms DESC,id LIMIT 16"))?;
+    let mut query = connection.prepare(&format!("SELECT {COLUMNS} FROM retained_readers q ORDER BY (q.state IN ('running','cancelling','recovery_held')) DESC,q.admitted_ms DESC,q.id LIMIT 16"))?;
     let mut rows = query.query([])?;
     let mut result = Vec::with_capacity(16);
     while let Some(row) = rows.next()? {
@@ -26,12 +28,9 @@ pub(super) fn list(connection: &Connection) -> Result<Vec<RetainedReadView>> {
 }
 
 pub(super) fn audit_all(connection: &Connection) -> Result<()> {
-    let columns = COLUMNS
-        .split(',')
-        .map(|column| format!("q.{column}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let mut query = connection.prepare(&format!("SELECT {columns},EXISTS(SELECT 1 FROM recording_intervals i JOIN capture_jobs c ON c.id=i.recording_id JOIN recordings r ON r.id=i.recording_id WHERE i.recording_id=q.recording_id AND i.ordinal=q.ordinal AND c.source_revision=q.source_revision AND i.object_key=q.object_key AND i.sha256=q.sha256 AND i.format=q.format AND i.byte_end-i.byte_start=q.bytes AND i.decoded_start_us=q.timeline_start_us AND i.decoded_end_us=q.timeline_end_us AND (q.state IN ('completed','failed') OR (r.storage_state IN ('reserved','retained') AND NOT EXISTS(SELECT 1 FROM recording_releases x WHERE x.recording_id=i.recording_id AND x.segment_ordinal=i.ordinal)))) FROM retained_readers q ORDER BY q.id LIMIT 4097"))?;
+    let mut query = connection.prepare(&format!(
+        "SELECT {COLUMNS},{IDENTITY_VALID} FROM retained_readers q ORDER BY q.id LIMIT 4097"
+    ))?;
     let mut rows = query.query([])?;
     let mut total = 0;
     let mut active = 0;
@@ -47,7 +46,7 @@ pub(super) fn audit_all(connection: &Connection) -> Result<()> {
         if active > 4 {
             return Err(Error::StorageIntegrity);
         }
-        if !row.get::<_, bool>(20)? {
+        if !row.get::<_, bool>(28)? {
             return Err(Error::StorageIntegrity);
         }
     }
@@ -104,6 +103,18 @@ fn decode(row: &Row<'_>) -> Result<RetainedReadView> {
             file_seek_us: seek,
             file_duration_us: duration,
             spec_sha256: spec_hash.to_owned(),
+            excerpt: stored.excerpt.map(|excerpt| RetainedExcerpt {
+                version: excerpt.version,
+                timeline_end_us: excerpt.timeline_end_us,
+                citation: excerpt.citation.map(|citation| RetainedCitation {
+                    monitor_id: citation.monitor_id.to_owned(),
+                    finding_id: citation.finding_id.to_owned(),
+                    transcript_id: citation.transcript_id.to_owned(),
+                    transcript_revision: citation.transcript_revision,
+                    translation_revision: citation.translation_revision,
+                    cue_ordinal: citation.cue_ordinal,
+                }),
+            }),
         },
         state: state.to_owned(),
         seek_us: caller_seek,
@@ -114,10 +125,9 @@ fn decode(row: &Row<'_>) -> Result<RetainedReadView> {
     })
 }
 pub(super) fn audit(connection: &Connection, view: &RetainedReadView) -> Result<()> {
-    let s = &view.spec;
     let valid: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM recording_intervals i JOIN capture_jobs c ON c.id=i.recording_id JOIN recordings r ON r.id=i.recording_id WHERE i.recording_id=?1 AND i.ordinal=?2 AND c.source_revision=?3 AND i.object_key=?4 AND i.sha256=?5 AND i.format=?6 AND i.byte_end-i.byte_start=?7 AND i.decoded_start_us=?8 AND i.decoded_end_us=?9 AND (?10 OR (r.storage_state IN ('reserved','retained') AND NOT EXISTS(SELECT 1 FROM recording_releases x WHERE x.recording_id=i.recording_id AND x.segment_ordinal=i.ordinal))))",
-        rusqlite::params![s.recording_id,s.ordinal,s.source_revision,s.object_key,s.sha256,s.format,signed(s.bytes)?,signed(s.timeline_start_us)?,signed(s.timeline_end_us)?,matches!(view.state.as_str(),"completed"|"failed")],
+        &format!("SELECT {IDENTITY_VALID} FROM retained_readers q WHERE q.id=?1"),
+        [&view.spec.request_id],
         |row| row.get(0),
     )?;
     if !valid {

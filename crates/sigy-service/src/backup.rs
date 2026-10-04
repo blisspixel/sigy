@@ -135,6 +135,7 @@ pub fn backup(library: &Library, destination: &Path) -> Result<BackupManifest> {
     if !store.integrity_ok()? {
         return Err(Error::CatalogIntegrity);
     }
+    store.audit_retained_readers()?;
     private_directory(destination)?;
     let catalog_path = destination.join(CATALOG);
     store.snapshot_catalog(&catalog_path)?;

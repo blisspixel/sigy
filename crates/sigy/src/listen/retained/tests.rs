@@ -3,6 +3,277 @@ use clap::Parser;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+#[test]
+fn boxed_null_failure_keeps_its_concrete_evidence_at_the_client_boundary() {
+    let typed = Box::new(recordings::audio::ExcerptNullError {
+        reason: "native closure unproven".into(),
+        operation_failure: None,
+        completed_decoder: Some(RetainedPlaybackReport {
+            file_playhead_us: 375_000,
+            reported_elapsed_us: 250_000,
+            boundary_tolerance_us: 21,
+            progress_advanced: true,
+        }),
+        decoder_failure: None,
+        native_closure: None,
+        native_failure: Some("native closure unproven".into()),
+    });
+    let erased: Failure = typed;
+    let observed = failed_decode(erased.as_ref());
+    assert!(observed.decoder.is_some() && observed.decoder_failure.is_none());
+    assert_eq!(
+        observed.native_failure.as_deref(),
+        Some("native closure unproven")
+    );
+}
+
+#[test]
+fn excerpt_parser_preserves_end_and_requires_explicit_finding_request() -> TestResult {
+    let cli = crate::Cli::try_parse_from([
+        "sigy",
+        "listen",
+        "file",
+        "recording-1",
+        "--seek-us",
+        "6000000",
+        "--end-us",
+        "7000000",
+        "--destination",
+        "null",
+        "--request",
+        "excerpt-1",
+    ])?;
+    assert!(
+        matches!(cli.command, crate::Command::Listen { command: super::super::ListenCommand::File {
+        id, seek_us: 6_000_000, end_us: Some(7_000_000), request: Some(request), destination,
+    }} if id == "recording-1" && request == "excerpt-1" && destination == "null")
+    );
+    let cli = crate::Cli::try_parse_from([
+        "sigy",
+        "listen",
+        "finding",
+        "monitor-1",
+        "finding-1",
+        "--destination",
+        "null",
+        "--request",
+        "citation-1",
+    ])?;
+    assert!(
+        matches!(cli.command, crate::Command::Listen { command: super::super::ListenCommand::Finding {
+        monitor, finding, request, destination,
+    }} if monitor == "monitor-1" && finding == "finding-1" && request == "citation-1" && destination == "null")
+    );
+    for args in [
+        vec!["sigy", "listen", "finding", "monitor-1", "finding-1"],
+        vec!["sigy", "listen", "file", "recording-1", "--end-us", "-1"],
+        vec![
+            "sigy",
+            "listen",
+            "finding",
+            "monitor-1",
+            "finding-1",
+            "--request",
+            "bad request",
+        ],
+    ] {
+        assert!(crate::Cli::try_parse_from(args).is_err());
+    }
+    Ok(())
+}
+
+fn excerpt_receipt(citation: bool) -> RetainedReadView {
+    let mut view = receipt();
+    view.spec.excerpt = Some(control::RetainedExcerpt {
+        version: 2,
+        timeline_end_us: 7_000_000,
+        citation: citation.then(|| control::RetainedCitation {
+            monitor_id: "monitor-1".into(),
+            finding_id: "finding-1".into(),
+            transcript_id: "transcript-1".into(),
+            transcript_revision: 2,
+            translation_revision: 3,
+            cue_ordinal: 4,
+        }),
+    });
+    view
+}
+
+#[test]
+fn replay_scope_refuses_mode_end_and_citation_drift_before_decoder_use() -> TestResult {
+    let range = Scope::File {
+        recording: "recording-1",
+        seek_us: 6_000_000,
+        end_us: Some(7_000_000),
+    };
+    let legacy = Scope::File {
+        recording: "recording-1",
+        seek_us: 6_000_000,
+        end_us: None,
+    };
+    let finding = Scope::Finding {
+        monitor: "monitor-1",
+        finding: "finding-1",
+    };
+    range.validate(&excerpt_receipt(false))?;
+    finding.validate(&excerpt_receipt(true))?;
+    assert!(legacy.validate(&excerpt_receipt(false)).is_err());
+    assert!(range.validate(&receipt()).is_err());
+    assert!(range.validate(&excerpt_receipt(true)).is_err());
+    assert!(finding.validate(&excerpt_receipt(false)).is_err());
+    assert!(
+        Scope::Finding {
+            monitor: "other",
+            finding: "finding-1"
+        }
+        .validate(&excerpt_receipt(true))
+        .is_err()
+    );
+    assert!(
+        Scope::Finding {
+            monitor: "monitor-1",
+            finding: "other"
+        }
+        .validate(&excerpt_receipt(true))
+        .is_err()
+    );
+    assert!(
+        Scope::File {
+            recording: "recording-1",
+            seek_us: 6_000_000,
+            end_us: Some(7_000_001)
+        }
+        .validate(&excerpt_receipt(false))
+        .is_err()
+    );
+    assert!(
+        Scope::File {
+            recording: "recording-1",
+            seek_us: 7,
+            end_us: Some(7)
+        }
+        .operation("reader".into())
+        .is_err()
+    );
+    for end in [6_000_000, 15_000_001, u64::MAX] {
+        let mut bad = excerpt_receipt(true);
+        bad.spec
+            .excerpt
+            .as_mut()
+            .ok_or("excerpt missing")?
+            .timeline_end_us = end;
+        assert!(finding.validate(&bad).is_err());
+    }
+    let mut bad = excerpt_receipt(true);
+    bad.spec.excerpt.as_mut().ok_or("excerpt missing")?.version = 3;
+    assert!(finding.validate(&bad).is_err());
+    let mut bad = excerpt_receipt(true);
+    bad.spec
+        .excerpt
+        .as_mut()
+        .ok_or("excerpt missing")?
+        .citation
+        .as_mut()
+        .ok_or("citation missing")?
+        .transcript_revision = 0;
+    assert!(finding.validate(&bad).is_err());
+    Ok(())
+}
+
+#[test]
+fn excerpt_receipt_reports_selected_end_separately_from_original_object_and_output() -> TestResult {
+    let result = receipt_replay(excerpt_receipt(true), PlaybackDestination::Null);
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, &result, None, true, true)?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(json["requested_end_us"], 7_000_000);
+    assert_eq!(json["reader"]["spec"]["timeline_end_us"], 15_000_000);
+    assert_eq!(
+        json["reader"]["spec"]["excerpt"]["citation"]["finding_id"],
+        "finding-1"
+    );
+    assert_eq!(json["replayed"], true);
+    assert_eq!(json["decoder_completed"], false);
+    assert!(json["audio_output"].is_null());
+    let mut bytes = Vec::new();
+    render_page(
+        &mut bytes,
+        &RetainedPage {
+            entries: vec![excerpt_receipt(false)],
+            pipe_nonce: None,
+            newly_started: None,
+        },
+        false,
+    )?;
+    assert!(String::from_utf8(bytes)?.contains("6000000..7000000 us"));
+    Ok(())
+}
+
+#[test]
+fn null_native_failure_preserves_completed_decoder_without_inventing_output_failure() -> TestResult
+{
+    let error = recordings::audio::ExcerptNullError {
+        reason: "silent PCM completed".into(),
+        operation_failure: None,
+        completed_decoder: Some(RetainedPlaybackReport {
+            file_playhead_us: 2_000_000,
+            reported_elapsed_us: 1_000_000,
+            boundary_tolerance_us: 21,
+            progress_advanced: true,
+        }),
+        decoder_failure: None,
+        native_closure: None,
+        native_failure: Some("drain unproven".into()),
+    };
+    let observed = failed_decode(&error);
+    assert!(observed.decoder.is_some() && observed.decoder_failure.is_none());
+    assert!(observed.output_failure.is_none());
+    assert_eq!(observed.native_failure.as_deref(), Some("drain unproven"));
+    let result = PlayResult {
+        receipt: excerpt_receipt(false),
+        destination: PlaybackDestination::Null,
+        decoder: observed.decoder,
+        decoder_failure: observed.decoder_failure,
+        output_failure: observed.output_failure,
+        native_failure: observed.native_failure,
+        operation_failure: observed.operation_failure,
+        audio_output: observed.audio_output,
+        replayed: false,
+    };
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, &result, None, true, true)?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(json["decoder_completed"], true);
+    assert!(json["decoder_failure"].is_null() && json["output_failure"].is_null());
+    assert_eq!(json["native_failure"], "drain unproven");
+    assert!(json["audio_output"]["native_closure"].is_null());
+    let mut bytes = Vec::new();
+    render_play(&mut bytes, &result, None, true, false)?;
+    let text = String::from_utf8(bytes)?;
+    assert!(text.contains("Native decoder closure unproven"));
+    assert!(!text.contains("Native group closure observed"));
+    let error = recordings::audio::ExcerptNullError {
+        reason: "short input".into(),
+        completed_decoder: None,
+        operation_failure: Some("short input".into()),
+        decoder_failure: Some("short input".into()),
+        native_failure: None,
+        native_closure: Some(recordings::audio::AudioClosure {
+            mechanism: "fixture-empty-group".into(),
+            peak_memory_bytes: None,
+            cpu_time_us: None,
+        }),
+    };
+    let observed = failed_decode(&error);
+    assert!(observed.decoder.is_none() && observed.native_failure.is_none());
+    assert_eq!(observed.decoder_failure.as_deref(), Some("short input"));
+    assert_eq!(
+        observed.audio_output.ok_or("null proof missing")?["native_closure"]["mechanism"],
+        "fixture-empty-group"
+    );
+    Ok(())
+}
+
 #[cfg(windows)]
 #[test]
 fn output_failure_preserves_completed_decoder_and_observed_native_closure() -> TestResult {
@@ -43,6 +314,8 @@ fn output_failure_preserves_completed_decoder_and_observed_native_closure() -> T
         decoder: failed.decoder,
         decoder_failure: failed.decoder_failure,
         output_failure: failed.output_failure,
+        native_failure: None,
+        operation_failure: None,
         audio_output: failed.audio_output,
         replayed: false,
     };
@@ -98,6 +371,7 @@ fn receipt() -> RetainedReadView {
             file_seek_us: 1_000_000,
             file_duration_us: 10_000_000,
             spec_sha256: "c".repeat(64),
+            excerpt: None,
         },
         state: "failed".into(),
         seek_us: 6_000_000,
@@ -123,7 +397,7 @@ fn parser_preserves_exact_reader_requests_and_generation() -> TestResult {
         "null",
     ])?;
     assert!(matches!(cli.command, crate::Command::Listen {
-        command: super::super::ListenCommand::File { id, seek_us: 6_000_000, request: Some(request), destination }
+        command: super::super::ListenCommand::File { id, seek_us: 6_000_000, end_us: None, request: Some(request), destination }
     } if id == "recording-1" && request == "reader-1" && destination == "null"));
     let cli = crate::Cli::try_parse_from([
         "sigy",
@@ -234,6 +508,8 @@ fn reported_progress_is_unclamped_and_transfer_failure_is_separate() -> TestResu
         }),
         decoder_failure: None,
         output_failure: None,
+        native_failure: None,
+        operation_failure: None,
         audio_output: None,
         replayed: false,
     };
@@ -285,6 +561,8 @@ fn replay_and_recovery_render_no_decoder_success_and_sanitize_plain_text() -> Te
         decoder: None,
         decoder_failure: None,
         output_failure: None,
+        native_failure: None,
+        operation_failure: None,
         audio_output: None,
         replayed: true,
     };

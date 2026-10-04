@@ -27,7 +27,7 @@ These commands build `main` from source; [installation details](docs/install.md)
 ## What you can do
 
 - **Explore world radio.** Search by station name, country name/code, language or tag. Press `C` for an offline country picker or `F` to combine filters, browse stations in name order, save favorites and explore a globe or map. Listen explicitly through the CLI. The country reference has 257 entries and names in eight locales; cached station coverage varies.
-- **Keep a useful record.** Capture streams in the background, schedule recordings across time zones, and retain selected intervals. Recording timelines distinguish audio, gaps and expired material.
+- **Keep a useful record.** Capture streams in the background, schedule recordings across time zones, and retain selected intervals. Replay an explicit excerpt or exact stored finding through the CLI. Recording timelines distinguish audio, gaps and expired material.
 - **Read across languages.** Run experimental local recognition and English translation on retained audio, search originals and translations, and correct a transcript without erasing its history.
 - **Follow a topic with evidence.** Bound a monitor's sources and resources, inspect literal matches, and save cited findings and briefings. Finite tasks can collect, process, freeze their exact evidence and publish cited findings with coverage-aware partial results. [Explicit interest withdrawal](docs/decisions/0079-task-interest-withdrawal.md) preserves shared processing. A general task planner remains ahead. Selected operations are available through the [agent plugin](docs/decisions/0021-agent-plugin.md).
 
@@ -50,7 +50,7 @@ Your library and local processing stay on your machine by default. Paid model di
 
 ## Where it's going
 
-A full-screen, retro-futuristic world listening desk with major-city discovery, retained passage playback and an interactive radio DVR. Original scripts, chosen qualified translations and cited findings connect discovery to understanding. English remains the implemented translation target; other targets are planned for humans and agents. The [roadmap](ROADMAP.md#whats-next) and [near-term briefs](docs/development/near-term-implementation.md) separate delivered increments from remaining work.
+A full-screen, retro-futuristic world listening desk with major-city discovery, integrated terminal playback and an interactive radio DVR. Original scripts, chosen qualified translations and cited findings connect discovery to understanding. English remains the implemented translation target; other targets are planned for humans and agents. The [roadmap](ROADMAP.md#whats-next) and [near-term briefs](docs/development/near-term-implementation.md) separate delivered increments from remaining work.
 
 Later work includes [larger libraries and time-aware knowledge](docs/design/storage-and-memory.md), [receive-only SDR and packet sources](docs/design/recording-metadata.md#receive-only-source-qualification), an optional [learning campaign](docs/design/learning-experiences.md) and a rigorous, playful [Strange Signals Desk](docs/design/strange-signals.md). Capacity, language quality and recovery must be measured before support claims.
 

@@ -136,11 +136,7 @@ async fn run(
     observed_decoder: &mut Option<RetainedPlaybackReport>,
     decoder_failure: &mut Option<String>,
 ) -> Result<(RetainedPlaybackReport, Ready, Report), Failure> {
-    let duration_us = spec
-        .file_duration_us
-        .checked_sub(spec.file_seek_us)
-        .filter(|duration| *duration > 0)
-        .ok_or("invalid audio range")?;
+    let duration_us = spec.playback_duration_us()?;
     let limits = HelperLimits { duration_us }.validate()?;
     let mut command = tokio::process::Command::new(std::env::current_exe()?);
     command

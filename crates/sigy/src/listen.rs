@@ -26,9 +26,25 @@ pub enum ListenCommand {
         /// Timeline offset in microseconds, inside one sealed retained interval.
         #[arg(long, default_value_t = 0)]
         seek_us: u64,
+        /// Exclusive recording-timeline end inside the same sealed interval.
+        #[arg(long)]
+        end_us: Option<u64>,
         /// Exact protected-reader request ID. Reuse inspects its receipt without replaying audio.
         #[arg(long, value_parser = retained::reader_id)]
         request: Option<String>,
+    },
+    /// Explicitly replay one exact stored finding range from current retained media.
+    Finding {
+        /// Monitor ID from monitor list.
+        monitor: String,
+        /// Stored finding ID. Its exact cited revisions stay frozen.
+        finding: String,
+        /// `null` discards samples. `system` uses a local output adapter when available.
+        #[arg(long, default_value = "system", value_parser = ["system", "null"])]
+        destination: String,
+        /// New protected-reader request ID. Exact reuse inspects history without playing audio.
+        #[arg(long, value_parser = retained::reader_id)]
+        request: String,
     },
     /// Listen to one direct audio revision. An episode enclosure has no live edge.
     Source {
@@ -114,6 +130,7 @@ pub async fn execute(
             id,
             destination,
             seek_us,
+            end_us,
             request,
         } => {
             play_file(
@@ -121,10 +138,26 @@ pub async fn execute(
                 id,
                 destination,
                 *seek_us,
+                *end_us,
                 request.as_deref(),
                 json,
             )
             .await
+        }
+        ListenCommand::Finding {
+            monitor,
+            finding,
+            destination,
+            request,
+        } => {
+            let result = retained::play_scoped(
+                directory,
+                retained::Scope::Finding { monitor, finding },
+                PlaybackDestination::parse(destination)?,
+                Some(request),
+            )
+            .await?;
+            retained::write_play(json, &result, None, true)
         }
         ListenCommand::Source {
             id,
@@ -200,11 +233,22 @@ async fn play_file(
     id: &str,
     destination: &str,
     seek_us: u64,
+    end_us: Option<u64>,
     request: Option<&str>,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let destination = PlaybackDestination::parse(destination)?;
-    let result = retained::play(directory, id, destination, seek_us, request).await?;
+    let result = retained::play_scoped(
+        directory,
+        retained::Scope::File {
+            recording: id,
+            seek_us,
+            end_us,
+        },
+        destination,
+        request,
+    )
+    .await?;
     retained::write_play(json, &result, None, true)
 }
 

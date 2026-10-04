@@ -15,12 +15,16 @@ pub(super) struct LiveRetained {
 impl Actor {
     pub(super) fn apply_retained(&mut self, command: RetainedOperation) -> Result<Snapshot> {
         let (id, created) = match command {
-            RetainedOperation::Start {
-                id,
-                recording_id,
-                seek_us,
-            } => {
-                let created = self.start_retained(&id, &recording_id, seek_us)?;
+            command @ (RetainedOperation::Start { .. }
+            | RetainedOperation::StartRange { .. }
+            | RetainedOperation::StartFinding { .. }) => {
+                let id = match &command {
+                    RetainedOperation::Start { id, .. }
+                    | RetainedOperation::StartRange { id, .. }
+                    | RetainedOperation::StartFinding { id, .. } => id.clone(),
+                    _ => return Err(Error::RequestState),
+                };
+                let created = self.start_retained(&id, &command)?;
                 (Some(id), Some(created))
             }
             RetainedOperation::Stop { id, generation } => {
@@ -55,14 +59,40 @@ impl Actor {
         Ok(snapshot)
     }
 
-    fn start_retained(&mut self, id: &str, recording_id: &str, seek_us: u64) -> Result<bool> {
+    fn start_retained(&mut self, id: &str, command: &RetainedOperation) -> Result<bool> {
         let sender = self.sender.upgrade().ok_or(Error::ServiceStopped)?;
-        let (spec, created) = self.library.store_mut().admit_retained_reader(
-            id,
-            recording_id,
-            seek_us,
-            Store::clock_ms()?,
-        )?;
+        let now = Store::clock_ms()?;
+        let (spec, created) = match command {
+            RetainedOperation::Start {
+                recording_id,
+                seek_us,
+                ..
+            } => self
+                .library
+                .store_mut()
+                .admit_retained_reader(id, recording_id, *seek_us, now)?,
+            RetainedOperation::StartRange {
+                recording_id,
+                seek_us,
+                end_us,
+                ..
+            } => self.library.store_mut().admit_retained_range(
+                id,
+                recording_id,
+                *seek_us,
+                *end_us,
+                now,
+            )?,
+            RetainedOperation::StartFinding {
+                monitor_id,
+                finding_id,
+                ..
+            } => self
+                .library
+                .store_mut()
+                .admit_retained_finding(id, monitor_id, finding_id, now)?,
+            _ => return Err(Error::RequestState),
+        };
         if !created {
             return Ok(false);
         }

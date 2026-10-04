@@ -2,6 +2,9 @@
 
 use super::TestResult;
 
+#[path = "audio_fixtures/excerpts.rs"]
+mod excerpts;
+
 const SAMPLE_RATE: u32 = 48_000;
 const SOURCE_FRAMES: u32 = 48_000;
 const FIRST_FRAME: u32 = 6_000;

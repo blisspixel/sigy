@@ -1,9 +1,75 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 
-use super::{Limits, QueryWork, RetainedReadSpec, RetainedReadView, Store, read, validate_key};
+use super::{
+    Limits, QueryWork, RetainedExcerpt, RetainedReadSpec, RetainedReadView, Store, read,
+    validate_key,
+};
 use crate::{Error, Result};
 
+mod finding;
 mod refusal;
+
+#[derive(Clone, Copy)]
+enum Request<'a> {
+    Legacy {
+        recording: &'a str,
+        seek: u64,
+    },
+    Range {
+        recording: &'a str,
+        seek: u64,
+        end: u64,
+    },
+    Finding {
+        monitor: &'a str,
+        finding: &'a str,
+    },
+}
+
+impl Request<'_> {
+    fn validate(&self) -> Result<()> {
+        match self {
+            Self::Legacy { recording, .. } | Self::Range { recording, .. } => {
+                validate_key(recording, "recording ID")
+            }
+            Self::Finding { monitor, finding } => {
+                validate_key(monitor, "monitor ID")?;
+                validate_key(finding, "finding ID")
+            }
+        }
+    }
+
+    fn matches(&self, view: &RetainedReadView) -> bool {
+        match self {
+            Self::Legacy { recording, seek } => {
+                view.spec.excerpt.is_none()
+                    && view.spec.recording_id == *recording
+                    && view.seek_us == *seek
+            }
+            Self::Range {
+                recording,
+                seek,
+                end,
+            } => {
+                view.spec.recording_id == *recording
+                    && view.seek_us == *seek
+                    && view.spec.excerpt.as_ref().is_some_and(|excerpt| {
+                        excerpt.version == 2
+                            && excerpt.timeline_end_us == *end
+                            && excerpt.citation.is_none()
+                    })
+            }
+            Self::Finding { monitor, finding } => view
+                .spec
+                .excerpt
+                .as_ref()
+                .and_then(|excerpt| excerpt.citation.as_ref())
+                .is_some_and(|citation| {
+                    citation.monitor_id == *monitor && citation.finding_id == *finding
+                }),
+        }
+    }
+}
 
 impl Store {
     pub(crate) fn admit_retained_reader(
@@ -13,12 +79,64 @@ impl Store {
         seek_us: u64,
         now_ms: i64,
     ) -> Result<(RetainedReadSpec, bool)> {
+        self.admit_retained_request(
+            id,
+            Request::Legacy {
+                recording: recording_id,
+                seek: seek_us,
+            },
+            now_ms,
+        )
+    }
+
+    pub(crate) fn admit_retained_range(
+        &mut self,
+        id: &str,
+        recording_id: &str,
+        seek_us: u64,
+        end_us: u64,
+        now_ms: i64,
+    ) -> Result<(RetainedReadSpec, bool)> {
+        self.admit_retained_request(
+            id,
+            Request::Range {
+                recording: recording_id,
+                seek: seek_us,
+                end: end_us,
+            },
+            now_ms,
+        )
+    }
+
+    pub(crate) fn admit_retained_finding(
+        &mut self,
+        id: &str,
+        monitor_id: &str,
+        finding_id: &str,
+        now_ms: i64,
+    ) -> Result<(RetainedReadSpec, bool)> {
+        self.admit_retained_request(
+            id,
+            Request::Finding {
+                monitor: monitor_id,
+                finding: finding_id,
+            },
+            now_ms,
+        )
+    }
+
+    fn admit_retained_request(
+        &mut self,
+        id: &str,
+        request: Request<'_>,
+        now_ms: i64,
+    ) -> Result<(RetainedReadSpec, bool)> {
         validate_key(id, "retained reader ID")?;
-        validate_key(recording_id, "recording ID")?;
+        request.validate()?;
         let work = QueryWork::start(&self.connection, Limits::TASK_EVIDENCE)?;
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         if let Some(view) = read::find(&tx, id)? {
-            if view.spec.recording_id != recording_id || view.seek_us != seek_us {
+            if !request.matches(&view) {
                 return Err(Error::IdempotencyConflict);
             }
             read::audit(&tx, &view)?;
@@ -27,11 +145,38 @@ impl Store {
             work.finish()?;
             return Ok((view.spec, false));
         }
-        let seek = i64::try_from(seek_us).map_err(|_| Error::InvalidInput("retained seek"))?;
         if now_ms < 0 {
             return Err(Error::InvalidInput("retained reader clock"));
         }
-        let spec = resolve(&tx, id, recording_id, seek)?;
+        let (spec, seek) = match request {
+            Request::Legacy { recording, seek } => {
+                let seek = signed_seek(seek)?;
+                (resolve(&tx, id, recording, seek)?, seek)
+            }
+            Request::Range {
+                recording,
+                seek,
+                end,
+            } => {
+                let seek = signed_seek(seek)?;
+                (resolve_range(&tx, id, recording, seek, end, None)?, seek)
+            }
+            Request::Finding { monitor, finding } => {
+                let selected = finding::resolve(&tx, monitor, finding)?;
+                let seek = signed_seek(selected.start_us)?;
+                (
+                    resolve_range(
+                        &tx,
+                        id,
+                        &selected.recording_id,
+                        seek,
+                        selected.end_us,
+                        Some(selected.citation),
+                    )?,
+                    seek,
+                )
+            }
+        };
         insert(&tx, &spec, seek, now_ms)?;
         work.check()?;
         tx.commit()?;
@@ -132,6 +277,49 @@ impl Store {
     }
 }
 
+fn signed_seek(seek: u64) -> Result<i64> {
+    i64::try_from(seek).map_err(|_| Error::InvalidInput("retained seek"))
+}
+
+fn resolve_range(
+    connection: &Connection,
+    id: &str,
+    recording_id: &str,
+    seek: i64,
+    end_us: u64,
+    citation: Option<super::RetainedCitation>,
+) -> Result<RetainedReadSpec> {
+    let end = i64::try_from(end_us).map_err(|_| Error::InvalidInput("retained excerpt end"))?;
+    if seek >= end {
+        return Err(Error::InvalidInput(
+            "retained excerpt must have start before end",
+        ));
+    }
+    let mut spec = resolve(connection, id, recording_id, seek)?;
+    if end_us > spec.timeline_end_us {
+        return Err(Error::InvalidInput(
+            "retained excerpt must fit one sealed interval",
+        ));
+    }
+    let gapped: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM recording_gaps WHERE recording_id=?1 AND start_us<?3 AND end_us>?2)",
+        params![recording_id, seek, end], |row| row.get(0),
+    )?;
+    if gapped {
+        return Err(Error::InvalidInput(
+            "retained excerpt overlaps a recording gap",
+        ));
+    }
+    spec.excerpt = Some(RetainedExcerpt {
+        version: 2,
+        timeline_end_us: end_us,
+        citation,
+    });
+    spec.playback_duration_us()?;
+    spec.spec_sha256 = spec.digest()?;
+    Ok(spec)
+}
+
 fn resolve(
     connection: &Connection,
     id: &str,
@@ -163,6 +351,7 @@ fn resolve(
             .ok_or(Error::StorageIntegrity)?,
         file_duration_us: end.checked_sub(start).ok_or(Error::StorageIntegrity)?,
         spec_sha256: String::new(),
+        excerpt: None,
     };
     if spec.bytes == 0 || spec.bytes > super::MAX_RETAINED_READ_BYTES || rows.next()?.is_some() {
         return Err(Error::StorageIntegrity);
@@ -180,6 +369,8 @@ pub(super) fn insert(
     seek: i64,
     now_ms: i64,
 ) -> Result<()> {
-    connection.execute("INSERT INTO retained_readers(id,recording_id,seek_us,generation,source_revision,ordinal,object_key,sha256,format,bytes,timeline_start_us,timeline_end_us,file_seek_us,file_duration_us,spec_sha256,state,admitted_ms,updated_ms) VALUES(?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,'running',?15,?15)", params![s.request_id,s.recording_id,seek,s.source_revision,s.ordinal,s.object_key,s.sha256,s.format,read::signed(s.bytes)?,read::signed(s.timeline_start_us)?,read::signed(s.timeline_end_us)?,read::signed(s.file_seek_us)?,read::signed(s.file_duration_us)?,s.spec_sha256,now_ms])?;
+    let excerpt = s.excerpt.as_ref();
+    let citation = excerpt.and_then(|excerpt| excerpt.citation.as_ref());
+    connection.execute("INSERT INTO retained_readers(id,recording_id,seek_us,generation,source_revision,ordinal,object_key,sha256,format,bytes,timeline_start_us,timeline_end_us,file_seek_us,file_duration_us,spec_sha256,state,admitted_ms,updated_ms,excerpt_version,excerpt_end_us,citation_monitor,citation_finding,citation_transcript,citation_transcript_revision,citation_translation_revision,citation_cue_ordinal) VALUES(?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,'running',?15,?15,?16,?17,?18,?19,?20,?21,?22,?23)", params![s.request_id,s.recording_id,seek,s.source_revision,s.ordinal,s.object_key,s.sha256,s.format,read::signed(s.bytes)?,read::signed(s.timeline_start_us)?,read::signed(s.timeline_end_us)?,read::signed(s.file_seek_us)?,read::signed(s.file_duration_us)?,s.spec_sha256,now_ms,excerpt.map(|value|value.version),excerpt.map(|value|read::signed(value.timeline_end_us)).transpose()?,citation.map(|value|value.monitor_id.as_str()),citation.map(|value|value.finding_id.as_str()),citation.map(|value|value.transcript_id.as_str()),citation.map(|value|value.transcript_revision),citation.map(|value|value.translation_revision),citation.map(|value|value.cue_ordinal)])?;
     Ok(())
 }

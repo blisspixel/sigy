@@ -98,6 +98,11 @@ pub async fn play_retained_stream(
     spec: &crate::control::RetainedReadSpec,
     destination: PlaybackDestination,
 ) -> Result<RetainedPlaybackReport> {
+    if spec.excerpt.is_some() {
+        return Err(Error::Acquisition(
+            "explicit excerpts require the checked PCM playback API",
+        ));
+    }
     let input = pipe::connect_listen_pipe(directory, nonce).await?;
     let report = decoder::play_range_reader(
         executable,

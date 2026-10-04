@@ -184,6 +184,10 @@ fn record_missing(command: &RecordCommand) -> (String, &'static str) {
 
 fn listen_missing(command: &ListenCommand) -> (String, &'static str) {
     match command {
+        ListenCommand::Finding { .. } => (
+            "that monitor or finding was not found".into(),
+            "monitor list",
+        ),
         ListenCommand::Reader { .. } => (
             "that retained reader was not found".into(),
             "listen reader list",

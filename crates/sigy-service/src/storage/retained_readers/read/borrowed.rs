@@ -3,6 +3,7 @@
 use rusqlite::{Row, types::ValueRef};
 use sha2::Digest;
 
+use super::super::excerpt::{BorrowedCitation, BorrowedExcerpt};
 use crate::{Error, Result};
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -16,6 +17,7 @@ pub(super) struct Stored<'a> {
     pub updated_ms: i64,
     pub completion_reason: Option<&'a str>,
     pub recovery_reason: Option<&'a str>,
+    pub excerpt: Option<BorrowedExcerpt<'a>>,
 }
 
 pub(super) fn inspect<'a>(row: &'a Row<'_>) -> Result<Stored<'a>> {
@@ -44,9 +46,41 @@ pub(super) fn inspect<'a>(row: &'a Row<'_>) -> Result<Stored<'a>> {
         updated_ms: row.get(17)?,
         completion_reason: optional(row, 18)?,
         recovery_reason: optional(row, 19)?,
+        excerpt: excerpt(row)?,
     };
     validate(&value)?;
     Ok(value)
+}
+
+fn excerpt<'a>(row: &'a Row<'_>) -> Result<Option<BorrowedExcerpt<'a>>> {
+    if matches!(row.get_ref(20)?, ValueRef::Null) {
+        if !(21..=27).all(|index| matches!(row.get_ref(index), Ok(ValueRef::Null))) {
+            return Err(Error::StorageIntegrity);
+        }
+        return Ok(None);
+    }
+    let version = u32::try_from(super::number(row, 20)?).map_err(|_| Error::StorageIntegrity)?;
+    let citation = if matches!(row.get_ref(22)?, ValueRef::Null) {
+        if !(23..=27).all(|index| matches!(row.get_ref(index), Ok(ValueRef::Null))) {
+            return Err(Error::StorageIntegrity);
+        }
+        None
+    } else {
+        Some(BorrowedCitation {
+            monitor_id: text(row, 22, 128)?,
+            finding_id: text(row, 23, 128)?,
+            transcript_id: text(row, 24, 128)?,
+            transcript_revision: row.get(25)?,
+            translation_revision: row.get(26)?,
+            cue_ordinal: u32::try_from(super::number(row, 27)?)
+                .map_err(|_| Error::StorageIntegrity)?,
+        })
+    };
+    Ok(Some(BorrowedExcerpt {
+        version,
+        timeline_end_us: super::number(row, 21)?,
+        citation,
+    }))
 }
 
 pub(super) fn text<'a>(row: &'a Row<'_>, index: usize, maximum: usize) -> Result<&'a str> {
@@ -122,9 +156,10 @@ fn validate(value: &Stored<'_>) -> Result<()> {
         return Err(Error::StorageIntegrity);
     }
     reasons(value)?;
-    let digest = super::super::spec_digest(
+    let digest = super::super::excerpt::digest(
         [id, recording, source, object, checksum, format],
         [generation, ordinal, bytes, start, end, seek, duration],
+        value.excerpt,
     )?
     .finalize();
     if !digest.iter().enumerate().all(|(index, byte)| {
