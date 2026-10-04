@@ -1,11 +1,57 @@
+& {
+$previousLocation = Get-Location
+$previousEnvironment = @{}
+foreach ($name in @('Path','SIGY_GIT_COMMIT','GIT_TERMINAL_PROMPT','CARGO_HOME','CARGO_INSTALL_ROOT')) {
+    $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+}
+$installLock = $null
+try {
 # Install sigy from https://github.com/blisspixel/sigy. This is not cargo verify.
 $ErrorActionPreference = "Stop"
 if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
     $PSNativeCommandUseErrorActionPreference = $false
 }
 $env:GIT_TERMINAL_PROMPT = "0"
+foreach ($name in @('CARGO_HOME','CARGO_INSTALL_ROOT')) {
+    $value = [Environment]::GetEnvironmentVariable($name, 'Process')
+    if ($value) {
+        [Environment]::SetEnvironmentVariable($name,
+            [IO.Path]::GetFullPath([IO.Path]::Combine($previousLocation.ProviderPath, $value)), 'Process')
+    }
+}
 
 $repo = "https://github.com/blisspixel/sigy.git"
+$metadata = Join-Path $env:USERPROFILE ".sigy"
+[void][IO.Directory]::CreateDirectory($metadata)
+try { $installLock = [IO.File]::Open((Join-Path $metadata "install.lock"), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+catch { throw "Another Sigy installation is active, or its lock cannot be opened." }
+
+# Fence any previous asynchronous handoff while this installer owns the shared lock.
+$updateStatus = Join-Path $metadata 'update-status.json'
+if (Test-Path -LiteralPath $updateStatus) {
+    $receiptStream = [IO.File]::OpenRead($updateStatus)
+    try {
+        $receiptBytes = New-Object byte[] 8193
+        $receiptLength = 0
+        while ($receiptLength -lt $receiptBytes.Length) {
+            $count = $receiptStream.Read($receiptBytes, $receiptLength, $receiptBytes.Length - $receiptLength)
+            if ($count -eq 0) { break }
+            $receiptLength += $count
+        }
+        if ($receiptLength -gt 8192) { throw 'Update receipt exceeds its byte bound.' }
+        $receipt = ([Text.UTF8Encoding]::new($false, $true).GetString($receiptBytes, 0, $receiptLength) | ConvertFrom-Json)
+    } finally { $receiptStream.Dispose() }
+    if ($receipt.protocol -ne 1 -or $receipt.operation -cnotmatch '^[0-9]+-[0-9]+$' -or $receipt.commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Cannot safely fence an invalid update receipt.' }
+    if ($receipt.state -in @('pending','running')) {
+        $receipt.state = 'failed'
+        $receipt.reason = 'installer-superseded'
+        $fencedBytes = [Text.UTF8Encoding]::new($false).GetBytes(($receipt | ConvertTo-Json -Compress))
+        if ($fencedBytes.Length -gt 8192) { throw 'Fenced update receipt exceeds its byte bound.' }
+        $fencedPath = $updateStatus + '.installer.tmp'
+        [IO.File]::WriteAllBytes($fencedPath, $fencedBytes)
+        [IO.File]::Replace($fencedPath, $updateStatus, [System.Management.Automation.Language.NullString]::Value)
+    }
+}
 
 function Invoke-SigyGit {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$GitArgs)
@@ -86,7 +132,8 @@ if ($fromGitHub) {
 
 Set-Location -LiteralPath $root
 
-$cargoHome = Join-Path $env:USERPROFILE ".cargo\bin"
+$cargoRoot = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+$cargoHome = Join-Path $cargoRoot "bin"
 if (Test-Path -LiteralPath (Join-Path $cargoHome "cargo.exe")) {
     $env:Path = "$cargoHome;$env:Path"
 }
@@ -120,6 +167,17 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ($commit) {
+    $afterCommit = & git -C $root -c core.abbrev=40 rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]$afterCommit -cne $commit) {
+        throw "Source commit changed during installation; installation identity is unproven."
+    }
+    $afterChanges = & git -C $root status --porcelain=v1 --untracked-files=all
+    if ($LASTEXITCODE -ne 0 -or $afterChanges) {
+        throw "Source changed during installation; installation identity is unproven."
+    }
+}
+
+if ($commit) {
     $meta = Join-Path $env:USERPROFILE ".sigy"
     [void][System.IO.Directory]::CreateDirectory($meta)
     Set-Content -LiteralPath (Join-Path $meta "installed-commit") -Value $commit
@@ -132,8 +190,18 @@ if ($commit) {
 }
 Write-Host "Check later with: sigy update --check"
 Write-Host "Install a newer main commit with: sigy update"
-Write-Host "Create a private library with: sigy --data-dir PATH_TO_LIBRARY library init"
+Write-Host "Start with: sigy init --radio"
+Write-Host "Open the explorer with: sigy tui"
 $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
 if (-not $ffmpeg) {
     Write-Host "Recording and playback need a trusted FFmpeg. This script does not download it."
+}
+
+} finally {
+    if ($installLock) { $installLock.Dispose() }
+    foreach ($name in $previousEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
+    }
+    Set-Location -LiteralPath $previousLocation.ProviderPath
+}
 }

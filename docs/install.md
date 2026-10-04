@@ -27,7 +27,7 @@ sh -c 's=$(curl --proto =https --tlsv1.2 -fsS https://raw.githubusercontent.com/
 
 Each command downloads the complete installer before executing it and stops on a failed download. The shell command also preserves the installer's exit status. Review the linked scripts to inspect what will run.
 
-After installation, open a new shell and run `sigy --version`. On Windows, type `sigy`; PowerShell resolves the installed `sigy.exe` through `PATH`. If the command is not found, add `$HOME/.cargo/bin` to `PATH`. On Windows the equivalent directory is `$env:USERPROFILE\.cargo\bin`. A failed fetch or build should be resolved before first use; a printed installer message alone is not a version check.
+After installation, open a new shell and run `sigy --version`. PowerShell resolves `sigy.exe` through `PATH`. If the command is not found, add your actual installation root's `bin` directory to `PATH`; the default is `$HOME/.cargo/bin`, or `$env:USERPROFILE\.cargo\bin` on Windows. With a custom root, invoke its `bin/sigy` (`bin/sigy.exe` on Windows) explicitly when checking the version so an older PATH entry cannot select another installation. A failed fetch or build should be resolved before first use; a printed installer message alone is not a version check.
 
 ## Install from a checkout
 
@@ -71,7 +71,7 @@ Before recording, configure the absolute path of a trusted FFmpeg executable. Re
 sigy dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG --quota-gb 50 --retention-days 14
 ```
 
-This sets the default 50 GB and 14-day managed-media limits explicitly. Sigy checks the decoder when recording and does not download it during setup. `--destination null` is the tested playback path; system audio output depends on the installed FFmpeg build. Follow the [command reference](usage.md) for listening, bounded recording, podcasts and monitoring. The [setup contract](decisions/0070-first-use-setup.md) describes defaults and retry behavior.
+This sets the default 50 GB and 14-day managed-media limits explicitly. Sigy checks the decoder when recording and does not download it during setup. Windows retained system playback uses the bounded audio helper described in [the output decision](decisions/0084-bounded-windows-audio-output.md). Decoder completion and estimated presentation remain separate from acoustic audibility; available devices and profiles have limited qualification. Direct live and non-Windows output retain their existing paths. Follow the [command reference](usage.md) for listening, bounded recording, podcasts and monitoring. The [setup contract](decisions/0070-first-use-setup.md) describes defaults and retry behavior.
 
 ## Updating
 
@@ -80,9 +80,18 @@ Allow active recordings to finish, then stop the service and confirm it has exit
 ```text
 sigy update --check
 sigy update
+sigy update --status
 ```
 
-`--check` fetches and checks out the latest public `main` commit in the managed source tree, then compares it with the installed commit without installing. It refuses a managed tree with local changes or a different configured origin. It exits with an error status when no installed commit is recorded or a newer commit is available, so read its report even if a shell shows a nonzero status. `sigy update` builds that commit. On Windows it starts a helper that installs after the current `sigy` process exits; wait for that helper to finish before restarting the service or checking the new version. An update does not migrate an old running service. Restart the service with the new binary after installation. The [usage guide](usage.md#update) describes the command's exact behavior.
+`--check` fetches and checks out the latest public `main` commit in the managed source tree, then compares it with the binary's embedded commit, falling back to the legacy per-user marker if absent. The legacy marker is not proof of a custom installation's identity. The command refuses a managed tree with local changes or a different configured origin. It exits with an error status when no installed commit is recorded or a newer commit is available, so read its report even if a shell shows a nonzero status.
+
+`sigy update` prepares a separate checkout bound to the full fetched commit. On Windows it schedules a hidden helper after the current process exits. The helper reacquires an operating-system-owned installation lock, checks source identity before and after building into a private Cargo root, then replaces the executable with the validated staged artifact. Validation and build refusals leave the previous executable untouched. Replacement failures can leave it under a backup name; inspect the target and retained artifacts before retrying. A failure after replacement can leave the new executable installed with incomplete bookkeeping and is reported separately. Successful publication is recorded only after the published file's hash matches the staged file. Scheduling alone is not successful installation; `--json` reports that distinction. The [publication decision](decisions/0086-source-update-publication.md) records filesystem limits and acceptance evidence.
+
+`sigy update --status` inspects the last bounded local receipt without fetching, building, resolving a library or contacting a service. It cannot be combined with `--check`. Add `--json` for a machine-readable receipt. Pending or running records do not establish helper liveness or completion after a crash. Failure reasons are fixed diagnostic codes rather than raw build logs. After a succeeded receipt, invoke the executable under its recorded `install_root` with `--version` before restarting your service; a bare command can select another installation on PATH. An update does not migrate an old running service.
+
+The scripts honor `CARGO_HOME` and `CARGO_INSTALL_ROOT`, resolving relative paths before changing directories. PowerShell invocation restores its caller's location and temporary environment settings; the shell installer runs in a subshell. Windows updates use an explicit `CARGO_INSTALL_ROOT` when provided, otherwise the running executable's parent installation root when it is under `bin`, then Cargo's home. Cargo configuration-only custom roots are not inferred by the updater. Windows scripts and updates share the operating-system-owned lock, which releases on process death. A direct installer fences a prior pending or running helper under that lock before building; its old receipt records `installer-superseded`, even if the subsequent direct install fails. The old helper cannot later overwrite that installation. Independent POSIX script concurrency is not qualified. Non-Windows updates remain synchronous Cargo installs, with post-build source revalidation, rather than the Windows staged replacement contract.
+
+Prepared work remains under `~/.sigy/update-work` for inspection, with a limit of 16 operation directories. If that limit is reached, inspect the receipt and preserve or remove completed work before retrying. Never delete a workspace while its helper may still be using it. No automatic retry, decoder download or diagnostic upload occurs. The [usage guide](usage.md#update) describes the command's interface.
 
 ## Current limits and help
 

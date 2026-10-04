@@ -6,11 +6,7 @@
 
 ![Sigy's radio explorer with an offline world map and selected station](docs/images/tui.png)
 
-The explorer rendered on 2026-10-02 with one real cached station page. Map positions come from directory metadata; selecting a station does not start playback or recording. [Explore the current controls](docs/usage.md#list-explorer).
-
-Press Enter in Explore or Globe to inspect full cached station context; Escape returns to the same search and selection. Press `i` inside that context to read exact historical registrations and recording metadata. Wider terminals keep results alongside the details. Receiver experiences and an optional playable learning campaign are [planned extensions](docs/design/learning-experiences.md), including modern signal puzzles and historical cases with inspectable evidence.
-
-Retained CLI listening uses a protected service reader, with explicit request replay and inspectable cancellation. Windows system output has a [bounded native output adapter](docs/decisions/0084-bounded-windows-audio-output.md), with decoder, estimated presentation and process closure reported separately. Listening plays one sealed interval and accounts for recording gaps; exact cited excerpts and interactive DVR navigation remain [next increments](docs/development/near-term-implementation.md#dv-01-and-s-07-protected-playback-before-an-interactive-dvr).
+The explorer rendered on 2026-10-04 with one retained real station page. Map positions come from directory metadata; selecting a station does not start playback or recording. [Explore the current controls](docs/usage.md#list-explorer).
 
 ## Install
 
@@ -35,6 +31,10 @@ These commands build `main` from source; [installation details](docs/install.md)
 - **Read across languages.** Run experimental local recognition and English translation on retained audio, search originals and translations, and correct a transcript without erasing its history.
 - **Follow a topic with evidence.** Bound a monitor's sources and resources, inspect literal matches, and save cited findings and briefings. Finite tasks can collect, process, freeze their exact evidence and publish cited findings with coverage-aware partial results. [Explicit interest withdrawal](docs/decisions/0079-task-interest-withdrawal.md) preserves shared processing. A general task planner remains ahead. Selected operations are available through the [agent plugin](docs/decisions/0021-agent-plugin.md).
 
+![Sigy's globe view over retained station metadata](docs/images/globe.png)
+
+The globe uses offline geometry and cached station coordinates. This 2026-10-04 render shows directory observations, not a live coverage survey. Enter inspects a station; `i` reads its exact registrations and recording metadata. Escape restores your search and selection. See [terminal controls and listening](docs/usage.md#list-explorer) and [image provenance](docs/development/interface-images.md).
+
 ## Get started
 
 Create your local library, start the background service and load a first station page:
@@ -50,17 +50,14 @@ Your library and local processing stay on your machine by default. Paid model di
 
 ## Where it's going
 
-A full-screen, retro-futuristic world listening desk: type or select countries and major cities, combine filters, explore linked maps and station lists, and use a radio DVR to revisit retained passages while other sources keep recording. A [focused listening session](docs/design/terminal-experience.md#calm-listening-sessions) lets you settle into one source and explore context at your own pace. Browsing preserves what is playing; recording and analysis have their own controls. Original scripts, chosen qualified translations and cited findings connect discovery to understanding. English remains the default; other targets are planned for humans and agents. The same service contracts should grow from personal machines to larger deployments as capacity and recovery are measured. These are planned capabilities; see the [roadmap](ROADMAP.md#whats-next) for delivery checkpoints and the [engineering plan](docs/development/reliability-and-scale.md) for their acceptance criteria.
+A full-screen, retro-futuristic world listening desk with major-city discovery, retained passage playback and an interactive radio DVR. Original scripts, chosen qualified translations and cited findings connect discovery to understanding. English remains the implemented translation target; other targets are planned for humans and agents. The [roadmap](ROADMAP.md#whats-next) and [near-term briefs](docs/development/near-term-implementation.md) separate delivered increments from remaining work.
 
-The [storage and knowledge plan](docs/design/storage-and-memory.md) adds a measured path for small servers, larger media libraries and future NAS placement, with searchable evidence, time-aware topic context and portable wiki-style exports. Current storage remains one local library; these deployment and memory extensions are planned.
-
-Later, a [Strange Signals Desk](docs/design/strange-signals.md) brings cited claim comparisons, public-archive experiments and a playful, rigorous SETI watch. Observations, competing explanations and unknowns stay inspectable.
-
-Receive-only [SDR and packet-source extensions](docs/design/recording-metadata.md#receive-only-source-qualification) follow typed replay and actual-device qualification. Received samples, derived audio and LoRa messages retain their own context and controls.
+Later work includes [larger libraries and time-aware knowledge](docs/design/storage-and-memory.md), [receive-only SDR and packet sources](docs/design/recording-metadata.md#receive-only-source-qualification), an optional [learning campaign](docs/design/learning-experiences.md) and a rigorous, playful [Strange Signals Desk](docs/design/strange-signals.md). Capacity, language quality and recovery must be measured before support claims.
 
 ## Learn more
 
 - [Installation and updates](docs/install.md) and [command reference](docs/usage.md)
+- [Reproducible terminal screenshot review](docs/development/visual-qa.md)
 - [Current progress and verification evidence](docs/development/progress.md)
 - [Product intent](INTENT.md) and [what comes next](ROADMAP.md#whats-next)
 - [Near-term build briefs](docs/development/near-term-implementation.md) and [workflow invariants](docs/design/workflow-invariants.md)

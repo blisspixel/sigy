@@ -46,7 +46,7 @@ pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
         return;
     }
     if area.height < 16 || area.width < 60 {
-        let sections = compact_sections(model);
+        let sections = compact_sections(model, area.width);
         render_sections(frame, area, &sections, model);
         return;
     }
@@ -85,7 +85,14 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], mode
         {
             model
                 .monitors
-                .lines(usize::from(rect.height))
+                .lines_at_width(
+                    usize::from(rect.height),
+                    usize::from(rect.width).saturating_sub(if section.linear_focus {
+                        FOCUS_PREFIX.len()
+                    } else {
+                        0
+                    }),
+                )
                 .into_iter()
                 .map(Line::from)
                 .collect()
@@ -186,7 +193,7 @@ fn full_sections(model: &Explorer) -> Vec<Section> {
     ]
 }
 
-fn compact_sections(model: &Explorer) -> Vec<Section> {
+fn compact_sections(model: &Explorer, width: u16) -> Vec<Section> {
     vec![
         one(connection_line(model, true), false, model),
         many(search_lines(model), model.focus() == Focus::Search, model),
@@ -201,7 +208,7 @@ fn compact_sections(model: &Explorer) -> Vec<Section> {
             model,
         ),
         one(
-            plain(compact_help(model)),
+            plain(compact_help(model, width)),
             model.focus() == Focus::Help,
             model,
         ),
@@ -214,12 +221,21 @@ fn one(line: Line<'static>, focused: bool, model: &Explorer) -> Section {
     section(Height::Fixed(1), vec![line], focused, model)
 }
 
-fn compact_help(model: &Explorer) -> &'static str {
+fn compact_help(model: &Explorer, width: u16) -> &'static str {
     if editing(model) {
         return if model.restart_required() {
             "Esc then g restart"
         } else {
             "Help: Esc ends edit"
+        };
+    }
+    if width < 40 {
+        return match model.workspace() {
+            Workspace::Findings => "q quit / IDs o media",
+            Workspace::Monitors => "q quit Enter read",
+            Workspace::Recordings | Workspace::Live | Workspace::System => "q quit r reload",
+            Workspace::Explore | Workspace::Globe if model.restart_required() => "q quit g restart",
+            Workspace::Explore | Workspace::Globe => "q quit Enter inspect",
         };
     }
     match model.workspace() {
@@ -655,9 +671,7 @@ fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
             Workspace::Findings => {
                 "Help: / edit IDs, Enter reads, arrows scroll, o recording metadata, q quit"
             }
-            Workspace::Globe => {
-                "Help: h/l/j/k turn, m map, c center, arrows select, n/p page, g first, q quit"
-            }
+            Workspace::Globe => "Help: h/l/j/k turn, m map, c center, n/p page, g first, q quit",
         }
     };
     vec![plain(primary), plain(HELP_SELECTION)]
@@ -856,6 +870,15 @@ impl Columns {
 }
 
 fn empty_explore(model: &Explorer) -> Vec<Line<'static>> {
+    if model
+        .directory()
+        .is_none_or(|directory| directory.maximum_stations == 0)
+    {
+        return vec![
+            plain("Cached station coverage has not been observed."),
+            plain("r retries the local metadata read. No directory refresh is started."),
+        ];
+    }
     let cached = model
         .directory()
         .map_or(0, |directory| directory.cached_stations);
@@ -1116,6 +1139,7 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
 #[cfg(test)]
 mod tests {
     mod linked;
+    mod visual_qa;
     use super::{HELP_PRIMARY, HELP_SELECTION, render};
     use crate::explorer::state::{
         BudgetLine, Coordinates, Desk, DirectoryView, Explorer, Health, Key, Link, Modes,

@@ -142,6 +142,9 @@ enum Command {
         /// Report whether a newer commit exists and do not install it.
         #[arg(long)]
         check: bool,
+        /// Inspect the last recorded update outcome without fetching or building.
+        #[arg(long, conflicts_with = "check")]
+        status: bool,
     },
     /// Open the list explorer. Selection does not start audio, capture, refresh, or a click.
     Tui {
@@ -525,8 +528,8 @@ fn main() -> ExitCode {
     let mut cli = Cli::parse();
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
         init::resolve_directory(&mut cli)?;
-        if let Command::Update { check } = cli.command {
-            return update::run(check, cli.json);
+        if let Command::Update { check, status } = cli.command {
+            return update::run(check, status, cli.json);
         }
         if matches!(cli.command, Command::Mcp) {
             return mcp::serve(library_dir(&cli)?);
@@ -576,8 +579,9 @@ fn main() -> ExitCode {
             } else {
                 writeln!(
                     stderr,
-                    "{} {error}",
-                    style::Ink::stderr().tint(style::Tone::Fail, "sigy:")
+                    "{} {}",
+                    style::Ink::stderr().tint(style::Tone::Fail, "sigy:"),
+                    explorer::text::sanitize(&error.to_string(), 4096)
                 )
             };
             if written.is_err() {

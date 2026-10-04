@@ -650,6 +650,29 @@ impl Explorer {
         dirty
     }
 
+    /// Advance presentation time without changing any stored observation.
+    pub fn tick_clock(&mut self, now_ms: i64) {
+        if self.search.picker.is_some() || self.search.editing_filters() {
+            self.now_ms = now_ms;
+            return;
+        }
+        let observed = self
+            .context
+            .as_ref()
+            .map(|context| context.row.observed_ms)
+            .or_else(|| self.selected().map(|row| row.observed_ms));
+        let changed = self
+            .snapshot_ms
+            .is_some_and(|time| age_label(time, self.now_ms) != age_label(time, now_ms))
+            || observed.is_some_and(|time| age_label(time, self.now_ms) != age_label(time, now_ms))
+            || (self.workspace == Workspace::Globe
+                && self.now_ms.div_euclid(60_000) != now_ms.div_euclid(60_000));
+        self.now_ms = now_ms;
+        if changed {
+            self.draw = Draw::Needed;
+        }
+    }
+
     pub fn apply_desk(&mut self, desk: Desk) {
         if self.context.is_some() {
             return;
@@ -883,14 +906,14 @@ impl Explorer {
                 self.submit_search(PageMove::First)
             }
             Key::Tab => {
-                self.focus = self.focus.cycle(true);
+                self.cycle_focus(true);
                 if self.focus == Focus::Search {
                     self.search.begin(false);
                 }
                 Effect::None
             }
             Key::BackTab => {
-                self.focus = self.focus.cycle(false);
+                self.cycle_focus(false);
                 if self.focus == Focus::Search {
                     self.search.begin(false);
                 }
@@ -939,6 +962,21 @@ impl Explorer {
             Effect::MonitorList
         } else {
             Effect::None
+        }
+    }
+
+    fn cycle_focus(&mut self, forward: bool) {
+        self.focus = self.focus.cycle(forward);
+        if self.focus == Focus::Search
+            && matches!(
+                self.workspace,
+                Workspace::Monitors
+                    | Workspace::Recordings
+                    | Workspace::Findings
+                    | Workspace::System
+            )
+        {
+            self.focus = self.focus.cycle(forward);
         }
     }
 
@@ -1460,6 +1498,34 @@ mod tests {
         }
         assert_eq!(model.handle(Key::Char('q')), Effect::Detach);
         assert_eq!(model.captures_active(), 1);
+    }
+
+    #[test]
+    fn read_only_workspace_tab_navigation_never_enters_station_search() {
+        for workspace in ['3', '4', '5', '6'] {
+            for key in [Key::Tab, Key::BackTab] {
+                let mut model = loaded();
+                model.handle(Key::Char(workspace));
+                let before = model.current_search();
+                for _ in 0..12 {
+                    assert_eq!(model.handle(key.clone()), Effect::None);
+                    assert_ne!(model.focus(), Focus::Search);
+                    assert_eq!(
+                        model.handle(Key::Paste("unrelated station".into())),
+                        Effect::None
+                    );
+                }
+                assert!(!matches!(model.handle(Key::Enter), Effect::Search(_)));
+                assert_eq!(model.current_search(), before);
+            }
+        }
+        let mut model = loaded();
+        for _ in 0..5 {
+            model.handle(Key::Tab);
+        }
+        assert_eq!(model.focus(), Focus::Search);
+        model.handle(Key::Paste("Alpha".into()));
+        assert!(matches!(model.handle(Key::Enter), Effect::Search(_)));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Focused inspection freezes one page observation and permits explicit linked-history reads.
 
 use super::{Effect, Explorer, Key};
-use crate::explorer::context::StationContext;
+use crate::explorer::context::{LinkedPhase, StationContext};
 
 impl Explorer {
     #[cfg(test)]
@@ -56,15 +56,19 @@ impl Explorer {
                     return Effect::None;
                 }
                 let Some(catalog) = context.catalog.clone() else {
+                    context.linked_phase = LinkedPhase::Failed;
                     context.linked_message =
                         "Linked history unavailable: frozen catalog identity missing.".into();
                     return Effect::None;
                 };
                 let Some(generation) = self.context_generation.checked_add(1) else {
+                    context.linked_phase = LinkedPhase::Failed;
+                    context.linked_message = "Linked history unavailable: request generation exhausted. Previous observation kept.".into();
                     return Effect::None;
                 };
                 self.context_generation = generation;
                 context.linked_generation = Some(generation);
+                context.linked_phase = LinkedPhase::Pending;
                 context.linked_message =
                     "Exact linked history request pending; cached observation stays frozen.".into();
                 return Effect::LinkedContext {
@@ -115,6 +119,7 @@ impl Explorer {
                         .any(|recording| recording.source_revision != source.source.revision_id)
             })
         {
+            context.linked_phase = LinkedPhase::Failed;
             context.linked_message =
                 "Linked response identity mismatch; previous observation kept.".into();
             return false;
@@ -123,6 +128,7 @@ impl Explorer {
             "Exact immutable registrations and recording metadata observed. No audio started."
                 .into();
         context.linked = Some(page);
+        context.linked_phase = LinkedPhase::Loaded;
         true
     }
 
@@ -131,6 +137,7 @@ impl Explorer {
             && context.linked_generation == Some(generation)
         {
             context.linked_generation = None;
+            context.linked_phase = LinkedPhase::Failed;
             self.draw = super::Draw::Needed;
             context.linked_message = format!(
                 "Linked history unavailable: {}. Previous observation kept.",

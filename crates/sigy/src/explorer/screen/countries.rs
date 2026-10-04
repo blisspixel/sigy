@@ -97,8 +97,13 @@ fn page_status(picker: &Picker, compact: bool) -> String {
         |page| {
             if compact {
                 return format!(
-                    "{} choices {} {}",
+                    "{} {} {} {}",
                     page.total_candidates,
+                    if page.total_candidates == 1 {
+                        "choice"
+                    } else {
+                        "choices"
+                    },
                     page.display_locale,
                     if page.next_after.is_some() {
                         "more"
@@ -108,8 +113,13 @@ fn page_status(picker: &Picker, compact: bool) -> String {
                 );
             }
             format!(
-                "{} candidates | {} | {}",
+                "{} {} | {} | {}",
                 page.total_candidates,
+                if page.total_candidates == 1 {
+                    "candidate"
+                } else {
+                    "candidates"
+                },
                 page.display_locale,
                 if page.next_after.is_some() {
                     "more >"
@@ -126,6 +136,36 @@ mod tests {
     use super::*;
     use crate::explorer::state::Key;
     use ratatui::{Terminal, backend::TestBackend};
+
+    #[test]
+    fn single_country_choice_uses_singular_and_fits_compact_cells()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let picker = Picker::new("日本".into());
+        assert_eq!(page_status(&picker, true), "1 choice en end");
+        let mut terminal = Terminal::new(TestBackend::new(20, 8))?;
+        terminal.draw(|frame| render(frame, frame.area(), &picker))?;
+        let text = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect::<String>();
+        assert!(text.contains("1 choice en end"));
+        assert!(!text.contains("1 choices"));
+        let mut terminal = Terminal::new(TestBackend::new(80, 24))?;
+        terminal.draw(|frame| render(frame, frame.area(), &picker))?;
+        let text = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect::<String>();
+        assert!(text.contains("1 candidate | en | last page"));
+        assert!(!text.contains("1 candidates"));
+        Ok(())
+    }
 
     #[test]
     fn country_picker_fits_wide_and_compact_without_station_cache()

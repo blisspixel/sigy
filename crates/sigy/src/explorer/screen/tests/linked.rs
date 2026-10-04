@@ -26,6 +26,89 @@ fn scroll_text(model: &mut Explorer, width: u16, height: u16) -> String {
     seen
 }
 
+fn assert_compact_phase(model: &Explorer, phase: &str) {
+    let text = frame(model, 20, 8).0;
+    assert!(text.contains(phase), "{text}");
+    assert!(text.contains("Esc back q quit") && text.contains("i links Up/Down"));
+    let id = model.selected().map_or("", |row| row.id.as_str());
+    assert!(!id.is_empty() && text.replace('\n', "").contains(id));
+    assert!(
+        text.lines()
+            .all(|line| ratatui::text::Line::raw(line).width() <= 20)
+    );
+}
+
+#[test]
+fn compact_linked_feedback_follows_real_request_adoption_failure_and_fencing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut model = sample();
+    let catalog = DirectoryCatalog {
+        namespace: "a".repeat(32),
+        revision: 5,
+        comparison: sigy_service::discovery::ordered::COMPARISON.into(),
+    };
+    let mut desk = sample_desk_from(&model);
+    desk.catalog = Some(catalog.clone());
+    model.apply_desk(desk);
+    model.handle(Key::Enter);
+    assert_compact_phase(&model, "links unread");
+    let crate::explorer::state::Effect::LinkedContext { generation, id, .. } =
+        model.handle(Key::Char('i'))
+    else {
+        return Err("linked request".into());
+    };
+    assert_compact_phase(&model, "links pending");
+    model.take_dirty();
+    assert!(!model.apply_linked_context(
+        generation + 1,
+        &id,
+        &catalog,
+        observed_page(&id, &catalog)?
+    ));
+    assert!(!model.take_dirty());
+    assert_compact_phase(&model, "links pending");
+    assert!(model.apply_linked_context(generation, &id, &catalog, observed_page(&id, &catalog)?));
+    assert_compact_phase(&model, "links loaded");
+    let previous = model
+        .context
+        .as_ref()
+        .and_then(|context| context.linked.clone());
+    let crate::explorer::state::Effect::LinkedContext { generation, .. } =
+        model.handle(Key::Char('i'))
+    else {
+        return Err("repeat request".into());
+    };
+    assert_compact_phase(&model, "links pending");
+    model.fail_linked_context(generation + 1, "stale failure");
+    assert_compact_phase(&model, "links pending");
+    model.fail_linked_context(generation, "synthetic read refused");
+    assert_compact_phase(&model, "links failed");
+    assert_eq!(
+        model
+            .context
+            .as_ref()
+            .and_then(|context| context.linked.clone()),
+        previous
+    );
+    let crate::explorer::state::Effect::LinkedContext { generation, .. } =
+        model.handle(Key::Char('i'))
+    else {
+        return Err("third request".into());
+    };
+    let mut invalid = observed_page(&id, &catalog)?;
+    invalid.station_id = "00000000-0000-4000-8000-000000000099".into();
+    assert!(!model.apply_linked_context(generation, &id, &catalog, invalid));
+    assert_compact_phase(&model, "links failed");
+    assert_eq!(
+        model
+            .context
+            .as_ref()
+            .and_then(|context| context.linked.clone()),
+        previous
+    );
+    Ok(())
+}
+
 #[test]
 fn linked_replies_request_redraw_after_consumed_dirty_state_and_stale_replies_are_inert()
 -> Result<(), Box<dyn std::error::Error>> {

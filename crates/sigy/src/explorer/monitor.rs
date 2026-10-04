@@ -1,11 +1,12 @@
 //! Bounded, read-only monitor navigation and evidence summaries.
 
 use sigy_service::monitor::{MonitorCoverage, MonitorMatches, MonitorView};
+use std::cell::Cell;
 
 use super::{state::Effect, text::sanitize};
 
 #[cfg(test)]
-pub(super) use tests::fixture;
+pub(super) use tests::{fixture, passage_fixture};
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Browser {
@@ -16,6 +17,7 @@ pub struct Browser {
     offset: usize,
     showing_detail: bool,
     observed_ms: Option<i64>,
+    viewport_width: Cell<usize>,
 }
 
 impl Browser {
@@ -40,7 +42,8 @@ impl Browser {
 
     pub fn move_selection(&mut self, forward: bool) {
         let (position, length) = if self.showing_detail {
-            (&mut self.offset, self.detail.len())
+            let length = self.wrapped_detail().len();
+            (&mut self.offset, length)
         } else {
             (&mut self.selected, self.ids.len())
         };
@@ -112,13 +115,9 @@ impl Browser {
 
     pub fn lines(&self, limit: usize) -> Vec<String> {
         if self.showing_detail {
-            return self
-                .detail
-                .iter()
-                .skip(self.offset)
-                .take(limit)
-                .cloned()
-                .collect();
+            let rows = self.wrapped_detail();
+            let offset = self.offset.min(rows.len().saturating_sub(1));
+            return rows.into_iter().skip(offset).take(limit).collect();
         }
         let mut lines =
             vec!["Monitors: arrows select, Enter reads, r reloads. Classification off.".into()];
@@ -141,6 +140,19 @@ impl Browser {
                 }),
         );
         lines
+    }
+
+    pub fn lines_at_width(&self, limit: usize, width: usize) -> Vec<String> {
+        self.viewport_width.set(width.max(2));
+        self.lines(limit)
+    }
+
+    fn wrapped_detail(&self) -> Vec<String> {
+        let width = self.viewport_width.get();
+        crate::explorer::context::wrap(
+            self.detail.clone(),
+            if width == 0 { usize::MAX } else { width },
+        )
     }
 }
 
@@ -284,7 +296,10 @@ fn append_passages(lines: &mut Vec<String>, matches: &MonitorMatches) {
             sanitize(&passage.field, 16),
             sanitize(&passage.term, 64)
         ));
-        lines.push(format!("  Original: {}", sanitize(&passage.original, 160)));
+        lines.push(format!(
+            "  Original: {}",
+            passage_preview(&passage.original)
+        ));
         lines.push(format!(
             "  English r{}: {}",
             passage
@@ -293,14 +308,68 @@ fn append_passages(lines: &mut Vec<String>, matches: &MonitorMatches) {
             passage
                 .english
                 .as_deref()
-                .map_or_else(|| "not available".into(), |text| sanitize(text, 160))
+                .map_or_else(|| "not available".into(), passage_preview)
         ));
     }
+}
+
+/// Display a bounded preview without splitting an original grapheme.
+fn passage_preview(value: &str) -> String {
+    let clean = sanitize(value, 4096);
+    let line = ratatui::text::Line::raw(clean);
+    let mut output = String::new();
+    let mut characters = 0;
+    for grapheme in line.styled_graphemes(ratatui::style::Style::default()) {
+        let next = grapheme.symbol.chars().count();
+        if characters + next > 160 {
+            output.push_str(" [preview clipped; inspect the stored cue]");
+            return output;
+        }
+        output.push_str(grapheme.symbol);
+        characters += next;
+    }
+    output
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn passage_previews_mark_cuts_and_preserve_whole_graphemes() {
+        assert_eq!(passage_preview(&"a".repeat(160)), "a".repeat(160));
+        assert_eq!(
+            passage_preview(&format!("{}e\u{301}", "a".repeat(158))),
+            format!("{}e\u{301}", "a".repeat(158))
+        );
+        assert_eq!(
+            passage_preview(&format!("{}e\u{301}X", "a".repeat(159))),
+            format!(
+                "{} [preview clipped; inspect the stored cue]",
+                "a".repeat(159)
+            )
+        );
+        assert_eq!(passage_preview("東京\u{1b}[31m"), "東京[31m");
+    }
+
+    #[test]
+    fn wrapped_passage_suffix_and_original_graphemes_are_reachable_after_resize() {
+        let text = passage_text();
+        let mut browser = passage_fixture();
+        let rows = browser.lines_at_width(200, 20);
+        assert!(rows.concat().contains(&text));
+        assert!(
+            rows.iter()
+                .all(|row| ratatui::text::Line::raw(row.as_str()).width() <= 20)
+        );
+        let mut seen = String::new();
+        for _ in 0..rows.len() {
+            seen.push_str(&browser.lines_at_width(1, 20).concat());
+            browser.move_selection(true);
+        }
+        assert!(seen.contains("東京Cafe\u{301} FINAL-SUFFIX"));
+        assert!(!browser.lines_at_width(1, 132).is_empty());
+    }
     use sigy_service::monitor::{
         MonitorCaptureUsage, MonitorProcessing, MonitorSpec, MonitorTerm, MonitorVersion,
         PassageMatch, SourceCoverage,
@@ -340,6 +409,18 @@ mod tests {
     }
 
     pub(crate) fn fixture() -> Browser {
+        fixture_with_original("تقارير عن سد\u{1b}[31m".into())
+    }
+
+    fn passage_text() -> String {
+        format!("{}東京Cafe\u{301} FINAL-SUFFIX", "prefix ".repeat(17))
+    }
+
+    pub(crate) fn passage_fixture() -> Browser {
+        fixture_with_original(passage_text())
+    }
+
+    fn fixture_with_original(original: String) -> Browser {
         let monitor = monitor();
         let coverage = MonitorCoverage {
             id: "news".into(),
@@ -379,7 +460,7 @@ mod tests {
                 term_language: "ar".into(),
                 term: "سد".into(),
                 field: "original".into(),
-                original: "تقارير عن سد\u{1b}[31m".into(),
+                original,
                 translation_revision: Some(1),
                 english: Some("Reports about a dam".into()),
             }],

@@ -42,7 +42,15 @@ fn run_loop(
         }
         return Ok(());
     }
+    let mut clock_tick = std::time::Instant::now();
     loop {
+        if clock_tick.elapsed() >= Duration::from_secs(1) {
+            model.tick_clock(super::now_ms()?);
+            clock_tick = std::time::Instant::now();
+            if model.take_dirty() {
+                session.draw(model)?;
+            }
+        }
         let Some(key) = session.poll(Duration::from_millis(250))? else {
             continue;
         };
@@ -50,13 +58,36 @@ fn run_loop(
         if matches!(effect, Effect::Detach) {
             return Ok(());
         }
-        if !client::operations_for(&effect, model).is_empty() {
-            runtime.block_on(client::perform(directory, model, &effect))?;
-        }
-        if model.take_dirty() {
-            session.draw(model)?;
-        }
+        dispatch_effect(
+            model,
+            &effect,
+            |model| session.draw(model).map(|_| ()).map_err(Into::into),
+            |model, effect| {
+                runtime
+                    .block_on(client::perform(directory, model, effect))
+                    .map_err(Into::into)
+            },
+        )?;
     }
+}
+
+/// Paint intent before a synchronous read, then paint its adopted outcome.
+fn dispatch_effect(
+    model: &mut Explorer,
+    effect: &Effect,
+    mut draw: impl FnMut(&Explorer) -> Result<(), Box<dyn std::error::Error>>,
+    perform: impl FnOnce(&mut Explorer, &Effect) -> Result<(), Box<dyn std::error::Error>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if model.take_dirty() {
+        draw(model)?;
+    }
+    if !client::operations_for(effect, model).is_empty() {
+        perform(model, effect)?;
+    }
+    if model.take_dirty() {
+        draw(model)?;
+    }
+    Ok(())
 }
 
 fn frame_has_labels(text: &str) -> bool {
@@ -229,4 +260,45 @@ fn csi_mode(enable: bool, code: DecPrivateModeCode) -> Csi {
     } else {
         Mode::ResetDecPrivateMode(mode)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::explorer::state::{Link, Modes};
+
+    #[test]
+    fn production_dispatch_draws_intent_before_read_and_outcome_after()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut model = Explorer::new(
+            Modes {
+                reduced_motion: true,
+                linear: false,
+                monochrome: true,
+            },
+            0,
+        );
+        model.note_link(Link::LocalCatalog);
+        model.handle(Key::Char('/'));
+        model.handle(Key::Paste("Tokyo".into()));
+        let effect = model.handle(Key::Enter);
+        let trace = std::cell::RefCell::new(Vec::new());
+        dispatch_effect(
+            &mut model,
+            &effect,
+            |_| {
+                trace.borrow_mut().push("draw");
+                Ok(())
+            },
+            |model, _| {
+                assert_eq!(*trace.borrow(), ["draw"]);
+                trace.borrow_mut().push("read");
+                model.note_message("Read refused; previous observation kept.");
+                Ok(())
+            },
+        )?;
+        assert_eq!(*trace.borrow(), ["draw", "read", "draw"]);
+        assert!(!model.take_dirty());
+        Ok(())
+    }
 }

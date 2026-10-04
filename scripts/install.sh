@@ -1,6 +1,16 @@
 #!/bin/sh
 # Install sigy from https://github.com/blisspixel/sigy. This is not cargo verify.
+(
 set -eu
+starting_directory=$(pwd)
+if [ -n "${CARGO_HOME:-}" ]; then
+    case "$CARGO_HOME" in /*) ;; *) CARGO_HOME="$starting_directory/$CARGO_HOME";; esac
+    export CARGO_HOME
+fi
+if [ -n "${CARGO_INSTALL_ROOT:-}" ]; then
+    case "$CARGO_INSTALL_ROOT" in /*) ;; *) CARGO_INSTALL_ROOT="$starting_directory/$CARGO_INSTALL_ROOT";; esac
+    export CARGO_INSTALL_ROOT
+fi
 
 repo=https://github.com/blisspixel/sigy.git
 export GIT_TERMINAL_PROMPT=0
@@ -77,8 +87,9 @@ fi
 
 cd "$root"
 
-if [ -x "$HOME/.cargo/bin/cargo" ]; then
-    PATH="$HOME/.cargo/bin:$PATH"
+cargo_home=${CARGO_HOME:-$HOME/.cargo}
+if [ -x "$cargo_home/bin/cargo" ]; then
+    PATH="$cargo_home/bin:$PATH"
     export PATH
 fi
 
@@ -93,7 +104,7 @@ if ! command -v cargo >/dev/null 2>&1; then
     sh "$installer" -y --default-toolchain 1.98.1 --profile minimal
     rm -f "$installer"
     # shellcheck disable=SC1091
-    . "$HOME/.cargo/env"
+    . "$cargo_home/env"
 fi
 
 unset SIGY_GIT_COMMIT
@@ -108,6 +119,14 @@ if git -C "$root" -c core.abbrev=40 rev-parse HEAD >/dev/null 2>&1; then
 fi
 
 cargo install --path crates/sigy --locked --force
+if [ -n "$commit" ]; then
+    after_commit=$(git -C "$root" -c core.abbrev=40 rev-parse HEAD)
+    after_changes=$(git -C "$root" status --porcelain=v1 --untracked-files=all)
+    if [ "$after_commit" != "$commit" ] || [ -n "$after_changes" ]; then
+        echo "Source changed during installation; installation identity is unproven." >&2
+        exit 1
+    fi
+fi
 
 if [ -n "$commit" ]; then
     mkdir -p "$HOME/.sigy"
@@ -120,7 +139,9 @@ else
 fi
 echo "Check later with: sigy update --check"
 echo "Install a newer main commit with: sigy update"
-echo "Create a private library with: sigy --data-dir PATH_TO_LIBRARY library init"
+echo "Start with: sigy init --radio"
+echo "Open the explorer with: sigy tui"
 if ! command -v ffmpeg >/dev/null 2>&1; then
     echo "Recording and playback need a trusted FFmpeg. This script does not download it."
 fi
+)

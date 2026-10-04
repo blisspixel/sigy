@@ -251,6 +251,9 @@ async fn read_monitor(directory: &Path, model: &mut Explorer, id: &str) -> Resul
 }
 
 async fn reload(directory: &Path, model: &mut Explorer) -> Result<(), Error> {
+    if let Ok(now) = super::now_ms() {
+        model.tick_clock(now);
+    }
     match Box::pin(load_desk(
         directory,
         &model.current_search(),

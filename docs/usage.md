@@ -22,9 +22,12 @@ sigy tui
 ```text
 sigy update --check
 sigy update
+sigy update --status
 ```
 
-`sigy update` fetches `main` from <https://github.com/blisspixel/sigy> and installs that commit with Cargo. When GitHub CLI is logged in, Git uses that login. `--check` fetches and checks out the managed source tree, then reports the binary's embedded commit, or a legacy installed marker, and that tip without installing. It refuses a dirty or different-origin managed checkout and exits with an error when no commit is recorded or a newer commit is available. The command does not select a library, contact a station, or run `cargo verify`. On Windows the install finishes after this process exits, because Windows cannot replace the running executable. Let active recordings finish, then stop the service before that replacement.
+`sigy update` fetches `main` from <https://github.com/blisspixel/sigy> and prepares a separate checkout of that exact full commit for Cargo. When GitHub CLI is logged in, Git uses that login. `--check` fetches and checks out the managed source tree, then compares the binary's embedded commit, or a legacy installed marker, with that tip without installing. It refuses a dirty or different-origin managed checkout and exits with an error when no commit is recorded or a newer commit is available.
+
+On Windows, a hidden helper builds into a private root after this process exits, revalidates source and replaces the executable under the shared installation lock. Scheduling is not installation success. `sigy update --status` inspects the last bounded local receipt; add `--json` for structured output. It performs no fetch or build, and pending/running records do not establish helper liveness. `--status` conflicts with `--check`. Non-Windows installation remains synchronous. Let active recordings finish, then stop the service with its existing binary before replacement. See [installation and updates](install.md#updating) for failure handling and custom paths, and the [publication contract](decisions/0086-source-update-publication.md) for exact boundaries. Updates do not select a library or run `cargo verify`.
 
 ## Doctor
 

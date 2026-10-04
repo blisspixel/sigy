@@ -27,7 +27,15 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
     ])
     .split(area);
     let title = if narrow {
-        ratatui::text::Line::from(paint(color_on(model), Tone::Accent, "Sigy | Inspect"))
+        ratatui::text::Line::from(paint(
+            color_on(model),
+            Tone::Accent,
+            if model.restart_required() {
+                "Sigy | changed"
+            } else {
+                "Sigy | Inspect"
+            },
+        ))
     } else {
         connection_line(model, true)
     };
@@ -53,13 +61,18 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
     } else {
         "snapshot"
     };
-    frame.render_widget(
-        Paragraph::new(format!(
-            "{state} | cache {revision} | page {}",
-            model.page_number()
-        )),
-        sections[2],
-    );
+    let status = if narrow {
+        let phase = match context.linked_phase {
+            crate::explorer::context::LinkedPhase::Idle => "links unread",
+            crate::explorer::context::LinkedPhase::Pending => "links pending",
+            crate::explorer::context::LinkedPhase::Loaded => "links loaded",
+            crate::explorer::context::LinkedPhase::Failed => "links failed",
+        };
+        super::clip(&format!("{phase} | c{revision}"), usize::from(area.width))
+    } else {
+        format!("{state} | cache {revision} | page {}", model.page_number())
+    };
+    frame.render_widget(Paragraph::new(status), sections[2]);
     if !narrow {
         frame.render_widget(
             Paragraph::new(super::filters::summary(&model.search.applied)),
@@ -100,7 +113,9 @@ fn footer(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
     let Some(context) = &model.context else {
         return;
     };
-    let help = if area.width < 60 {
+    let help = if area.width < 26 {
+        "Esc back q quit\ni links Up/Down".into()
+    } else if area.width < 60 {
         format!("Esc back q quit i links\nUp/Down {}", context.position())
     } else if model.restart_required() {
         format!(

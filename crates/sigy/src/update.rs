@@ -11,6 +11,20 @@ use std::{
 const REPOSITORY: &str = "https://github.com/blisspixel/sigy.git";
 const BUILT_FROM: Option<&str> = option_env!("SIGY_GIT_COMMIT");
 
+mod lock;
+mod receipt;
+mod windows;
+
+#[cfg(all(test, windows))]
+mod test_child;
+
+fn is_full_commit(value: &str) -> bool {
+    value.len() == 40
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UpdatePlan {
     Current,
@@ -45,10 +59,14 @@ fn home_dir() -> Result<PathBuf, &'static str> {
 }
 
 fn source_dir() -> Result<PathBuf, &'static str> {
-    if let Some(path) = env::var_os("SIGY_SRC") {
-        return Ok(PathBuf::from(path));
+    if let Some(path) = source_override(env::var_os("SIGY_SRC")) {
+        return Ok(path);
     }
     Ok(home_dir()?.join(".sigy").join("src"))
+}
+
+fn source_override(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    value.filter(|path| !path.is_empty()).map(PathBuf::from)
 }
 
 fn record_path() -> Result<PathBuf, &'static str> {
@@ -193,73 +211,52 @@ fn latest_commit(directory: &Path, use_gh: bool) -> Result<String, String> {
     }
 }
 
-fn cargo_install(directory: &Path, commit: &str) -> Result<(), String> {
+fn cargo_install(directory: &Path, commit: &str, operation: &str) -> Result<(), String> {
     if cfg!(windows) {
-        return schedule_windows_install(directory, commit);
+        return windows::install(directory, commit, operation);
     }
-    let output = cargo_command(directory, commit).output().map_err(|_| {
+    let output = cargo_command(directory, commit)?.output().map_err(|_| {
         "cargo is not available. Install Rust 1.98.1, then run sigy update.".to_owned()
     })?;
     if output.status.success() {
+        validate_managed_checkout(directory, false)?;
+        if latest_commit(directory, false)? != commit {
+            return Err(
+                "update source changed during build; installed identity is unproven".into(),
+            );
+        }
         return Ok(());
     }
     let detail = String::from_utf8_lossy(&output.stderr);
     Err(format!("cargo install failed: {}", detail.trim()))
 }
 
-fn cargo_command(directory: &Path, commit: &str) -> Command {
+fn cargo_command(directory: &Path, commit: &str) -> Result<Command, String> {
     let mut command = Command::new("cargo");
     if let Some(path) = cargo_path() {
         command.env("PATH", path);
+    }
+    command.env("CARGO_HOME", windows::cargo_home()?);
+    if let Some(root) = env::var_os("CARGO_INSTALL_ROOT").filter(|root| !root.is_empty()) {
+        let root = PathBuf::from(root);
+        let absolute = if root.is_absolute() {
+            root
+        } else {
+            env::current_dir()
+                .map_err(|_| "cannot resolve install root")?
+                .join(root)
+        };
+        command.env("CARGO_INSTALL_ROOT", absolute);
     }
     command
         .current_dir(directory)
         .env("SIGY_GIT_COMMIT", commit)
         .args(["install", "--path", "crates/sigy", "--locked", "--force"]);
-    command
-}
-
-fn schedule_windows_install(directory: &Path, commit: &str) -> Result<(), String> {
-    let record = record_path().map_err(str::to_owned)?;
-    let script = windows_installer(std::process::id(), directory, &record, commit);
-    let path = env::temp_dir().join(format!("sigy-update-{}.ps1", std::process::id()));
-    fs::write(&path, script).map_err(|_| "cannot write the update helper")?;
-    spawn_windows_helper(&path)
-}
-
-fn spawn_windows_helper(path: &Path) -> Result<(), String> {
-    let mut command = Command::new("powershell");
-    command
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(path);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // Own console so the helper survives after this process exits.
-        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-        command.creation_flags(CREATE_NEW_CONSOLE);
-    }
-    command
-        .spawn()
-        .map_err(|_| "cannot start the update helper".to_owned())?;
-    Ok(())
-}
-
-fn windows_installer(pid: u32, directory: &Path, record: &Path, commit: &str) -> String {
-    format!(
-        "$ErrorActionPreference = 'Stop'\nWait-Process -Id {pid} -ErrorAction SilentlyContinue\n$env:SIGY_GIT_COMMIT = '{commit}'\n$env:Path = \"$env:USERPROFILE\\.cargo\\bin;$env:Path\"\nSet-Location -LiteralPath '{directory}'\n& cargo install --path crates/sigy --locked --force\nif ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}\nSet-Content -LiteralPath '{record}' -Value \"{commit}`n\"\n",
-        directory = powershell_quote(directory),
-        record = powershell_quote(record),
-    )
-}
-
-fn powershell_quote(path: &Path) -> String {
-    path.display().to_string().replace('\'', "''")
+    Ok(command)
 }
 
 fn cargo_path() -> Option<std::ffi::OsString> {
-    let home = home_dir().ok()?;
-    let cargo_bin = home.join(".cargo").join("bin");
+    let cargo_bin = windows::cargo_home().ok()?.join("bin");
     let current = env::var_os("PATH")?;
     let mut path = std::ffi::OsString::from(cargo_bin);
     path.push(if cfg!(windows) { ";" } else { ":" });
@@ -305,7 +302,17 @@ fn report(json: bool, installed: Option<&str>, latest: &str, changed: bool) -> i
     }
 }
 
-pub(crate) fn run(check_only: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn run(
+    check_only: bool,
+    status_only: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if status_only {
+        return receipt::status(json);
+    }
+    let metadata = home_dir().map_err(str::to_owned)?.join(".sigy");
+    fs::create_dir_all(&metadata)?;
+    let _lock = lock::acquire(&metadata.join("install.lock"))?;
     let directory = source_dir().map_err(str::to_owned)?;
     let use_gh = github_cli_authenticated();
     ensure_checkout(&directory, use_gh)?;
@@ -323,13 +330,30 @@ pub(crate) fn run(check_only: bool, json: bool) -> Result<(), Box<dyn std::error
             return Err(message.into());
         }
         UpdatePlan::Install => {
-            cargo_install(&directory, &latest)?;
+            let (prepared, operation) = prepare(&directory, &latest, &metadata, use_gh)?;
+            cargo_install(&prepared, &latest, &operation)?;
             if cfg!(windows) {
                 let mut stdout = io::stdout().lock();
-                writeln!(
-                    stdout,
-                    "Fetched {latest}. Installation continues after this process exits."
-                )?;
+                if json {
+                    serde_json::to_writer(
+                        &mut stdout,
+                        &serde_json::json!({
+                            "installed": installed, "latest": latest, "changed": false,
+                            "state": "scheduled", "operation": operation,
+                            "next": "sigy update --status"
+                        }),
+                    )?;
+                    writeln!(stdout)?;
+                } else {
+                    writeln!(
+                        stdout,
+                        "Fetched {latest}. Hidden installation is scheduled after this process exits."
+                    )?;
+                    writeln!(
+                        stdout,
+                        "Inspect its recorded outcome with: sigy update --status"
+                    )?;
+                }
             } else {
                 remember(&latest)?;
                 report(json, installed.as_deref(), &latest, true)?;
@@ -339,10 +363,80 @@ pub(crate) fn run(check_only: bool, json: bool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+fn prepare(
+    directory: &Path,
+    commit: &str,
+    metadata: &Path,
+    use_gh: bool,
+) -> Result<(PathBuf, String), String> {
+    if !is_full_commit(commit) {
+        return Err("the fetched commit is not a full Git SHA".into());
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "update clock unavailable")?
+        .as_nanos();
+    let operation = format!("{}-{stamp}", std::process::id());
+    let work_root = metadata.join("update-work");
+    fs::create_dir_all(&work_root).map_err(|_| "cannot create update workspace root")?;
+    let entries = fs::read_dir(&work_root).map_err(|_| "cannot inspect update workspaces")?;
+    if entries.take(16).count() >= 16 {
+        return Err(format!(
+            "update workspace limit reached; inspect sigy update --status and preserve or remove completed work under {} before retrying",
+            work_root.display()
+        ));
+    }
+    let work = work_root.join(&operation);
+    fs::create_dir_all(&work).map_err(|_| "cannot create update workspace")?;
+    let source = work.join("source");
+    git(
+        None,
+        &[
+            "clone",
+            "--no-local",
+            "--no-hardlinks",
+            "--no-checkout",
+            &directory.display().to_string(),
+            &source.display().to_string(),
+        ],
+        false,
+    )?;
+    git(
+        Some(&source),
+        &["remote", "set-url", "origin", REPOSITORY],
+        false,
+    )?;
+    git(Some(&source), &["checkout", "--detach", commit], false)?;
+    validate_managed_checkout(&source, use_gh)?;
+    if latest_commit(&source, false)? != commit {
+        return Err("prepared update source differs from requested commit".into());
+    }
+    Ok((source, operation))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{UpdatePlan, is_commit, plan};
-    use std::path::Path;
+
+    #[test]
+    fn empty_source_override_has_the_same_unset_meaning_as_installers() {
+        assert_eq!(super::source_override(None), None);
+        assert_eq!(
+            super::source_override(Some(std::ffi::OsString::new())),
+            None
+        );
+        assert_eq!(
+            super::source_override(Some("relative source".into())),
+            Some(std::path::PathBuf::from("relative source"))
+        );
+    }
+
+    #[test]
+    fn status_is_a_read_only_parser_mode_and_conflicts_with_check() {
+        use clap::Parser;
+        assert!(crate::Cli::try_parse_from(["sigy", "update", "--status", "--json"]).is_ok());
+        assert!(crate::Cli::try_parse_from(["sigy", "update", "--status", "--check"]).is_err());
+    }
 
     #[test]
     fn current_commit_does_not_reinstall() {
@@ -413,48 +507,53 @@ mod tests {
     }
 
     #[test]
-    fn windows_helper_waits_for_the_running_process() {
-        let script = super::windows_installer(
-            42,
-            Path::new("C:\\sigy"),
-            Path::new("C:\\Users\\me\\.sigy\\installed-commit"),
-            "abcdef1",
-        );
-        assert!(script.contains("Wait-Process -Id 42"));
-        assert!(script.contains("$ErrorActionPreference = 'Stop'"));
-        assert!(script.contains("SIGY_GIT_COMMIT = 'abcdef1'"));
-        assert!(script.contains("cargo install --path crates/sigy --locked --force"));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_helper_missing_checkout_never_invokes_cargo()
+    fn prepared_checkout_stays_frozen_after_managed_head_changes()
     -> Result<(), Box<dyn std::error::Error>> {
-        use std::{fs, process::Command};
-
-        let temp = tempfile::tempdir()?;
-        let home = temp.path().join("home");
-        let cargo_bin = home.join(".cargo").join("bin");
-        fs::create_dir_all(&cargo_bin)?;
-        fs::write(
-            cargo_bin.join("cargo.cmd"),
-            "@echo off\r\necho invoked > \"%USERPROFILE%\\.cargo\\called\"\r\nexit /b 0\r\n",
+        let temporary = tempfile::tempdir()?;
+        let managed = temporary.path().join("managed");
+        let metadata = temporary.path().join("metadata");
+        super::git(None, &["init", &managed.display().to_string()], false)?;
+        super::git(
+            Some(&managed),
+            &["remote", "add", "origin", super::REPOSITORY],
+            false,
         )?;
-        let record = home.join(".sigy").join("installed-commit");
-        let helper = temp.path().join("helper.ps1");
-        fs::write(
-            &helper,
-            super::windows_installer(999_999, &temp.path().join("missing"), &record, "abcdef1"),
-        )?;
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(&helper)
-            .env("USERPROFILE", &home)
-            .current_dir(temp.path())
-            .output()?;
-        assert!(!output.status.success());
-        assert!(!home.join(".cargo").join("called").exists());
-        assert!(!record.exists());
+        std::fs::write(managed.join("witness.txt"), "first independent artifact")?;
+        let commit = |source: &std::path::Path| -> Result<String, String> {
+            super::git(Some(source), &["add", "."], false)?;
+            super::git(
+                Some(source),
+                &[
+                    "-c",
+                    "user.name=Nick Seal",
+                    "-c",
+                    "user.email=32712898+blisspixel@users.noreply.github.com",
+                    "commit",
+                    "-m",
+                    "Installer fixture",
+                ],
+                false,
+            )?;
+            super::latest_commit(source, false)
+        };
+        let first = commit(&managed)?;
+        let (prepared, _) = super::prepare(&managed, &first, &metadata, false)?;
+        std::fs::write(managed.join("witness.txt"), "second independent artifact")?;
+        assert_ne!(commit(&managed)?, first);
+        assert_eq!(super::latest_commit(&prepared, false)?, first);
+        assert_eq!(
+            std::fs::read_to_string(prepared.join("witness.txt"))?,
+            "first independent artifact"
+        );
+        super::validate_managed_checkout(&prepared, false)?;
+        for index in 0..15 {
+            std::fs::create_dir(
+                metadata
+                    .join("update-work")
+                    .join(format!("fixture-{index}")),
+            )?;
+        }
+        assert!(super::prepare(&managed, &first, &metadata, false).is_err());
         Ok(())
     }
 

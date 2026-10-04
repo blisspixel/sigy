@@ -12,6 +12,8 @@ The first complete release includes radio and podcasts, recordings and DVR, live
 
 The [near-term implementation briefs](docs/development/near-term-implementation.md) retain the acceptance contracts for those slices and the remaining operator/retrieval work. Selected query and snapshot limits now have bounded fixture measurements. Finite reference models remain proposed. The [workflow invariants](docs/design/workflow-invariants.md) specify atomic effects/replay, valid-at-commit authority, state/generation fences, exact accounting, coverage coordinates and conditional progress; mathematical notation is not completed proof or capacity evidence.
 
+The [terminal review gallery](docs/development/visual-qa.md) now makes every current workspace reproducible for visual feedback. [Source update publication](docs/decisions/0086-source-update-publication.md) separates frozen build, scheduling, replacement and local outcome inspection. These quality increments support the next listening journey without changing its remaining playback, native or language gates.
+
 | Next change | Useful result | Completion evidence |
 | --- | --- | --- |
 | **Retained passage playback (DV-01/S-07)** | Extend the service-owned protected reader to exact cited excerpts, then safe segment navigation | DV-01A's first protection increment exists; exact cue ends, qualified native lifetime, bounded handoffs, actual player state and terminal/capture measurements remain |

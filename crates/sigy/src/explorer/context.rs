@@ -21,10 +21,19 @@ pub(super) struct StationContext {
     pub linked_generation: Option<u64>,
     pub linked: Option<sigy_service::discovery::linked::LinkedStationContext>,
     pub linked_message: String,
+    pub linked_phase: LinkedPhase,
     library: String,
     playback: Option<PlaybackView>,
     offset: usize,
     maximum_offset: Cell<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LinkedPhase {
+    Idle,
+    Pending,
+    Loaded,
+    Failed,
 }
 
 impl StationContext {
@@ -41,6 +50,7 @@ impl StationContext {
             return_focus,
             linked_generation: None,
             linked: None,
+            linked_phase: LinkedPhase::Idle,
             linked_message:
                 "Registered revisions and recordings: not inspected. i reads exact links.".into(),
             library,

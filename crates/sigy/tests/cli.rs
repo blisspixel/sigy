@@ -71,6 +71,75 @@ fn update_help_needs_no_home_and_missing_default_guides_initialization() -> Test
 }
 
 #[test]
+fn update_status_is_local_bounded_and_preserves_structured_data() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let home = directory.path().join("isolated update home");
+    std::fs::create_dir(&home)?;
+    let invoke = |arguments: &[&str]| {
+        common::output(
+            Command::new(env!("CARGO_BIN_EXE_sigy"))
+                .env("USERPROFILE", &home)
+                .env("HOME", &home)
+                .env("PATH", "")
+                .current_dir(directory.path())
+                .args(arguments),
+        )
+    };
+    let empty = invoke(&["update", "--status", "--json"])?;
+    assert!(empty.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&empty.stdout)?;
+    assert!(value["recorded_update"].is_null());
+    assert_eq!(value["liveness_observed"], false);
+    assert!(!home.join(".sigy").exists());
+
+    let metadata = home.join(".sigy");
+    std::fs::create_dir(&metadata)?;
+    let root = home.join("root\u{1b}[31m\u{202e}suffix");
+    let receipt = serde_json::json!({
+        "protocol": 1, "operation": "12-34", "state": "pending",
+        "commit": "a".repeat(40), "install_root": root,
+        "reason": "\u{202e}held"
+    });
+    let path = metadata.join("update-status.json");
+    let original = serde_json::to_vec(&receipt)?;
+    std::fs::write(&path, &original)?;
+    let plain = invoke(&["update", "--status"])?;
+    assert!(plain.status.success());
+    let text = String::from_utf8(plain.stdout)?;
+    assert!(
+        text.contains("pending") && text.contains("Completion is unproven"),
+        "{text}"
+    );
+    assert!(
+        !text.contains('\u{1b}') && !text.contains('\u{202e}'),
+        "{text}"
+    );
+    let structured = invoke(&["update", "--status", "--json"])?;
+    assert!(structured.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&structured.stdout)?;
+    assert_eq!(value["recorded_update"], receipt);
+    assert_eq!(std::fs::read(&path)?, original);
+    assert!(!metadata.join("library").exists());
+    assert!(!metadata.join("src").exists());
+    assert!(!metadata.join("install.lock").exists());
+
+    std::fs::write(&path, vec![b' '; 8193])?;
+    let oversized = invoke(&["update", "--status", "--json"])?;
+    assert!(!oversized.status.success());
+    let error: serde_json::Value = serde_json::from_slice(&oversized.stderr)?;
+    assert!(
+        error["error"]
+            .as_str()
+            .is_some_and(|message| message.contains("byte bound"))
+    );
+    assert!(oversized.stdout.is_empty());
+    let conflict = invoke(&["update", "--check", "--status"])?;
+    assert!(!conflict.status.success());
+    assert!(String::from_utf8(conflict.stderr)?.contains("cannot be used with"));
+    Ok(())
+}
+
+#[test]
 fn help_and_version_work_without_initializing_a_library() -> TestResult {
     for arguments in [&["--help"][..], &["--version"][..]] {
         let output = common::output(Command::new(env!("CARGO_BIN_EXE_sigy")).args(arguments))?;
