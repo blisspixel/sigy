@@ -18,7 +18,17 @@ impl Drop for Fixture {
         if std::thread::panicking() {
             eprintln!("Failed helper fixture: {}", self.directory.path().display());
             let diagnostic = self.config.with_file_name("validation-error.txt");
-            for path in [&self.status, &self.config, &diagnostic] {
+            let base = self.config.parent();
+            let installer_stdout = base.map(|b| b.join("installer-stdout.txt"));
+            let installer_stderr = base.map(|b| b.join("installer-stderr.txt"));
+            let mut paths: Vec<&Path> = vec![&self.status, &self.config, &diagnostic];
+            if let Some(stdout) = installer_stdout.as_deref() {
+                paths.push(stdout);
+            }
+            if let Some(stderr) = installer_stderr.as_deref() {
+                paths.push(stderr);
+            }
+            for path in paths {
                 if let Ok(bytes) = fs::read(path) {
                     eprintln!("{}: {}", path.display(), String::from_utf8_lossy(&bytes));
                 }
@@ -575,5 +585,48 @@ fn waiting_superseded_helper_cannot_overwrite_newer_receipt() -> Result<()> {
     assert!(!wait_bounded(&mut child)?.success());
     assert!(!fixture.called());
     assert_eq!(fs::read(&fixture.status)?, newer);
+    Ok(())
+}
+
+#[test]
+fn instead_of_and_hostile_git_config_are_isolated_and_refused() -> Result<()> {
+    let fixture = Fixture::new(SUCCESS)?;
+    let hostile_script = fixture
+        .config
+        .parent()
+        .ok_or("fixture base")?
+        .join("hostile_hook.cmd");
+    fs::write(
+        &hostile_script,
+        "@echo off\necho hostile>\"%SIGY_FIXTURE_CALLED%\"\n",
+    )?;
+    let script_str = hostile_script.to_str().ok_or("hostile script str")?;
+    let parent_str = hostile_script
+        .parent()
+        .ok_or("hostile script parent")?
+        .to_str()
+        .ok_or("parent str")?;
+    local_git(&fixture.source, &["config", "core.fsmonitor", script_str])?;
+    local_git(&fixture.source, &["config", "core.hooksPath", parent_str])?;
+    local_git(
+        &fixture.source,
+        &[
+            "config",
+            "url.http://evil.invalid/.insteadOf",
+            super::super::REPOSITORY,
+        ],
+    )?;
+    assert!(fixture.run()?.status.success());
+    assert!(
+        fs::read_to_string(
+            fixture
+                .config
+                .parent()
+                .ok_or("fixture base")?
+                .join("direct-called")
+        )
+        .is_err()
+    );
+    assert_eq!(fixture.outcome()?["state"], "succeeded");
     Ok(())
 }

@@ -14,17 +14,19 @@ fi
 
 repo=https://github.com/blisspixel/sigy.git
 export GIT_TERMINAL_PROMPT=0
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=/dev/null
 
 sigy_git() {
     if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-        git -c credential.helper= -c 'credential.helper=!gh auth git-credential' "$@"
+        git -c core.abbrev=40 -c core.fsmonitor= -c core.hooksPath=/dev/null -c http.followRedirects=false -c credential.helper= -c 'credential.helper=!gh auth git-credential' "$@"
     else
-        git "$@"
+        git -c core.abbrev=40 -c core.fsmonitor= -c core.hooksPath=/dev/null -c http.followRedirects=false -c credential.helper= "$@"
     fi
 }
 
 sigy_check_managed_source() {
-    origin=$(git -C "$root" config --local --get remote.origin.url) || {
+    origin=$(sigy_git -C "$root" config --local --get remote.origin.url) || {
         echo "Managed sigy source has no readable origin." >&2
         exit 1
     }
@@ -32,7 +34,7 @@ sigy_check_managed_source() {
         echo "Managed sigy source origin is not $repo." >&2
         exit 1
     fi
-    dirty=$(git -C "$root" status --porcelain=v1 --untracked-files=all) || {
+    dirty=$(sigy_git -C "$root" status --porcelain=v1 --untracked-files=all) || {
         echo "Cannot inspect managed sigy source changes." >&2
         exit 1
     }
@@ -66,7 +68,7 @@ case "$root" in
     *) root="$(pwd)/$root" ;;
 esac
 
-if [ "$from_github" -eq 1 ]; then
+if [ "$from_github" -eq 1 ] && [ -z "${SIGY_NO_FETCH:-}" ]; then
     if ! command -v git >/dev/null 2>&1; then
         echo "git is missing. Install Git to fetch $repo." >&2
         exit 1
@@ -80,8 +82,8 @@ if [ "$from_github" -eq 1 ]; then
         sigy_git clone --depth 1 --branch main "$repo" "$root"
     fi
     sigy_check_managed_source
-    sigy_git -C "$root" -c core.abbrev=40 fetch --depth 1 "$repo" main
-    git -C "$root" checkout --detach FETCH_HEAD
+    sigy_git -C "$root" fetch --depth 1 "$repo" main
+    sigy_git -C "$root" checkout --detach FETCH_HEAD
     sigy_check_managed_source
 fi
 
@@ -109,19 +111,31 @@ fi
 
 unset SIGY_GIT_COMMIT
 commit=""
-if git -C "$root" -c core.abbrev=40 rev-parse HEAD >/dev/null 2>&1; then
-    local_changes=$(git -C "$root" status --porcelain=v1 --untracked-files=all) || local_changes=unknown
+if sigy_git -C "$root" rev-parse HEAD >/dev/null 2>&1; then
+    local_changes=$(sigy_git -C "$root" status --porcelain=v1 --untracked-files=all) || local_changes=unknown
     if [ -z "$local_changes" ]; then
-        commit=$(git -C "$root" -c core.abbrev=40 rev-parse HEAD)
+        commit=$(sigy_git -C "$root" rev-parse HEAD)
         SIGY_GIT_COMMIT=$commit
         export SIGY_GIT_COMMIT
     fi
 fi
 
-cargo install --path crates/sigy --locked --force
+stage_dir=$(mktemp -d 2>/dev/null || mktemp -d -t 'sigy-stage')
+cleanup_stage() {
+    rm -rf "$stage_dir"
+}
+trap cleanup_stage EXIT INT TERM
+
 if [ -n "$commit" ]; then
-    after_commit=$(git -C "$root" -c core.abbrev=40 rev-parse HEAD)
-    after_changes=$(git -C "$root" status --porcelain=v1 --untracked-files=all)
+    sigy_git -C "$root" archive "$commit" | tar -x -C "$stage_dir" 2>/dev/null || cp -R "$root/." "$stage_dir/"
+else
+    cp -R "$root/." "$stage_dir/"
+fi
+
+(cd "$stage_dir" && cargo install --path crates/sigy --locked --force)
+if [ -n "$commit" ]; then
+    after_commit=$(sigy_git -C "$root" rev-parse HEAD)
+    after_changes=$(sigy_git -C "$root" status --porcelain=v1 --untracked-files=all)
     if [ "$after_commit" != "$commit" ] || [ -n "$after_changes" ]; then
         echo "Source changed during installation; installation identity is unproven." >&2
         exit 1

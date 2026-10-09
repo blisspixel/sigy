@@ -288,6 +288,61 @@ fn backup_restores_one_recognized_chunk() -> TestResult {
     assert_eq!(cost.complete_groups, 1);
     assert_eq!(cost.peak_memory_bytes, Some(4_096));
     assert_eq!(cost.cpu_time_us, Some(12));
+    assert!(restored.store().dvr_status()?.decoder.is_none());
+    Ok(())
+}
+
+#[test]
+fn restore_clears_imported_decoder_path() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let original = populated(&root.path().join("library"))?;
+    assert!(original.store().dvr_status()?.decoder.is_some());
+    backup(&original, &root.path().join("backup"))?;
+    drop(original);
+
+    let restored_path = root.path().join("restored");
+    restore(&root.path().join("backup"), &restored_path)?;
+    let restored = Library::open(&restored_path, false)?;
+    assert!(restored.store().dvr_status()?.decoder.is_none());
+    Ok(())
+}
+
+#[test]
+fn backup_manifest_bounds_reject_excessive_media_or_catalog() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let original = populated(&root.path().join("library"))?;
+    backup(&original, &root.path().join("backup"))?;
+    drop(original);
+
+    let manifest_path = root.path().join("backup").join("manifest.json");
+    let mut manifest: BackupManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+
+    // Excessive catalog bytes
+    manifest.catalog.bytes = MAX_CATALOG_BYTES + 1;
+    fs::write(&manifest_path, serde_json::to_vec(&manifest)?)?;
+    assert!(matches!(
+        verify(&root.path().join("backup")),
+        Err(Error::InvalidInput("backup catalog exceeds byte ceiling"))
+    ));
+
+    // Excessive media objects
+    manifest.catalog.bytes = 100;
+    manifest.media = (0..=MAX_MEDIA_OBJECTS)
+        .map(|i| BackupObject {
+            key: format!("obj_{i}"),
+            bytes: 10,
+            sha256: "0".repeat(64),
+        })
+        .collect();
+    manifest.media_bytes = (MAX_MEDIA_OBJECTS + 1) as u64 * 10;
+    fs::write(&manifest_path, serde_json::to_vec(&manifest)?)?;
+    assert!(matches!(
+        verify(&root.path().join("backup")),
+        Err(Error::InvalidInput(
+            "backup media object count exceeds limit"
+        ))
+    ));
+
     Ok(())
 }
 

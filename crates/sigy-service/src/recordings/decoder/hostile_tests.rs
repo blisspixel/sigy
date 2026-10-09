@@ -1,8 +1,8 @@
 use super::{
     complete, copy_limited,
     progress::{Limits, read_progress},
-    supervise,
 };
+use crate::recordings::audio::NativeAudioGroup;
 use std::{io::Write, process::Stdio, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -46,7 +46,6 @@ fn retained_pipe_seek_is_unthrottled_and_output_bounded_without_changing_live_pa
     let retained =
         super::pipe_playback_command("fixture", "wav", None, Some((59_250_000, 60_000_000)));
     let args: Vec<_> = retained
-        .command()
         .as_std()
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -70,7 +69,6 @@ fn retained_pipe_seek_is_unthrottled_and_output_bounded_without_changing_live_pa
     assert_eq!(args[duration + 1], "0.750000");
     let live = super::pipe_playback_command("fixture", "wav", None, None);
     let args: Vec<_> = live
-        .command()
         .as_std()
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -394,20 +392,20 @@ fn decoder_waiting_child() {
 #[tokio::test]
 async fn progress_eof_does_not_leave_live_child_outside_deadline() -> TestResult {
     let executable = std::env::current_exe()?;
-    let command = process_wrap::tokio::CommandWrap::with_new(executable, |command| {
-        command
-            .args([
-                "--exact",
-                "recordings::decoder::hostile_tests::decoder_waiting_child",
-                "--nocapture",
-            ])
-            .env("SIGY_DECODER_WAITING_CHILD", "1")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-    });
-    let mut child = supervise(command).spawn()?;
-    let mut stdout = child.stdout().take().ok_or("fixture stdout")?;
+    let group = NativeAudioGroup::for_decoder()?;
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .args([
+            "--exact",
+            "recordings::decoder::hostile_tests::decoder_waiting_child",
+            "--nocapture",
+        ])
+        .env("SIGY_DECODER_WAITING_CHILD", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = group.spawn(command)?;
+    let mut stdout = child.stdout.take().ok_or("fixture stdout")?;
     let mut byte = [0_u8; 1];
     let mut readiness = Vec::new();
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -430,6 +428,7 @@ async fn progress_eof_does_not_leave_live_child_outside_deadline() -> TestResult
     );
     let start = tokio::time::Instant::now();
     let error = complete(
+        &group,
         &mut child,
         progress,
         start + Duration::from_millis(100),

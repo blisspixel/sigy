@@ -14,27 +14,103 @@ const LEGACY: &str = "2025-11-25";
 const MAX_LINE: usize = 262_144;
 const RATE: usize = 60;
 
+enum BoundedLine {
+    Valid(String),
+    Oversized,
+    InvalidUtf8,
+}
+
+fn read_bounded_frame<R: BufRead>(
+    reader: &mut R,
+    buffer: &mut Vec<u8>,
+    max_bytes: usize,
+) -> io::Result<Option<BoundedLine>> {
+    buffer.clear();
+    let mut oversized = false;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            if buffer.is_empty() && !oversized {
+                return Ok(None);
+            }
+            if oversized {
+                return Ok(Some(BoundedLine::Oversized));
+            }
+            let text = match String::from_utf8(std::mem::take(buffer)) {
+                Ok(s) => BoundedLine::Valid(s),
+                Err(_) => BoundedLine::InvalidUtf8,
+            };
+            return Ok(Some(text));
+        }
+        if let Some(newline_pos) = available.iter().position(|&b| b == b'\n') {
+            let consume_len = newline_pos + 1;
+            let chunk = &available[..newline_pos];
+            if !oversized {
+                if buffer.len().saturating_add(chunk.len()) > max_bytes {
+                    oversized = true;
+                    buffer.clear();
+                } else {
+                    buffer.extend_from_slice(chunk);
+                }
+            }
+            reader.consume(consume_len);
+            if oversized {
+                return Ok(Some(BoundedLine::Oversized));
+            }
+            if buffer.last() == Some(&b'\r') {
+                buffer.pop();
+            }
+            let text = match String::from_utf8(std::mem::take(buffer)) {
+                Ok(s) => BoundedLine::Valid(s),
+                Err(_) => BoundedLine::InvalidUtf8,
+            };
+            return Ok(Some(text));
+        }
+        let chunk_len = available.len();
+        if !oversized {
+            if buffer.len().saturating_add(chunk_len) > max_bytes {
+                oversized = true;
+                buffer.clear();
+            } else {
+                buffer.extend_from_slice(available);
+            }
+        }
+        reader.consume(chunk_len);
+    }
+}
+
 pub fn serve(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let executable = std::env::current_exe()?;
     let stdin = io::stdin();
-    let mut stdout = io::stdout().lock();
-    for line in stdin.lock().lines() {
-        let line = line?;
-        if line.is_empty() {
-            continue;
-        }
-        let response = if line.len() > MAX_LINE {
-            Some(error(None, -32700, "message is too large", None))
-        } else {
-            match serde_json::from_str::<Value>(&line) {
-                Ok(message) => dispatch(directory, &executable, &message),
-                Err(_) => Some(error(None, -32700, "parse error", None)),
+    let stdout = io::stdout();
+    serve_stream(directory, &executable, stdin.lock(), stdout.lock())
+}
+
+pub fn serve_stream<R: BufRead, W: Write>(
+    directory: &Path,
+    executable: &Path,
+    mut reader: R,
+    mut writer: W,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut buffer = Vec::new();
+    while let Some(frame) = read_bounded_frame(&mut reader, &mut buffer, MAX_LINE)? {
+        let response = match frame {
+            BoundedLine::Oversized => Some(error(None, -32700, "message is too large", None)),
+            BoundedLine::InvalidUtf8 => Some(error(None, -32700, "parse error", None)),
+            BoundedLine::Valid(line) => {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                match serde_json::from_str::<Value>(&line) {
+                    Ok(message) => dispatch(directory, executable, &message),
+                    Err(_) => Some(error(None, -32700, "parse error", None)),
+                }
             }
         };
         if let Some(response) = response {
-            serde_json::to_writer(&mut stdout, &response)?;
-            writeln!(stdout)?;
-            stdout.flush()?;
+            serde_json::to_writer(&mut writer, &response)?;
+            writeln!(writer)?;
+            writer.flush()?;
         }
     }
     Ok(())
@@ -352,6 +428,44 @@ mod tests {
         {
             return Err(response.to_string());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn oversized_frame_is_rejected_without_unbounded_allocation_and_subsequent_frame_succeeds()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut input = Vec::new();
+        // Construct a huge line (> 256 KiB) with 'x' characters
+        input.extend(vec![b'x'; MAX_LINE + 10_000]);
+        input.push(b'\n');
+        // Valid initialize request
+        let valid_req = serde_json::to_vec(&json!({
+            "id": 1,
+            "method": "initialize",
+            "params": {}
+        }))?;
+        input.extend_from_slice(&valid_req);
+        input.push(b'\n');
+
+        let mut output = Vec::new();
+        serve_stream(
+            Path::new("dummy"),
+            Path::new("dummy"),
+            std::io::Cursor::new(input),
+            &mut output,
+        )?;
+
+        let text = String::from_utf8(output)?;
+        let lines: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 2);
+
+        let first: Value = serde_json::from_str(lines[0])?;
+        assert_eq!(first["error"]["code"], -32700);
+        assert_eq!(first["error"]["message"], "message is too large");
+
+        let second: Value = serde_json::from_str(lines[1])?;
+        assert_eq!(second["id"], 1);
+        assert_eq!(second["result"]["serverInfo"]["name"], "sigy");
         Ok(())
     }
 }

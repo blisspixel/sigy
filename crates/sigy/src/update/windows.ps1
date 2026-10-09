@@ -32,11 +32,15 @@ function Write-Outcome([string]$State, [string]$Reason) {
     else { [IO.File]::Move($temporaryReceipt, $scope.status) }
 }
 function Assert-Source {
-    $head = & git -C $scope.source rev-parse HEAD 2>$null
+    $env:GIT_TERMINAL_PROMPT = '0'
+    $env:GIT_CONFIG_NOSYSTEM = '1'
+    $env:GIT_CONFIG_GLOBAL = 'NUL'
+    $gitOpts = @('-c', 'core.abbrev=40', '-c', 'core.fsmonitor=', '-c', 'core.hooksPath=NUL', '-c', 'http.followRedirects=false')
+    $head = & git -C $scope.source @gitOpts rev-parse HEAD 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]$head -cne $scope.commit) { throw 'source-commit-changed' }
-    $origin = & git -C $scope.source config --local --get remote.origin.url 2>$null
+    $origin = & git -C $scope.source @gitOpts config --local --get remote.origin.url 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]$origin -cne 'https://github.com/blisspixel/sigy.git') { throw 'source-origin-changed' }
-    $dirty = & git -C $scope.source status --porcelain=v1 --untracked-files=all 2>$null
+    $dirty = & git -C $scope.source @gitOpts status --porcelain=v1 --untracked-files=all 2>$null
     if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'source-not-clean' }
 }
 function Get-BinaryHash([string]$Path) {

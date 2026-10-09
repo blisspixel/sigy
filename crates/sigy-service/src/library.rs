@@ -37,6 +37,13 @@ impl Library {
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             return Err(Error::InvalidInput("library directory"));
         }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if metadata.file_attributes() & 0x400 != 0 {
+                return Err(Error::InvalidInput("library directory reparse point"));
+            }
+        }
         let directory = directory.canonicalize()?;
         for name in [
             "service.lock",
@@ -89,10 +96,19 @@ impl Library {
 
 pub(crate) fn reject_link(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
-            Err(Error::InvalidInput("library-owned file path"))
+        Ok(metadata) => {
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return Err(Error::InvalidInput("library-owned file path"));
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                if metadata.file_attributes() & 0x400 != 0 {
+                    return Err(Error::InvalidInput("library-owned file reparse point"));
+                }
+            }
+            Ok(())
         }
-        Ok(_) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
     }
@@ -168,6 +184,42 @@ mod unix_tests {
         drop(Library::open(&directory, false)?);
         let mode = fs::metadata(&directory)?.permissions().mode() & 0o777;
         assert_eq!(mode, 0o750);
+        Ok(())
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
+
+    #[test]
+    fn open_and_reject_link_reject_reparse_points() -> TestResult {
+        let parent = tempfile::tempdir()?;
+        let real_dir = parent.path().join("real_lib");
+        fs::create_dir(&real_dir)?;
+        let link_dir = parent.path().join("junction_lib");
+        // Create directory junction using cmd /c mklink /J
+        let status = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                link_dir.to_str().ok_or("link_dir to string")?,
+                real_dir.to_str().ok_or("real_dir to string")?,
+            ])
+            .output()?;
+        if status.status.success() {
+            assert!(matches!(
+                Library::open(&link_dir, false),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(matches!(
+                Library::open(&link_dir, true),
+                Err(Error::InvalidInput(_))
+            ));
+        }
         Ok(())
     }
 }

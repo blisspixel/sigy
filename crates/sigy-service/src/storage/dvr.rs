@@ -469,6 +469,20 @@ impl Store {
         Ok(())
     }
 
+    /// Clears the machine-local decoder executable configuration. Used during restore
+    /// so imported backups cannot execute machine-local paths without local reauthorization.
+    pub(crate) fn clear_dvr_decoder(&mut self) -> Result<()> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "UPDATE dvr_policy SET decoder = NULL WHERE singleton = 1",
+            [],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Admit immediate recording and reserve its complete byte ceiling atomically.
     /// An exact replay never starts another worker, including after a crash.
     pub(crate) fn admit_recording(

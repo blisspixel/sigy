@@ -22,6 +22,10 @@ pub const BACKUP_FORMAT: &str = "sigy-backup-v1";
 const MANIFEST: &str = "manifest.json";
 const CATALOG: &str = "catalog.sqlite3";
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_CATALOG_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_MEDIA_OBJECTS: usize = 65_536;
+const MAX_MEDIA_OBJECT_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_TOTAL_MEDIA_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -200,24 +204,51 @@ pub fn verify(source: &Path) -> Result<BackupManifest> {
             supported: i64::from(crate::storage::SCHEMA_VERSION),
         });
     }
+    if manifest.catalog.bytes == 0 || manifest.catalog.bytes > MAX_CATALOG_BYTES {
+        return Err(Error::InvalidInput("backup catalog exceeds byte ceiling"));
+    }
+    if manifest.media.len() > MAX_MEDIA_OBJECTS {
+        return Err(Error::InvalidInput(
+            "backup media object count exceeds limit",
+        ));
+    }
+    if manifest.media_bytes > MAX_TOTAL_MEDIA_BYTES {
+        return Err(Error::InvalidInput(
+            "backup aggregate media bytes exceed limit",
+        ));
+    }
     if hash_file(&source.join(CATALOG))? != manifest.catalog {
         return Err(Error::InvalidInput(
             "backup catalog does not match its manifest",
         ));
     }
-    let listed: std::collections::BTreeSet<String> = manifest
-        .media
-        .iter()
-        .map(|object| format!("{}.media", object.key))
-        .collect();
-    if listed.len() != manifest.media.len() {
-        return Err(Error::InvalidInput(
-            "backup manifest repeats a media object",
-        ));
+    let mut calculated_total = 0_u64;
+    let mut listed = std::collections::BTreeSet::new();
+    for object in &manifest.media {
+        crate::storage::dvr::validate_object_key(&object.key)?;
+        if object.bytes == 0 || object.bytes > MAX_MEDIA_OBJECT_BYTES {
+            return Err(Error::InvalidInput("backup media object size is invalid"));
+        }
+        calculated_total = calculated_total
+            .checked_add(object.bytes)
+            .ok_or(Error::InvalidInput("backup media bytes overflow"))?;
+        if !listed.insert(format!("{}.media", object.key)) {
+            return Err(Error::InvalidInput(
+                "backup manifest repeats a media object",
+            ));
+        }
+    }
+    if calculated_total != manifest.media_bytes {
+        return Err(Error::InvalidInput("backup media total does not match"));
     }
     let mut present = std::collections::BTreeSet::new();
     for entry in fs::read_dir(source.join("media"))? {
         let entry = entry?;
+        if present.len() >= MAX_MEDIA_OBJECTS || present.len() > manifest.media.len() {
+            return Err(Error::InvalidInput(
+                "backup media directory contains too many files",
+            ));
+        }
         present.insert(entry.file_name().to_string_lossy().into_owned());
     }
     if present != listed {
@@ -287,8 +318,9 @@ fn stage(source: &Path, staging: &Path, manifest: &BackupManifest) -> Result<()>
         }
     }
     // Opening runs migrations and the catalog audits; the lock is released on drop.
-    let library = Library::open(staging, false)?;
+    let mut library = Library::open(staging, false)?;
     library.store().renew_directory_namespace()?;
+    library.store_mut().clear_dvr_decoder()?;
     if !library.store().integrity_ok()? {
         return Err(Error::CatalogIntegrity);
     }

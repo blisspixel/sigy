@@ -87,8 +87,85 @@ fn select_installed_commit(built_from: Option<&str>, recorded: Option<&str>) -> 
         .map(str::to_owned)
 }
 
+fn is_safe_executable(path: &Path) -> bool {
+    if let Ok(meta) = fs::symlink_metadata(path) {
+        if !meta.is_file() {
+            return false;
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if meta.file_attributes() & 0x400 != 0 {
+                return false;
+            }
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if meta.permissions().mode() & 0o111 == 0 {
+                return false;
+            }
+        }
+        true
+    } else {
+        false
+    }
+}
+
+fn find_tool(name: &str) -> Result<PathBuf, String> {
+    if let ("cargo", Ok(home)) = (name, windows::cargo_home()) {
+        let candidate = home
+            .join("bin")
+            .join(if cfg!(windows) { "cargo.exe" } else { "cargo" });
+        if is_safe_executable(&candidate) {
+            return Ok(candidate);
+        }
+    }
+    let path_var =
+        env::var_os("PATH").ok_or_else(|| format!("{name} is not available (PATH is empty)"))?;
+    for dir in env::split_paths(&path_var) {
+        if cfg!(windows) {
+            let direct = dir.join(name);
+            if direct.extension().is_some() && is_safe_executable(&direct) {
+                return Ok(direct);
+            }
+            let with_exe = dir.join(format!("{name}.exe"));
+            if is_safe_executable(&with_exe) {
+                return Ok(with_exe);
+            }
+            let with_cmd = dir.join(format!("{name}.cmd"));
+            if is_safe_executable(&with_cmd) {
+                return Ok(with_cmd);
+            }
+            let with_bat = dir.join(format!("{name}.bat"));
+            if is_safe_executable(&with_bat) {
+                return Ok(with_bat);
+            }
+        } else {
+            let direct = dir.join(name);
+            if is_safe_executable(&direct) {
+                return Ok(direct);
+            }
+        }
+    }
+    Err(format!("{name} is not available"))
+}
+
 fn git_prefix(use_gh: bool) -> Vec<&'static str> {
-    let mut prefix = vec!["-c", "core.abbrev=40"];
+    let mut prefix = vec![
+        "-c",
+        "core.abbrev=40",
+        "-c",
+        "core.fsmonitor=",
+        "-c",
+        if cfg!(windows) {
+            "core.hooksPath=NUL"
+        } else {
+            "core.hooksPath=/dev/null"
+        },
+        "-c",
+        "http.followRedirects=false",
+    ];
     if use_gh {
         // Reset helpers, then use the GitHub CLI login for this private repository.
         // The empty helper does not change the user's saved Git configuration.
@@ -98,12 +175,17 @@ fn git_prefix(use_gh: bool) -> Vec<&'static str> {
             "-c",
             "credential.helper=!gh auth git-credential",
         ]);
+    } else {
+        prefix.extend(["-c", "credential.helper="]);
     }
     prefix
 }
 
 fn github_cli_authenticated() -> bool {
-    let Ok(status) = Command::new("gh")
+    let Ok(gh) = find_tool("gh") else {
+        return false;
+    };
+    let Ok(status) = Command::new(gh)
         .args(["auth", "status"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -115,9 +197,18 @@ fn github_cli_authenticated() -> bool {
 }
 
 fn git(directory: Option<&Path>, args: &[&str], use_gh: bool) -> Result<String, String> {
-    let mut command = Command::new("git");
+    let git_tool = find_tool("git").map_err(|_| {
+        "git is not available. Install Git and authenticate to https://github.com/blisspixel/sigy."
+            .to_owned()
+    })?;
+    let mut command = Command::new(git_tool);
     command.args(git_prefix(use_gh));
     command.env("GIT_TERMINAL_PROMPT", "0");
+    command.env("GIT_CONFIG_NOSYSTEM", "1");
+    command.env(
+        "GIT_CONFIG_GLOBAL",
+        if cfg!(windows) { "NUL" } else { "/dev/null" },
+    );
     if let Some(directory) = directory {
         command.arg("-C").arg(directory);
     }
@@ -232,7 +323,10 @@ fn cargo_install(directory: &Path, commit: &str, operation: &str) -> Result<(), 
 }
 
 fn cargo_command(directory: &Path, commit: &str) -> Result<Command, String> {
-    let mut command = Command::new("cargo");
+    let cargo = find_tool("cargo").map_err(|_| {
+        "cargo is not available. Install Rust 1.98.1, then run sigy update.".to_owned()
+    })?;
+    let mut command = Command::new(cargo);
     if let Some(path) = cargo_path() {
         command.env("PATH", path);
     }
@@ -565,11 +659,39 @@ mod tests {
                 "-c",
                 "core.abbrev=40",
                 "-c",
+                "core.fsmonitor=",
+                "-c",
+                if cfg!(windows) {
+                    "core.hooksPath=NUL"
+                } else {
+                    "core.hooksPath=/dev/null"
+                },
+                "-c",
+                "http.followRedirects=false",
+                "-c",
                 "credential.helper=",
                 "-c",
                 "credential.helper=!gh auth git-credential",
             ]
         );
-        assert_eq!(super::git_prefix(false), ["-c", "core.abbrev=40"]);
+        assert_eq!(
+            super::git_prefix(false),
+            [
+                "-c",
+                "core.abbrev=40",
+                "-c",
+                "core.fsmonitor=",
+                "-c",
+                if cfg!(windows) {
+                    "core.hooksPath=NUL"
+                } else {
+                    "core.hooksPath=/dev/null"
+                },
+                "-c",
+                "http.followRedirects=false",
+                "-c",
+                "credential.helper=",
+            ]
+        );
     }
 }

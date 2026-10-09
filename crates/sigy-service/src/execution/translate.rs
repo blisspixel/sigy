@@ -184,6 +184,10 @@ async fn translate_cue(
     cue: &InlineText,
     signal: &mut watch::Receiver<bool>,
 ) -> Result<Option<TranslatedCue>> {
+    let stop = AtomicBool::new(false);
+    if !matches!(AssetCheck::new(plan).check(&stop), Ok(true)) {
+        return Ok(Some(untranslated(cue.ordinal, "profile-unavailable")));
+    }
     let limits = plan.spec.limits;
     let prompt = scratch.join(format!("cue-{}.txt", cue.ordinal));
     if std::fs::write(&prompt, format!("{}{}", plan.prompt, cue.text)).is_err() {

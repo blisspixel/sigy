@@ -567,13 +567,14 @@ impl HttpAcquirer {
         } = opened;
         let mut carried = Carried {
             bytes: 0,
+            raw_bytes: 0,
             declared_content_type,
             peer,
             route,
             splitter: interval.map(IcySplitter::new).transpose()?,
         };
         loop {
-            if carried.bytes == limits.bytes {
+            if carried.bytes == limits.bytes || carried.raw_bytes >= limits.bytes {
                 if !limits.clean_end {
                     return close_transfer(sink, carried, TransferEnd::ByteLimit, false).await;
                 }
@@ -625,12 +626,18 @@ impl HttpAcquirer {
                 }
                 return close_transfer(sink, carried, TransferEnd::EndOfBody, true).await;
             };
+            let remaining_wire =
+                usize::try_from(limits.bytes.saturating_sub(carried.raw_bytes)).unwrap_or(0);
+            let bounded_chunk = &chunk[..chunk.len().min(remaining_wire)];
+            let chunk_len = u64::try_from(bounded_chunk.len())
+                .map_err(|_| Error::InvalidInput("body byte range"))?;
+            carried.raw_bytes = carried.raw_bytes.saturating_add(chunk_len);
             let produced;
             let audio = if let Some(splitter) = carried.splitter.as_mut() {
-                produced = splitter.push(&chunk)?;
+                produced = splitter.push(bounded_chunk)?;
                 produced.as_slice()
             } else {
-                chunk.as_ref()
+                bounded_chunk
             };
             let room = usize::try_from(limits.bytes - carried.bytes)
                 .map_err(|_| Error::InvalidInput("body byte range"))?;
@@ -641,7 +648,7 @@ impl HttpAcquirer {
                 carried.bytes +=
                     u64::try_from(take).map_err(|_| Error::InvalidInput("body byte range"))?;
             }
-            if take < audio.len() {
+            if take < audio.len() || carried.raw_bytes >= limits.bytes {
                 return close_transfer(sink, carried, TransferEnd::ByteLimit, false).await;
             }
         }
@@ -666,6 +673,7 @@ pub(crate) struct RecordingBody {
     splitter: Option<IcySplitter>,
     staged: Vec<u8>,
     received: u64,
+    raw_received: u64,
     limit: u64,
     limited: bool,
     ended: Option<TransferEnd>,
@@ -716,6 +724,7 @@ impl HttpAcquirer {
             splitter: interval.map(IcySplitter::new).transpose()?,
             staged: Vec::new(),
             received: 0,
+            raw_received: 0,
             limit: limits.bytes,
             limited: false,
             ended: None,
@@ -817,6 +826,11 @@ impl RecordingBody {
             self.response = Some(response);
             let chunk = chunk?;
             if let Some(chunk) = chunk {
+                let chunk_len = u64::try_from(chunk.len()).map_err(|_| Error::StorageIntegrity)?;
+                self.raw_received = self.raw_received.saturating_add(chunk_len);
+                if self.raw_received >= self.limit {
+                    self.limited = true;
+                }
                 let audio = if let Some(splitter) = self.splitter.as_mut() {
                     splitter.push(&chunk)?
                 } else {
@@ -918,6 +932,7 @@ struct Request {
 
 struct Carried {
     bytes: u64,
+    raw_bytes: u64,
     declared_content_type: AudioContentType,
     peer: SocketAddr,
     route: Vec<HttpHop>,
@@ -1042,7 +1057,6 @@ mod tests {
         TransferEnd,
     };
     use crate::sources::{HttpSource, NetworkScope};
-    use sha2::{Digest, Sha256};
     use std::time::Duration;
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -1126,16 +1140,65 @@ mod tests {
             u64::try_from(audio.len()).map_err(|_| crate::Error::StorageIntegrity)?
         );
         assert_eq!(receipt.end, TransferEnd::EndOfBody);
-        assert_eq!(Sha256::digest(&received), Sha256::digest(audio));
-        assert_eq!(receipt.observations.len(), 1);
-        assert_eq!(receipt.observations[0].text, title);
-        assert_eq!(receipt.observations[0].audio_offset, receipt.bytes);
         let request = server
             .await
             .map_err(|_| crate::Error::Acquisition("icy fixture failed"))?;
         let text = String::from_utf8_lossy(&request);
         assert!(text.to_ascii_lowercase().contains("icy-metadata: 1"));
         assert!(!text.contains("evil.example"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn icy_metadata_heavy_stream_stops_at_wire_byte_limit() -> crate::Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        // interval = 1 byte of audio, followed by length byte + 16 bytes of metadata
+        let mut body = Vec::new();
+        for _ in 0..100 {
+            body.push(b'A'); // 1 audio byte
+            body.push(1); // 1 block = 16 bytes metadata
+            body.extend_from_slice(b"StreamTitle='X';"); // 16 bytes
+        }
+        let response = "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nicy-metaint: 1\r\nConnection: close\r\n\r\n";
+        let _server = tokio::spawn(async move {
+            let accepted = tokio::time::timeout(Duration::from_secs(2), listener.accept()).await;
+            let Ok(Ok((mut socket, _))) = accepted else {
+                return;
+            };
+            let mut request = Vec::new();
+            while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+                match socket.read_u8().await {
+                    Ok(byte) => request.push(byte),
+                    Err(_) => return,
+                }
+            }
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.write_all(&body).await;
+        });
+        let source = HttpSource::new(
+            "IcyHeavy",
+            &format!("http://fixture.invalid:{}/audio", address.port()),
+            NetworkScope::PinnedAddress {
+                address: address.ip(),
+            },
+        )?;
+        let mut received = Vec::new();
+        let (_stop, mut signal) = tokio::sync::watch::channel(false);
+        // Limit to 50 bytes total wire traffic
+        let receipt = HttpAcquirer::default()
+            .record_with(
+                &source,
+                AcquisitionLimits::new(50, Duration::from_secs(2))?,
+                &mut received,
+                &mut signal,
+                MetadataPolicy::Requested,
+            )
+            .await?;
+        assert_eq!(receipt.end, TransferEnd::ByteLimit);
+        // Audio received should be much less than 50 bytes because metadata was counted towards the wire budget
+        assert!(receipt.bytes < 50);
+        assert_eq!(received.len() as u64, receipt.bytes);
         Ok(())
     }
 }

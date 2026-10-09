@@ -56,7 +56,8 @@ pub(super) fn install(source: &Path, commit: &str, operation: &str) -> Result<()
         install_root: install_root.clone(),
         reason: None,
     })?;
-    let mut command = Command::new("powershell");
+    let ps = powershell_path();
+    let mut command = Command::new(ps);
     command
         .args([
             "-NoProfile",
@@ -123,6 +124,20 @@ fn root_from_executable(executable: &Path) -> Option<PathBuf> {
     is_bin
         .then(|| bin.parent().map(Path::to_path_buf))
         .flatten()
+}
+
+fn powershell_path() -> PathBuf {
+    if let Some(root) = env::var_os("SystemRoot") {
+        let system_ps = PathBuf::from(root)
+            .join("System32")
+            .join("WindowsPowerShell")
+            .join("v1.0")
+            .join("powershell.exe");
+        if super::is_safe_executable(&system_ps) {
+            return system_ps;
+        }
+    }
+    super::find_tool("powershell").unwrap_or_else(|_| PathBuf::from("powershell.exe"))
 }
 
 fn absolute(path: PathBuf) -> Result<PathBuf, String> {

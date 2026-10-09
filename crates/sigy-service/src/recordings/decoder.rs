@@ -1,7 +1,6 @@
 //! `FFmpeg` receives one bounded local byte stream and has no network protocol access.
 
-use crate::{Error, Result};
-use process_wrap::tokio::{CommandWrap, KillOnDrop};
+use crate::{Error, Result, recordings::audio::NativeAudioGroup};
 use std::{path::Path, process::Stdio, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -18,65 +17,49 @@ pub(super) const PROGRESS_TOLERANCE_US: u64 = 100_000;
 
 pub(super) async fn verify(executable: &str, path: &Path, format: &str) -> Result<u64> {
     let input = std::fs::File::open(path)?;
-    let mut command = CommandWrap::with_new(executable, |command| {
-        command
-            .args([
-                "-nostdin",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-nostats",
-                "-xerror",
-                "-max_alloc",
-                "16777216",
-                "-threads",
-                "1",
-                "-stats_period",
-                "0.5",
-                "-filter_threads",
-                "1",
-                "-protocol_whitelist",
-                "pipe",
-                "-f",
-                format,
-                "-i",
-                "pipe:0",
-                "-map",
-                "0:a:0",
-                "-vn",
-                "-sn",
-                "-dn",
-                "-threads",
-                "1",
-                "-progress",
-                "pipe:1",
-                "-f",
-                "null",
-                "-",
-            ])
-            .stdin(Stdio::from(input))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-    });
-    command.wrap(KillOnDrop);
-    #[cfg(windows)]
-    {
-        use process_wrap::tokio::{CreationFlags, JobObject};
-        command
-            .wrap(CreationFlags(
-                windows::Win32::System::Threading::CREATE_NO_WINDOW,
-            ))
-            .wrap(JobObject);
-    }
-    #[cfg(unix)]
-    {
-        command.wrap(process_wrap::tokio::ProcessGroup::leader());
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|_| Error::Acquisition("cannot start configured FFmpeg decoder"))?;
+    let group = NativeAudioGroup::for_decoder()?;
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .args([
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostats",
+            "-xerror",
+            "-max_alloc",
+            "16777216",
+            "-threads",
+            "1",
+            "-stats_period",
+            "0.5",
+            "-filter_threads",
+            "1",
+            "-protocol_whitelist",
+            "pipe",
+            "-f",
+            format,
+            "-i",
+            "pipe:0",
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-sn",
+            "-dn",
+            "-threads",
+            "1",
+            "-progress",
+            "pipe:1",
+            "-f",
+            "null",
+            "-",
+        ])
+        .stdin(Stdio::from(input))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = group.spawn(command)?;
     let stdout = child
-        .stdout()
+        .stdout
         .take()
         .ok_or(Error::Acquisition("decoder progress pipe unavailable"))?;
     let result = tokio::time::timeout(Duration::from_secs(30), async {
@@ -97,10 +80,13 @@ pub(super) async fn verify(executable: &str, path: &Path, format: &str) -> Resul
     })
     .await;
     match result {
-        Ok(Ok(duration)) => Ok(duration),
+        Ok(Ok(duration)) => {
+            group.finish().await?;
+            Ok(duration)
+        }
         failure => {
-            // Kill and reap before another worker can consume this decoder slot.
-            stop(&mut child).await?;
+            let _ = group.kill();
+            let _ = group.finish().await;
             failure.unwrap_or(Err(Error::Acquisition("decoder exceeded 30 seconds")))
         }
     }
@@ -141,36 +127,6 @@ pub(super) struct PlaybackReport {
     pub progress_advanced: bool,
 }
 
-fn supervise(mut command: process_wrap::tokio::CommandWrap) -> process_wrap::tokio::CommandWrap {
-    command.wrap(KillOnDrop);
-    #[cfg(windows)]
-    {
-        use process_wrap::tokio::{CreationFlags, JobObject};
-        command
-            .wrap(CreationFlags(
-                windows::Win32::System::Threading::CREATE_NO_WINDOW,
-            ))
-            .wrap(JobObject);
-    }
-    #[cfg(unix)]
-    {
-        command.wrap(process_wrap::tokio::ProcessGroup::leader());
-    }
-    command
-}
-
-async fn stop(child: &mut Box<dyn process_wrap::tokio::ChildWrapper>) -> Result<()> {
-    tokio::time::timeout(Duration::from_secs(5), async {
-        if child.try_wait()?.is_none() {
-            Box::into_pin(child.kill()).await?;
-        }
-        child.wait().await?;
-        Ok(())
-    })
-    .await
-    .unwrap_or(Err(Error::Acquisition("decoder stop remains unproven")))
-}
-
 pub(super) async fn play_file(
     executable: &str,
     path: &Path,
@@ -202,20 +158,22 @@ pub(super) async fn play_file(
     } else {
         None
     };
-    let mut child = supervise(playback_command(
-        executable,
-        path,
-        format,
-        seek_us,
-        system_muxer,
-    ))
-    .spawn()
-    .map_err(|_| Error::Acquisition("cannot start configured FFmpeg decoder"))?;
+    let group = NativeAudioGroup::for_decoder()?;
+    let mut child = group
+        .spawn(playback_command(
+            executable,
+            path,
+            format,
+            seek_us,
+            system_muxer,
+        ))
+        .map_err(|_| Error::Acquisition("cannot start configured FFmpeg decoder"))?;
     let stdout = child
-        .stdout()
+        .stdout
         .take()
         .ok_or(Error::Acquisition("decoder progress pipe unavailable"))?;
     let progress = complete(
+        &group,
         &mut child,
         read_progress(stdout, progress_limits),
         deadline,
@@ -223,6 +181,7 @@ pub(super) async fn play_file(
     )
     .await?;
     require_range_progress(&progress, remaining_us)?;
+    group.finish().await?;
     Ok(PlaybackReport {
         playhead_us: seek_us
             .checked_add(progress.max_out_us)
@@ -289,20 +248,21 @@ async fn play_stream(
         None
     };
     let bounds = range.map(|(seek, end, _)| (seek, end));
-    let mut child = supervise(pipe_playback_command(
-        executable,
-        format,
-        system_muxer,
-        bounds,
-    ))
-    .spawn()
-    .map_err(|_| Error::Acquisition("cannot start configured FFmpeg decoder"))?;
+    let group = NativeAudioGroup::for_decoder()?;
+    let mut child = group
+        .spawn(pipe_playback_command(
+            executable,
+            format,
+            system_muxer,
+            bounds,
+        ))
+        .map_err(|_| Error::Acquisition("cannot start configured FFmpeg decoder"))?;
     let mut stdin = child
-        .stdin()
+        .stdin
         .take()
         .ok_or(Error::Acquisition("decoder audio pipe unavailable"))?;
     let stdout = child
-        .stdout()
+        .stdout
         .take()
         .ok_or(Error::Acquisition("decoder progress pipe unavailable"))?;
     let (seek_us, end_us, maximum_bytes) = range.unwrap_or((
@@ -327,10 +287,11 @@ async fn play_stream(
         let ((), progress) = tokio::try_join!(pump, read_progress(stdout, progress_limits))?;
         Ok(progress)
     };
-    let progress = complete(&mut child, work, deadline, system_audio).await?;
+    let progress = complete(&group, &mut child, work, deadline, system_audio).await?;
     if range.is_some() {
         require_range_progress(&progress, end_us - seek_us)?;
     }
+    group.finish().await?;
     Ok(PlaybackReport {
         playhead_us: seek_us
             .checked_add(progress.max_out_us)
@@ -382,7 +343,8 @@ async fn copy_range(
 }
 
 async fn complete(
-    child: &mut Box<dyn process_wrap::tokio::ChildWrapper>,
+    group: &NativeAudioGroup,
+    child: &mut tokio::process::Child,
     work: impl std::future::Future<Output = Result<Progress>>,
     deadline: tokio::time::Instant,
     system_audio: bool,
@@ -405,7 +367,10 @@ async fn complete(
     .await
     .unwrap_or(Err(Error::Acquisition("playback exceeded its deadline")));
     if result.is_err() {
-        stop(child).await?;
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        let _ = group.kill();
+        let _ = group.finish().await;
     }
     result
 }
@@ -434,59 +399,59 @@ fn pipe_playback_command(
     format: &str,
     system_muxer: Option<&str>,
     range: Option<(u64, u64)>,
-) -> process_wrap::tokio::CommandWrap {
-    CommandWrap::with_new(executable, |command| {
-        command.args([
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostats",
-            "-xerror",
-            "-max_alloc",
-            "16777216",
-            "-threads",
-            "1",
-            "-filter_threads",
-            "1",
-            "-protocol_whitelist",
-            "pipe",
-            "-stats_period",
-            "0.1",
-        ]);
-        if range.is_none() {
-            command.arg("-re");
-        }
-        command.args([
-            "-f",
-            format,
-            "-i",
-            "pipe:0",
-            "-map",
-            "0:a:0",
-            "-vn",
-            "-sn",
-            "-dn",
-            "-threads",
-            "1",
-            "-progress",
-            "pipe:1",
-        ]);
-        if let Some((seek_us, end_us)) = range {
-            let seek = timestamp(seek_us);
-            let duration = timestamp(end_us - seek_us);
-            command.args(["-ss", seek.as_str(), "-t", duration.as_str()]);
-        }
-        if let Some(muxer) = system_muxer {
-            command.args(["-f", muxer, "default"]);
-        } else {
-            command.args(["-f", "null", "-"]);
-        }
-        command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-    })
+) -> tokio::process::Command {
+    let mut command = tokio::process::Command::new(executable);
+    command.args([
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostats",
+        "-xerror",
+        "-max_alloc",
+        "16777216",
+        "-threads",
+        "1",
+        "-filter_threads",
+        "1",
+        "-protocol_whitelist",
+        "pipe",
+        "-stats_period",
+        "0.1",
+    ]);
+    if range.is_none() {
+        command.arg("-re");
+    }
+    command.args([
+        "-f",
+        format,
+        "-i",
+        "pipe:0",
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+        "-threads",
+        "1",
+        "-progress",
+        "pipe:1",
+    ]);
+    if let Some((seek_us, end_us)) = range {
+        let seek = timestamp(seek_us);
+        let duration = timestamp(end_us - seek_us);
+        command.args(["-ss", seek.as_str(), "-t", duration.as_str()]);
+    }
+    if let Some(muxer) = system_muxer {
+        command.args(["-f", muxer, "default"]);
+    } else {
+        command.args(["-f", "null", "-"]);
+    }
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    command
 }
 
 fn timestamp(microseconds: u64) -> String {
@@ -503,72 +468,72 @@ fn playback_command(
     format: &str,
     seek_us: u64,
     system_muxer: Option<&str>,
-) -> process_wrap::tokio::CommandWrap {
+) -> tokio::process::Command {
     let timestamp = format!("{}.{:06}", seek_us / 1_000_000, seek_us % 1_000_000);
-    CommandWrap::with_new(executable, |command| {
-        command
-            .args([
-                "-nostdin",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-nostats",
-                "-xerror",
-                "-max_alloc",
-                "16777216",
-                "-threads",
-                "1",
-                "-filter_threads",
-                "1",
-                "-protocol_whitelist",
-                "file",
-                "-stats_period",
-                "0.1",
-                "-re",
-            ])
-            .args(
-                (seek_us > 0)
-                    .then_some(["-ss", timestamp.as_str()])
-                    .into_iter()
-                    .flatten(),
-            )
-            .args(["-f", format, "-i"])
-            .arg(path)
-            .args([
-                "-map",
-                "0:a:0",
-                "-vn",
-                "-sn",
-                "-dn",
-                "-threads",
-                "1",
-                "-progress",
-                "pipe:1",
-            ]);
-        if let Some(muxer) = system_muxer {
-            command.args(["-f", muxer, "default"]);
-        } else {
-            command.args(["-f", "null", "-"]);
-        }
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-    })
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .args([
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostats",
+            "-xerror",
+            "-max_alloc",
+            "16777216",
+            "-threads",
+            "1",
+            "-filter_threads",
+            "1",
+            "-protocol_whitelist",
+            "file",
+            "-stats_period",
+            "0.1",
+            "-re",
+        ])
+        .args(
+            (seek_us > 0)
+                .then_some(["-ss", timestamp.as_str()])
+                .into_iter()
+                .flatten(),
+        )
+        .args(["-f", format, "-i"])
+        .arg(path)
+        .args([
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-sn",
+            "-dn",
+            "-threads",
+            "1",
+            "-progress",
+            "pipe:1",
+        ]);
+    if let Some(muxer) = system_muxer {
+        command.args(["-f", muxer, "default"]);
+    } else {
+        command.args(["-f", "null", "-"]);
+    }
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    command
 }
 
 async fn system_output_muxer(executable: &str) -> Result<&'static str> {
-    let mut child = supervise(CommandWrap::with_new(executable, |command| {
-        command
-            .args(["-hide_banner", "-devices"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-    }))
-    .spawn()
-    .map_err(|_| Error::Acquisition("cannot start configured FFmpeg decoder"))?;
+    let group = NativeAudioGroup::for_decoder()?;
+    let mut cmd = tokio::process::Command::new(executable);
+    cmd.args(["-hide_banner", "-devices"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = group
+        .spawn(cmd)
+        .map_err(|_| Error::Acquisition("cannot start configured FFmpeg decoder"))?;
     let stdout = child
-        .stdout()
+        .stdout
         .take()
         .ok_or(Error::Acquisition("decoder progress pipe unavailable"))?;
     let mut output = Vec::new();
@@ -582,13 +547,18 @@ async fn system_output_muxer(executable: &str) -> Result<&'static str> {
     })
     .await;
     let output = match read {
-        Ok(Ok(output)) => output,
+        Ok(Ok(output)) => {
+            group.finish().await?;
+            output
+        }
         Ok(Err(error)) => {
-            stop(&mut child).await?;
+            let _ = group.kill();
+            let _ = group.finish().await;
             return Err(error);
         }
         Err(_) => {
-            stop(&mut child).await?;
+            let _ = group.kill();
+            let _ = group.finish().await;
             return Err(Error::Acquisition("playback exceeded its deadline"));
         }
     };

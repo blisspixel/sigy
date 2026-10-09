@@ -1,8 +1,24 @@
 # Implementation progress
 
-Updated: 2026-10-04. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
+Updated: 2026-10-08. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
+
+## 2026-10-08 security remediation review
+
+A comprehensive security review resolved ten tracked security issues (Issues 1–10 from `blisspixel/security-tracking`):
+
+1. **Managed update and installer Git isolation (Issues 1 & 3)**: Isolated Git environment variables (`GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=NUL`, `GIT_TERMINAL_PROMPT=0`, unset `GIT_CONFIG_PARAMETERS`/`GIT_CONFIG_COUNT`) and passed `-c core.abbrev=40 -c core.fsmonitor= -c core.hooksPath=NUL -c http.followRedirects=false -c credential.helper=` with explicit GitHub CLI helper resets. Direct installers stage builds into private temporary directories with pre/post-build commit identity and worktree cleanliness verification.
+2. **Strict wire-byte limits on ICY streams (Issue 2)**: `HttpAcquirer` and `RecordingBody` now enforce wire-byte limits directly before splitter processing, preventing metadata-heavy streams from consuming unbounded network bytes.
+3. **Safe tool resolution and path protection (Issue 4)**: Added `find_tool` with symlink/reparse point validation and pinned the system PowerShell path for Windows update helpers.
+4. **Pre-execution native asset re-verification (Issue 5)**: ASR and translation workers re-verify asset digests immediately before process launch inside the supervised execution path.
+5. **Local decoder reauthorization on restore (Issue 6)**: `backup::stage` clears machine-local DVR decoder paths (`clear_dvr_decoder`) on restored libraries to require local operator configuration.
+6. **Reparse point and junction rejection (Issue 7)**: Windows library opening rejects reparse point attributes (`FILE_ATTRIBUTE_REPARSE_POINT`) before path canonicalization.
+7. **Native audio group decoder bounds (Issue 8)**: FFmpeg playback and verification pipelines run under bounded `NativeAudioGroup::for_decoder()` with job object memory and CPU quotas.
+8. **Backup object and byte ceilings (Issue 9)**: Backup verification and restore enforce strict aggregate limits (`MAX_CATALOG_BYTES`, `MAX_MEDIA_OBJECTS`, `MAX_MEDIA_OBJECT_BYTES`, `MAX_TOTAL_MEDIA_BYTES`).
+9. **Bounded MCP transport framing (Issue 10)**: MCP stdio transport reads frames incrementally with chunked byte bounds to prevent memory amplification from oversized lines.
+
+All test suites and full `cargo verify` passed cleanly.
 
 ## 2026-10-04 exact retained excerpts
 

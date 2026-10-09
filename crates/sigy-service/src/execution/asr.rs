@@ -549,6 +549,10 @@ async fn recognize(
     wav: &Path,
     signal: &mut watch::Receiver<bool>,
 ) -> Result<Stage<Vec<u8>>> {
+    let stop = AtomicBool::new(false);
+    if !matches!(verify_assets(plan).check(&stop), Ok(true)) {
+        return Ok(stop_with(ProfileUnavailable));
+    }
     let limits = plan.spec.limits;
     let Some(group) = contained(
         ProcessGroupOptions::default()

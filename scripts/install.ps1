@@ -12,6 +12,11 @@ if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyCo
     $PSNativeCommandUseErrorActionPreference = $false
 }
 $env:GIT_TERMINAL_PROMPT = "0"
+$env:GIT_CONFIG_NOSYSTEM = "1"
+Remove-Item Env:GIT_CONFIG_PARAMETERS -ErrorAction SilentlyContinue
+Remove-Item Env:GIT_CONFIG_COUNT -ErrorAction SilentlyContinue
+$gitFlags = @('-c', 'core.abbrev=40', '-c', 'core.fsmonitor=', '-c', 'core.hooksPath=NUL', '-c', 'http.followRedirects=false')
+
 foreach ($name in @('CARGO_HOME','CARGO_INSTALL_ROOT')) {
     $value = [Environment]::GetEnvironmentVariable($name, 'Process')
     if ($value) {
@@ -66,9 +71,9 @@ function Invoke-SigyGit {
         $ErrorActionPreference = $previous
     }
     if ($useGh) {
-        & git -c credential.helper= -c "credential.helper=!gh auth git-credential" @GitArgs
+        & git @gitFlags -c credential.helper= -c "credential.helper=!gh auth git-credential" @GitArgs
     } else {
-        & git @GitArgs
+        & git @gitFlags -c credential.helper= @GitArgs
     }
     if ($LASTEXITCODE -ne 0) {
         throw "git failed with exit code $LASTEXITCODE"
@@ -77,11 +82,11 @@ function Invoke-SigyGit {
 
 function Assert-SigyManagedSource {
     param([string]$SourceRoot)
-    $origin = & git -C $SourceRoot config --local --get remote.origin.url
+    $origin = & git -C $SourceRoot @gitFlags config --local --get remote.origin.url 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]$origin -ne $repo) {
         throw "Managed sigy source origin is not $repo."
     }
-    $dirty = & git -C $SourceRoot status --porcelain=v1 --untracked-files=all
+    $dirty = & git -C $SourceRoot @gitFlags status --porcelain=v1 --untracked-files=all 2>$null
     if ($LASTEXITCODE -ne 0 -or $dirty) {
         throw "Managed sigy source has local changes or cannot be inspected. Preserve it and use a clean source directory."
     }
@@ -122,11 +127,8 @@ if ($fromGitHub) {
         Invoke-SigyGit clone --depth 1 --branch main $repo $root
     }
     Assert-SigyManagedSource $root
-    Invoke-SigyGit -C $root -c core.abbrev=40 fetch --depth 1 $repo main
-    & git -C $root checkout --detach FETCH_HEAD
-    if ($LASTEXITCODE -ne 0) {
-        throw "git checkout failed with exit code $LASTEXITCODE"
-    }
+    Invoke-SigyGit -C $root fetch --depth 1 $repo main
+    Invoke-SigyGit -C $root checkout --detach FETCH_HEAD
     Assert-SigyManagedSource $root
 }
 
@@ -152,26 +154,49 @@ if (-not $cargo) {
 
 $commit = ""
 Remove-Item Env:SIGY_GIT_COMMIT -ErrorAction SilentlyContinue
-$resolvedCommit = & git -C $root -c core.abbrev=40 rev-parse HEAD 2>$null
+$resolvedCommit = & git -C $root @gitFlags rev-parse HEAD 2>$null
 if ($LASTEXITCODE -eq 0 -and $resolvedCommit) {
-    $localChanges = & git -C $root status --porcelain=v1 --untracked-files=all
+    $localChanges = & git -C $root @gitFlags status --porcelain=v1 --untracked-files=all 2>$null
     if ($LASTEXITCODE -eq 0 -and -not $localChanges) {
         $commit = ([string]$resolvedCommit).Trim()
         $env:SIGY_GIT_COMMIT = $commit
     }
 }
 
-& cargo install --path crates/sigy --locked --force
-if ($LASTEXITCODE -ne 0) {
-    throw "cargo install failed with exit code $LASTEXITCODE"
+$staging = Join-Path $metadata "stage-$([Guid]::NewGuid().ToString('N'))"
+[void][System.IO.Directory]::CreateDirectory($staging)
+try {
+    if ($commit) {
+        $stagingArchive = Join-Path $staging "archive.tar"
+        & git -C $root @gitFlags archive --format=tar --output=$stagingArchive $commit 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $stagingArchive)) {
+            & tar.exe -xf $stagingArchive -C $staging 2>$null
+            Remove-Item -LiteralPath $stagingArchive -Force -ErrorAction SilentlyContinue
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $staging "crates\sigy\Cargo.toml"))) {
+            Copy-Item -Path (Join-Path $root "*") -Destination $staging -Recurse -Force
+        }
+    } else {
+        Copy-Item -Path (Join-Path $root "*") -Destination $staging -Recurse -Force
+    }
+    Set-Location -LiteralPath $staging
+    & cargo install --path crates/sigy --locked --force
+    if ($LASTEXITCODE -ne 0) {
+        throw "cargo install failed with exit code $LASTEXITCODE"
+    }
+} finally {
+    Set-Location -LiteralPath $root
+    if (Test-Path -LiteralPath $staging) {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 if ($commit) {
-    $afterCommit = & git -C $root -c core.abbrev=40 rev-parse HEAD 2>$null
+    $afterCommit = & git -C $root @gitFlags rev-parse HEAD 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]$afterCommit -cne $commit) {
         throw "Source commit changed during installation; installation identity is unproven."
     }
-    $afterChanges = & git -C $root status --porcelain=v1 --untracked-files=all
+    $afterChanges = & git -C $root @gitFlags status --porcelain=v1 --untracked-files=all 2>$null
     if ($LASTEXITCODE -ne 0 -or $afterChanges) {
         throw "Source changed during installation; installation identity is unproven."
     }

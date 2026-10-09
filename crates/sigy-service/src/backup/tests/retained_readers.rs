@@ -111,7 +111,12 @@ fn reserved_sealed_backup_restores_media_history_quota_and_four_restart_holds() 
         serde_json::to_value(restored.store().recordings(None, 10)?)?,
         recordings
     );
-    assert_eq!(serde_json::to_value(restored.store().dvr_status()?)?, quota);
+    let mut expected_quota = quota.clone();
+    expected_quota["decoder"] = serde_json::Value::Null;
+    assert_eq!(
+        serde_json::to_value(restored.store().dvr_status()?)?,
+        expected_quota
+    );
     assert_eq!(restored.store().retained_readers()?, holds);
     assert_eq!(
         restored.store().recording("segmented")?.storage_state,
