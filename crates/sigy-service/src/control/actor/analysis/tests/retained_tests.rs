@@ -20,6 +20,7 @@ fn fixture_sql(actor: &Actor, sql: &str) -> Result<()> {
     // This is deliberate catalog fault injection under the existing Library
     // owner, not a competing service or filesystem retention actor.
     let connection = rusqlite::Connection::open(actor.library.directory().join("catalog.sqlite3"))?;
+    connection.busy_timeout(std::time::Duration::from_secs(5))?;
     connection.execute_batch(sql)?;
     Ok(())
 }

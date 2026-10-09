@@ -17,6 +17,9 @@ A comprehensive security review resolved ten tracked security issues (Issues 1â€
 7. **Native audio group decoder bounds (Issue 8)**: FFmpeg playback and verification pipelines run under bounded `NativeAudioGroup::for_decoder()` with job object memory and CPU quotas.
 8. **Backup object and byte ceilings (Issue 9)**: Backup verification and restore enforce strict aggregate limits (`MAX_CATALOG_BYTES`, `MAX_MEDIA_OBJECTS`, `MAX_MEDIA_OBJECT_BYTES`, `MAX_TOTAL_MEDIA_BYTES`).
 9. **Bounded MCP transport framing (Issue 10)**: MCP stdio transport reads frames incrementally with chunked byte bounds to prevent memory amplification from oversized lines.
+10. **Terminal control sequence sanitization**: Dynamic CLI values in source/playlist and radio views pass through `sanitize()` / `clean()` to prevent terminal escape injection.
+11. **Comprehensive Unix socket permission enforcement**: IPC socket listener permissions (`0600`) now apply across all Unix targets (`#[cfg(unix)]`).
+12. **Aligned retained-reader query work bounds**: Retained reader database queries use explicit `Limits::RETAINED_HISTORY` limits for robust multi-threaded transaction and recovery integrity.
 
 All test suites and full `cargo verify` passed cleanly.
 

@@ -120,7 +120,7 @@ impl Endpoint {
                 Err(error) => return Err(error.into()),
             }
             // The library lock is held before removing a stale socket.
-            #[cfg(target_os = "linux")]
+            #[cfg(unix)]
             let options = {
                 use interprocess::os::unix::local_socket::ListenerOptionsExt;
                 options.mode(0o600)

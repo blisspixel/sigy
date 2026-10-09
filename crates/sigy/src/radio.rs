@@ -408,7 +408,8 @@ fn write_countries(
     if let Some(after) = &page.next_after {
         writeln!(
             writer,
-            "Continue with the same query and locale: --after {after}"
+            "Continue with the same query and locale: --after {}",
+            clean(after)
         )?;
     }
     Ok(())

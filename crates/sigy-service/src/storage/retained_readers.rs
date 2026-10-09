@@ -121,7 +121,7 @@ impl Store {
     /// Refuses unknown identity, malformed stored lineage or exhausted query bounds.
     pub fn retained_reader(&self, id: &str) -> Result<RetainedReadView> {
         validate_key(id, "retained reader ID")?;
-        let work = QueryWork::start(&self.connection, Limits::TASK_EVIDENCE)?;
+        let work = QueryWork::start(&self.connection, Limits::RETAINED_HISTORY)?;
         let result = read::find(&self.connection, id)?.ok_or(Error::NotFound)?;
         read::audit(&self.connection, &result)?;
         work.check()?;
@@ -133,7 +133,7 @@ impl Store {
     /// # Errors
     /// Refuses malformed stored lineage or exhausted query bounds.
     pub fn retained_readers(&self) -> Result<Vec<RetainedReadView>> {
-        let work = QueryWork::start(&self.connection, Limits::TASK_EVIDENCE)?;
+        let work = QueryWork::start(&self.connection, Limits::RETAINED_HISTORY)?;
         let result = read::list(&self.connection)?;
         for view in &result {
             read::audit(&self.connection, view)?;

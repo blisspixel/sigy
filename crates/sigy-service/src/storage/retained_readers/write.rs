@@ -133,7 +133,7 @@ impl Store {
     ) -> Result<(RetainedReadSpec, bool)> {
         validate_key(id, "retained reader ID")?;
         request.validate()?;
-        let work = QueryWork::start(&self.connection, Limits::TASK_EVIDENCE)?;
+        let work = QueryWork::start(&self.connection, Limits::RETAINED_HISTORY)?;
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         if let Some(view) = read::find(&tx, id)? {
             if !request.matches(&view) {
@@ -231,7 +231,7 @@ impl Store {
         change: impl FnOnce(&Connection, &RetainedReadView) -> Result<()>,
     ) -> Result<RetainedReadView> {
         validate_key(id, "retained reader ID")?;
-        let work = QueryWork::start(&self.connection, Limits::TASK_EVIDENCE)?;
+        let work = QueryWork::start(&self.connection, Limits::RETAINED_HISTORY)?;
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         let view = read::find(&tx, id)?.ok_or(Error::NotFound)?;
         read::audit(&tx, &view)?;
@@ -247,7 +247,7 @@ impl Store {
         if now_ms < 0 {
             return Err(Error::InvalidInput("retained reader clock"));
         }
-        let work = QueryWork::start(&self.connection, Limits::TASK_EVIDENCE)?;
+        let work = QueryWork::start(&self.connection, Limits::RETAINED_HISTORY)?;
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         let count = tx.execute("UPDATE retained_readers SET state='recovery_held',recovery_reason='restart-completion-unproven',updated_ms=max(updated_ms,?1) WHERE state IN ('running','cancelling')", [now_ms])?;
         work.check()?;

@@ -3,6 +3,7 @@ use std::{
     net::IpAddr,
 };
 
+use crate::explorer::text::sanitize;
 use clap::Subcommand;
 use sigy_service::{
     control::{Operation, PlaylistOperation, PlaylistView, SourcePage},
@@ -163,14 +164,22 @@ pub fn render(writer: &mut impl Write, page: &SourcePage) -> io::Result<()> {
         writeln!(
             writer,
             "{}: {} | {} | {} | redirects: {}",
-            entry.revision_id, entry.name, entry.origin, policy, entry.redirects
+            sanitize(&entry.revision_id, 128),
+            sanitize(&entry.name, 512),
+            sanitize(&entry.origin, 2048),
+            policy,
+            entry.redirects
         )?;
     }
     if page.entries.is_empty() {
         writeln!(writer, "No source revisions on this page.")?;
     }
     if let Some(after) = &page.next_after {
-        writeln!(writer, "Continue with source list --after {after}")?;
+        writeln!(
+            writer,
+            "Continue with source list --after {}",
+            sanitize(after, 128)
+        )?;
     }
     Ok(())
 }
@@ -179,7 +188,7 @@ pub fn render_playlist(writer: &mut impl Write, playlist: &PlaylistView) -> io::
     writeln!(
         writer,
         "Playlist {}: {} | parent {} | {} entries",
-        playlist.id,
+        sanitize(&playlist.id, 128),
         playlist.state,
         playlist.parent_revision,
         playlist.entries.len()
@@ -189,17 +198,22 @@ pub fn render_playlist(writer: &mut impl Write, playlist: &PlaylistView) -> io::
         writeln!(writer, "Completed at {completed} ms")?;
     }
     if let Some(origin) = &playlist.final_origin {
-        writeln!(writer, "Document origin: {origin}")?;
+        writeln!(writer, "Document origin: {}", sanitize(origin, 2048))?;
     }
     if let Some(hash) = &playlist.document_sha256 {
-        writeln!(writer, "Document hash: {hash}")?;
+        writeln!(writer, "Document hash: {}", sanitize(hash, 64))?;
     }
     if let Some(failure) = &playlist.failure {
-        writeln!(writer, "Reason: {failure}")?;
+        writeln!(writer, "Reason: {}", sanitize(failure, 512))?;
     }
     for entry in &playlist.entries {
         match entry.kind {
-            CandidateKind::Entry => writeln!(writer, "  {}: {}", entry.index, entry.origin)?,
+            CandidateKind::Entry => writeln!(
+                writer,
+                "  {}: {}",
+                entry.index,
+                sanitize(&entry.origin, 2048)
+            )?,
             CandidateKind::HlsVariant | CandidateKind::HlsAudio => {
                 let bandwidth = entry.bandwidth.map_or_else(
                     || "bandwidth not declared".to_owned(),
@@ -218,8 +232,10 @@ pub fn render_playlist(writer: &mut impl Write, playlist: &PlaylistView) -> io::
                 };
                 writeln!(
                     writer,
-                    "  {}: {} | {kind} | {bandwidth} | {codecs} | {content}",
-                    entry.index, entry.origin
+                    "  {}: {} | {kind} | {bandwidth} | {} | {content}",
+                    entry.index,
+                    sanitize(&entry.origin, 2048),
+                    sanitize(codecs, 128)
                 )?;
             }
         }
@@ -228,7 +244,8 @@ pub fn render_playlist(writer: &mut impl Write, playlist: &PlaylistView) -> io::
         writeln!(
             writer,
             "Accepted index {} as {}",
-            acceptance.index, acceptance.child_revision
+            acceptance.index,
+            sanitize(&acceptance.child_revision, 128)
         )?;
     }
     Ok(())
