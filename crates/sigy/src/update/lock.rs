@@ -8,6 +8,11 @@ pub(super) fn acquire(path: &Path) -> Result<fs::File, String> {
         use std::os::windows::fs::OpenOptionsExt;
         options.share_mode(0);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
     let file = options
         .open(path)
         .map_err(|_| "another Sigy installation is active, or its lock cannot be opened")?;

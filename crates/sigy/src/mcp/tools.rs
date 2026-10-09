@@ -208,6 +208,28 @@ fn run(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|_| "could not start sigy".to_owned())?;
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+    let stdout_handle = thread::spawn(move || {
+        let mut out = Vec::new();
+        if let Some(mut pipe) = stdout_pipe.take() {
+            let _ = pipe
+                .by_ref()
+                .take(u64::try_from(MAX_OUTPUT).unwrap_or(u64::MAX))
+                .read_to_end(&mut out);
+        }
+        out
+    });
+    let stderr_handle = thread::spawn(move || {
+        let mut err = Vec::new();
+        if let Some(mut pipe) = stderr_pipe.take() {
+            let _ = pipe
+                .by_ref()
+                .take(u64::try_from(MAX_OUTPUT).unwrap_or(u64::MAX))
+                .read_to_end(&mut err);
+        }
+        err
+    });
     let started = Instant::now();
     let status = loop {
         if let Some(status) = child
@@ -219,6 +241,8 @@ fn run(
         if started.elapsed() > timeout {
             let _ = child.kill();
             let _ = child.wait();
+            let _ = stdout_handle.join();
+            let _ = stderr_handle.join();
             return Err(format!(
                 "tool exceeded {} seconds; if the service already admitted the job, it keeps running",
                 timeout.as_secs()
@@ -226,20 +250,10 @@ fn run(
         }
         thread::sleep(Duration::from_millis(20));
     };
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    if let Some(pipe) = child.stdout.take() {
-        let _ = pipe
-            .take(u64::try_from(MAX_OUTPUT).unwrap_or(u64::MAX))
-            .read_to_end(&mut stdout);
-    }
-    if let Some(pipe) = child.stderr.take() {
-        let _ = pipe
-            .take(u64::try_from(MAX_OUTPUT).unwrap_or(u64::MAX))
-            .read_to_end(&mut stderr);
-    }
-    let stdout = String::from_utf8_lossy(&stdout);
-    let stderr = String::from_utf8_lossy(&stderr);
+    let stdout_bytes = stdout_handle.join().unwrap_or_default();
+    let stderr_bytes = stderr_handle.join().unwrap_or_default();
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
+    let stderr = String::from_utf8_lossy(&stderr_bytes);
     if status.success() {
         Ok(success_result(stdout.trim()))
     } else {

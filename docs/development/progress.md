@@ -20,6 +20,8 @@ A comprehensive security review resolved ten tracked security issues (Issues 1â€
 10. **Terminal control sequence sanitization**: Dynamic CLI values in source/playlist and radio views pass through `sanitize()` / `clean()` to prevent terminal escape injection.
 11. **Comprehensive Unix socket permission enforcement**: IPC socket listener permissions (`0600`) now apply across all Unix targets (`#[cfg(unix)]`).
 12. **Aligned retained-reader query work bounds**: Retained reader database queries use explicit `Limits::RETAINED_HISTORY` limits for robust multi-threaded transaction and recovery integrity.
+13. **Concurrent bounded pipe draining**: MCP tool subprocess runner drains stdout and stderr concurrently in background threads with `take(MAX_OUTPUT)`, eliminating OS pipe buffer deadlocks on large outputs.
+14. **Unix installation lock privacy**: Installation lock acquisition on Unix sets `0600` permissions on creation.
 
 All test suites and full `cargo verify` passed cleanly.
 
