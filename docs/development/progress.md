@@ -22,6 +22,7 @@ A comprehensive security review resolved ten tracked security issues (Issues 1â€
 12. **Aligned retained-reader query work bounds**: Retained reader database queries use explicit `Limits::RETAINED_HISTORY` limits for robust multi-threaded transaction and recovery integrity.
 13. **Concurrent bounded pipe draining**: MCP tool subprocess runner drains stdout and stderr concurrently in background threads with `take(MAX_OUTPUT)`, eliminating OS pipe buffer deadlocks on large outputs.
 14. **Unix installation lock privacy**: Installation lock acquisition on Unix sets `0600` permissions on creation.
+15. **MCP positional parameter flag injection prevention**: MCP tool argument translation rejects leading hyphens on positional arguments, preventing untrusted IDs from being parsed as CLI options.
 
 All test suites and full `cargo verify` passed cleanly.
 

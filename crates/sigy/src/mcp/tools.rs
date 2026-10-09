@@ -156,6 +156,9 @@ fn push_slot(args: &mut Vec<String>, slot: &Slot, value: &Value) -> Result<(), S
                 return Err("order must be id or name".into());
             }
             if slot.flag.is_empty() {
+                if text.starts_with('-') {
+                    return Err(format!("{} cannot start with a hyphen", slot.key));
+                }
                 args.push(text.to_owned());
             } else {
                 args.push(slot.flag.to_owned());
@@ -1490,6 +1493,27 @@ break"}),
                 return Err(refused.to_string());
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn positional_arguments_cannot_start_with_hyphen() -> Result<(), String> {
+        let tool = TOOLS
+            .iter()
+            .find(|tool| tool.name == "radio_show")
+            .ok_or("radio_show")?;
+        for flag in ["-h", "--help", "--data-dir", "-v", "--version"] {
+            let arguments = json!({"id": flag});
+            assert!(
+                argv(tool, arguments.as_object().ok_or("object")?).is_err(),
+                "positional {flag} should have been rejected"
+            );
+        }
+        let valid = json!({"id": "station-123"});
+        assert_eq!(
+            argv(tool, valid.as_object().ok_or("object")?)?,
+            ["radio", "show", "station-123"]
+        );
         Ok(())
     }
 }
