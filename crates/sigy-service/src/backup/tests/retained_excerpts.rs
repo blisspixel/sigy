@@ -327,7 +327,7 @@ fn self_consistent_outer_backup_hash_cannot_restore_invalid_excerpt_hash_or_boun
         copy_tree(&root.path().join("backup"), &source)?;
         damage_catalog(&source.join(CATALOG), bounds)?;
         let mut changed = manifest.clone();
-        changed.catalog = hash_file(&source.join(CATALOG))?;
+        changed.catalog = hash_file(&source.join(CATALOG), MAX_CATALOG_BYTES)?;
         fs::write(source.join(MANIFEST), serde_json::to_vec(&changed)?)?;
         assert_eq!(verify(&source)?, changed);
         let destination = root.path().join(format!("restored-{name}"));

@@ -15,7 +15,11 @@ $env:GIT_TERMINAL_PROMPT = "0"
 $env:GIT_CONFIG_NOSYSTEM = "1"
 Remove-Item Env:GIT_CONFIG_PARAMETERS -ErrorAction SilentlyContinue
 Remove-Item Env:GIT_CONFIG_COUNT -ErrorAction SilentlyContinue
-$gitFlags = @('-c', 'core.abbrev=40', '-c', 'core.fsmonitor=', '-c', 'core.hooksPath=NUL', '-c', 'http.followRedirects=false')
+Remove-Item Env:GIT_SSH_COMMAND -ErrorAction SilentlyContinue
+Remove-Item Env:GIT_ASKPASS -ErrorAction SilentlyContinue
+Remove-Item Env:SSH_ASKPASS -ErrorAction SilentlyContinue
+Remove-Item Env:GIT_EXEC_PATH -ErrorAction SilentlyContinue
+$gitFlags = @('-c', 'core.abbrev=40', '-c', 'core.fsmonitor=', '-c', 'core.hooksPath=NUL', '-c', 'http.followRedirects=false', '-c', 'protocol.version=2', '-c', 'transfer.fsckObjects=true')
 
 foreach ($name in @('CARGO_HOME','CARGO_INSTALL_ROOT')) {
     $value = [Environment]::GetEnvironmentVariable($name, 'Process')
@@ -169,11 +173,15 @@ try {
     if ($commit) {
         $stagingArchive = Join-Path $staging "archive.tar"
         & git -C $root @gitFlags archive --format=tar --output=$stagingArchive $commit 2>$null
+        $extracted = $false
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $stagingArchive)) {
             & tar.exe -xf $stagingArchive -C $staging 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $extracted = $true
+            }
             Remove-Item -LiteralPath $stagingArchive -Force -ErrorAction SilentlyContinue
         }
-        if (-not (Test-Path -LiteralPath (Join-Path $staging "crates\sigy\Cargo.toml"))) {
+        if (-not $extracted) {
             Copy-Item -Path (Join-Path $root "*") -Destination $staging -Recurse -Force
         }
     } else {

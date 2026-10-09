@@ -16,12 +16,13 @@ repo=https://github.com/blisspixel/sigy.git
 export GIT_TERMINAL_PROMPT=0
 export GIT_CONFIG_NOSYSTEM=1
 export GIT_CONFIG_GLOBAL=/dev/null
+unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_SSH_COMMAND GIT_ASKPASS SSH_ASKPASS GIT_EXEC_PATH 2>/dev/null || true
 
 sigy_git() {
     if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-        git -c core.abbrev=40 -c core.fsmonitor= -c core.hooksPath=/dev/null -c http.followRedirects=false -c credential.helper= -c 'credential.helper=!gh auth git-credential' "$@"
+        git -c core.abbrev=40 -c core.fsmonitor= -c core.hooksPath=/dev/null -c http.followRedirects=false -c protocol.version=2 -c transfer.fsckObjects=true -c credential.helper= -c 'credential.helper=!gh auth git-credential' "$@"
     else
-        git -c core.abbrev=40 -c core.fsmonitor= -c core.hooksPath=/dev/null -c http.followRedirects=false -c credential.helper= "$@"
+        git -c core.abbrev=40 -c core.fsmonitor= -c core.hooksPath=/dev/null -c http.followRedirects=false -c protocol.version=2 -c transfer.fsckObjects=true -c credential.helper= "$@"
     fi
 }
 
@@ -127,7 +128,14 @@ cleanup_stage() {
 trap cleanup_stage EXIT INT TERM
 
 if [ -n "$commit" ]; then
-    sigy_git -C "$root" archive "$commit" | tar -x -C "$stage_dir" 2>/dev/null || cp -R "$root/." "$stage_dir/"
+    sigy_git -C "$root" archive "$commit" | (cd "$stage_dir" && tar -x) || {
+        echo "Failed to extract git archive for $commit" >&2
+        exit 1
+    }
+    if [ ! -f "$stage_dir/crates/sigy/Cargo.toml" ]; then
+        echo "Staged archive does not contain a valid sigy tree" >&2
+        exit 1
+    }
 else
     cp -R "$root/." "$stage_dir/"
 fi

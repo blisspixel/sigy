@@ -210,16 +210,19 @@ mod windows_tests {
                 real_dir.to_str().ok_or("real_dir to string")?,
             ])
             .output()?;
-        if status.status.success() {
-            assert!(matches!(
-                Library::open(&link_dir, false),
-                Err(Error::InvalidInput(_))
-            ));
-            assert!(matches!(
-                Library::open(&link_dir, true),
-                Err(Error::InvalidInput(_))
-            ));
-        }
+        assert!(
+            status.status.success(),
+            "mklink /J failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+        assert!(matches!(
+            Library::open(&link_dir, false),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(matches!(
+            Library::open(&link_dir, true),
+            Err(Error::InvalidInput(_))
+        ));
         Ok(())
     }
 }

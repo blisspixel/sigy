@@ -56,7 +56,7 @@ pub(super) fn install(source: &Path, commit: &str, operation: &str) -> Result<()
         install_root: install_root.clone(),
         reason: None,
     })?;
-    let ps = powershell_path();
+    let ps = powershell_path()?;
     let mut command = Command::new(ps);
     command
         .args([
@@ -126,7 +126,7 @@ fn root_from_executable(executable: &Path) -> Option<PathBuf> {
         .flatten()
 }
 
-fn powershell_path() -> PathBuf {
+fn powershell_path() -> Result<PathBuf, String> {
     if let Some(root) = env::var_os("SystemRoot") {
         let system_ps = PathBuf::from(root)
             .join("System32")
@@ -134,10 +134,10 @@ fn powershell_path() -> PathBuf {
             .join("v1.0")
             .join("powershell.exe");
         if super::is_safe_executable(&system_ps) {
-            return system_ps;
+            return Ok(system_ps);
         }
     }
-    super::find_tool("powershell").unwrap_or_else(|_| PathBuf::from("powershell.exe"))
+    super::find_tool("powershell")
 }
 
 fn absolute(path: PathBuf) -> Result<PathBuf, String> {

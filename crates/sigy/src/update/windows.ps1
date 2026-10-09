@@ -35,7 +35,13 @@ function Assert-Source {
     $env:GIT_TERMINAL_PROMPT = '0'
     $env:GIT_CONFIG_NOSYSTEM = '1'
     $env:GIT_CONFIG_GLOBAL = 'NUL'
-    $gitOpts = @('-c', 'core.abbrev=40', '-c', 'core.fsmonitor=', '-c', 'core.hooksPath=NUL', '-c', 'http.followRedirects=false')
+    Remove-Item Env:GIT_CONFIG_PARAMETERS -ErrorAction SilentlyContinue
+    Remove-Item Env:GIT_CONFIG_COUNT -ErrorAction SilentlyContinue
+    Remove-Item Env:GIT_SSH_COMMAND -ErrorAction SilentlyContinue
+    Remove-Item Env:GIT_ASKPASS -ErrorAction SilentlyContinue
+    Remove-Item Env:SSH_ASKPASS -ErrorAction SilentlyContinue
+    Remove-Item Env:GIT_EXEC_PATH -ErrorAction SilentlyContinue
+    $gitOpts = @('-c', 'core.abbrev=40', '-c', 'core.fsmonitor=', '-c', 'core.hooksPath=NUL', '-c', 'http.followRedirects=false', '-c', 'protocol.version=2', '-c', 'transfer.fsckObjects=true', '-c', 'credential.helper=')
     $head = & git -C $scope.source @gitOpts rev-parse HEAD 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]$head -cne $scope.commit) { throw 'source-commit-changed' }
     $origin = & git -C $scope.source @gitOpts config --local --get remote.origin.url 2>$null

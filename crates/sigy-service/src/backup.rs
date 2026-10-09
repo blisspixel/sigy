@@ -77,7 +77,7 @@ fn fresh(path: &Path) -> Result<()> {
 }
 
 /// Stream a file into a new file, returning its size and SHA-256. Links are refused.
-fn copy_hashed(source: &Path, destination: &Path) -> Result<BackupFile> {
+fn copy_hashed(source: &Path, destination: &Path, max_bytes: u64) -> Result<BackupFile> {
     crate::library::reject_link(source)?;
     let mut input = File::open(source)?;
     let mut output = fs::OpenOptions::new()
@@ -92,9 +92,14 @@ fn copy_hashed(source: &Path, destination: &Path) -> Result<BackupFile> {
         if read == 0 {
             break;
         }
+        bytes = bytes
+            .checked_add(read as u64)
+            .ok_or(Error::InvalidInput("file exceeds maximum size"))?;
+        if bytes > max_bytes {
+            return Err(Error::InvalidInput("file exceeds maximum allowed size"));
+        }
         hasher.update(&buffer[..read]);
         output.write_all(&buffer[..read])?;
-        bytes += read as u64;
     }
     output.sync_all()?;
     Ok(BackupFile {
@@ -103,7 +108,7 @@ fn copy_hashed(source: &Path, destination: &Path) -> Result<BackupFile> {
     })
 }
 
-fn hash_file(path: &Path) -> Result<BackupFile> {
+fn hash_file(path: &Path, max_bytes: u64) -> Result<BackupFile> {
     crate::library::reject_link(path)?;
     let mut input = File::open(path)?;
     let mut hasher = Sha256::new();
@@ -114,8 +119,13 @@ fn hash_file(path: &Path) -> Result<BackupFile> {
         if read == 0 {
             break;
         }
+        bytes = bytes
+            .checked_add(read as u64)
+            .ok_or(Error::InvalidInput("file exceeds maximum size"))?;
+        if bytes > max_bytes {
+            return Err(Error::InvalidInput("file exceeds maximum allowed size"));
+        }
         hasher.update(&buffer[..read]);
-        bytes += read as u64;
     }
     Ok(BackupFile {
         bytes,
@@ -143,18 +153,34 @@ pub fn backup(library: &Library, destination: &Path) -> Result<BackupManifest> {
     private_directory(destination)?;
     let catalog_path = destination.join(CATALOG);
     store.snapshot_catalog(&catalog_path)?;
-    let catalog = hash_file(&catalog_path)?;
+    let catalog = hash_file(&catalog_path, MAX_CATALOG_BYTES)?;
     private_directory(&destination.join("media"))?;
     let mut media = Vec::new();
     let mut media_bytes = 0_u64;
     for object in store.retained_objects()? {
+        if object.bytes > MAX_MEDIA_OBJECT_BYTES {
+            return Err(Error::InvalidInput("backup media object size is invalid"));
+        }
         let source = crate::recordings::media_path(library.directory(), &object.key)?;
-        let copied = copy_hashed(&source, &media_file(destination, &object.key)?)
-            .map_err(|_| Error::Analysis("backup-media-unavailable"))?;
+        let copied = copy_hashed(
+            &source,
+            &media_file(destination, &object.key)?,
+            object.bytes,
+        )
+        .map_err(|_| Error::Analysis("backup-media-unavailable"))?;
         if copied.bytes != object.bytes || copied.sha256 != object.sha256 {
             return Err(Error::Analysis("backup-media-mismatch"));
         }
-        media_bytes += copied.bytes;
+        media_bytes = media_bytes
+            .checked_add(copied.bytes)
+            .ok_or(Error::InvalidInput(
+                "backup aggregate media bytes exceed limit",
+            ))?;
+        if media_bytes > MAX_TOTAL_MEDIA_BYTES || media.len() >= MAX_MEDIA_OBJECTS {
+            return Err(Error::InvalidInput(
+                "backup aggregate media bytes exceed limit",
+            ));
+        }
         media.push(BackupObject {
             key: object.key,
             bytes: copied.bytes,
@@ -217,7 +243,7 @@ pub fn verify(source: &Path) -> Result<BackupManifest> {
             "backup aggregate media bytes exceed limit",
         ));
     }
-    if hash_file(&source.join(CATALOG))? != manifest.catalog {
+    if hash_file(&source.join(CATALOG), manifest.catalog.bytes)? != manifest.catalog {
         return Err(Error::InvalidInput(
             "backup catalog does not match its manifest",
         ));
@@ -258,13 +284,20 @@ pub fn verify(source: &Path) -> Result<BackupManifest> {
     }
     let mut total = 0_u64;
     for object in &manifest.media {
-        let found = hash_file(&media_file(source, &object.key)?)?;
+        let found = hash_file(&media_file(source, &object.key)?, object.bytes)?;
         if found.bytes != object.bytes || found.sha256 != object.sha256 {
             return Err(Error::InvalidInput(
                 "backup media does not match its manifest",
             ));
         }
-        total += found.bytes;
+        total = total
+            .checked_add(found.bytes)
+            .ok_or(Error::InvalidInput("backup media total does not match"))?;
+        if total > MAX_TOTAL_MEDIA_BYTES {
+            return Err(Error::InvalidInput(
+                "backup aggregate media bytes exceed limit",
+            ));
+        }
     }
     if total != manifest.media_bytes {
         return Err(Error::InvalidInput("backup media total does not match"));
@@ -303,7 +336,11 @@ pub fn restore(source: &Path, destination: &Path) -> Result<BackupManifest> {
 
 fn stage(source: &Path, staging: &Path, manifest: &BackupManifest) -> Result<()> {
     private_directory(staging)?;
-    let catalog = copy_hashed(&source.join(CATALOG), &staging.join(CATALOG))?;
+    let catalog = copy_hashed(
+        &source.join(CATALOG),
+        &staging.join(CATALOG),
+        manifest.catalog.bytes,
+    )?;
     if catalog != manifest.catalog {
         return Err(Error::InvalidInput("backup catalog changed during restore"));
     }
@@ -312,6 +349,7 @@ fn stage(source: &Path, staging: &Path, manifest: &BackupManifest) -> Result<()>
         let copied = copy_hashed(
             &media_file(source, &object.key)?,
             &media_file(staging, &object.key)?,
+            object.bytes,
         )?;
         if copied.bytes != object.bytes || copied.sha256 != object.sha256 {
             return Err(Error::InvalidInput("backup media changed during restore"));

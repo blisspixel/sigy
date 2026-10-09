@@ -826,17 +826,23 @@ impl RecordingBody {
             self.response = Some(response);
             let chunk = chunk?;
             if let Some(chunk) = chunk {
-                let chunk_len = u64::try_from(chunk.len()).map_err(|_| Error::StorageIntegrity)?;
+                let remaining_wire =
+                    usize::try_from(self.limit.saturating_sub(self.raw_received)).unwrap_or(0);
+                let bounded_chunk = &chunk[..chunk.len().min(remaining_wire)];
+                let chunk_len =
+                    u64::try_from(bounded_chunk.len()).map_err(|_| Error::StorageIntegrity)?;
                 self.raw_received = self.raw_received.saturating_add(chunk_len);
                 if self.raw_received >= self.limit {
                     self.limited = true;
                 }
-                let audio = if let Some(splitter) = self.splitter.as_mut() {
-                    splitter.push(&chunk)?
-                } else {
-                    chunk
-                };
-                self.accept_audio(&audio)?;
+                if !bounded_chunk.is_empty() {
+                    let audio = if let Some(splitter) = self.splitter.as_mut() {
+                        splitter.push(bounded_chunk)?
+                    } else {
+                        bounded_chunk.to_vec()
+                    };
+                    self.accept_audio(&audio)?;
+                }
             } else {
                 self.ended = Some(TransferEnd::EndOfBody);
             }

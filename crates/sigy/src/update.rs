@@ -124,6 +124,9 @@ fn find_tool(name: &str) -> Result<PathBuf, String> {
     let path_var =
         env::var_os("PATH").ok_or_else(|| format!("{name} is not available (PATH is empty)"))?;
     for dir in env::split_paths(&path_var) {
+        if !dir.is_absolute() {
+            continue;
+        }
         if cfg!(windows) {
             let direct = dir.join(name);
             if direct.extension().is_some() && is_safe_executable(&direct) {
@@ -165,6 +168,10 @@ fn git_prefix(use_gh: bool) -> Vec<&'static str> {
         },
         "-c",
         "http.followRedirects=false",
+        "-c",
+        "protocol.version=2",
+        "-c",
+        "transfer.fsckObjects=true",
     ];
     if use_gh {
         // Reset helpers, then use the GitHub CLI login for this private repository.
@@ -209,6 +216,12 @@ fn git(directory: Option<&Path>, args: &[&str], use_gh: bool) -> Result<String, 
         "GIT_CONFIG_GLOBAL",
         if cfg!(windows) { "NUL" } else { "/dev/null" },
     );
+    command.env_remove("GIT_CONFIG_PARAMETERS");
+    command.env_remove("GIT_CONFIG_COUNT");
+    command.env_remove("GIT_SSH_COMMAND");
+    command.env_remove("GIT_ASKPASS");
+    command.env_remove("SSH_ASKPASS");
+    command.env_remove("GIT_EXEC_PATH");
     if let Some(directory) = directory {
         command.arg("-C").arg(directory);
     }
@@ -669,6 +682,10 @@ mod tests {
                 "-c",
                 "http.followRedirects=false",
                 "-c",
+                "protocol.version=2",
+                "-c",
+                "transfer.fsckObjects=true",
+                "-c",
                 "credential.helper=",
                 "-c",
                 "credential.helper=!gh auth git-credential",
@@ -689,6 +706,10 @@ mod tests {
                 },
                 "-c",
                 "http.followRedirects=false",
+                "-c",
+                "protocol.version=2",
+                "-c",
+                "transfer.fsckObjects=true",
                 "-c",
                 "credential.helper=",
             ]
