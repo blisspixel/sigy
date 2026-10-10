@@ -135,7 +135,7 @@ if [ -n "$commit" ]; then
     if [ ! -f "$stage_dir/crates/sigy/Cargo.toml" ]; then
         echo "Staged archive does not contain a valid sigy tree" >&2
         exit 1
-    }
+    fi
 else
     cp -R "$root/." "$stage_dir/"
 fi

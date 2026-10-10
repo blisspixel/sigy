@@ -13,6 +13,7 @@ This record holds current state only. The detailed narrative from 2026-09-20 to 
 - **Truthful qualification boundaries**: Projections explicitly report `"qualified_platform": false`, `"qualified_linux": false`, `"qualified_omarchy": false`, and explicit notes declaring that language recognition/translation is not part of the panel and acoustic delivery is unqualified.
 - **Bounded favorite playback and session hint**: `sigy panel play STATION` admits playback only for cached favorite stations with exactly one registered `http_audio` revision and no active prior panel listen. Active sessions are tracked in `panel-session.json` (`0600` on Unix).
 - **Process and pipe lifecycle bounds**: Playback cleanly monitors `--cancel-on-stdin` (canceling or failing immediately if stdin closes) and `--parent-pid PID` (canceling if the parent process terminates). `panel stop` safely terminates active panel listens and settles session state.
+- **Unix installer syntax repair (Issue 1)**: Corrected syntax error in `scripts/install.sh` by closing an `if` block with `fi` instead of `}`. Added script syntax verification (`check_scripts`) to `sigy-xtask verify` and an explicit `sh -n scripts/install.sh` step to GitHub Actions CI workflow (`verify.yml`).
 
 All ordinary tests, integration tests (`tests/panel.rs`), formatting, and warnings-denied Clippy pass cleanly under `cargo verify`.
 

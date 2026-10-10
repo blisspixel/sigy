@@ -2,6 +2,7 @@
 
 mod coastline;
 mod coverage;
+mod scripts;
 mod vendor;
 
 use std::{
@@ -10,6 +11,7 @@ use std::{
     process::{Command, ExitCode},
 };
 
+use scripts::check_scripts;
 use vendor::check_vendor;
 
 #[derive(Debug, thiserror::Error)]
@@ -69,6 +71,7 @@ fn run() -> Result<(), Error> {
 
 fn verify(root: &Path) -> Result<(), Error> {
     check_vendor(root).map_err(Error::Check)?;
+    check_scripts(root).map_err(Error::Check)?;
     run_cargo(root, &["fmt", "--all", "--", "--check"])?;
     // The running sigy-xtask binary cannot be replaced on Windows, so the
     // product commands exclude this package and its own check uses another directory.
