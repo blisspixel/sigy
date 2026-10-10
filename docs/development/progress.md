@@ -1,8 +1,20 @@
 # Implementation progress
 
-Updated: 2026-10-08. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
+Updated: 2026-10-10. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
+
+## 2026-10-10 Omarchy desktop panel integration
+
+[Decision0088](../decisions/0088-omarchy-desktop-panel.md) introduces desktop panel integration (`sigy panel status`, `panel bar`, `panel play`, and `panel stop`) tailored for lightweight status bars such as Waybar in Omarchy (an agentic Arch Linux distribution utilizing Hyprland) and general desktop shells:
+
+- **Read-only desktop projections**: `sigy panel status` reads library and service state directly (falling back to offline SQLite reads when the service is absent) without starting background daemons. It reports service presence (`running`, `stopping`, `absent`), directory freshness (`empty`, `stale`, `current`), bounded favorites (up to four), and active recordings (up to four).
+- **Waybar JSON format**: `sigy panel bar` produces a single JSON object containing `text`, `class`, and `tooltip` mapped to deterministic priority states: `offline`, `failed`, `playing`, `recording`, `stale`, and `idle`.
+- **Truthful qualification boundaries**: Projections explicitly report `"qualified_platform": false`, `"qualified_linux": false`, `"qualified_omarchy": false`, and explicit notes declaring that language recognition/translation is not part of the panel and acoustic delivery is unqualified.
+- **Bounded favorite playback and session hint**: `sigy panel play STATION` admits playback only for cached favorite stations with exactly one registered `http_audio` revision and no active prior panel listen. Active sessions are tracked in `panel-session.json` (`0600` on Unix).
+- **Process and pipe lifecycle bounds**: Playback cleanly monitors `--cancel-on-stdin` (canceling or failing immediately if stdin closes) and `--parent-pid PID` (canceling if the parent process terminates). `panel stop` safely terminates active panel listens and settles session state.
+
+All ordinary tests, integration tests (`tests/panel.rs`), formatting, and warnings-denied Clippy pass cleanly under `cargo verify`.
 
 ## 2026-10-09 security remediation review
 

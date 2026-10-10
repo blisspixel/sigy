@@ -21,6 +21,7 @@ mod languages;
 mod listen;
 mod mcp;
 mod monitor;
+mod panel;
 mod podcast;
 mod provider;
 mod radio;
@@ -128,6 +129,11 @@ enum Command {
     Listen {
         #[command(subcommand)]
         command: listen::ListenCommand,
+    },
+    /// Read-only status and one-station playback for desktop panels.
+    Panel {
+        #[command(subcommand)]
+        command: panel::PanelCommand,
     },
     /// Speak MCP 2026-07-28 on stdin and stdout for one configured library.
     Mcp,
@@ -269,7 +275,7 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         Command::Init { options } => {
             init::execute(library_dir(cli)?, options, cli.json, cli.explicit_data_dir).await
         }
-        _ => run_library(cli).await,
+        _ => Box::pin(run_library(cli)).await,
     }
 }
 
@@ -281,6 +287,9 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Command::Listen { command } = &cli.command {
         return listen::execute(library_dir(cli)?, command, cli.json).await;
+    }
+    if let Command::Panel { command } = &cli.command {
+        return Box::pin(panel::execute(library_dir(cli)?, command, cli.json)).await;
     }
     if matches!(cli.command, Command::Tui { .. }) {
         return Err("the list explorer starts before the service runtime".into());

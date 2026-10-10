@@ -513,6 +513,21 @@ Press `7` for the Globe workspace: an orthographic globe, or with `m` a flat wor
 
 The same page has coordinates for two stations. The globe uses those directory positions and offline coastlines; its night layer is geometric.
 
+## Desktop panel
+
+```text
+sigy --data-dir PATH_TO_LIBRARY panel status
+sigy --data-dir PATH_TO_LIBRARY panel status --json
+sigy --data-dir PATH_TO_LIBRARY panel bar
+sigy --data-dir PATH_TO_LIBRARY panel play STATION_UUID
+sigy --data-dir PATH_TO_LIBRARY panel play STATION_UUID --cancel-on-stdin --parent-pid PID
+sigy --data-dir PATH_TO_LIBRARY panel stop
+```
+
+`panel status` and `panel bar` inspect ambient library and service presence for desktop widgets and status bars, such as Waybar on Omarchy (an agentic Arch Linux distribution using Hyprland) or other desktop environments. `panel status` emits human-readable or structured JSON summaries of service state, directory freshness, bounded favorites, and active recordings without starting a service or making network requests. `panel bar` outputs a single Waybar-compatible JSON object with `text`, `class`, and `tooltip` fields mapped to deterministic priority states: `offline`, `failed`, `playing`, `recording`, `stale`, or `idle`. Status outputs explicitly declare platform and language qualification limits (`"qualified_platform": false`, `"qualified_linux": false`, `"qualified_omarchy": false`).
+
+`panel play STATION_UUID` enables one-station playback of an existing cached favorite station. Admission requires that the station is cached, marked as a favorite, not an HLS stream, and has exactly one registered audio source revision. It records an active session hint in `panel-session.json` (secured with `0600` permissions on Unix) and cancels cleanly when stdin closes (`--cancel-on-stdin`) or if the launching parent process terminates (`--parent-pid`). `panel stop` reads the active session hint or accepts an explicit `--id` to dispatch an orderly stop through the background service and settle the session file. See [Omarchy and desktop panel integration](decisions/0088-omarchy-desktop-panel.md).
+
 ## Agents
 
 `sigy mcp` speaks MCP 2026-07-28 on stdio. The portable package is `agent-plugin/`, in the Agent Plugins 1.0.0 layout. The server library is the `--data-dir` from startup. A tool cannot point at another directory, change a budget, or run a shell command. Analysis tools let an agent queue local recognition and translation with profiles you configured, then read the results; no tool adds a profile or a paid provider. `analysis_search` reads stored text across the library with the same bounds as `analysis search` and publishes nothing. Monitor tools read monitors, coverage and matches and record proposals as `model`; no tool creates or revises a monitor. See [agent plugin](decisions/0021-agent-plugin.md).

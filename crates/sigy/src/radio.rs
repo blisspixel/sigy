@@ -712,13 +712,13 @@ mod tests {
             std::ffi::OsStr::new("Canada"),
         ])?;
         crate::init::resolve_directory(&mut cli)?;
-        crate::run(&cli).await?;
+        Box::pin(crate::run(&cli)).await?;
         assert!(!missing.exists());
         let mut notices =
             crate::Cli::try_parse_from(["sigy", "--json", "radio", "countries", "--licenses"])?;
         crate::init::resolve_directory(&mut notices)?;
         assert!(notices.data_dir.is_none());
-        crate::run(&notices).await?;
+        Box::pin(crate::run(&notices)).await?;
         Ok(())
     }
 

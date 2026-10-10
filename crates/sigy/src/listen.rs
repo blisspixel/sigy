@@ -1,4 +1,4 @@
-use std::{io::Write, path::Path, time::Duration};
+use std::{future::Future, io::Write, path::Path, time::Duration};
 
 use clap::Subcommand;
 use sigy_service::{
@@ -11,7 +11,7 @@ mod retained;
 use retained::ReaderCommand;
 
 /// Playback needs the user's own decoder; Sigy never downloads one.
-const NO_DECODER: &str =
+pub(crate) const NO_DECODER: &str =
     "no decoder is configured. Set one with `sigy dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG`";
 
 #[derive(Debug, Subcommand)]
@@ -272,6 +272,34 @@ async fn play_source(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let destination = PlaybackDestination::parse(destination)?;
+    if let ListenStart::Existing(started) = start_listen(directory, id, revision).await? {
+        return replay(id, &started, json);
+    }
+    let played = finish_new_listen(directory, id, destination, std::future::pending()).await?;
+    let mut stdout = std::io::stdout().lock();
+    write_new_listen(&mut stdout, id, revision, destination, &played, json)
+}
+
+#[derive(Debug)]
+pub(crate) enum ListenStart {
+    New,
+    Existing(ListenView),
+}
+
+#[derive(Debug)]
+pub(crate) struct ListenPlayback {
+    pub format: String,
+    pub report: recordings::PlaybackReport,
+    pub finished: ListenView,
+}
+
+/// # Errors
+/// Returns an error when the service rejects the listen or the receipt is missing.
+pub(crate) async fn start_listen(
+    directory: &Path,
+    id: &str,
+    revision: &str,
+) -> Result<ListenStart, Box<dyn std::error::Error>> {
     let started = listen_view(
         directory,
         ListenOperation::Start {
@@ -280,46 +308,95 @@ async fn play_source(
         },
     )
     .await?;
-    if started.newly_started != Some(true) {
-        return replay(id, &started, json);
+    if started.newly_started == Some(true) {
+        Ok(ListenStart::New)
+    } else {
+        Ok(ListenStart::Existing(started))
     }
-    let ready = wait_until(directory, id, true).await?;
+}
+
+/// # Errors
+/// Returns an error when the pipe, decoder, playback, or completion check fails.
+/// Cancellation stops the listen. A pending cancel never fires, which preserves `listen source`.
+pub(crate) async fn finish_new_listen(
+    directory: &Path,
+    id: &str,
+    destination: PlaybackDestination,
+    cancel: impl Future<Output = ()> + Send,
+) -> Result<ListenPlayback, Box<dyn std::error::Error>> {
+    let mut cancel = std::pin::pin!(cancel);
+    let ready = tokio::select! {
+        biased;
+        () = &mut cancel => return Err(cancel_error(stop_listen(directory, id).await.err()).into()),
+        ready = wait_until(directory, id, true) => ready?,
+    };
     let nonce = ready
         .pipe_nonce
-        .as_deref()
+        .clone()
         .ok_or("listen pipe is not available")?;
     let format = ready
         .format
-        .as_deref()
+        .clone()
         .ok_or("listen format is not available")?;
     let decoder = decoder_path(directory).await?;
-    let played =
-        recordings::play_direct_listen(&decoder, directory, nonce, format, destination).await;
-    if played.is_err() {
-        let _ = view(
-            directory,
-            Operation::Listen {
-                command: ListenOperation::Stop { id: id.to_owned() },
-            },
-        )
-        .await;
-    }
-    let report = played?;
-    let finished = wait_until(directory, id, false).await?;
+    let played = recordings::play_direct_listen(&decoder, directory, &nonce, &format, destination);
+    tokio::pin!(played);
+    let report = tokio::select! {
+        biased;
+        () = &mut cancel => {
+            let stop = stop_listen(directory, id).await;
+            match tokio::time::timeout(Duration::from_secs(15), &mut played).await {
+                Err(_elapsed) => return Err("decoder did not exit after the listen stop".into()),
+                Ok(_) => return Err(cancel_error(stop.err()).into()),
+            }
+        }
+        result = &mut played => {
+            if result.is_err() {
+                let _ = stop_listen(directory, id).await;
+            }
+            result?
+        }
+    };
+    let finished = tokio::select! {
+        biased;
+        () = &mut cancel => return Err(cancel_error(stop_listen(directory, id).await.err()).into()),
+        finished = wait_until(directory, id, false) => finished?,
+    };
     if finished.state != "completed" {
         return Err(failure_text(&finished).into());
     }
-    let mut stdout = std::io::stdout().lock();
+    Ok(ListenPlayback {
+        format: format.clone(),
+        report,
+        finished,
+    })
+}
+
+fn cancel_error(stop_failure: Option<Box<dyn std::error::Error>>) -> String {
+    match stop_failure {
+        None => "listen cancelled".into(),
+        Some(error) => format!("listen cancelled, and stop failed: {error}"),
+    }
+}
+
+fn write_new_listen(
+    stdout: &mut impl Write,
+    id: &str,
+    revision: &str,
+    destination: PlaybackDestination,
+    played: &ListenPlayback,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     if json {
         serde_json::to_writer(
-            &mut stdout,
+            &mut *stdout,
             &serde_json::json!({
                 "id": id,
                 "revision": revision,
                 "destination": destination.as_str(),
-                "format": format,
-                "playhead_us": report.playhead_us,
-                "progress_advanced": report.progress_advanced,
+                "format": played.format,
+                "playhead_us": played.report.playhead_us,
+                "progress_advanced": played.report.progress_advanced,
                 "replayed": false,
             }),
         )?;
@@ -329,11 +406,24 @@ async fn play_source(
             stdout,
             "Listening to revision {} as {}.",
             clean(revision),
-            clean(format)
+            clean(&played.format)
         )?;
-        writeln!(stdout, "Playhead {} microseconds.", report.playhead_us)?;
+        writeln!(
+            stdout,
+            "Playhead {} microseconds.",
+            played.report.playhead_us
+        )?;
     }
     Ok(())
+}
+
+/// # Errors
+/// Returns an error when the service cannot stop the listen.
+pub(crate) async fn stop_listen(
+    directory: &Path,
+    id: &str,
+) -> Result<ListenView, Box<dyn std::error::Error>> {
+    listen_view(directory, ListenOperation::Stop { id: id.to_owned() }).await
 }
 
 fn replay(id: &str, listen: &ListenView, json: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -413,7 +503,9 @@ async fn listen_view(
     snapshot.listen.ok_or_else(|| "listen not found".into())
 }
 
-async fn decoder_path(directory: &Path) -> Result<String, Box<dyn std::error::Error>> {
+/// # Errors
+/// Returns an error when no decoder path is configured.
+pub(crate) async fn decoder_path(directory: &Path) -> Result<String, Box<dyn std::error::Error>> {
     let policy = view(
         directory,
         Operation::Dvr {
@@ -557,7 +649,9 @@ fn clean(value: &str) -> String {
     crate::explorer::text::sanitize(value, 1024)
 }
 
-async fn view(
+/// # Errors
+/// Returns an error when the library cannot apply the operation.
+pub(crate) async fn view(
     directory: &Path,
     operation: Operation,
 ) -> Result<sigy_service::control::Snapshot, Box<dyn std::error::Error>> {
