@@ -417,7 +417,7 @@
   },
   {
     "path": "src/sys/linux.rs",
-    "sha256": "6ae10b5c3d3771b3c715b3630e888d3f5c2dc3f4a170bfafb138ed2379c57d45"
+    "sha256": "a081fc4124f3a944d4fcb6e5568991b864a1e8305aca79f3e5283b31fdaf7aa7"
   },
   {
     "path": "src/sys/linux/delegated.rs",

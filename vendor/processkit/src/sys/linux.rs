@@ -1672,7 +1672,15 @@ impl Cgroup {
     /// bandwidth accounting, an unreadable cgroup) yields `Unknown`, never a "no".
     #[cfg(feature = "limits")]
     fn limit_evidence(&self, capped: CappedAxes) -> LimitEvidence {
-        self.limit_evidence_with(capped, |path| std::fs::read_to_string(path))
+        self.limit_evidence_with(capped, |path| {
+            if self.strict.is_some() && path.file_name().is_some_and(|name| name == "pids.events.local") {
+                // Strict groups assign their own fixed task shares to spawn leaves.
+                // Include those owned limits rather than only the parent counter.
+                std::fs::read_to_string(self.path.join("pids.events"))
+            } else {
+                std::fs::read_to_string(path)
+            }
+        })
     }
 
     /// [`limit_evidence`](Self::limit_evidence) parametrized over the counter-file
