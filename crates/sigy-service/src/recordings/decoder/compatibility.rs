@@ -54,9 +54,10 @@ pub(super) async fn check(executable: &str, group: &NativeAudioGroup) -> Result<
             .take()
             .ok_or(Error::Acquisition("decoder calibration output missing"))?;
         let bytes = wave();
-        let write = async {
+        let write = async move {
             input.write_all(&bytes).await?;
             input.shutdown().await?;
+            drop(input);
             Ok::<_, Error>(())
         };
         let ((), progress) =
