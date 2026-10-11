@@ -236,7 +236,6 @@ fn native_containment_preflight_refuses_before_contact_and_recording_charge() ->
     )?;
     register(directory.path(), "preflight:v1", &server.url)?;
     let doctor = invoke(directory.path(), &["doctor"])?;
-    assert!(!doctor.status.success());
     let document: serde_json::Value = serde_json::from_slice(&doctor.stdout)?;
     let check = document["doctor"]["checks"]
         .as_array()
@@ -254,6 +253,7 @@ fn native_containment_preflight_refuses_before_contact_and_recording_charge() ->
         success(directory.path(), &["service", "stop"])?;
         return service.wait();
     }
+    assert!(!doctor.status.success());
     assert_eq!(check["state"], "blocked");
     let detail = check["detail"].as_str().ok_or("detail missing")?;
     assert!(
