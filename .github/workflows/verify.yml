@@ -80,14 +80,23 @@ jobs:
       - name: Exercise delegated Linux resource and death bounds
         if: runner.os == 'Linux'
         run: cargo test --locked -p sigy-service --test linux_native delegated_native_contracts -- --ignored --nocapture --test-threads=1
-      - name: Exercise Linux playback, capture and restart
+      - name: Build the pinned Linux decoder fixture
         if: runner.os == 'Linux'
-        env:
-          SIGY_TEST_FFMPEG: /usr/bin/ffmpeg
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y ffmpeg
-          test -x /usr/bin/ffmpeg
+          sh -n scripts/ci-ffmpeg.sh
+          sh scripts/ci-ffmpeg.sh
+      - name: Refuse incompatible decoder clock conventions
+        if: runner.os == 'Linux'
+        env:
+          SIGY_TEST_LEGACY_FFMPEG: /usr/bin/ffmpeg
+        run: cargo test --locked -p sigy-service --lib native_clock_conventions -- --ignored --nocapture --test-threads=1
+      - name: Exercise Linux playback, capture and restart
+        if: runner.os == 'Linux'
+        run: |
+          test -x "$SIGY_TEST_FFMPEG"
           cargo test --locked -p sigy --test service direct_listen_reaches_decoder_progress_without_a_file_or_reservation -- --ignored --test-threads=1
           cargo test --locked -p sigy --test service recording_is_service_owned_verified_exportable_and_prunable -- --ignored --test-threads=1
           cargo test --locked -p sigy --test service retained_playback_seeks_without_changing_quota_or_capture -- --ignored --test-threads=1
+          cargo test --locked -p sigy --test service protected_reader_resolves_late_start_replay_stop_and_restart_holds -- --ignored --test-threads=1

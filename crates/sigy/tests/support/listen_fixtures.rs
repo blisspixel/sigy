@@ -618,7 +618,7 @@ fn direct_listen_reaches_decoder_progress_without_a_file_or_reservation() -> Tes
         .stderr(Stdio::null())
         .spawn()?;
     wait_hits(&server, 2);
-    service.0.kill()?;
+    service.kill()?;
     service.0.wait()?;
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {

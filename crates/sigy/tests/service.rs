@@ -55,7 +55,7 @@ fn success(
     Ok(serde_json::from_slice(&output.stdout)?)
 }
 
-struct RunningChild(Child);
+struct RunningChild(Child, u32);
 
 impl RunningChild {
     fn start(directory: &Path) -> Result<Self, Box<dyn std::error::Error>> {
@@ -67,7 +67,8 @@ impl RunningChild {
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()?;
-        let mut child = Self(child);
+        let process_id = child.id();
+        let mut child = Self(child, process_id);
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             assert!(Instant::now() < deadline, "service startup deadline");
@@ -75,11 +76,35 @@ impl RunningChild {
                 child.0.try_wait()?.is_none(),
                 "service exited before readiness"
             );
-            if invoke(directory, &["service", "status"])?.status.success() {
+            let status = invoke(directory, &["service", "status"])?;
+            if status.status.success() {
+                let snapshot: serde_json::Value = serde_json::from_slice(&status.stdout)?;
+                child.1 = u32::try_from(
+                    snapshot["service"]["process_id"]
+                        .as_u64()
+                        .ok_or("service PID missing")?,
+                )?;
                 return Ok(child);
             }
             thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    fn id(&self) -> u32 {
+        self.1
+    }
+
+    fn kill(&mut self) -> std::io::Result<()> {
+        #[cfg(target_os = "linux")]
+        if self.id() != self.0.id() {
+            let pid = rustix::process::Pid::from_raw(
+                i32::try_from(self.id()).map_err(std::io::Error::other)?,
+            )
+            .ok_or_else(|| std::io::Error::other("invalid owned service PID"))?;
+            return rustix::process::kill_process(pid, rustix::process::Signal::KILL)
+                .map_err(Into::into);
+        }
+        self.0.kill()
     }
 
     fn wait(&mut self) -> TestResult {
@@ -108,7 +133,7 @@ fn independent_clients_share_one_owner_and_changes_survive_restarts() -> TestRes
     success(directory.path(), &["library", "init"])?;
     let mut service = RunningChild::start(directory.path())?;
     let first = success(directory.path(), &["service", "status"])?;
-    assert_eq!(first["service"]["process_id"], service.0.id());
+    assert_eq!(first["service"]["process_id"], service.id());
     assert!(
         !invoke(directory.path(), &["service", "run"])?
             .status
@@ -118,7 +143,7 @@ fn independent_clients_share_one_owner_and_changes_survive_restarts() -> TestRes
         directory.path(),
         &["budget", "set", "global", "--usd", "0.234567"],
     )?;
-    assert_eq!(update["service"]["process_id"], service.0.id());
+    assert_eq!(update["service"]["process_id"], service.id());
     let second = success(directory.path(), &["library", "status"])?;
     assert_eq!(second["budgets"][0]["limit_usd"], "0.234567");
     assert_eq!(
@@ -144,8 +169,8 @@ fn killed_service_releases_ownership_and_retains_uncertain_liability() -> TestRe
         store.mark_submitted("pending")?;
     }
     let mut service = RunningChild::start(directory.path())?;
-    let pid = service.0.id();
-    service.0.kill()?;
+    let pid = service.id();
+    service.kill()?;
     service.0.wait()?;
     assert!(
         directory.path().join("service.json").exists(),
@@ -235,7 +260,7 @@ fn source_registration_uses_the_running_owner_and_survives_restart() -> TestResu
         "https://unresolved.invalid/audio?token=hidden",
     ];
     let added = success(directory.path(), &args)?;
-    assert_eq!(added["service"]["process_id"], service.0.id());
+    assert_eq!(added["service"]["process_id"], service.id());
     assert_eq!(added["source_page"]["newly_created"], true);
     assert_eq!(
         success(directory.path(), &args)?["source_page"]["newly_created"],
@@ -301,7 +326,7 @@ fn podcast_subscribe_uses_the_running_owner_without_capture() -> TestResult {
         "same-origin",
     ];
     let added = success(directory.path(), &args)?;
-    assert_eq!(added["service"]["process_id"], service.0.id());
+    assert_eq!(added["service"]["process_id"], service.id());
     assert_eq!(added["podcast_page"]["newly_created"], true);
     assert_eq!(added["podcast_page"]["entries"][0]["polls"], "active");
     assert_eq!(
@@ -360,16 +385,16 @@ fn detached_service_releases_the_starting_clients_output_pipe() -> TestResult {
     let directory = tempfile::tempdir()?;
     success(directory.path(), &["library", "init"])?;
     let _cleanup = DetachedService(directory.path().to_owned());
-    let mut client = RunningChild(
-        Command::new(env!("CARGO_BIN_EXE_sigy"))
-            .arg("--data-dir")
-            .arg(directory.path())
-            .args(["--json", "service", "start"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?,
-    );
+    let process = Command::new(env!("CARGO_BIN_EXE_sigy"))
+        .arg("--data-dir")
+        .arg(directory.path())
+        .args(["--json", "service", "start"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let process_id = process.id();
+    let mut client = RunningChild(process, process_id);
     let stdout = client.0.stdout.take().ok_or("missing output pipe")?;
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let reader = thread::spawn(move || {

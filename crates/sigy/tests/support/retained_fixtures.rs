@@ -255,7 +255,7 @@ fn restart_protection(
 ) -> TestResult {
     let admitted = start_raw(directory, recording, "abandoned-reader", seek_us)?;
     assert_eq!(admitted.newly_started, Some(true));
-    service.0.kill()?;
+    service.kill()?;
     service.0.wait()?;
     let mut restarted = RunningChild::start(directory)?;
     let held = success(directory, &["listen", "reader", "show", "abandoned-reader"])?;

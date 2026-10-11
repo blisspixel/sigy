@@ -4,6 +4,8 @@ use crate::{Error, Result, recordings::audio::NativeAudioGroup};
 use std::{path::Path, process::Stdio, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+#[cfg(target_os = "linux")]
+mod compatibility;
 #[cfg(test)]
 mod hostile_tests;
 mod pcm;
@@ -19,6 +21,8 @@ pub(super) const PROGRESS_TOLERANCE_US: u64 = 100_000;
 pub(super) async fn verify(executable: &str, path: &Path, format: &str) -> Result<u64> {
     let input = std::fs::File::open(path)?;
     let group = NativeAudioGroup::for_decoder()?;
+    #[cfg(target_os = "linux")]
+    compatibility::check(executable, &group).await?;
     let mut command = tokio::process::Command::new(executable);
     command
         .args([
@@ -160,6 +164,8 @@ pub(super) async fn play_file(
         None
     };
     let group = NativeAudioGroup::for_decoder()?;
+    #[cfg(target_os = "linux")]
+    compatibility::check(executable, &group).await?;
     let mut child = group
         .spawn(playback_command(
             executable,
@@ -250,6 +256,8 @@ async fn play_stream(
     };
     let bounds = range.map(|(seek, end, _)| (seek, end));
     let group = NativeAudioGroup::for_decoder()?;
+    #[cfg(target_os = "linux")]
+    compatibility::check(executable, &group).await?;
     let mut child = group
         .spawn(pipe_playback_command(
             executable,

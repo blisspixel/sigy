@@ -433,7 +433,7 @@ fn killed_capture_preserves_partial_bytes_and_never_replays() -> TestResult {
         );
         thread::sleep(Duration::from_millis(10));
     }
-    service.0.kill()?;
+    service.kill()?;
     service.0.wait()?;
     let retained = std::fs::read(&path)?;
     assert!(!retained.is_empty());
