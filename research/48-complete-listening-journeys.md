@@ -49,6 +49,8 @@ For completion commit failure, separate completed native evidence from the activ
 
 ## Delivery recommendation
 
+Followup: [Decision0091](../docs/decisions/0091-responsive-player-observation.md) implements the first bounded player status/stop slice. The source observations above describe the stated baseline; native terminal timing remains unmeasured. The [completion/shutdown audit](49-completion-settlement-and-shutdown.md) narrows the next repair without claiming it implemented.
+
 First deliver responsive player status/stop. Next repair completion-settlement retry without weakening restart holds. Then connect exact retained excerpts to deliberate terminal actions and qualify segment navigation. Measure mixed capture/playback/query/processing envelopes before increasing concurrency. Target-aware history and language references can advance as separate bounded packages; city-data evaluation and source maintenance remain independent research. A local planner should compose capabilities whose authority and outcomes are already inspectable; hardware and additional clients retain their existing later placement.
 
 The [near-term briefs](../docs/development/near-term-implementation.md#next-delivery-sequence) own proposed acceptance and order. Existing roadmap stages, spending limits, local privacy, replay identities and qualification gates remain unchanged.

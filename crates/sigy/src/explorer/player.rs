@@ -1,8 +1,7 @@
 //! One supervised quick-listen client. Service receipts remain playback authority.
 
 use super::state::Explorer;
-use crate::panel::session::{self, SessionHint};
-use sigy_service::control::{self, ListenOperation, Operation};
+use crate::panel::session::SessionHint;
 use std::{
     io::Read,
     path::Path,
@@ -10,11 +9,22 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+mod observation;
+
+use observation::{Lane, Update};
+
 #[derive(Default)]
 pub(super) struct Player {
     child: Option<Child>,
     input: Option<ChildStdin>,
     diagnostic: Arc<Mutex<Vec<u8>>>,
+    diagnostic_task: Option<std::thread::JoinHandle<()>>,
+    status: Lane,
+    stop: Lane,
+    generation: u64,
+    current: Option<String>,
+    stopped: Option<String>,
+    retry_inspection: bool,
 }
 
 impl Player {
@@ -26,6 +36,15 @@ impl Player {
                 "A quick listen is already active. S stops it before another play.",
             ));
         }
+        self.reap_diagnostic();
+        if self.diagnostic_task.is_some() {
+            return Err(std::io::Error::other(
+                "The previous listen client is still draining diagnostics.",
+            ));
+        }
+        self.advance()?;
+        self.current = None;
+        self.retry_inspection = false;
         let mut child = Command::new(std::env::current_exe()?)
             .arg("--data-dir")
             .arg(directory)
@@ -44,7 +63,7 @@ impl Player {
         self.diagnostic = Arc::default();
         if let Some(mut stderr) = child.stderr.take() {
             let diagnostic = Arc::clone(&self.diagnostic);
-            std::thread::spawn(move || {
+            self.diagnostic_task = Some(std::thread::spawn(move || {
                 let mut buffer = [0_u8; 1024];
                 while let Ok(count) = stderr.read(&mut buffer) {
                     if count == 0 {
@@ -55,18 +74,21 @@ impl Player {
                         output.extend_from_slice(&buffer[..count]);
                     }
                 }
-            });
+            }));
         }
         self.child = Some(child);
         Ok(())
     }
 
-    pub(super) fn poll(
-        &mut self,
-        runtime: &tokio::runtime::Runtime,
-        directory: &Path,
-        model: &mut Explorer,
-    ) {
+    pub(super) fn request_status(&mut self, runtime: &tokio::runtime::Runtime, directory: &Path) {
+        let directory = directory.to_owned();
+        self.status
+            .start(runtime, self.generation, move |send| async move {
+                observation::observe(&directory, send).await;
+            });
+    }
+
+    pub(super) fn poll(&mut self, model: &mut Explorer) {
         if let Some(child) = &mut self.child {
             match child.try_wait() {
                 Ok(Some(status)) => {
@@ -84,22 +106,55 @@ impl Player {
                 Err(error) => model.note_message(&error.to_string()),
             }
         }
-        if let SessionHint::Present(hint) = session::read(directory) {
-            match runtime.block_on(control::request(
-                directory,
-                Operation::Listen {
-                    command: ListenOperation::Status { id: hint.listen_id },
-                },
-            )) {
-                Ok(snapshot) => {
-                    if let Some(listen) = snapshot.listen {
-                        model.observe_playback(super::client::playback_from(&listen));
+        self.reap_diagnostic();
+        for (generation, update) in self.status.poll() {
+            self.adopt(model, generation, update, false);
+        }
+        for (generation, update) in self.stop.poll() {
+            self.adopt(model, generation, update, true);
+        }
+    }
+
+    fn adopt(&mut self, model: &mut Explorer, generation: u64, update: Update, stop: bool) {
+        if generation != self.generation {
+            return;
+        }
+        match update {
+            Update::Hint(SessionHint::Present(hint)) => self.current = Some(hint.listen_id),
+            Update::Hint(SessionHint::Absent) => self.current = None,
+            Update::Hint(SessionHint::Unreadable) => {
+                self.current = None;
+                model.note_message(
+                    "Playback session hint is unreadable. Completion remains unresolved.",
+                );
+            }
+            Update::View(id, result) if id.is_empty() || self.current.as_ref() == Some(&id) => {
+                match result {
+                    Ok(view) => {
+                        if !stop
+                            && self.retry_inspection
+                            && view.state == "running"
+                            && self.stopped.as_ref() == Some(&id)
+                        {
+                            self.stopped = None;
+                            self.retry_inspection = false;
+                            model.note_message("Listen still running after an unresolved stop. S explicitly retries the same ID. Recordings keep running.");
+                        }
+                        model.observe_playback(view);
+                    }
+                    Err(error) => {
+                        if stop {
+                            self.retry_inspection = true;
+                        }
+                        model.note_message(&error);
                     }
                 }
-                Err(error) => {
-                    model.note_message(&format!("Playback observation unavailable: {error}"));
+                // Fence status reads started before this stop observation.
+                if stop && let Err(error) = self.advance() {
+                    model.note_message(&error.to_string());
                 }
             }
+            Update::View(..) => (),
         }
     }
 
@@ -110,28 +165,70 @@ impl Player {
         model: &mut Explorer,
     ) {
         self.input = None;
-        let SessionHint::Present(hint) = session::read(directory) else {
-            model.note_message("No quick-listen session is available. Recordings keep running.");
+        let Some(id) = self.current.clone() else {
+            model.note_message("Listen client cancellation requested. Service identity is not yet observed; completion is unresolved. Recordings keep running.");
             return;
         };
-        match runtime.block_on(crate::listen::stop_listen(directory, &hint.listen_id)) {
-            Ok(listen) => {
-                model.observe_playback(super::client::playback_from(&listen));
-                model.note_message("Listen stop requested. Recordings keep running; completion is observed separately.");
-            }
-            Err(error) => model.note_message(&error.to_string()),
+        if self.stop.busy() {
+            model.note_message("A previous stop is still being observed. Client cancellation requested; completion is unresolved. Recordings keep running.");
+            return;
+        }
+        if self.stopped.as_ref() == Some(&id) {
+            model.note_message("Listen stop already requested. The same receipt is being observed; completion remains separate. Recordings keep running.");
+            return;
+        }
+        if let Err(error) = self.advance() {
+            model.note_message(&error.to_string());
+            return;
+        }
+        self.stopped = Some(id.clone());
+        self.retry_inspection = false;
+        let directory = directory.to_owned();
+        self.stop
+            .start(runtime, self.generation, move |send| async move {
+                let result = observation::exchange(&directory, &id, true).await;
+                let _ = send.send(Update::View(id, result)).await;
+            });
+        model.note_message("Listen stop requested. Service state and completion are observed separately. Recordings keep running.");
+    }
+
+    fn advance(&mut self) -> std::io::Result<()> {
+        self.generation = self.generation.checked_add(1).ok_or_else(|| {
+            std::io::Error::other("Playback observation generation exhausted. Reopen the explorer.")
+        })?;
+        Ok(())
+    }
+
+    fn reap_diagnostic(&mut self) {
+        if self
+            .diagnostic_task
+            .as_ref()
+            .is_some_and(std::thread::JoinHandle::is_finished)
+            && let Some(task) = self.diagnostic_task.take()
+        {
+            let _ = task.join();
         }
     }
 }
 
+#[cfg(test)]
+mod tests;
+
 impl Drop for Player {
     fn drop(&mut self) {
         self.input = None;
-        if let Some(mut child) = self.child.take() {
+        let child = self.child.take();
+        let diagnostic = self.diagnostic_task.take();
+        if child.is_some() || diagnostic.is_some() {
             // Closing stdin cancels through the normal decoder/group drain path.
             // Reap off the terminal thread; parent-pid also fences abrupt TUI death.
             std::thread::spawn(move || {
-                let _ = child.wait();
+                if let Some(mut child) = child {
+                    let _ = child.wait();
+                }
+                if let Some(task) = diagnostic {
+                    let _ = task.join();
+                }
             });
         }
     }

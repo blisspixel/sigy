@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-11
 
-The [next delivery sequence](development/near-term-implementation.md#next-delivery-sequence) follows the README through responsive listening, recoverable completion, protected retained playback, measured mixed workloads and qualified language directions. [The dated quality review](../research/48-complete-listening-journeys.md) records source findings and primary references; these are proposed increments, not new implementation or support claims.
+The [next delivery sequence](development/near-term-implementation.md#next-delivery-sequence) follows the README through responsive listening, recoverable completion, protected retained playback, measured mixed workloads and qualified language directions. [Responsive player observation](decisions/0091-responsive-player-observation.md) implements its first bounded status/stop slice; native terminal timing remains unmeasured. [The dated quality review](../research/48-complete-listening-journeys.md) records source findings and primary references; the remaining sequence is proposed work.
 
 [Desktop discovery and native listening](decisions/0090-desktop-discovery-and-native-listening.md) adds confirmed filtered fetch, Windows live PCM output and an experimental delegated Linux user-session adapter. [Current evidence](development/progress.md#2026-10-11-desktop-completion) separates automated containment checks from device qualification. Omarchy listening remains a user-run check after the updated development release.
 

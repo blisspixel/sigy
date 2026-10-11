@@ -54,6 +54,7 @@ This folder records primary-source findings, measured experiments, design implic
 | Desktop issue review, explicit radio discovery, finite retries, Waybar controls and Linux containment follow-up | [46. Everyday radio and Linux containment](46-everyday-radio-and-linux-containment.md) |
 | Delegated systemd-user lifecycle, separate process/task limits, Windows live PCM and decoder-clock compatibility | [47. Delegated desktop execution](47-delegated-desktop-execution.md) |
 | README journey review, responsive terminal work, exact retained audio, completion recovery and qualification sequence | [48. Complete listening journeys](48-complete-listening-journeys.md) |
+| Completed worker evidence, exact publication replay, bounded settlement retry and shutdown | [49. Completion settlement and shutdown](49-completion-settlement-and-shutdown.md) |
 
 ## Evidence discipline
 
@@ -100,6 +101,8 @@ Repository-engineering research covers workspace boundaries, instruction discove
 The first 2026-09-30 [offline translation validation](experiments/local-mt/offline-validation-2026-09-30.md) replays real calibration outputs through the bounded Rust scorer, reports missing outcomes and reference diversity, and adds blinded judge-control evaluation without inference. The subsequent [frozen local judge screen](experiments/local-mt/judge-capability-2026-09-30.md) completes 126 bounded calls on retained assets and fails the declared criteria in all seven tested languages. Constructed controls and English-reference comparisons do not prove multilingual understanding. The [delegated-cgroup source audit](experiments/native-boundary/delegated-cgroups.md) identifies the required Linux topology and the difference between a process cap and the PID controller's task cap. A [same-host v39 restore](experiments/library-restore-v39.md) preserves the 15 pilot media objects through migration and another backup/restore. These are scoped evidence and do not qualify language quality, Linux native workers, or clean-host recovery.
 
 ## Near-future review cadence
+
+The [completion settlement and shutdown audit](49-completion-settlement-and-shutdown.md) distinguishes finished worker evidence, transactional publication, post-commit reads, bounded retry and shutdown. It is the next S-03B repair brief, with no new recovery implementation or qualification.
 
 The [delegated desktop execution review](47-delegated-desktop-execution.md) records the selected ProcessKit patch, systemd user-unit lifecycle, separate process/thread caps and live Windows PCM output. Executed platform and acoustic evidence remains in active work.
 

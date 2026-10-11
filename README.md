@@ -55,7 +55,7 @@ sigy doctor
 sigy play STATION_UUID
 ```
 
-Replace the placeholders with your decoder path and an ID from search. `sigy stop` stops the latest quick listen. The explorer also offers `P`, confirmation with `y`, and `S` to stop; selection and Enter inspection remain passive. Windows live output uses Sigy's bounded native helper; Linux needs a usable local FFmpeg output and delegated execution. Null decoding and a running receipt do not prove audible output.
+Replace the placeholders with your decoder path and an ID from search. `sigy stop` stops the latest quick listen. The explorer also offers `P`, confirmation with `y`, and `S` to stop; selection and Enter inspection remain passive. Delayed player status replies leave local navigation and quit available. Search and linked metadata reads can still wait for the service. Windows live output uses Sigy's bounded native helper; Linux needs a usable local FFmpeg output and delegated execution. Null decoding and a running receipt do not prove audible output.
 
 Sigy uses `~/.sigy/library` by default. Use `sigy init` for setup without a directory fetch, or `sigy init --no-start` to prepare storage without starting a service. See [first use](docs/install.md#first-use) for custom libraries and recording setup, and the [usage guide](docs/usage.md) for full commands.
 

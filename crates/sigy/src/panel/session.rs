@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
     path::Path,
 };
 
@@ -31,7 +31,16 @@ pub(crate) enum SessionHint {
 #[must_use]
 pub(crate) fn read(directory: &Path) -> SessionHint {
     let path = directory.join(FILE_NAME);
-    match fs::read(&path) {
+    let bytes = (|| {
+        let file = fs::File::open(&path)?;
+        let mut bytes = Vec::new();
+        file.take(4097).read_to_end(&mut bytes)?;
+        if bytes.len() > 4096 {
+            return Err(io::Error::other("session hint exceeds 4096 bytes"));
+        }
+        Ok(bytes)
+    })();
+    match bytes {
         Err(error) if error.kind() == io::ErrorKind::NotFound => SessionHint::Absent,
         Err(_) => SessionHint::Unreadable,
         Ok(bytes) => {

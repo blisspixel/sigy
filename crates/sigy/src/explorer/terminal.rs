@@ -47,13 +47,14 @@ fn run_loop(
     let mut fetcher = super::fetch::Fetcher::default();
     loop {
         fetcher.poll(model);
+        player.poll(model);
         if clock_tick.elapsed() >= Duration::from_secs(1) {
             model.tick_clock(super::now_ms()?);
-            player.poll(runtime, directory, model);
+            player.request_status(runtime, directory);
             clock_tick = std::time::Instant::now();
-            if model.take_dirty() {
-                session.draw(model)?;
-            }
+        }
+        if model.take_dirty() {
+            session.draw(model)?;
         }
         let Some(key) = session.poll(Duration::from_millis(250))? else {
             continue;
