@@ -85,6 +85,8 @@ jobs:
         env:
           SIGY_TEST_FFMPEG: /usr/bin/ffmpeg
         run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
           test -x /usr/bin/ffmpeg
           cargo test --locked -p sigy --test service direct_listen_reaches_decoder_progress_without_a_file_or_reservation -- --ignored --test-threads=1
           cargo test --locked -p sigy --test service recording_is_service_owned_verified_exportable_and_prunable -- --ignored --test-threads=1
