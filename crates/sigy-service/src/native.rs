@@ -110,11 +110,10 @@ fn inspect() -> Result<PathBuf, String> {
     }
     let properties =
         String::from_utf8(output.stdout).map_err(|_| refuse("invalid unit properties"))?;
-    let expected_group = parent
+    let relative_group = parent
         .strip_prefix("/sys/fs/cgroup")
-        .map_err(|_| refuse("invalid unit path"))?
-        .display()
-        .to_string();
+        .map_err(|_| refuse("invalid unit path"))?;
+    let expected_group = format!("/{}", relative_group.display());
     verify_properties(&properties, &expected_group, std::process::id())?;
     Ok(parent)
 }

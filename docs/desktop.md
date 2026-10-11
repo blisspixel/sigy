@@ -44,3 +44,28 @@ Open the explorer, browse a cached station, press `P` and confirm with `y`. `S` 
 For a launcher that already selected a registered favorite, `sigy panel play STATION_UUID --cancel-on-stdin --parent-pid PID` retains stricter admission: cached favorite, non-HLS and exactly one audio revision. Keep stdin open and pass the actual launcher's PID. Closing stdin or losing that parent requests cleanup. An optional `--id` preserves explicit request identity; reuse does not reconnect. Inspect an existing receipt with `sigy listen status LISTEN_ID`, or omit `--id` for a fresh listen. Never interpolate directory names or URLs into shell commands. The explorer supplies the station UUID as a separate process argument.
 
 The session file is a hint. Service receipt, decoder outcome, native drain and acoustic output are distinct. Linux/Omarchy qualification flags remain false, and this configuration does not qualify those platforms.
+
+## Later Omarchy listening check
+
+Install the updated development release using the [source installation guide](install.md). Confirm `sigy --version` and the installer's recorded commit match the intended build. In a terminal on your Omarchy desktop, use a fresh private library so the check leaves your existing library alone:
+
+```sh
+qa_library=$(mktemp -d /tmp/sigy-qa.XXXXXX)
+printf 'Test library: %s\n' "$qa_library"
+sigy --data-dir "$qa_library" init --radio --tag jazz
+sigy --data-dir "$qa_library" dvr configure --decoder "$(command -v ffmpeg)"
+sigy --data-dir "$qa_library" doctor
+sigy --data-dir "$qa_library" tui --tag jazz
+```
+
+In Explore, select a station, press `P`, then `y`. Listen through your normal desktop output, then press `S` to stop. Press `R`, then `y` to explicitly fetch another matching page if needed. Note the station UUID, any visible refusal and whether audio starts and stops. A redirect refusal or unavailable station is a separate source result; try another direct station rather than relaxing its policy silently.
+
+After quitting with `q`, compare the same station through the CLI in one terminal and stop it from another:
+
+```sh
+sigy --data-dir "$qa_library" play STATION_UUID
+# In another terminal, substitute the printed test-library path:
+sigy --data-dir /tmp/sigy-qa.PRINTED_SUFFIX stop
+```
+
+Finally run `sigy --data-dir "$qa_library" service stop` in the first terminal. Keep the test directory if you want to inspect receipts. Report the Sigy commit, `systemd --version`, FFmpeg version and audio backend with the outcome; avoid posting your library or station URLs without checking them. This manual device check is pending and is separate from automated loopback decoding and containment tests.
