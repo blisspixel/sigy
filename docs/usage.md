@@ -100,7 +100,7 @@ The bundled CLDR 48.2.0 reference supplies 257 country/territory identities inde
 
 Existing `--country` filters accept a unique reference name or a literal two-letter provider code, including an unlisted code. Names preserve accents and scripts and search aliases from all eight bundled locales. Ambiguity considers every matching identity before paging: `Congo` requires `CD` or `CG`, and a more general name can match several territories. Choose an explicit code from `radio countries` when ambiguous. City and coordinate/radius lookup remain planned. See [offline country selection](decisions/0080-offline-country-reference.md).
 
-![Current radio command help](images/cli.png)
+![Radio command help at the documented interface checkpoint](images/cli.png)
 
 Start the service, then request one directory page:
 
@@ -538,7 +538,7 @@ Press `3` for the recording timeline. Arrows select a recording from the loaded 
 
 Press `7` for the Globe workspace: an orthographic globe, or with `m` a flat world map, drawn from bundled public-domain Natural Earth coastlines, with geometric night (the sun more than 90 degrees from the zenith) at the explicit UTC instant shown in its header. `h`, `l`, `j` and `k` rotate by 15 degrees, and `c` centers on the selected station. Stations on the current filtered page are placed by their directory coordinates, which say where a directory believes a stream is located, not where its speakers or subjects are; the header counts how many stations on the page have coordinates. Stations sharing a terminal cell show a count from `2` to `9`, or `+` for ten or more. The selected station uses `@` even in a shared cell. Every station stays selectable in the result list. Rotating or changing the map contacts nothing. See [the list explorer](decisions/0016-list-explorer.md), [terminal globe](decisions/0044-terminal-globe.md), and [terminal station clusters](decisions/0060-terminal-station-clusters.md).
 
-![Current globe rendered with the selected station](images/globe.png)
+![Globe at the documented interface checkpoint with the selected station](images/globe.png)
 
 The same page has coordinates for two stations. The globe uses those directory positions and offline coastlines; its night layer is geometric.
 

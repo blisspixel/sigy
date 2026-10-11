@@ -1,6 +1,8 @@
 # Interface image provenance
 
-Updated: 2026-10-04.
+Reviewed: 2026-10-11. Images captured: 2026-10-04.
+
+These images preserve that dated checkpoint. Current quick playback and confirmed filtered fetch keys are documented in [usage](../usage.md#list-explorer) and [desktop controls](../desktop.md); the images are not evidence that those later controls were exercised on a native terminal.
 
 The README's [flat map](../images/tui.png) and [globe](../images/globe.png) are production terminal-cell renders at 100 by 32 cells, rasterized with a fixed dark terminal palette and Cascadia Mono. They show a retained real directory page through the canonical local library loader, current state/key handler, layout and offline geography. The disposable capture uses copies of the production explorer modules, with visibility widened only in its module entry point. The interface images are not native operating-system pixel captures.
 

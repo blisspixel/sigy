@@ -1,6 +1,6 @@
 # 0090: Desktop discovery and native listening
 
-Date: 2026-10-11. Status: implementation under verification. Schema v51 and IPC v52 remain unchanged. [Active work](../development/progress.md#2026-10-11-desktop-completion) owns executed evidence.
+Date: 2026-10-11. Status: implemented bounded increment with local gates and actual delegated Linux contract evidence. Schema v51 and IPC v52 remain unchanged. [Active work](../development/progress.md#2026-10-11-desktop-completion) owns executed evidence. Omarchy device and remaining TUI acoustic checks are deferred by the user until after publication.
 
 ## Problem
 
@@ -16,6 +16,7 @@ The remaining desktop issues require a useful filtered fetch inside the explorer
 - Linux native work uses an explicitly delegated systemd user unit on systemd 254 or later. The manager places Sigy's main process in `sigy-control`; bounded worker groups are siblings beneath the empty delegated parent. The adapter verifies exact membership, owner, canonical path, controllers and manager lifecycle properties before group creation. No process migration above the owned unit, privileged installer or uncapped fallback is introduced.
 - A documented local ProcessKit 3.3.4 patch adds an explicit delegated-parent constructor. Existing pre-exec placement, kill and recursive membership code remain shared. Memory, zero swap, CPU and task caps are read back before execution. Native process admission is serialized and bounded separately from the 256-task ceiling. Each spawn leaf receives a fixed share of that ceiling before placement, preventing migration from bypassing a full parent task limit. Task-limit evidence includes those owned leaf limits. Precompiled seccompiler filters deny new processes, permit ordinary bounded threads and return `ENOSYS` for `clone3` to allow the libc thread fallback. The policy also covers the x32 process-creation numbers on x86_64. Adoption and limit replacement are unavailable for strict groups.
 - Background services use a stable library-bound transient unit. Native CLI/player commands use finite transient client units, preserve argv without environment expansion, and watch their launching process. Existing stdin and requested-parent fences remain effective. `KillMode=control-group`, final SIGKILL and a five-second stop timeout let the manager clean the complete native subtree after main-process death. Metadata-only service operation remains possible without a user manager; native work refuses there.
+- Linux decoding first checks a known one-second WAV in the same bounded native group, with a five-second deadline and actual drain on refusal. This rejects incompatible progress conventions without inventing media duration. A hosted FFmpeg 6.1.1 case reported 512 ms for one second; CI retains its refusal regression and builds a signed, SHA-256-pinned FFmpeg 9.0.2 fixture for exact media tests. This small clock check does not establish general runtime or codec qualification.
 
 ## Verification and limits
 
