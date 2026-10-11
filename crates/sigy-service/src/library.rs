@@ -160,6 +160,18 @@ pub(crate) fn control_directory(path: &Path) -> Result<PathBuf> {
     Ok(path.canonicalize()?)
 }
 
+/// Validate the host's actual Unix address capacity without binding a socket.
+#[cfg(unix)]
+pub(crate) fn check_socket_path(path: &Path) -> Result<()> {
+    std::os::unix::net::SocketAddr::from_pathname(path)
+        .map(|_| ())
+        .map_err(|_| {
+            Error::InvalidInput(
+                "local socket path: choose a shorter --data-dir within the Unix socket path limit",
+            )
+        })
+}
+
 #[cfg(all(test, unix))]
 mod unix_tests {
     use std::os::unix::fs::PermissionsExt;

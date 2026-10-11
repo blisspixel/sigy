@@ -95,6 +95,8 @@ Prepared work remains under `~/.sigy/update-work` for inspection, with a limit o
 
 ## Platform limits
 
+Unix socket addresses have a host-specific path-length limit. Sigy refuses an oversized control or audio-pipe address before binding and gives shorter-`--data-dir` guidance. Choose a short path when creating a Unix library.
+
 Discovery, cached search and read-only desktop status can be useful on Linux while audio work remains unavailable. The pinned containment library currently requires the real cgroup-v2 root for Linux limits; an ordinary systemd user session, service, delegated scope or container is insufficient. macOS also cannot enforce the required group limits. `sigy doctor` now reports `decoder_containment` as blocked with the platform reason, and new listen/recording requests refuse before contact or reservation. Installing FFmpeg or using `sudo` is not a supported workaround. A delegated-cgroup adapter and native lifecycle evidence remain required before claiming Linux or Omarchy playback support. See [the research and implementation plan](../research/46-everyday-radio-and-linux-containment.md).
 
 Windows limit admission is separate from device output. Direct live `--destination system` still needs a suitable FFmpeg output device; `--destination null` is a decode check only. The bounded Windows audio helper currently applies to retained playback. Successful builds, a bar labeled playing and decoder progress do not prove acoustic delivery or qualify a platform.

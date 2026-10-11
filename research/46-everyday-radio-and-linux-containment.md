@@ -14,6 +14,8 @@ Waybar's custom module accepts a single-line JSON object with text, tooltip and 
 
 The first actual macOS contract run also exposed a separate IPC startup failure. The pinned Interprocess 2.4.4 source documents pre-bind socket `mode` as platform-dependent and returning `Unsupported` where unavailable; its local `src/os/unix/local_socket.rs` and `c_wrappers.rs` were inspected against the failed job. Linux keeps its atomic mode operation. Other Unix hosts can set mode after binding within Sigy's already verified owner-only directory, before publishing/accepting, with peer-user checks unchanged. This does not justify a process-wide umask change or a socket in a traversable shared directory. Source: [pinned socket-mode contract](https://docs.rs/crate/interprocess/2.4.4/source/src/os/unix/local_socket.rs).
 
+The next actual macOS pipe fixtures hit a second boundary: the host's default temporary path plus the complete random socket name exceeded its Unix address capacity. Use short private paths for positive fixtures and preserve a separate oversized-path refusal test. Production validation uses [Rust's `SocketAddr::from_pathname`](https://doc.rust-lang.org/std/os/unix/net/struct.SocketAddr.html#method.from_pathname), available since Rust 1.61, to check the actual host limit before binding. Do not guess one portable byte limit, shorten security nonces, change global working directories or move sockets outside the owned library to conceal this constraint.
+
 ## Remaining Linux adapter plan
 
 Build on the [existing delegated-cgroup audit](experiments/native-boundary/delegated-cgroups.md), preserving its separation of resource control from sandboxing. This remains proposed:

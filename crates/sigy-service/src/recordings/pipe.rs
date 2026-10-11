@@ -103,7 +103,9 @@ fn pipe_name(directory: &Path, nonce: &str) -> Result<interprocess::local_socket
     #[cfg(unix)]
     {
         use interprocess::local_socket::GenericFilePath;
-        Ok(socket_path(directory, nonce).to_fs_name::<GenericFilePath>()?)
+        let path = socket_path(directory, nonce);
+        crate::library::check_socket_path(&path)?;
+        Ok(path.to_fs_name::<GenericFilePath>()?)
     }
 }
 
@@ -193,9 +195,21 @@ mod tests {
 
     type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
+    fn short_directory() -> std::io::Result<tempfile::TempDir> {
+        #[cfg(target_os = "macos")]
+        {
+            // macOS's default TMPDIR can consume most of sun_path before the nonce.
+            tempfile::tempdir_in("/tmp")
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            tempfile::tempdir()
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_dropped_listen_writer_delivers_its_tail_then_end_of_stream() -> TestResult {
-        let temporary = tempfile::tempdir()?;
+        let temporary = short_directory()?;
         let library = Library::open(temporary.path(), true)?;
         let pipe = bind_listen_pipe(library.directory())?;
         #[cfg(unix)]
@@ -224,7 +238,7 @@ mod tests {
 
     #[tokio::test]
     async fn listen_pipe_refuses_foreign_nonces_and_a_prior_stop() -> TestResult {
-        let temporary = tempfile::tempdir()?;
+        let temporary = short_directory()?;
         let library = Library::open(temporary.path(), true)?;
         for nonce in [
             "",
@@ -244,6 +258,23 @@ mod tests {
             pipe.accept(&mut stop).await,
             Err(Error::Acquisition("listen stopped"))
         ));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn long_library_paths_refuse_with_guidance_before_socket_creation() -> TestResult {
+        let temporary = short_directory()?;
+        let library = Library::open(&temporary.path().join("x".repeat(128)), true)?;
+        assert!(matches!(
+            bind_listen_pipe(library.directory()),
+            Err(Error::InvalidInput(
+                "local socket path: choose a shorter --data-dir within the Unix socket path limit"
+            ))
+        ));
+        for entry in std::fs::read_dir(library.directory())? {
+            assert!(!entry?.file_name().to_string_lossy().ends_with(".sock"));
+        }
         Ok(())
     }
 }

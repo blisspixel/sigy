@@ -187,7 +187,7 @@ fn socket_name(nonce: &str, _directory: &Path) -> Result<Name<'static>> {
 #[cfg(unix)]
 fn socket_name(_nonce: &str, directory: &Path) -> Result<Name<'static>> {
     use interprocess::local_socket::GenericFilePath;
-    Ok(directory
-        .join("control.sock")
-        .to_fs_name::<GenericFilePath>()?)
+    let path = directory.join("control.sock");
+    crate::library::check_socket_path(&path)?;
+    Ok(path.to_fs_name::<GenericFilePath>()?)
 }
