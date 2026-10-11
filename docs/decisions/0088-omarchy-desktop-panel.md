@@ -4,7 +4,7 @@ Date: 2026-10-10. Status: implemented increment; verification and limitations be
 
 ## Context and intent
 
-Desktop environments such as Omarchy (an agentic Arch Linux distribution utilizing Hyprland, Waybar, and developer-focused tooling) require lightweight, reliable status bars and quick-launch widgets. Integrating Sigy into these environments requires exposing ambient signal intelligence—service status, directory freshness, active recordings, and current playback—in standard formats like Waybar JSON, as well as enabling bounded, one-click playback of favorite stations without requiring full TUI initialization.
+Desktop environments such as Omarchy (an Arch Linux desktop using Hyprland and Waybar) benefit from lightweight status bars and quick-launch widgets. Sigy projects service status, directory freshness, active recordings and current playback into Waybar JSON, and exposes explicit bounded playback of registered favorites. The [reliability follow-up](0089-everyday-radio-reliability.md) repairs admission and lifecycle faults and makes the remaining Linux audio blocker explicit; this integration does not qualify Omarchy playback.
 
 Desktop integrations must preserve Sigy's core invariants:
 1. Operations remain local-first with zero unapproved network contact.

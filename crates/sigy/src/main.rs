@@ -22,6 +22,7 @@ mod listen;
 mod mcp;
 mod monitor;
 mod panel;
+mod play;
 mod podcast;
 mod provider;
 mod radio;
@@ -55,6 +56,22 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Play one cached station, registering its first audio revision if needed.
+    Play {
+        /// Station UUID from radio search or the explorer.
+        station: String,
+        /// `null` discards samples; `system` requests the local output adapter.
+        #[arg(long, default_value = "system", value_parser = ["system", "null"])]
+        destination: String,
+        /// Cancel playback if the launching process exits.
+        #[arg(long)]
+        parent_pid: Option<u32>,
+        /// Cancel playback when stdin closes, for supervised desktop launchers.
+        #[arg(long)]
+        cancel_on_stdin: bool,
+    },
+    /// Stop the current quick-play or panel listen. Recordings keep running.
+    Stop,
     /// Prepare your private library and start its background service. No directory fetch by default.
     Init {
         #[command(flatten)]
@@ -236,7 +253,7 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
     } else if let Command::Podcast { command } = &cli.command {
         command.operation()
     } else if let Command::Radio { command } = &cli.command {
-        command.operation()?
+        return Ok(Some(radio::execute(data_dir, command).await?));
     } else if let Command::Record { command } = &cli.command {
         command.operation()?
     } else if let Command::Schedule { command } = &cli.command {
@@ -273,20 +290,51 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     match &cli.command {
         Command::Init { options } => {
-            init::execute(library_dir(cli)?, options, cli.json, cli.explicit_data_dir).await
+            Box::pin(init::execute(
+                library_dir(cli)?,
+                options,
+                cli.json,
+                cli.explicit_data_dir,
+            ))
+            .await
         }
         _ => Box::pin(run_library(cli)).await,
     }
 }
 
 async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    if let Command::Play {
+        station,
+        destination,
+        parent_pid,
+        cancel_on_stdin,
+    } = &cli.command
+    {
+        return Box::pin(play::execute(
+            library_dir(cli)?,
+            station,
+            destination,
+            *parent_pid,
+            *cancel_on_stdin,
+            cli.json,
+        ))
+        .await;
+    }
+    if matches!(cli.command, Command::Stop) {
+        return Box::pin(panel::execute(
+            library_dir(cli)?,
+            &panel::PanelCommand::Stop { id: None },
+            cli.json,
+        ))
+        .await;
+    }
     if let Command::Library { command } = &cli.command
         && let Some(result) = backup::execute(cli, command)
     {
         return result;
     }
     if let Command::Listen { command } = &cli.command {
-        return listen::execute(library_dir(cli)?, command, cli.json).await;
+        return Box::pin(listen::execute(library_dir(cli)?, command, cli.json)).await;
     }
     if let Command::Panel { command } = &cli.command {
         return Box::pin(panel::execute(library_dir(cli)?, command, cli.json)).await;
@@ -294,7 +342,7 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if matches!(cli.command, Command::Tui { .. }) {
         return Err("the list explorer starts before the service runtime".into());
     }
-    let Some(view) = execute(cli).await? else {
+    let Some(view) = Box::pin(execute(cli)).await? else {
         return Ok(());
     };
     let ink = style::Ink::stdout(cli.json);
@@ -329,6 +377,22 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     render_library_snapshot(&mut stdout, cli, &view, ink)?;
+    if let Command::Radio { command } = &cli.command {
+        radio::write_next(&mut stdout, command, &view, cli)?;
+        if matches!(
+            command,
+            radio::RadioCommand::Search { fetch: true, .. }
+                | radio::RadioCommand::Refresh { wait: true, .. }
+        ) && view
+            .directory_refresh
+            .as_ref()
+            .is_some_and(|refresh| matches!(refresh.state.as_str(), "failed" | "interrupted"))
+        {
+            return Err(
+                "directory refresh did not complete; the previous cache is preserved".into(),
+            );
+        }
+    }
     if let Command::Doctor { strict } = &cli.command {
         let report = view.doctor.as_ref().ok_or("doctor report is missing")?;
         if report.blocked() || (*strict && report.attention()) {
@@ -598,5 +662,30 @@ fn main() -> ExitCode {
             }
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod future_frame_tests {
+    use clap::Parser;
+
+    #[test]
+    fn command_routers_keep_large_playback_futures_off_the_poll_stack()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for command in [
+            vec!["listen", "file", "fixture", "--destination", "system"],
+            vec!["play", "00000000-0000-0000-0000-000000000001"],
+            vec!["radio", "refresh", "--wait"],
+            vec!["init", "--radio"],
+        ] {
+            let mut args = vec!["sigy", "--data-dir", "not-opened"];
+            args.extend(command);
+            let cli = super::Cli::try_parse_from(args)?;
+            let route = super::run(&cli);
+            let library = super::run_library(&cli);
+            assert!(std::mem::size_of_val(&route) <= 16 * 1024);
+            assert!(std::mem::size_of_val(&library) <= 16 * 1024);
+        }
+        Ok(())
     }
 }

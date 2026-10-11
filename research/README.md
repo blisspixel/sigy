@@ -1,6 +1,6 @@
 # Research index
 
-Research baseline: **September 20, 2026**. Latest research/evidence update: **October 4, 2026**. Individual notes retain their review dates and distinguish research from measurements.
+Research baseline: **September 20, 2026**. Latest research/evidence update: **October 11, 2026**. Individual notes retain their review dates and distinguish research from measurements.
 
 This folder records primary-source findings, measured experiments, design implications, competing approaches, and unanswered questions. It supports the [intent](../INTENT.md) and [design documents](../docs/README.md). Each note distinguishes completed measurements from proposed work and technology selection.
 
@@ -51,6 +51,7 @@ This folder records primary-source findings, measured experiments, design implic
 | Authentic historical cases, Indigenous code-talking, current post-quantum standards, noise/detection mathematics and optional modern learning challenges | [43. Historical and modern learning](43-historical-and-modern-learning.md) |
 | Fixed Windows output profiles, callback timing, native child closure, finite PCM and complete dependency retention | [44. Bounded Windows audio output](44-bounded-windows-audio-output.md) |
 | Half-open sample selection, counted completion, resampling conventions and independent retained excerpt witnesses | [45. Excerpt boundaries and evidence](45-excerpt-boundaries-and-evidence.md) |
+| Desktop issue review, explicit radio discovery, finite retries, Waybar controls and Linux containment follow-up | [46. Everyday radio and Linux containment](46-everyday-radio-and-linux-containment.md) |
 
 ## Evidence discipline
 

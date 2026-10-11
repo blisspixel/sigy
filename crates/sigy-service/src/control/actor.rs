@@ -381,6 +381,21 @@ impl Actor {
             .source(&source_revision)?
             .ok_or(Error::NotFound)?
             .source;
+        if match self.library.store().recording(&id) {
+            Ok(_) => true,
+            Err(Error::NotFound) => false,
+            Err(error) => return Err(error),
+        } {
+            self.library.store_mut().admit_recording(
+                &id,
+                &source_revision,
+                seconds,
+                maximum,
+                retention,
+                icy,
+            )?;
+            return Ok(());
+        }
         let decoder = self.decoder()?;
         let limits = recordings::limits(maximum, seconds)?;
         let mut admitted = self.library.store_mut().admit_recording(
@@ -425,6 +440,21 @@ impl Actor {
         episode_id: &str,
         revision_id: &str,
     ) -> Result<()> {
+        if match self.library.store().recording(id) {
+            Ok(_) => true,
+            Err(Error::NotFound) => false,
+            Err(error) => return Err(error),
+        } {
+            return match self.library.store_mut().begin_episode_download(
+                id,
+                subscription_id,
+                episode_id,
+                revision_id,
+            )? {
+                EpisodeAdmission::Replay => Ok(()),
+                EpisodeAdmission::Started(_) => Err(Error::PodcastIntegrity),
+            };
+        }
         let decoder = self.decoder()?;
         let mut admission = self.library.store_mut().begin_episode_download(
             id,
@@ -478,6 +508,7 @@ impl Actor {
                 "DVR decoder is not a file; use dvr configure",
             ));
         }
+        let _group = recordings::audio::NativeAudioGroup::for_decoder()?;
         Ok(path)
     }
 
@@ -582,10 +613,10 @@ impl Actor {
         };
         match self.start_directory(&due.id, due.request) {
             Ok(())
-            | Err(Error::InvalidInput(
-                "directory refresh interval is at least two seconds"
-                | "directory refresh capacity reached",
-            )) => Ok(()),
+            | Err(
+                Error::DirectoryRefreshRate
+                | Error::InvalidInput("directory refresh capacity reached"),
+            ) => Ok(()),
             Err(error) => Err(error),
         }
     }

@@ -15,6 +15,7 @@ clap.workspace = true
 ratatui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 termina.workspace = true
 tokio.workspace = true
 
@@ -27,7 +28,6 @@ cpal.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-sha2.workspace = true
 rusqlite.workspace = true
 
 [lints]

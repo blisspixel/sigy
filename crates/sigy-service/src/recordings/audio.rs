@@ -97,8 +97,7 @@ impl NativeAudioGroup {
             .max_processes(2)
             .max_memory(768 * 1024 * 1024)
             .cpu_quota(0.75);
-        let group = execution::contained(options)
-            .ok_or(Error::Acquisition("bounded audio containment unavailable"))?;
+        let group = execution::contained(options)?;
         Ok(Self {
             group,
             closed: Mutex::new(false),

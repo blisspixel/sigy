@@ -1783,7 +1783,80 @@ fn download_inspected_episode(
     assert_eq!(charged["dvr"]["charged_bytes"], bytes.len());
     assert_eq!(charged["dvr"]["reserved_bytes"], 0);
     assert_eq!(enclosure_hits(server, "/episode.wav")?, 1);
+    replay_episode_without_decoder(directory, server, &episode_id, &charged)?;
     Ok(decoded)
+}
+
+fn replay_episode_without_decoder(
+    directory: &std::path::Path,
+    server: &EnclosureHost,
+    episode_id: &str,
+    charged: &serde_json::Value,
+) -> TestResult {
+    let decoder = std::env::var("SIGY_TEST_FFMPEG")?;
+    let unavailable = directory.join("unavailable-decoder");
+    std::fs::write(&unavailable, b"not executed")?;
+    success(
+        directory,
+        &[
+            "dvr",
+            "configure",
+            "--decoder",
+            unavailable.to_str().ok_or("decoder path")?,
+            "--quota-gb",
+            "50",
+        ],
+    )?;
+    std::fs::remove_file(&unavailable)?;
+    success(
+        directory,
+        &[
+            "podcast",
+            "download",
+            "show:v1",
+            "--episode",
+            episode_id,
+            "--id",
+            "episode:v1",
+            "--revision",
+            "enc:v1",
+        ],
+    )?;
+    let conflict = invoke(
+        directory,
+        &[
+            "podcast",
+            "download",
+            "show:v1",
+            "--episode",
+            episode_id,
+            "--id",
+            "episode:v1",
+            "--revision",
+            "enc:conflict",
+        ],
+    )?;
+    assert!(!conflict.status.success());
+    assert!(String::from_utf8_lossy(&conflict.stderr).contains("idempotency key"));
+    assert_eq!(enclosure_hits(server, "/episode.wav")?, 1);
+    let replayed = success(directory, &["dvr", "status"])?;
+    assert_eq!(
+        replayed["dvr"]["charged_bytes"],
+        charged["dvr"]["charged_bytes"]
+    );
+    assert_eq!(replayed["dvr"]["reserved_bytes"], 0);
+    success(
+        directory,
+        &[
+            "dvr",
+            "configure",
+            "--decoder",
+            &decoder,
+            "--quota-gb",
+            "50",
+        ],
+    )?;
+    Ok(())
 }
 
 fn play_retained_episode(directory: &std::path::Path, bytes: &[u8], decoded: u64) -> TestResult {

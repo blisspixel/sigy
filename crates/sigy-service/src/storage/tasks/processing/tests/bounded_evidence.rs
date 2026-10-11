@@ -249,7 +249,7 @@ fn corrupt_oversize_translation_is_refused_and_cleanup_preserves_next_query() ->
 }
 
 #[test]
-fn legal_boundary_measurement_keeps_work_far_below_vm_ceiling() -> TestResult {
+fn legal_boundary_vm_measurement_keeps_work_far_below_ceiling() -> TestResult {
     let directory = tempfile::tempdir()?;
     let mut store = setup(&directory.path().join("catalog"), false)?;
     populated(&mut store, 256, &"z".repeat(256), &"z".repeat(4096))?;
@@ -260,7 +260,9 @@ fn legal_boundary_measurement_keeps_work_far_below_vm_ceiling() -> TestResult {
         let work = QueryWork::start(
             &store.connection,
             Limits {
-                wall: Duration::from_millis(100),
+                // Measure VM work independently of scheduler contention. Production
+                // admission retains its 100 ms guard and may refuse this legal input.
+                wall: Duration::from_secs(10),
                 vm_ops: 4_000_000,
                 lock_wait: Duration::from_millis(10),
             },
@@ -275,7 +277,7 @@ fn legal_boundary_measurement_keeps_work_far_below_vm_ceiling() -> TestResult {
     }
     elapsed.sort_unstable();
     println!(
-        "bounded evidence: 512 legal cues, 2,164,736 examined original/English bytes; p50={}us max={}us VM checkpoint ops={largest_ops}",
+        "VM-only measurement (10 s wall ceiling, not the 100 ms admission profile): 512 legal cues, 2,164,736 examined original/English bytes; p50={}us max={}us VM checkpoint ops={largest_ops}",
         elapsed[8], elapsed[15]
     );
     assert!(largest_ops < 4_000_000);

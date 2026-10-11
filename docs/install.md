@@ -52,7 +52,7 @@ sigy init --radio
 sigy tui
 ```
 
-`init` creates the per-user library, starts the background service and prints the next steps. `--radio` explicitly requests one page of up to 100 stations from Radio Browser. It waits up to 15 seconds for the refresh; if it is still running, follow the printed status command before expecting stations in the explorer. A failed or interrupted refresh is reported as an error. Repeating setup preserves the library and reuses this first-use request without fetching twice. To request a fresh page later, use `sigy radio refresh NEW_ID --limit 100`.
+`init` creates the per-user library, starts the background service and prints the next steps. `--radio` explicitly requests one page of up to 100 stations from Radio Browser. It waits up to 15 seconds for the refresh; if it is still running, follow the printed status command before expecting stations in the explorer. A failed or interrupted refresh is reported as an error. Repeating setup preserves the library and reuses this first-use request without fetching twice. Seed a chosen page with `sigy init --radio --country Canada --tag jazz`. To request a fresh page later, use `sigy radio refresh --limit 100 --wait`; request IDs are automatic unless supplied explicitly.
 
 The default library is `%USERPROFILE%\.sigy\library` on Windows and `$HOME/.sigy/library` on macOS or Linux. You no longer need to repeat a path for this library. For a different location, pass `--data-dir` to each command:
 
@@ -92,6 +92,12 @@ sigy update --status
 The scripts honor `CARGO_HOME` and `CARGO_INSTALL_ROOT`, resolving relative paths before changing directories. PowerShell invocation restores its caller's location and temporary environment settings; the shell installer runs in a subshell. Windows updates use an explicit `CARGO_INSTALL_ROOT` when provided, otherwise the running executable's parent installation root when it is under `bin`, then Cargo's home. Cargo configuration-only custom roots are not inferred by the updater. Windows scripts and updates share the operating-system-owned lock, which releases on process death. A direct installer fences a prior pending or running helper under that lock before building; its old receipt records `installer-superseded`, even if the subsequent direct install fails. The old helper cannot later overwrite that installation. Independent POSIX script concurrency is not qualified. Non-Windows updates remain synchronous Cargo installs, with post-build source revalidation, rather than the Windows staged replacement contract.
 
 Prepared work remains under `~/.sigy/update-work` for inspection, with a limit of 16 operation directories. If that limit is reached, inspect the receipt and preserve or remove completed work before retrying. Never delete a workspace while its helper may still be using it. No automatic retry, decoder download or diagnostic upload occurs. The [usage guide](usage.md#update) describes the command's interface.
+
+## Platform limits
+
+Discovery, cached search and read-only desktop status can be useful on Linux while audio work remains unavailable. The pinned containment library currently requires the real cgroup-v2 root for Linux limits; an ordinary systemd user session, service, delegated scope or container is insufficient. macOS also cannot enforce the required group limits. `sigy doctor` now reports `decoder_containment` as blocked with the platform reason, and new listen/recording requests refuse before contact or reservation. Installing FFmpeg or using `sudo` is not a supported workaround. A delegated-cgroup adapter and native lifecycle evidence remain required before claiming Linux or Omarchy playback support. See [the research and implementation plan](../research/46-everyday-radio-and-linux-containment.md).
+
+Windows limit admission is separate from device output. Direct live `--destination system` still needs a suitable FFmpeg output device; `--destination null` is a decode check only. The bounded Windows audio helper currently applies to retained playback. Successful builds, a bar labeled playing and decoder progress do not prove acoustic delivery or qualify a platform.
 
 ## Current limits and help
 

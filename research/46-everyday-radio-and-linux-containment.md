@@ -1,0 +1,28 @@
+# 46. Everyday radio and Linux containment
+
+Reviewed: 2026-10-11. Scope: open desktop issues [2](https://github.com/blisspixel/sigy/issues/2), [3](https://github.com/blisspixel/sigy/issues/3), [4](https://github.com/blisspixel/sigy/issues/4), [5](https://github.com/blisspixel/sigy/issues/5), [6](https://github.com/blisspixel/sigy/issues/6) and [7](https://github.com/blisspixel/sigy/issues/7), against the README, intent, roadmap and service contracts. The user selected reliable everyday radio discovery and listening as the immediate priority. This is a finite reliability increment, not a replacement for language, evidence or capacity qualification.
+
+## Findings and chosen scope
+
+Radio Browser documents discovering API servers, choosing an available server and trying another after a failure. Sigy's existing SRV discovery and checked HTTP acquirer already provide the right authority boundary. The selected repair adds finite retries to idempotent directory reads inside their admitted request. It does not retry station playback, clicks or capture. Hardcoding one favored mirror would create a new dependency and was rejected. Explicit mirror/pin choices remain exact. Source: [Radio Browser API](https://api.radio-browser.info/), sections on server discovery and usage.
+
+Cache-only exploration remains the default. An explicit `--fetch` addresses first-use friction without making typing, selection or startup grant network work. Positional text means a station name; named country/tag/language filters stay available. Guessing a tag or country after a failed name query would change the user's scope and complicate exact replay. Stable setup seed identities and fresh optional refresh IDs serve different purposes and must not be conflated.
+
+The pinned processkit 3.3.4 implementation accepts Linux limits only from the real cgroup-v2 root. Ordinary systemd sessions/services and container namespaces do not meet that condition. A delegated scope alone does not implement the topology or lifecycle Sigy needs. macOS also lacks the required limits. Preserve `Unsupported`/`Unenforceable` diagnostic detail and fail before new recording reservations or live-listen contact. Sources: [platform support](https://docs.rs/crate/processkit/3.3.4/source/docs/platform-support.md), [troubleshooting](https://docs.rs/crate/processkit/3.3.4/source/docs/troubleshooting.md), and [process groups](https://docs.rs/crate/processkit/3.3.4/source/docs/process-groups.md). The local pinned implementation in `src/limits.rs` was inspected alongside these documents. Empty-group acceptance is only a capability probe.
+
+Waybar's custom module accepts a single-line JSON object with text, tooltip and CSS class. Omarchy supplies a launcher for opening or focusing a TUI. A status module can therefore open Sigy's existing explorer for deliberate selection and stop through the existing CLI, without a second catalog or a shell picker that interpolates untrusted station names. Sources: [Waybar custom module](https://github.com/Alexays/Waybar/wiki/Module:-Custom), [Omarchy TUI launcher](https://github.com/omacom/omarchy/blob/master/bin/omarchy-launch-or-focus-tui), and [Omarchy project](https://github.com/omacom/omarchy). Omarchy is an Arch/Hyprland desktop; the earlier description as an agentic distribution was inaccurate.
+
+## Remaining Linux adapter plan
+
+Build on the [existing delegated-cgroup audit](experiments/native-boundary/delegated-cgroups.md), preserving its separation of resource control from sandboxing. This remains proposed:
+
+1. Specify a service-owned delegated subtree with the service in one leaf and each native group in a sibling leaf. Detect delegation, writable controllers and available CPU/memory/PID controls before admission. Report an actionable absence rather than falling back to unbounded processes.
+2. Place children before they can execute useful work. Test descendant containment, parent death, cancellation, service death, restart uncertainty, empty-group observation and cleanup. A child exit is not whole-group closure.
+3. Map the existing process-count, memory, CPU and deadline contract explicitly. The PID controller counts tasks, including threads; do not silently substitute it for a process-only bound. Preserve immutable worker identity and exact durable receipts.
+4. Run unprivileged systemd-hosted fixtures on a real Linux desktop, then qualify PipeWire/ALSA device delivery independently. Check quiet and contended costs and simultaneous capture/listen behavior before any support statement.
+
+Do not add privileged installation, alter the host's cgroup topology or claim a working backend as part of the present diagnostic repair. No firmware, drivers, paid inference or provider configuration changes are needed for this increment.
+
+## Evidence boundary
+
+[Decision0089](../docs/decisions/0089-everyday-radio-reliability.md) records implemented contracts. [Active work](../docs/development/progress.md#2026-10-11-everyday-radio-reliability) records exact executed gates. A local Windows public-directory sample is not the issue reporter's Omarchy acceptance run. Deterministic retry fixtures, Unix compile/lint and fail-closed tests do not establish audible output, sustained network reliability, language quality or a roadmap stage exit.

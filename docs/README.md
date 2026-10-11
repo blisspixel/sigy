@@ -1,6 +1,8 @@
 # Design documents
 
-Last updated: 2026-10-04
+Last updated: 2026-10-11
+
+[Everyday radio reliability](decisions/0089-everyday-radio-reliability.md) adds explicit cache fill, stable setup seeds, finite directory retries, automatic request IDs, exact panel admission, quick listening and confirmed terminal actions. [Desktop configuration](desktop.md) provides a Waybar example; [platform limits](install.md#platform-limits) make the remaining Linux/macOS native blocker explicit. [Research](../research/46-everyday-radio-and-linux-containment.md) and [active evidence](development/progress.md#2026-10-11-everyday-radio-reliability) separate delivered changes from the next adapter and device gates.
 
 [Omarchy and desktop panel integration](decisions/0088-omarchy-desktop-panel.md) defines ambient status and Waybar bar projections (`sigy panel bar`), single-favorite playback admission (`sigy panel play`), and stdin/parent-pid cancellation bounds. [Source installation and update publication](decisions/0086-source-update-publication.md) defines frozen builds, Windows staged publication, installer generation fencing and read-only update receipts. [Production terminal visual QA](development/visual-qa.md) reproduces a bounded gallery of all seven current workspaces and their important dialog, error and plain-mode states. These development tools and repairs establish no release-stage exit.
 

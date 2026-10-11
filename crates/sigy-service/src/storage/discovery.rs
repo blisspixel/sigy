@@ -109,9 +109,7 @@ impl Store {
             return Err(Error::InvalidInput("directory refresh capacity reached"));
         }
         if last.is_some_and(|last| now < last.saturating_add(2000)) {
-            return Err(Error::InvalidInput(
-                "directory refresh interval is at least two seconds",
-            ));
+            return Err(Error::DirectoryRefreshRate);
         }
         tx.execute("INSERT INTO directory_refreshes(id, request_json, state, started_ms) VALUES (?1, ?2, 'running', ?3)", params![id, json, now])?;
         tx.commit()?;
@@ -229,6 +227,7 @@ impl Store {
     pub(crate) fn fail_refresh(&mut self, id: &str, error: &Error) -> Result<()> {
         let detail = match error {
             Error::Acquisition(detail) | Error::InvalidInput(detail) => *detail,
+            Error::DirectoryRefresh(detail) => detail.as_str(),
             _ => "directory refresh failed; previous cache retained",
         };
         if self.connection.execute("UPDATE directory_refreshes SET state = 'failed', failure = ?2 WHERE id = ?1 AND state = 'running'", params![id, detail])? != 1 { return Err(Error::RequestState); }

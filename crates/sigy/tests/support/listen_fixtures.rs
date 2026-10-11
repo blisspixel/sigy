@@ -209,6 +209,82 @@ fn register(directory: &std::path::Path, id: &str, url: &str) -> TestResult {
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn native_containment_preflight_refuses_before_contact_and_recording_charge() -> TestResult {
+    if sigy_service::recordings::audio::NativeAudioGroup::for_decoder().is_ok() {
+        return Ok(());
+    }
+    let directory = tempfile::tempdir()?;
+    let server = CountServer::start("audio/wav", "", vec![0; 128])?;
+    success(directory.path(), &["library", "init"])?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &["dvr", "configure", "--decoder", env!("CARGO_BIN_EXE_sigy")],
+    )?;
+    register(directory.path(), "preflight:v1", &server.url)?;
+    let doctor = invoke(directory.path(), &["doctor"])?;
+    assert!(!doctor.status.success());
+    let document: serde_json::Value = serde_json::from_slice(&doctor.stdout)?;
+    let check = document["doctor"]["checks"]
+        .as_array()
+        .ok_or("checks missing")?
+        .iter()
+        .find(|check| check["name"] == "decoder_containment")
+        .ok_or("containment check missing")?;
+    assert_eq!(check["state"], "blocked");
+    let detail = check["detail"].as_str().ok_or("detail missing")?;
+    assert!(
+        detail.contains("Unsupported")
+            || detail.contains("Unenforceable")
+            || detail.contains("unsupported")
+            || detail.contains("unenforceable"),
+        "{detail}"
+    );
+    let before = success(directory.path(), &["dvr", "status"])?;
+    for args in [
+        vec![
+            "record",
+            "start",
+            "preflight-record",
+            "--source",
+            "preflight:v1",
+            "--seconds",
+            "1",
+            "--max-mib",
+            "1",
+        ],
+        vec![
+            "listen",
+            "source",
+            "preflight-listen",
+            "--revision",
+            "preflight:v1",
+            "--destination",
+            "null",
+        ],
+    ] {
+        let output = invoke(directory.path(), &args)?;
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("containment unavailable"));
+    }
+    assert_quota(
+        directory.path(),
+        &before["dvr"]["charged_bytes"],
+        &before["dvr"]["reserved_bytes"],
+    )?;
+    assert!(
+        !invoke(directory.path(), &["listen", "status", "preflight-listen"])?
+            .status
+            .success()
+    );
+    assert_eq!(server.hits(), 0);
+    assert_no_audio_files(directory.path())?;
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()
+}
+
 #[test]
 fn playlist_listen_fails_before_decode_and_replay_does_not_reconnect() -> TestResult {
     let directory = tempfile::tempdir()?;

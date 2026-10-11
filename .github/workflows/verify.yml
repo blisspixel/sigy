@@ -37,3 +37,35 @@ jobs:
         run: cargo install cargo-audit --version 0.22.2 --locked
       - name: Verify
         run: cargo verify
+
+  unix:
+    name: Unix build and lint (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check installer script syntax
+        run: sh -n scripts/install.sh
+      - name: Install the pinned toolchain
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.98.1
+          components: clippy, rustfmt
+      - name: Cache Cargo output
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Check every target
+        run: cargo check --workspace --all-targets --locked
+      - name: Deny warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test platform contracts
+        run: |
+          cargo test --locked -p sigy-service --lib control::doctor -- --test-threads=2
+          cargo test --locked -p sigy --bin sigy lifecycle_tests -- --test-threads=2
+          cargo test --locked -p sigy --test service native_containment_preflight -- --test-threads=2

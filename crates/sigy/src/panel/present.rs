@@ -214,7 +214,7 @@ pub(crate) fn bar_json(view: &Projection) -> Value {
     let class = bar_class(view);
     json!({
         "text": class,
-        "tooltip": text(view),
+        "tooltip": text(view).replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"),
         "class": class,
     })
 }
@@ -290,6 +290,13 @@ mod tests {
         let bar = bar_json(&projection);
         assert_eq!(bar["class"], "idle");
         assert_eq!(bar["text"], "idle");
+        projection.favorites[0].name = "<b>News & music</b>".into();
+        let escaped = bar_json(&projection);
+        assert!(
+            escaped["tooltip"]
+                .as_str()
+                .is_some_and(|tip| tip.contains("&lt;b&gt;News &amp; music&lt;/b&gt;"))
+        );
         assert!(
             bar["tooltip"]
                 .as_str()
@@ -325,7 +332,7 @@ mod tests {
         assert_eq!(document["qualified_omarchy"], false);
         assert_eq!(document["read_only"], true);
         assert_eq!(document["service"], "absent");
-        assert_eq!(document["favorites"][0]["name"], "News[2J");
+        assert_eq!(document["favorites"][0]["name"], "<b>News & music</b>");
         assert!(document.get("stream_origin").is_none());
         assert_eq!(document["language"], LANGUAGE);
         Ok(())

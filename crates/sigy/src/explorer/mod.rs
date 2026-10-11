@@ -6,6 +6,7 @@ mod country;
 mod finding;
 mod globe;
 mod monitor;
+mod player;
 mod screen;
 mod search;
 mod state;

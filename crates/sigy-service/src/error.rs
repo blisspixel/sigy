@@ -64,6 +64,12 @@ pub enum Error {
     DestinationDenied,
     #[error("source acquisition failed: {0}")]
     Acquisition(&'static str),
+    #[error("bounded native containment unavailable: {0}; inspect `sigy doctor`")]
+    NativeContainment(#[source] processkit::Error),
+    #[error("directory refresh failed: {0}")]
+    DirectoryRefresh(String),
+    #[error("Directory refreshes are limited to one every 2 seconds. Try again shortly.")]
+    DirectoryRefreshRate,
     #[error("local analysis failed: {0}")]
     Analysis(&'static str),
     #[error("capture revision or worker generation is stale; reread current state")]

@@ -19,7 +19,6 @@ pub(crate) mod admit;
 pub(crate) mod present;
 pub(crate) mod session;
 
-use admit::SourceChoice;
 use present::{FavoriteRow, Freshness, ListenRow, Projection, RecordingRow, ServicePresence};
 use session::{PanelSession, SessionHint};
 
@@ -33,7 +32,7 @@ pub enum PanelCommand {
     Play {
         /// Cached favorite station ID.
         station: String,
-        /// Listen ID. Defaults to "panel-<station>".
+        /// Listen ID. Omit to generate a fresh ID for each explicit play.
         #[arg(long)]
         id: Option<String>,
         /// Cancel playback when stdin closes.
@@ -268,14 +267,14 @@ async fn fetch_op(
 
 #[cfg(unix)]
 pub(crate) fn is_process_alive(pid: u32) -> bool {
-    let raw = match i32::try_from(pid) {
-        Ok(raw) => raw,
-        Err(_) => return false,
+    let Ok(raw) = i32::try_from(pid) else {
+        return false;
     };
-    let pid = rustix::process::Pid::from_raw(raw);
+    let Some(pid) = rustix::process::Pid::from_raw(raw) else {
+        return false;
+    };
     match rustix::process::test_kill_process(pid) {
-        Ok(()) => true,
-        Err(rustix::io::Errno::PERM) => true,
+        Ok(()) | Err(rustix::io::Errno::PERM) => true,
         Err(_) => false,
     }
 }
@@ -294,7 +293,7 @@ pub(crate) fn is_process_alive(_pid: u32) -> bool {
     true
 }
 
-async fn setup_cancel(
+pub(crate) async fn setup_cancel(
     cancel_on_stdin: bool,
     parent_pid: Option<u32>,
 ) -> Result<impl Future<Output = ()> + Send, Box<dyn std::error::Error>> {
@@ -347,6 +346,8 @@ async fn setup_cancel(
     }
 
     Ok(async move {
+        // No configured fence must remain pending rather than cancelling on channel closure.
+        let _keepalive = cancel_tx;
         let _ = cancel_rx.recv().await;
     })
 }
@@ -403,62 +404,10 @@ async fn execute_play(
 
     let cancel = setup_cancel(cancel_on_stdin, parent_pid).await?;
 
-    let linked = control::request(
-        directory,
-        Operation::Radio {
-            command: DirectoryOperation::Linked {
-                id: station.to_owned(),
-                catalog: None,
-            },
-        },
-    )
-    .await?;
-    let context = linked
-        .linked_station_context
-        .ok_or("linked station context missing")?;
+    let revision_id =
+        crate::play::revision(directory, station, crate::play::StationMode::Favorite).await?;
 
-    let is_favorite = {
-        let fav_snapshot = control::request(
-            directory,
-            Operation::Radio {
-                command: DirectoryOperation::SearchOrdered {
-                    filter: StationFilter::default(),
-                    favorites_only: true,
-                    limit: 1024,
-                    after: None,
-                },
-            },
-        )
-        .await?;
-        fav_snapshot.ordered_station_page.as_ref().is_some_and(|p| {
-            p.favorite_ids.iter().any(|fav| fav == station)
-                || p.entries.iter().any(|entry| entry.id == station)
-        })
-    };
-
-    let hls = context
-        .sources
-        .first()
-        .is_some_and(|s| s.registered_station.hls);
-    let sources: Vec<SourceChoice> = context
-        .sources
-        .iter()
-        .map(|s| SourceChoice {
-            kind: s.source.kind.clone(),
-            revision_id: s.source.revision_id.clone(),
-        })
-        .collect();
-
-    let revision_id = admit::admit(
-        station,
-        context.cached,
-        is_favorite,
-        hls,
-        &sources,
-        context.more_sources,
-    )?;
-
-    let listen_id = id.map_or_else(|| format!("panel-{station}"), str::to_owned);
+    let listen_id = id.map_or_else(|| crate::radio::request_id("panel"), |id| Ok(id.to_owned()))?;
 
     let session = PanelSession {
         listen_id: listen_id.clone(),
@@ -468,7 +417,14 @@ async fn execute_play(
     };
     session::write(directory, &session)?;
 
-    match crate::listen::start_listen(directory, &listen_id, &revision_id).await? {
+    let started = match crate::listen::start_listen(directory, &listen_id, &revision_id).await {
+        Ok(started) => started,
+        Err(error) => {
+            let _ = session::settle(directory, &listen_id, "failed");
+            return Err(error);
+        }
+    };
+    match started {
         crate::listen::ListenStart::Existing(_) => {
             let _ = session::settle(directory, &listen_id, "completed");
             return Err(admit::reused_listen(&listen_id).into());
@@ -560,4 +516,23 @@ async fn execute_stop(
 
 fn clean(value: &str) -> String {
     crate::explorer::text::sanitize(value, 1024)
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    #[tokio::test]
+    async fn absent_fences_do_not_cancel_and_current_parent_stays_alive()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for parent in [None, Some(std::process::id())] {
+            let cancel = super::setup_cancel(false, parent).await?;
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_millis(150), cancel)
+                    .await
+                    .is_err()
+            );
+        }
+        assert!(!super::is_process_alive(0));
+        assert!(super::is_process_alive(std::process::id()));
+        Ok(())
+    }
 }

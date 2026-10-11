@@ -3,6 +3,10 @@ use crate::{Error, Result};
 
 impl Actor {
     pub(super) fn start_listen(&mut self, id: &str, revision: &str) -> Result<bool> {
+        // Historical replay must remain inspectable even when this host cannot decode.
+        if matches!(self.library.store().listen(id), Err(Error::NotFound)) {
+            let _group = crate::recordings::audio::NativeAudioGroup::for_decoder()?;
+        }
         if !self.library.store_mut().begin_listen(id, revision)? {
             return Ok(false);
         }

@@ -3,8 +3,11 @@ use std::io::{Read, Write};
 
 pub(crate) const CONFIG_BYTES: usize = 4096;
 pub(crate) const MESSAGE_BYTES: usize = 8192;
+#[cfg(any(windows, test))]
 pub(crate) const PCM_BYTES: usize = 32_768;
+#[cfg(windows)]
 pub(crate) const STARTUP_MS: u64 = 5000;
+#[cfg(windows)]
 pub(crate) const DRAIN_MS: u64 = 3000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

@@ -86,8 +86,8 @@ pub(super) async fn blocking<T: Send + 'static>(
     joined.map_err(|_| Error::Analysis("worker-panicked"))
 }
 
-pub(crate) fn contained(options: ProcessGroupOptions) -> Option<ProcessGroup> {
-    ProcessGroup::with_options(options).ok()
+pub(crate) fn contained(options: ProcessGroupOptions) -> Result<ProcessGroup> {
+    ProcessGroup::with_options(options).map_err(Error::NativeContainment)
 }
 
 /// The empty-group snapshot. `None` means that mechanism does not account for the field.
@@ -177,8 +177,7 @@ pub(crate) async fn contained_cancellation_fixture(
             .max_processes(1)
             .max_memory(256 * 1024 * 1024)
             .cpu_quota(0.25),
-    )
-    .ok_or(Error::Analysis("native-containment-unavailable"))?;
+    )?;
     let mut command = tokio::process::Command::new(std::env::current_exe()?);
     command
         .args([
@@ -240,7 +239,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_group_keeps_the_snapshot_that_proved_it_empty() -> TestResult {
-        let Some(group) = contained(
+        let Ok(group) = contained(
             ProcessGroupOptions::default()
                 .max_processes(1)
                 .max_memory(64 * 1024 * 1024),

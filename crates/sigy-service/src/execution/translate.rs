@@ -193,7 +193,7 @@ async fn translate_cue(
     if std::fs::write(&prompt, format!("{}{}", plan.prompt, cue.text)).is_err() {
         return Ok(Some(untranslated(cue.ordinal, "translator-failed")));
     }
-    let Some(group) = contained(
+    let Ok(group) = contained(
         ProcessGroupOptions::default()
             .max_processes(limits.processes)
             .max_memory(limits.memory_bytes)

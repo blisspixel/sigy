@@ -342,6 +342,9 @@ impl HttpAcquirer {
                 return Ok((response, route));
             }
             if !is_redirect(response.status().as_u16()) {
+                if response.status().is_server_error() {
+                    return Err(Error::Acquisition("upstream HTTP server failure"));
+                }
                 return Err(Error::Acquisition(
                     "source did not return HTTP 200 or supported redirect",
                 ));

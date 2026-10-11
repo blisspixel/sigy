@@ -43,9 +43,11 @@ fn run_loop(
         return Ok(());
     }
     let mut clock_tick = std::time::Instant::now();
+    let mut player = super::player::Player::default();
     loop {
         if clock_tick.elapsed() >= Duration::from_secs(1) {
             model.tick_clock(super::now_ms()?);
+            player.poll(runtime, directory, model);
             clock_tick = std::time::Instant::now();
             if model.take_dirty() {
                 session.draw(model)?;
@@ -57,6 +59,13 @@ fn run_loop(
         let effect = model.handle(key);
         if matches!(effect, Effect::Detach) {
             return Ok(());
+        }
+        if let Effect::Play { station } = &effect {
+            if let Err(error) = player.start(directory, station) {
+                model.note_message(&error.to_string());
+            }
+        } else if effect == Effect::StopListen {
+            player.stop(runtime, directory, model);
         }
         dispatch_effect(
             model,

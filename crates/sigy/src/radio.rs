@@ -11,6 +11,9 @@ use std::{
     time::SystemTime,
 };
 
+mod commands;
+pub(crate) use commands::{execute, quote, request_id, write_next};
+
 #[derive(Debug, Clone, Args)]
 pub struct Filters {
     /// Station name substring. Local search uses Unicode lowercase matching.
@@ -31,7 +34,7 @@ pub struct Filters {
 }
 
 impl Filters {
-    fn filter(&self) -> sigy_service::Result<StationFilter> {
+    pub(crate) fn filter(&self) -> sigy_service::Result<StationFilter> {
         Ok(StationFilter {
             name: self.name.clone(),
             country: sigy_service::discovery::countries::resolve(&self.country)?,
@@ -39,6 +42,15 @@ impl Filters {
             tag: self.tag.clone(),
             healthy_only: self.healthy,
         })
+    }
+
+    fn search_filter(&self, query: Option<&str>) -> sigy_service::Result<StationFilter> {
+        let mut filter = self.filter()?;
+        if let Some(query) = query {
+            query.clone_into(&mut filter.name);
+        }
+        filter.validate()?;
+        Ok(filter)
     }
 }
 
@@ -62,7 +74,10 @@ pub enum RadioCommand {
     /// Refresh one bounded directory page in the background. Never contacts station streams.
     Refresh {
         /// New request ID, for example news-001. Reusing an ID never sends another request.
-        id: String,
+        id: Option<String>,
+        /// Wait up to 15 seconds for this request. A timeout leaves it running.
+        #[arg(long)]
+        wait: bool,
         #[command(flatten)]
         filters: Filters,
         /// Stations to request, 1 to 500.
@@ -85,8 +100,14 @@ pub enum RadioCommand {
     },
     /// Inspect local cache size and the most recent refresh.
     Status,
-    /// Search cached stations without making network requests.
+    /// Search cached stations. Only --fetch explicitly requests a directory page.
     Search {
+        /// Station name substring, equivalent to --name. Use --tag for a genre.
+        #[arg(conflicts_with = "name")]
+        query: Option<String>,
+        /// Fetch one matching directory page if this first cache page is short, then search again.
+        #[arg(long, conflicts_with_all = ["after", "favorites"])]
+        fetch: bool,
         #[command(flatten)]
         filters: Filters,
         /// Only stations explicitly saved as favorites. Combines with all other filters.
@@ -223,8 +244,9 @@ impl RadioCommand {
                 offset,
                 mirror,
                 pin_address,
+                wait: _,
             } => DirectoryOperation::Refresh {
-                id: id.clone(),
+                id: id.clone().map_or_else(|| request_id("radio"), Ok)?,
                 request: RefreshRequest {
                     filter: filters.filter()?,
                     limit: *limit,
@@ -243,15 +265,17 @@ impl RadioCommand {
                 limit,
                 after,
                 order,
+                query,
+                fetch: _,
             } => match order {
                 StationOrder::Id => DirectoryOperation::Search {
-                    filter: filters.filter()?,
+                    filter: filters.search_filter(query.as_deref())?,
                     favorites_only: *favorites,
                     after: after.clone(),
                     limit: *limit,
                 },
                 StationOrder::Name => DirectoryOperation::SearchOrdered {
-                    filter: filters.filter()?,
+                    filter: filters.search_filter(query.as_deref())?,
                     favorites_only: *favorites,
                     after: after.clone(),
                     limit: *limit,
@@ -447,7 +471,7 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
         if status.cached_stations == 0 || status.stale_stations > 0 {
             writeln!(
                 writer,
-                "Cache needs a newer page. Favorites and unseen stations stay. Next: sigy radio refresh NEW_ID --limit 100, with a new ID for each fetch"
+                "Cache needs a newer page. Favorites and unseen stations stay. Request one explicitly with sigy radio refresh --wait."
             )?;
         } else if let Some(newest) = status.newest_observed_ms {
             writeln!(writer, "Newest directory observation: {}.", age(newest))?;
@@ -607,7 +631,7 @@ fn write_stations(
     if page.entries.is_empty() {
         writeln!(
             writer,
-            "No cached matches. Check your filters, or fetch another directory page with sigy radio refresh NEW_ID. Language and tag filters match whole directory labels, ignoring case."
+            "No cached matches. Language and tag filters match whole directory labels, ignoring case."
         )?;
     }
     if let Some(after) = &page.next_after {

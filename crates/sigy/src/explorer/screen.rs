@@ -17,7 +17,7 @@ use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 pub const HELP_PRIMARY: &str =
     "Help: / search F filters C country f save v fav n/p page g first r reload q quit";
 pub const HELP_SELECTION: &str =
-    "Enter inspects; selection starts no audio, capture, refresh, or click.";
+    "Enter inspects; P then y plays; S stops. Selection starts no work.";
 pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
 const FOCUS_PREFIX: &str = "Focus ";
 /// Station list columns other than the name: marker, favorite, health and languages.
@@ -885,7 +885,7 @@ fn empty_explore(model: &Explorer) -> Vec<Line<'static>> {
     if cached == 0 {
         return vec![
             plain("No stations are cached yet. This explorer never fetches a directory page."),
-            plain("Quit with q, then run sigy init --radio or sigy radio refresh NEW_ID."),
+            plain("Quit with q, then run sigy init --radio or sigy radio refresh --wait."),
             plain("Add --data-dir PATH if this library is not the default one."),
         ];
     }
@@ -939,14 +939,12 @@ fn visible_start(selection: usize, len: usize, window: usize) -> usize {
 fn live_lines(model: &Explorer) -> Vec<Line<'static>> {
     let mut lines = vec![
         plain("Playback is the listen receipt, not directory health and not a recording."),
-        plain("listen file and listen source are CLI operations. Selection does not start them."),
+        plain("P then y plays a selected station; S stops. Selection starts no work."),
     ];
     if model.playback().is_none() {
         lines.push(plain("No listen receipt is loaded in this client."));
         lines.push(plain("Play a recording: sigy listen file RECORDING"));
-        lines.push(plain(
-            "Hear a source: sigy listen source ID --revision REVISION",
-        ));
+        lines.push(plain("Hear a station: sigy play STATION_UUID"));
     }
     lines
 }

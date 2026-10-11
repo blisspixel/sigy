@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 Commands use `~/.sigy/library` by default: `%USERPROFILE%\.sigy\library` on Windows, `$HOME/.sigy/library` on Unix. `--data-dir PATH` selects another library and works before or after a subcommand. Use a private directory outside the checkout. MCP requires an explicit `--data-dir`; help, version, updates and backup verification or restore do not need a library. `--json` emits one structured response for automation. Every argument in `--help` states its meaning, unit or accepted range. Page sizes outside the service bounds are refused before any request, for example `radio search --limit` accepts 1 to 16. Common failures add the next command: a missing recording names `sigy record list`, `service status` without a running service says so, a service-only command says to run `sigy service start`, and an unresolved `--decoder` asks for an absolute ffmpeg path. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v50 and local IPC is v51. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v51 and local IPC is v52. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Quick start
 
@@ -13,7 +13,7 @@ sigy init --radio
 sigy tui
 ```
 
-`init` creates or reopens the library, preserves existing configuration and starts or reconnects to its service. A new library has paid processing disabled. `--radio` explicitly fetches one page of at most 100 stations; it starts no station playback, recording or inference. Setup waits up to 15 seconds for that refresh, then reports its actual state and the follow-up command. Repeating setup reuses the `sigy-init-radio-v1` request without another fetch. Use `radio refresh NEW_ID` when you want a new page.
+`init` creates or reopens the library, preserves existing configuration and starts or reconnects to its service. A new library has paid processing disabled. `--radio` explicitly fetches one page of at most 100 stations; it starts no station playback, recording or inference. Add `--country Canada --tag jazz` to seed that page. Setup waits up to 15 seconds, then reports the actual state and follow-up command. Repeating the same seed reuses its request without another fetch; different resolved seeds have separate stable IDs. Unfiltered setup preserves the original `sigy-init-radio-v1` request. Use `radio refresh --wait` when you want a new page.
 
 `sigy init` omits the directory fetch. `sigy init --no-start` only prepares local storage and never starts a service; `--no-start` conflicts with `--radio`. Starting an existing library can resume its already authorized schedules, processing and refresh policies; setup does not reset them or their spending limits. Other commands never initialize a missing library implicitly. See [first use](install.md#first-use).
 
@@ -39,6 +39,8 @@ sigy --data-dir PATH_TO_LIBRARY doctor --strict
 `doctor` reads the local library and does not refresh, delete, or contact a network. It first says whether the service is running for that library. It reports each check as ok, attention, or blocked. Attention means the library still works and names the full `sigy` command that would improve it; add the same `--data-dir` when you used one. Blocked means a configured check is unusable, and the process exits with an error. `--strict` also exits with an error when any check needs attention.
 
 An empty station cache, a cached station older than 24 hours, or a cached station with no observation time is attention. Those stations stay searchable. Favorites stay. Doctor also runs SQLite `quick_check` and does not print the engine's own error text. A refresh merges one page and does not delete unseen stations. The report suggests `radio refresh NEW_ID --limit 100`. Choose a new id for each fetch. A running refresh is reported instead of starting another one. Podcast snapshots older than 24 hours are attention and are not downloaded by that suggestion. A missing decoder is attention until recording is required. A configured decoder path that is not a file is blocked, and recording refuses to start. Doctor also reports the pace of completed recognition on this library, or that the pace is unmeasured. That check stays ok. It is the wall time of those jobs per second of retained audio. The same pace is the delay that keeps a monitored recognition job live after its last seal. The check also reports the wall time of queued recognition audio at that pace. That figure is the processing time of audio already waiting on this library. A running or stopping recognition job is counted on its own. The check does not admit work. It also reports recognition worker cost from the snapshot that proved each recognition group empty: the highest job-object peak committed memory and the CPU sum on this library, or that the cost is unmeasured. Groups without job-object accounting stay out of that figure. The figure is not a host budget. It also compares the retained audio of admitted recognition jobs with the busy time of completed recognition. The sentence says whether admissions brought more, the same, or less audio per wall millisecond, or that the comparison is unmeasured. It is not a clock time for an empty queue and it is not a host budget.
+
+Doctor also probes an empty native decoder group without starting a child. `decoder_containment` is blocked when the requested process, memory and CPU limits cannot be enforced. The underlying platform reason remains visible. Ordinary systemd sessions/services and containers are currently blocked by the pinned Linux containment implementation; macOS is also blocked. New live-listen and recording admissions check containment before station contact or recording reservation. An accepted empty group proves limit admission only, not an audio device, decoder or platform qualification. See [platform limits](install.md#platform-limits).
 
 ## Library and budget
 
@@ -111,7 +113,17 @@ sigy --data-dir PATH_TO_LIBRARY radio linked STATION_UUID
 sigy --data-dir PATH_TO_LIBRARY radio add STATION_UUID --revision selected:v1 --redirects public
 ```
 
-Wait until the refresh status is completed, then replace `STATION_UUID` with an id from search. Search supports `--name`, `--country`, `--language`, `--tag`, `--healthy`, and pagination. It reads the partial local cache and does not use the network. Refresh uses the network only when requested. Choose a new refresh id to fetch again. Refresh and registration do not contact station streams, play audio, or run analysis.
+Wait until the refresh status is completed, then replace `STATION_UUID` with an id from search. Search supports `--name`, `--country`, `--language`, `--tag`, `--healthy`, and pagination. By default it reads only the partial local cache. A positional query, such as `radio search Québec`, means a station-name substring and conflicts with `--name`; use explicit `--tag jazz` or `--country Canada` for those fields. Language and tag match whole directory labels. Empty results print a command preserving the resolved filters and custom library path.
+
+```text
+sigy radio search Québec
+sigy radio search --country Canada --tag jazz --fetch
+sigy radio refresh --country CA --tag jazz --wait
+```
+
+`search --fetch` first reads the cache. When fewer than the requested 1 to 16 results exist, it explicitly requests one matching directory page of at most 100 stations and waits up to 15 seconds before rereading the cache. It conflicts with `--after` and `--favorites`. A slow refresh can still be running when the command returns; follow its printed status command. Failed/interrupted refreshes produce a nonzero exit while preserving the last usable cache. There is no fallback that silently changes a name query into a tag or country.
+
+`radio refresh` accepts an optional request ID; omitting it generates a fresh ID. Add `--wait` to observe up to 15 seconds of progress. An explicit ID retains exact replay. New refreshes are limited to one every two seconds and one active request. Retry guidance preserves the original filter, page, mirror and pin. Inside one admitted request, transient directory transport/HTTP-server failures get at most three attempts per selected mirror, up to two discovered mirrors, with bounded jittered delays and a 25-second overall deadline. Explicit mirrors stay explicit. Content, size and policy refusals are not retried; failed receipts name the sanitized mirror origin, attempt count and failure class when a mirror was attempted. DNS discovery can fail before an attempt. Refresh and registration do not contact station streams, play audio, send a click or run analysis.
 
 `radio search` preserves UUID order by default. Use `--order name` for the same stable name order as the terminal explorer. Names compare through pinned Unicode normalization and case folding, with UUID ties; originals retain their scripts and accents. This is deterministic ordering, not locale collation. Continue with the printed opaque `--after` cursor, the same order, filters and `--limit`. A successful refresh or actual favorite change invalidates old name cursors. Restart explicitly without `--after`; failed refresh and no-op favorite requests preserve the revision. [Ordered search](decisions/0081-ordered-station-search.md) describes the finite work and response bounds.
 
@@ -449,6 +461,19 @@ Restart without a committed native completion proof retains a visible unresolved
 
 ## Listening
 
+For a cached direct-audio station, use a UUID from `radio search`:
+
+```text
+sigy dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG
+sigy doctor
+sigy play STATION_UUID
+sigy stop
+```
+
+`play` requires the running service, a configured decoder and enforceable native limits. It uses the station's one exact audio revision. If none is registered, the explicit command registers `station-STATION_UUID:v1` with redirects denied, then uses the existing bounded direct-listen path. Multiple registrations, HLS and unknown stations require explicit source selection instead. No favorite is required. It prints fresh listen and revision IDs; registration can remain after a failed listen. `--destination null` decodes without acoustic output. Live `system` output still depends on the installed FFmpeg's output-device support and is not qualified by null decoding.
+
+`stop` requests service cancellation of the latest quick/panel listen in the same library. Explicit `listen stop LISTEN_ID` remains available. Neither stops recordings. `play --cancel-on-stdin --parent-pid PID` supports launchers; Ctrl-C requests the same orderly listen stop. A stop request, decoder completion and native drain remain separate observations. Quick and panel playback share a private session hint; that hint is not authoritative playback evidence.
+
 ```text
 sigy --data-dir PATH_TO_LIBRARY listen file morning-001 --destination null
 sigy --data-dir PATH_TO_LIBRARY listen file morning-001 --destination system --seek-us 500000
@@ -479,6 +504,8 @@ sigy --data-dir PATH_TO_LIBRARY listen stop live-001
 The service fetches the bytes. This client decodes a private local pipe and does not receive the source URL. Reusing the listen id does not open the source again. A playlist response or interleaved ICY metadata fails before decode. The session is not a recording and does not reserve quota. Restart marks a running listen interrupted and does not resume it. Stopping it does not stop a recording. See [direct listen](decisions/0011-direct-listen.md).
 
 ## List explorer
+
+In Explore (`1`), Globe (`7`) and Live (`2`), `P` offers a confirmation for the selected station; `y` starts an explicit quick listen and `n` or Escape cancels the offer. Confirmation binds the frozen station UUID and can register its first audio revision and contact its stream. `S` requests a listen stop. These keys are held while editing search/filter text. The Live workspace observes the actual service listen receipt once per second, with bounded child diagnostics on failure. Quitting closes the quick client's stdin and its parent fence also detects abrupt exit; the service and recordings keep running. Device output, graceful drain and platform support retain their own qualification requirements.
 
 In Explore (`1`) or Globe (`7`), Enter opens focused station inspection from the current cached page. Up/Down scrolls full directory metadata; Escape or Backspace returns to the same query, page, station and focus. Wide nonlinear terminals keep results beside the pane. While inspecting, browser/filter/favorite keys are held. Opening and closing send no request and start no player. Press `i` for a separate read of exact linked registrations and recording metadata, with the same four-by-four bounds as `radio linked`. The frozen UUID, catalog namespace/revision/comparison and request generation fence replies. Catalog drift refuses that read; failures preserve any earlier linked observation. Directory language, location and health remain listing observations. [Focused context](decisions/0082-focused-station-context.md) and [exact linked context](decisions/0085-exact-linked-station-context.md) record these boundaries.
 
@@ -515,6 +542,8 @@ The same page has coordinates for two stations. The globe uses those directory p
 
 ## Desktop panel
 
+For a ready-to-copy Waybar module and six-state CSS, see [desktop integration](desktop.md). Left click opens the explorer; right click requests a listen stop. Ordinary Linux playback remains blocked by native containment even when the read-only bar works.
+
 ```text
 sigy --data-dir PATH_TO_LIBRARY panel status
 sigy --data-dir PATH_TO_LIBRARY panel status --json
@@ -536,7 +565,9 @@ sigy --data-dir PATH_TO_LIBRARY panel stop
 
 ## Verification
 
-From the repository root, `cargo verify` checks native-source hashes, formatting, tests, warnings-denied Clippy, the build, and dependency audits. It requires cargo-audit. A push to `main` runs that command on GitHub-hosted Windows. `cargo verify-media` runs the native recording and playback tests. It needs FFmpeg on `PATH`, or `SIGY_TEST_FFMPEG`. That media check stays local. The install scripts do not run these checks.
+When your environment points multiple checkouts at one global Cargo target, set `CARGO_TARGET_DIR` to a dedicated Sigy target before `cargo verify-coverage`. Its lock protects Sigy's collection, but cannot fence unrelated Cargo cleanup in the same instrumented directory. Preserve the unique report path printed by a successful run. Coverage still requires at least 80% for every workspace crate without source exclusions.
+
+From the repository root, `cargo verify` checks native-source hashes, formatting, tests, warnings-denied Clippy, the build, and dependency audits. It requires cargo-audit. A push to `main` runs that command on GitHub-hosted Windows, with additional Linux/macOS all-target compile/lint and fail-closed platform fixtures. `cargo verify-media` runs the native recording and playback tests. It needs FFmpeg on `PATH`, or `SIGY_TEST_FFMPEG`. That media check stays local. The install scripts do not run these checks.
 
 `cargo verify-coverage` is the local per-crate coverage gate. It requires `cargo-llvm-cov`, the pinned toolchain's `llvm-tools` component, and the same FFmpeg setup. It runs ordinary tests with two threads and native fixtures with one, includes build scripts and test sources without source exclusions, and fails unless every workspace crate reaches at least 80% line coverage. A concurrent run is refused; measured JSON receipts are kept separately under `target/coverage-reports/`. It is an additional local check, separate from `cargo verify` and its CI job.
 

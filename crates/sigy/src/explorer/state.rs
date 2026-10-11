@@ -285,6 +285,10 @@ pub struct SearchQuery {
 pub enum Effect {
     None,
     Detach,
+    Play {
+        station: String,
+    },
+    StopListen,
     LinkedContext {
         generation: u64,
         id: String,
@@ -330,6 +334,7 @@ pub enum Key {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Explorer {
+    play_confirmation: Option<String>,
     pub(super) context: Option<super::context::StationContext>,
     context_generation: u64,
     focus: Focus,
@@ -394,6 +399,7 @@ impl Explorer {
     #[must_use]
     pub fn new(modes: Modes, now_ms: i64) -> Self {
         Self {
+            play_confirmation: None,
             context: None,
             context_generation: 0,
             focus: Focus::Results,
@@ -580,6 +586,13 @@ impl Explorer {
     #[must_use]
     pub const fn playback(&self) -> Option<&PlaybackView> {
         self.playback.as_ref()
+    }
+
+    pub(crate) fn observe_playback(&mut self, playback: PlaybackView) {
+        if self.playback.as_ref() != Some(&playback) {
+            self.playback = Some(playback);
+            self.draw = Draw::Needed;
+        }
     }
 
     #[must_use]
@@ -851,6 +864,54 @@ impl Explorer {
         }
         if matches!(key, Key::Redraw) {
             return Effect::None;
+        }
+        if let Some(station) = self.play_confirmation.clone() {
+            return match key {
+                Key::Char('y' | 'Y') => {
+                    self.play_confirmation = None;
+                    self.note_message(
+                        "Starting the explicitly selected station. Browsing stays independent.",
+                    );
+                    Effect::Play { station }
+                }
+                Key::Char('n' | 'N') | Key::Escape => {
+                    self.play_confirmation = None;
+                    self.note_message("Playback request discarded. No source was contacted.");
+                    Effect::None
+                }
+                _ => Effect::None,
+            };
+        }
+        if self.focus != Focus::Search {
+            if key == Key::Char('S')
+                && matches!(
+                    self.workspace,
+                    Workspace::Explore | Workspace::Globe | Workspace::Live
+                )
+            {
+                return Effect::StopListen;
+            }
+            if key == Key::Char('P')
+                && matches!(
+                    self.workspace,
+                    Workspace::Explore | Workspace::Globe | Workspace::Live
+                )
+            {
+                let row = self
+                    .context
+                    .as_ref()
+                    .map(|context| &context.row)
+                    .or_else(|| self.selected());
+                if let Some(row) = row {
+                    let station = row.id.clone();
+                    let name = sanitize(&row.name, 32);
+                    self.play_confirmation = Some(station);
+                    self.note_message(&format!("Play {name}? y confirms; n/Esc cancels. Contacts the station; may register its first revision."));
+                } else {
+                    self.note_message("No selected station to play.");
+                }
+                return Effect::None;
+            }
         }
         if self.context.is_some() {
             return self.context_key(&key);
@@ -1269,6 +1330,66 @@ mod tests {
             }],
         ));
         model
+    }
+
+    #[test]
+    fn quick_play_requires_confirmation_and_keeps_the_selected_identity() {
+        let mut model = loaded();
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert!(model.status().contains("y confirms"));
+        assert_eq!(model.handle(Key::Down), Effect::None);
+        assert_eq!(
+            model.handle(Key::Char('y')),
+            Effect::Play {
+                station: "station-a".into()
+            }
+        );
+        assert_eq!(
+            model.selected().map(|row| row.id.as_str()),
+            Some("station-a")
+        );
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert_eq!(model.handle(Key::Escape), Effect::None);
+        assert_eq!(model.handle(Key::Char('y')), Effect::None);
+        assert_eq!(model.handle(Key::Char('S')), Effect::StopListen);
+        model.handle(Key::Char('2'));
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert_eq!(
+            model.handle(Key::Char('y')),
+            Effect::Play {
+                station: "station-a".into()
+            }
+        );
+        assert_eq!(model.handle(Key::Char('/')), Effect::None);
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert_eq!(model.handle(Key::Char('S')), Effect::None);
+        assert_eq!(model.query(), "PS");
+    }
+
+    #[test]
+    fn focused_play_confirmation_and_receipt_observation_preserve_navigation() {
+        let mut model = loaded();
+        model.handle(Key::Enter);
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert_eq!(model.handle(Key::Char('n')), Effect::None);
+        assert!(model.context.is_some());
+        model.observe_playback(PlaybackView {
+            id: "listen-real".into(),
+            state: "running".into(),
+            format: Some("mp3".into()),
+            source_revision: "station:v1".into(),
+            failure: None,
+        });
+        assert_eq!(
+            model.playback().map(|view| view.id.as_str()),
+            Some("listen-real")
+        );
+        assert!(model.context.is_some());
+        assert_eq!(model.handle(Key::Escape), Effect::None);
+        assert_eq!(
+            model.selected().map(|row| row.id.as_str()),
+            Some("station-a")
+        );
     }
 
     #[test]

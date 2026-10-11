@@ -13,6 +13,8 @@ pub(crate) async fn refresh(
     request: &RefreshRequest,
 ) -> Result<RefreshBatch> {
     request.validate()?;
+    let mut attempts = 0;
+    let mut last_origin = "mirror discovery".to_owned();
     tokio::time::timeout(Duration::from_secs(25), async {
         let mirrors = if let Some(mirror) = &request.mirror {
             vec![mirror.clone()]
@@ -43,24 +45,70 @@ pub(crate) async fn refresh(
                 .collect()
         };
         let mut failure = Error::Acquisition("directory request failed");
-        for (attempt, mirror) in mirrors.iter().enumerate() {
-            if attempt > 0 {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-            }
+        for mirror in &mirrors {
             let source = query_source(mirror, request)?;
-            match acquirer
-                .json_document(&source)
-                .await
-                .and_then(|bytes| parse(&bytes, request.limit, source.origin()))
-            {
-                Ok(batch) => return Ok(batch),
-                Err(error) => failure = error,
+            last_origin = source.origin().chars().take(120).collect();
+            for retry in 0..3 {
+                if retry > 0 {
+                    let mut random = [0_u8; 1];
+                    getrandom::fill(&mut random)
+                        .map_err(|_| Error::Acquisition("retry backoff entropy"))?;
+                    let backoff = if retry == 1 { 500 } else { 1500 };
+                    tokio::time::sleep(Duration::from_millis(backoff + u64::from(random[0]))).await;
+                }
+                attempts += 1;
+                match acquirer.json_document(&source).await {
+                    Ok(bytes) => {
+                        return parse(&bytes, request.limit, source.origin()).map_err(|error| {
+                            Error::DirectoryRefresh(format!(
+                                "{last_origin} after {attempts} attempt(s): {}",
+                                failure_class(&error)
+                            ))
+                        });
+                    }
+                    Err(error) => {
+                        let transient = transient(&error);
+                        failure = Error::DirectoryRefresh(format!(
+                            "{} after {attempts} attempt(s): {}",
+                            last_origin,
+                            failure_class(&error),
+                        ));
+                        if !transient {
+                            return Err(failure);
+                        }
+                    }
+                }
             }
         }
         Err(failure)
     })
     .await
-    .map_err(|_| Error::Acquisition("directory refresh deadline"))?
+    .map_err(|_| {
+        Error::DirectoryRefresh(format!(
+            "{last_origin} after {attempts} attempt(s): directory refresh deadline"
+        ))
+    })?
+}
+
+fn transient(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::Acquisition(
+            "connection or response headers"
+                | "connection deadline reached"
+                | "upstream HTTP server failure"
+                | "metadata body interrupted"
+                | "metadata deadline"
+        )
+    )
+}
+
+fn failure_class(error: &Error) -> &'static str {
+    match error {
+        Error::Acquisition(detail) => detail,
+        Error::DestinationDenied => "destination denied",
+        _ => "directory transport refused",
+    }
 }
 
 /// One click on one mirror. The returned stream URL is dropped before this returns.

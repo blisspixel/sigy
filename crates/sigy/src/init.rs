@@ -39,6 +39,22 @@ pub struct InitOptions {
     /// Explicitly fetch one page of up to 100 stations. Repeating init reuses that request.
     #[arg(long, conflicts_with = "no_start")]
     radio: bool,
+    /// Seed the requested radio page with a country name or two-letter code.
+    #[arg(
+        long,
+        requires = "radio",
+        default_value = "",
+        hide_default_value = true
+    )]
+    country: String,
+    /// Seed the requested radio page with one whole directory tag, such as jazz.
+    #[arg(
+        long,
+        requires = "radio",
+        default_value = "",
+        hide_default_value = true
+    )]
+    tag: String,
     /// Prepare or inspect storage without starting a service or fetching a directory page.
     #[arg(long)]
     no_start: bool,
@@ -129,6 +145,9 @@ pub async fn execute(
     json: bool,
     explicit: bool,
 ) -> Result<()> {
+    if options.radio {
+        radio_request(options)?;
+    }
     let mut snapshot = match Library::open(directory, true) {
         Ok(mut library) => control::apply_library(&mut library, Operation::Status {})?,
         Err(sigy_service::Error::LibraryBusy) => {
@@ -147,7 +166,7 @@ pub async fn execute(
         }
     }
     if options.radio {
-        snapshot = refresh_radio(directory).await?;
+        snapshot = refresh_radio(directory, options).await?;
     }
     let report = InitReport {
         library: directory.canonicalize()?,
@@ -164,24 +183,45 @@ pub async fn execute(
 }
 
 fn radio_result(report: &InitReport) -> Result<()> {
-    if report
-        .radio
-        .as_ref()
-        .is_some_and(|refresh| matches!(refresh.state.as_str(), "failed" | "interrupted"))
+    if let Some(refresh) = &report.radio
+        && matches!(refresh.state.as_str(), "failed" | "interrupted")
     {
-        return Err("library is ready, but the directory refresh did not complete; inspect `sigy radio refresh-status sigy-init-radio-v1` with the same --data-dir if supplied".into());
+        return Err(format!("library is ready, but the directory refresh did not complete; inspect `sigy radio refresh-status {}` with the same --data-dir if supplied", refresh.id).into());
     }
     Ok(())
 }
 
-async fn refresh_radio(directory: &Path) -> Result<Snapshot> {
+fn radio_request(options: &InitOptions) -> Result<(String, StationFilter)> {
+    use sha2::Digest;
+    let filter = StationFilter {
+        country: sigy_service::discovery::countries::resolve(&options.country)?,
+        tag: options.tag.clone(),
+        ..StationFilter::default()
+    };
+    filter.validate()?;
+    let id = if filter == StationFilter::default() {
+        RADIO_REQUEST.to_owned()
+    } else {
+        let hash = sha2::Sha256::digest(serde_json::to_vec(&filter)?);
+        let mut digest = String::new();
+        for byte in hash {
+            use std::fmt::Write;
+            write!(digest, "{byte:02x}")?;
+        }
+        format!("sigy-init-radio-v2-{digest}")
+    };
+    Ok((id, filter))
+}
+
+async fn refresh_radio(directory: &Path, options: &InitOptions) -> Result<Snapshot> {
+    let (id, filter) = radio_request(options)?;
     let deadline = tokio::time::Instant::now() + RADIO_WAIT;
     let request = control::request(
         directory,
         DirectoryOperation::Refresh {
-            id: RADIO_REQUEST.into(),
+            id: id.clone(),
             request: RefreshRequest {
-                filter: StationFilter::default(),
+                filter,
                 limit: 100,
                 offset: 0,
                 mirror: None,
@@ -192,7 +232,11 @@ async fn refresh_radio(directory: &Path) -> Result<Snapshot> {
     );
     let mut snapshot = tokio::time::timeout_at(deadline, request)
         .await
-        .map_err(|_| "directory request outcome is unknown; inspect `sigy radio refresh-status sigy-init-radio-v1`")??;
+        .map_err(|_| {
+            format!(
+                "directory request outcome is unknown; inspect `sigy radio refresh-status {id}`"
+            )
+        })??;
     loop {
         let refresh = snapshot
             .directory_refresh
@@ -210,10 +254,7 @@ async fn refresh_radio(directory: &Path) -> Result<Snapshot> {
         .await;
         let request = control::request(
             directory,
-            DirectoryOperation::RefreshStatus {
-                id: RADIO_REQUEST.into(),
-            }
-            .into(),
+            DirectoryOperation::RefreshStatus { id: id.clone() }.into(),
         );
         match tokio::time::timeout_at(deadline, request).await {
             Ok(result) => snapshot = result?,
@@ -300,7 +341,8 @@ fn render(
         if refresh.state != "completed" {
             writeln!(
                 stdout,
-                "Check progress: {command} radio refresh-status {RADIO_REQUEST}"
+                "Check progress: {command} radio refresh-status {}",
+                refresh.id
             )?;
         }
     } else if !options.no_start {
@@ -333,6 +375,31 @@ mod tests {
     use std::{ffi::OsString, path::PathBuf, time::Duration};
 
     type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+
+    #[tokio::test]
+    async fn setup_seeds_bind_resolved_filters_and_reject_invalid_input_before_effects() -> Result {
+        let mut options = InitOptions {
+            radio: true,
+            no_start: false,
+            country: "Canada".into(),
+            tag: "jazz".into(),
+        };
+        let first = super::radio_request(&options)?;
+        options.country = "CA".into();
+        assert_eq!(first, super::radio_request(&options)?);
+        options.tag = "news".into();
+        assert_ne!(first.0, super::radio_request(&options)?.0);
+        options.country = "Congo".into();
+        let temporary = tempfile::tempdir()?;
+        let directory = temporary.path().join("not-created");
+        assert!(
+            super::execute(&directory, &options, true, true)
+                .await
+                .is_err()
+        );
+        assert!(!directory.exists());
+        Ok(())
+    }
 
     #[test]
     fn untrusted_default_bases_never_select_a_relative_or_root_library() {
@@ -446,8 +513,14 @@ mod tests {
                 }
             })
             .await?;
-            let first = refresh_radio(temporary.path()).await?;
-            let second = refresh_radio(temporary.path()).await?;
+            let options = InitOptions {
+                radio: true,
+                no_start: false,
+                country: String::new(),
+                tag: String::new(),
+            };
+            let first = refresh_radio(temporary.path(), &options).await?;
+            let second = refresh_radio(temporary.path(), &options).await?;
             Ok::<_, Box<dyn std::error::Error>>((first, second))
         }
         .await;
@@ -488,6 +561,8 @@ mod tests {
         let options = InitOptions {
             radio: true,
             no_start: false,
+            country: String::new(),
+            tag: String::new(),
         };
         for state in ["running", "completed", "failed", "interrupted"] {
             let (temporary, library, snapshot) = seeded_library(state)?;
@@ -533,7 +608,9 @@ mod tests {
                 &report,
                 &InitOptions {
                     radio: false,
-                    no_start: true
+                    no_start: true,
+                    country: String::new(),
+                    tag: String::new(),
                 },
                 true,
                 false

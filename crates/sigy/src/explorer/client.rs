@@ -50,7 +50,7 @@ pub async fn load_desk(
 
 pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) -> Result<(), Error> {
     match effect {
-        Effect::None | Effect::Detach => Ok(()),
+        Effect::None | Effect::Detach | Effect::Play { .. } | Effect::StopListen => Ok(()),
         Effect::LinkedContext {
             generation,
             id,
@@ -144,7 +144,7 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
 
 pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
     match effect {
-        Effect::None | Effect::Detach => Vec::new(),
+        Effect::None | Effect::Detach | Effect::Play { .. } | Effect::StopListen => Vec::new(),
         Effect::LinkedContext { id, catalog, .. } => vec![Operation::Radio {
             command: DirectoryOperation::Linked {
                 id: id.clone(),
@@ -571,7 +571,7 @@ fn recording_from(record: &sigy_service::storage::dvr::Recording) -> RecordingLi
     }
 }
 
-fn playback_from(listen: &ListenView) -> PlaybackView {
+pub(super) fn playback_from(listen: &ListenView) -> PlaybackView {
     PlaybackView {
         id: sanitize(&listen.id, 64),
         state: sanitize(&listen.state, 32),

@@ -462,7 +462,7 @@ async fn decode(
     expected_samples: u64,
     signal: &mut watch::Receiver<bool>,
 ) -> Result<Stage<Vec<u8>>> {
-    let Some(group) = contained(decoder_options(plan.decoder_limits)) else {
+    let Ok(group) = contained(decoder_options(plan.decoder_limits)) else {
         return Ok(stop_with(LimitsUnavailable));
     };
     let Ok(file) = File::open(input) else {
@@ -554,7 +554,7 @@ async fn recognize(
         return Ok(stop_with(ProfileUnavailable));
     }
     let limits = plan.spec.limits;
-    let Some(group) = contained(
+    let Ok(group) = contained(
         ProcessGroupOptions::default()
             .max_processes(limits.processes)
             .max_memory(limits.memory_bytes)

@@ -93,6 +93,7 @@ fn inspect(
         provider(view.provider_dispatch_available),
         budgets(&view.budgets),
         decoder(dvr.decoder.as_ref()),
+        decoder_containment(),
         quota(dvr),
         directory_cache(directory),
         directory_refresh(directory),
@@ -196,6 +197,23 @@ fn decoder(path: Option<&String>) -> DoctorCheck {
             "the configured decoder is not a file".into(),
             Some("dvr configure --decoder PATH_TO_FFMPEG".into()),
         )
+    }
+}
+
+fn decoder_containment() -> DoctorCheck {
+    match crate::recordings::audio::NativeAudioGroup::for_decoder() {
+        Ok(_group) => check(
+            "decoder_containment",
+            DoctorState::Ok,
+            "An empty native group accepted the decoder memory, process and CPU limits. No child was started; this is not decoder or platform qualification.".into(),
+            None,
+        ),
+        Err(error) => check(
+            "decoder_containment",
+            DoctorState::Blocked,
+            format!("{error}. Listening, recording and native analysis are held. The current Linux adapter cannot enforce limits in an ordinary systemd session or container; macOS whole-tree limits are unsupported. A delegated Linux adapter remains planned."),
+            None,
+        ),
     }
 }
 
@@ -406,7 +424,11 @@ mod tests {
         let directory = tempfile::tempdir()?;
         let store = Store::open(&directory.path().join("catalog.sqlite3"))?;
         let report = super::apply(&store)?.doctor.ok_or("missing doctor")?;
-        if report.blocked() {
+        if report
+            .checks
+            .iter()
+            .any(|check| check.state == DoctorState::Blocked && check.name != "decoder_containment")
+        {
             return Err(format!("fresh library was blocked: {report:?}").into());
         }
         let names = report
@@ -483,7 +505,11 @@ mod tests {
             .iter()
             .find(|check| check.name == "directory")
             .ok_or("directory")?;
-        if directory.state != DoctorState::Attention || stale.blocked() {
+        if directory.state != DoctorState::Attention
+            || stale.checks.iter().any(|check| {
+                check.state == DoctorState::Blocked && check.name != "decoder_containment"
+            })
+        {
             return Err(format!("stale cache was not attention: {directory:?}").into());
         }
         store.clear_cached_observation_time()?;
@@ -493,7 +519,11 @@ mod tests {
             .iter()
             .find(|check| check.name == "directory")
             .ok_or("directory")?;
-        if missing_time_check.state != DoctorState::Attention || missing_time.blocked() {
+        if missing_time_check.state != DoctorState::Attention
+            || missing_time.checks.iter().any(|check| {
+                check.state == DoctorState::Blocked && check.name != "decoder_containment"
+            })
+        {
             return Err(format!("undated cache was not attention: {missing_time_check:?}").into());
         }
         let missing = root.path().join("missing-ffmpeg");

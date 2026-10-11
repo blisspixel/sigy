@@ -328,7 +328,14 @@ pub(crate) async fn finish_new_listen(
     let ready = tokio::select! {
         biased;
         () = &mut cancel => return Err(cancel_error(stop_listen(directory, id).await.err()).into()),
-        ready = wait_until(directory, id, true) => ready?,
+        ready = wait_until(directory, id, true) => ready,
+    };
+    let ready = match ready {
+        Ok(ready) => ready,
+        Err(error) => {
+            let _ = stop_listen(directory, id).await;
+            return Err(error);
+        }
     };
     let nonce = ready
         .pipe_nonce
@@ -338,7 +345,13 @@ pub(crate) async fn finish_new_listen(
         .format
         .clone()
         .ok_or("listen format is not available")?;
-    let decoder = decoder_path(directory).await?;
+    let decoder = match decoder_path(directory).await {
+        Ok(decoder) => decoder,
+        Err(error) => {
+            let _ = stop_listen(directory, id).await;
+            return Err(error);
+        }
+    };
     let played = recordings::play_direct_listen(&decoder, directory, &nonce, &format, destination);
     tokio::pin!(played);
     let report = tokio::select! {
@@ -379,7 +392,7 @@ fn cancel_error(stop_failure: Option<Box<dyn std::error::Error>>) -> String {
     }
 }
 
-fn write_new_listen(
+pub(crate) fn write_new_listen(
     stdout: &mut impl Write,
     id: &str,
     revision: &str,

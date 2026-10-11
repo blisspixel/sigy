@@ -20,6 +20,10 @@ struct DirectoryServer {
 
 impl DirectoryServer {
     fn start(response: Vec<u8>, delay: Duration) -> std::io::Result<Self> {
+        Self::sequence(vec![response], delay)
+    }
+
+    fn sequence(responses: Vec<Vec<u8>>, delay: Duration) -> std::io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let origin = format!("http://fixture.invalid:{}", listener.local_addr()?.port());
@@ -55,10 +59,13 @@ impl DirectoryServer {
                             let _ = socket.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
                             continue;
                         }
-                        counter.fetch_add(1, Ordering::Relaxed);
+                        let attempt = counter.fetch_add(1, Ordering::Relaxed);
                         thread::sleep(delay);
                         // A killed client can close the fixture before the response.
-                        let _ = socket.write_all(&response);
+                        if let Some(response) = responses.get(attempt).or_else(|| responses.last())
+                        {
+                            let _ = socket.write_all(response);
+                        }
                     }
                     Err(error)
                         if matches!(
@@ -237,6 +244,224 @@ fn directory_jobs_cache_unicode_and_register_without_tuning() -> TestResult {
     reopened.wait()?;
     assert_eq!(fixture.hits.load(Ordering::Relaxed), 1);
     Ok(())
+}
+
+#[test]
+fn refresh_retries_transient_failures_inside_one_id_and_reports_exhaustion() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let unavailable =
+        b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            .to_vec();
+    let fixture = DirectoryServer::sequence(
+        vec![unavailable.clone(), unavailable, response()],
+        Duration::ZERO,
+    )?;
+    success(directory.path(), &["library", "init"])?;
+    let mut service = RunningChild::start(directory.path())?;
+    let mut args = fixture.request("retry");
+    args.push("--wait");
+    let completed = success(directory.path(), &args)?;
+    assert_eq!(completed["directory_refresh"]["state"], "completed");
+    assert_eq!(fixture.hits(), 3);
+    success(directory.path(), &args)?;
+    assert_eq!(fixture.hits(), 3, "exact replay must not retry again");
+    let failing = DirectoryServer::start(
+        b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            .to_vec(),
+        Duration::ZERO,
+    )?;
+    success(directory.path(), &failing.request("exhausted"))?;
+    let failed = wait_refresh(directory.path(), "exhausted")?;
+    assert_eq!(failed["directory_refresh"]["state"], "failed");
+    let reason = failed["directory_refresh"]["failure"]
+        .as_str()
+        .ok_or("reason missing")?;
+    assert!(reason.contains("fixture.invalid"), "{reason}");
+    assert!(
+        reason.contains("after 3 attempt(s): upstream HTTP server failure"),
+        "{reason}"
+    );
+    assert_eq!(failing.hits(), 3);
+    assert_eq!(
+        failed["directory"]["cached_stations"], 1,
+        "old cache survives"
+    );
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()
+}
+
+#[test]
+fn automatic_refresh_ids_wait_and_filter_preserving_hints_are_usable() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    success(directory.path(), &["library", "init"])?;
+    let output = super::common::output(
+        std::process::Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(directory.path())
+            .args([
+                "radio",
+                "search",
+                "Québec",
+                "--country",
+                "Canada",
+                "--tag",
+                "news",
+                "--healthy",
+                "--order",
+                "name",
+            ]),
+    )?;
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout)?;
+    assert!(text.contains("radio search --name 'Québec' --country 'CA' --tag 'news' --healthy --limit 16 --order name --fetch"), "{text}");
+    let fixture = DirectoryServer::start(response(), Duration::from_millis(100))?;
+    let mut service = RunningChild::start(directory.path())?;
+    let refreshed = success(
+        directory.path(),
+        &[
+            "radio",
+            "refresh",
+            "--name",
+            "Québec",
+            "--mirror",
+            &fixture.origin,
+            "--pin-address",
+            "127.0.0.1",
+            "--wait",
+        ],
+    )?;
+    assert_eq!(refreshed["directory_refresh"]["state"], "completed");
+    assert!(
+        refreshed["directory_refresh"]["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("radio-"))
+    );
+    let found = success(directory.path(), &["radio", "search", "QUÉBEC"])?;
+    assert_eq!(found["station_page"]["entries"][0]["name"], "Radio Québec");
+    assert_eq!(fixture.hits(), 1);
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()
+}
+
+#[cfg(windows)]
+#[test]
+fn panel_admits_a_registered_favorite_beyond_the_first_page_without_private_contact() -> TestResult
+{
+    let directory = tempfile::tempdir()?;
+    let forbidden = DirectoryServer::start(Vec::new(), Duration::ZERO)?;
+    let stream_url = forbidden.origin.replace("fixture.invalid", "localhost");
+    let fixture = favorite_page(&stream_url)?;
+    success(directory.path(), &["library", "init"])?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(directory.path(), &fixture.request("favorites"))?;
+    wait_refresh(directory.path(), "favorites")?;
+    // Quick listening refuses missing decoder configuration before auto-registration.
+    let absent = invoke(
+        directory.path(),
+        &[
+            "play",
+            "00000000-0000-0000-0000-000000000019",
+            "--destination",
+            "null",
+        ],
+    )?;
+    assert!(!absent.status.success());
+    assert!(String::from_utf8_lossy(&absent.stderr).contains("no decoder is configured"));
+    let untouched = success(
+        directory.path(),
+        &["radio", "linked", "00000000-0000-0000-0000-000000000019"],
+    )?;
+    assert_eq!(
+        untouched["linked_station_context"]["sources"],
+        serde_json::json!([])
+    );
+    success(
+        directory.path(),
+        &["dvr", "configure", "--decoder", env!("CARGO_BIN_EXE_sigy")],
+    )?;
+    let quick = invoke(
+        directory.path(),
+        &[
+            "play",
+            "00000000-0000-0000-0000-000000000019",
+            "--destination",
+            "null",
+        ],
+    )?;
+    assert!(!quick.status.success());
+    let diagnostic = String::from_utf8(quick.stderr)?;
+    assert!(diagnostic.contains("--data-dir"), "{diagnostic}");
+    assert!(
+        diagnostic.contains("Registered audio revision station-"),
+        "{diagnostic}"
+    );
+    assert!(
+        diagnostic.contains("connection or response headers"),
+        "{diagnostic}"
+    );
+    let quick_hint: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.path().join("panel-session.json"))?)?;
+    assert!(
+        quick_hint["listen_id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("play-"))
+    );
+    assert_eq!(quick_hint["state"], "failed");
+    for number in 1..=20 {
+        let id = format!("00000000-0000-0000-0000-{number:012}");
+        success(directory.path(), &["radio", "favorite", &id])?;
+    }
+    let id = "00000000-0000-0000-0000-000000000020";
+    success(
+        directory.path(),
+        &["radio", "add", id, "--revision", "favorite:v1"],
+    )?;
+    let played = invoke(
+        directory.path(),
+        &[
+            "panel",
+            "play",
+            id,
+            "--id",
+            "favorite-listen",
+            "--destination",
+            "null",
+        ],
+    )?;
+    assert!(!played.status.success());
+    let error = String::from_utf8(played.stderr)?;
+    assert!(error.contains("connection or response headers"), "{error}");
+    let receipt = success(directory.path(), &["listen", "status", "favorite-listen"])?;
+    assert_eq!(receipt["listen"]["source_revision"], "favorite:v1");
+    assert_eq!(receipt["listen"]["state"], "failed");
+    let hint: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.path().join("panel-session.json"))?)?;
+    assert_eq!(hint["state"], "failed");
+    assert_eq!(fixture.hits(), 1, "play never refreshes the directory");
+    assert_eq!(
+        forbidden.connections(),
+        0,
+        "private stream is never contacted"
+    );
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()
+}
+
+#[cfg(windows)]
+fn favorite_page(stream_url: &str) -> std::io::Result<DirectoryServer> {
+    let stations = (1..=20)
+        .map(|number| {
+            serde_json::json!({
+                "stationuuid": format!("00000000-0000-0000-0000-{number:012}"),
+                "name": format!("Radio Québec {number:02}"),
+                "url": format!("{stream_url}/audio"), "countrycode":"CA", "tags":"news",
+            })
+        })
+        .collect::<Vec<_>>();
+    let body = serde_json::to_vec(&stations)?;
+    let mut bytes = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).into_bytes();
+    bytes.extend(body);
+    DirectoryServer::start(bytes, Duration::ZERO)
 }
 
 #[test]
