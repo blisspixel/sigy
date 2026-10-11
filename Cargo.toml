@@ -1,10 +1,11 @@
 [workspace]
 members = ["crates/sigy-core", "crates/sigy-service", "crates/sigy", "crates/sigy-xtask", "crates/sigy-test-recognizer"]
 resolver = "3"
-exclude = ["vendor/libsqlite3-sys", "research/experiments/terminal", "research/experiments/native-boundary"]
+exclude = ["vendor/libsqlite3-sys", "vendor/processkit", "research/experiments/terminal", "research/experiments/native-boundary"]
 
 [patch.crates-io]
 libsqlite3-sys = { path = "vendor/libsqlite3-sys" }
+processkit = { path = "vendor/processkit" }
 
 [workspace.package]
 version = "0.1.0-dev"

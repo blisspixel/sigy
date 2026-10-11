@@ -351,11 +351,40 @@ fn render(
     if report.service_ready {
         writeln!(stdout, "Open the explorer: {command} tui")?;
     }
+    if options.country.is_empty()
+        && let Some(country) = ["LC_ALL", "LC_MESSAGES", "LANG"]
+            .into_iter()
+            .filter_map(|key| std::env::var(key).ok())
+            .find(|locale| !locale.is_empty())
+            .and_then(|locale| locale_country(&locale))
+    {
+        writeln!(
+            stdout,
+            "Locale suggests {country}. Fetch only if you choose: {command} radio search --country {country} --fetch"
+        )?;
+    }
     writeln!(
         stdout,
         "Check local setup: {command} doctor. Recording and playback need your own FFmpeg."
     )?;
     Ok(())
+}
+
+fn locale_country(locale: &str) -> Option<String> {
+    if locale.len() > 128 {
+        return None;
+    }
+    let (_, territory) = locale.split_once('_')?;
+    let territory = territory.split(['.', '@']).next()?;
+    if territory.len() != 2 || !territory.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+        return None;
+    }
+    sigy_service::discovery::countries::page(territory, "en", None)
+        .ok()?
+        .entries
+        .into_iter()
+        .find(|country| country.listed)
+        .map(|country| country.code)
 }
 
 #[cfg(test)]
@@ -375,6 +404,24 @@ mod tests {
     use std::{ffi::OsString, path::PathBuf, time::Duration};
 
     type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+
+    #[test]
+    fn locale_country_is_only_a_valid_reference_suggestion() {
+        assert_eq!(super::locale_country("en_US.UTF-8"), Some("US".into()));
+        assert_eq!(super::locale_country("fr_CA@euro"), Some("CA".into()));
+        for locale in [
+            "C",
+            "POSIX",
+            "en",
+            "en_ZZ",
+            "en_US;touch",
+            "en_123",
+            "en_Canada",
+        ] {
+            assert_eq!(super::locale_country(locale), None, "{locale}");
+        }
+        assert_eq!(super::locale_country(&"x".repeat(129)), None);
+    }
 
     #[tokio::test]
     async fn setup_seeds_bind_resolved_filters_and_reject_invalid_input_before_effects() -> Result {

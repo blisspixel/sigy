@@ -4,6 +4,14 @@ Updated: 2026-10-11. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-11 desktop completion
+
+[Decision0090](../decisions/0090-desktop-discovery-and-native-listening.md) and [the dated source review](../../research/47-delegated-desktop-execution.md) address the three remaining desktop issues. Explorer startup filters and confirmed `R` directory fetch reuse the existing service/cache scope with a bounded async observer. Windows direct system listening shares the checked PCM pipeline and native output helper with retained playback. The experimental Linux backend uses verified delegated systemd user units, an explicit ProcessKit parent handle, separate process/task bounds, pre-exec placement and manager-owned death cleanup.
+
+The explorer suite initially passed 118 tests, one ignored. A subsequent full run found a hidden failure/request ID and an unlisted locale territory suggestion; both were corrected before final gates. The first audible live check found a main-stack overflow; boxed pipeline frames and a live future-size assertion repaired it. A later 30-second MP3 jazz listen on this Windows host was heard through headphones, explicitly confirmed by the user, then automatically stopped through stdin closure. The service was stopped afterward. Acoustic observation, cancellation, decoder completion and native closure remain separate. Private receipts are `.agents/followup-audible.*`; no source URL, secret or identifying device receipt is published.
+
+Linux all-workspace all-target Clippy passes with warnings denied on the current WSL host. The two membership/lifecycle parser tests, native-command routing test and unsupported-host refusal-before-contact/reservation integration test pass. This WSL instance has no active systemd user manager, so it cannot establish delegated resource/death or desktop audio qualification. Actual delegated Linux fixtures and loopback direct-listen/capture/retained/restart jobs are added to the existing Linux CI job. Full local verification, native media, coverage, visual QA, exact-commit hosted results and the Omarchy check remain pending in this increment. No issue is closed on planned evidence. External spend remains USD 0.
+
 ## 2026-10-11 everyday radio reliability
 
 The user selected reliable everyday radio discovery and listening. Review of the README, intent, roadmap, active work and six open desktop issues led to [Decision0089](../decisions/0089-everyday-radio-reliability.md) and [dated primary-source research](../../research/46-everyday-radio-and-linux-containment.md).

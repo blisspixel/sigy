@@ -70,3 +70,22 @@ jobs:
           cargo test --locked -p sigy-service --lib recordings::pipe::tests -- --test-threads=2
           cargo test --locked -p sigy --bin sigy lifecycle_tests -- --test-threads=2
           cargo test --locked -p sigy --test service native_containment_preflight -- --test-threads=2
+      - name: Prepare the disposable Linux user manager
+        if: runner.os == 'Linux'
+        run: |
+          sudo loginctl enable-linger "$(id -un)"
+          sudo systemctl start "user@$(id -u).service"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
+      - name: Exercise delegated Linux resource and death bounds
+        if: runner.os == 'Linux'
+        run: cargo test --locked -p sigy-service --test linux_native delegated_native_contracts -- --ignored --nocapture --test-threads=1
+      - name: Exercise Linux playback, capture and restart
+        if: runner.os == 'Linux'
+        env:
+          SIGY_TEST_FFMPEG: /usr/bin/ffmpeg
+        run: |
+          test -x /usr/bin/ffmpeg
+          cargo test --locked -p sigy --test service direct_listen_reaches_decoder_progress_without_a_file_or_reservation -- --ignored --test-threads=1
+          cargo test --locked -p sigy --test service recording_is_service_owned_verified_exportable_and_prunable -- --ignored --test-threads=1
+          cargo test --locked -p sigy --test service retained_playback_seeks_without_changing_quota_or_capture -- --ignored --test-threads=1

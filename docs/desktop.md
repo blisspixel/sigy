@@ -1,6 +1,6 @@
 # Desktop radio controls
 
-Sigy's desktop integration is a development preview. On ordinary Linux desktops, including Omarchy, native containment currently blocks playback and recording. Cached discovery, the explorer and the read-only status bar remain useful. Run `sigy doctor` before trying audio; [platform limits](install.md#platform-limits) explain the remaining adapter work.
+Sigy's desktop integration is a development preview. Linux playback and recording require the experimental delegated systemd user-session adapter and an accessible output device. Cached discovery, the explorer and the read-only status bar remain useful independently. Run `sigy service start`, configure FFmpeg and inspect `sigy doctor` before trying audio; [platform limits](install.md#platform-limits) distinguish native bounds from desktop audibility.
 
 ## Waybar on Omarchy
 

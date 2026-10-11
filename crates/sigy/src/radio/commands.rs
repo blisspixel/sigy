@@ -184,7 +184,7 @@ pub(crate) fn write_next(
     Ok(())
 }
 
-fn filter_arguments(filter: &sigy_service::discovery::StationFilter) -> String {
+pub(crate) fn filter_arguments(filter: &sigy_service::discovery::StationFilter) -> String {
     let mut arguments = String::new();
     for (flag, value) in [
         ("name", &filter.name),

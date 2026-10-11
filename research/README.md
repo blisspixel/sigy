@@ -99,6 +99,8 @@ The first 2026-09-30 [offline translation validation](experiments/local-mt/offli
 
 ## Near-future review cadence
 
+The [delegated desktop execution review](47-delegated-desktop-execution.md) records the selected ProcessKit patch, systemd user-unit lifecycle, separate process/thread caps and live Windows PCM output. Executed platform and acoustic evidence remains in active work.
+
 The [terminal buffer and capture check](experiments/terminal-render-2026-09-30.md) records inspected frames, bounded warm-render samples and exact publication during a finite loopback capture. The [derive dependency repair](experiments/yoke-derive-2026-09-30.md) records the primary-source review behind the minimal yanked-package lockfile update.
 
 Review fast-moving provider interfaces and model capabilities at each integration decision and before release. Review prices at runtime according to the cost policy. Revisit terminal, driver, and OS compatibility when supported versions change. Retest model upgrades on the same evaluation corpus before changing defaults.

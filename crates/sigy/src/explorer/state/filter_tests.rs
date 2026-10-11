@@ -316,3 +316,78 @@ fn failed_reads_are_fenced_and_preserve_rows_draft_and_applied_scope() {
     assert!(apply(&mut model, &newer, "c", None));
     assert_eq!(model.current_search().filter.country, "US");
 }
+
+#[test]
+fn explicit_fetch_uses_applied_filters_and_late_results_cannot_replace_a_new_search() {
+    let mut model = loaded();
+    let first = country(&mut model, "Canada");
+    assert!(apply(&mut model, &first, "ca", None));
+    model.handle(Key::Escape);
+    assert_eq!(model.handle(Key::Char('R')), Effect::None);
+    assert_eq!(model.handle(Key::Down), Effect::None);
+    assert_eq!(model.handle(Key::Escape), Effect::None);
+    assert_eq!(model.handle(Key::Char('y')), Effect::None);
+    model.handle(Key::Char('R'));
+    let Effect::Fetch(fetch) = model.handle(Key::Char('y')) else {
+        panic!("explicit confirmation must request the directory");
+    };
+    assert_eq!(fetch.filter.country, "CA");
+    assert_eq!(fetch.after, None);
+    assert!(!fetch.favorites_only);
+    assert!(model.search_is_current(fetch.generation));
+    let newer = country(&mut model, "JP");
+    assert!(apply(&mut model, &newer, "jp", None));
+    assert!(!apply(&mut model, &fetch, "stale", None));
+    assert_eq!(model.current_search().filter.country, "JP");
+    assert_eq!(model.selected().map(|row| row.id.as_str()), Some("jp"));
+}
+
+#[test]
+fn fetch_key_edits_text_and_never_discards_a_local_favorites_filter() {
+    let mut model = loaded();
+    model.handle(Key::Char('/'));
+    assert_eq!(model.handle(Key::Char('R')), Effect::None);
+    assert_eq!(model.query(), "R");
+    model.handle(Key::Escape);
+    let Effect::Search(favorites) = model.handle(Key::Char('v')) else {
+        panic!("favorites reads the cache");
+    };
+    assert!(apply(&mut model, &favorites, "favorite", None));
+    assert_eq!(model.handle(Key::Char('R')), Effect::None);
+    assert!(model.status().contains("Favorites are local"));
+    assert_eq!(model.handle(Key::Char('y')), Effect::None);
+    assert!(model.favorites_only());
+}
+
+#[test]
+fn empty_state_command_preserves_filters_unicode_and_the_exact_library()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut model = loaded();
+    model.initialize_search(
+        StationFilter {
+            name: "Québec".into(),
+            country: "CA".into(),
+            tag: "jazz".into(),
+            language: "french".into(),
+            healthy_only: true,
+        },
+        std::path::Path::new("custom library's desk"),
+    )?;
+    let command = model.discovery_command();
+    for expected in [
+        "--data-dir",
+        "library",
+        "--name 'Québec'",
+        "--country 'CA'",
+        "--tag 'jazz'",
+        "--language 'french'",
+        "--healthy",
+        "--order name --fetch",
+    ] {
+        assert!(command.contains(expected), "{command}");
+    }
+    model.search.applied.favorites_only = true;
+    assert!(model.discovery_command().contains("--favorites"));
+    assert!(!model.discovery_command().contains("--fetch"));
+    Ok(())
+}

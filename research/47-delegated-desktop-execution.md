@@ -1,0 +1,21 @@
+# Delegated desktop execution and live PCM
+
+Reviewed: 2026-10-11. This follows the [desktop review](46-everyday-radio-and-linux-containment.md) and [delegated-cgroup audit](experiments/native-boundary/delegated-cgroups.md). Implementation and measurements belong in [Decision0090](../docs/decisions/0090-desktop-discovery-and-native-listening.md) and active work.
+
+## Selected mechanism
+
+The pinned ProcessKit 3.3.4 source has pre-exec cgroup placement, recursive kill and membership accounting, but creates a limit group beneath the caller's populated cgroup. The current public package exposes no delegated-parent constructor. A small documented local patch is selected over a second executor or general launch wrapper; source provenance and the exact retained file inventory are verified in [vendor documentation](../vendor/README.md).
+
+Systemd delegation assigns one subtree to a cooperating application. The service process must occupy a leaf while the parent distributes domain controllers. `DelegateSubgroup` supplies this placement from systemd 254; the manager makes controllers available, while the delegated application enables them inside its subtree. Sigy verifies the actual topology and unit properties rather than assuming a container namespace root is sufficient. [Systemd delegation contract](https://systemd.io/CGROUP_DELEGATION/).
+
+The PID controller counts tasks, including native threads, and cgroup migration does not perform the same capacity admission as a fork. Consequently a finite task cap cannot substitute for exact explicit process admission. The patch serializes admitted spawns and independently denies native process creation while allowing bounded threads. Memory and CPU remain group-wide. [Kernel cgroup v2 and PID controller](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).
+
+Seccompiler 0.5.0 exposes safe compilation and filter installation. Source review confirmed the installation success path uses `prctl(PR_SET_NO_NEW_PRIVS)` and `seccomp`, with the BPF programs compiled before fork. The patch calls it from ProcessKit's existing pre-exec hook after placement; failure returns a raw errno without formatting or allocating in the child. `clone3`'s indirect arguments cannot be inspected by this policy, so it receives `ENOSYS`; ordinary clone is permitted only with `CLONE_THREAD`. This compatibility choice requires an executed thread fixture for each qualified runtime. [Seccompiler installation source](https://docs.rs/seccompiler/0.5.0/src/seccompiler/lib.rs.html), [clone interfaces and thread flags](https://man7.org/linux/man-pages/man2/clone.2.html).
+
+Transient services retain manager ownership after the launcher returns. `Type=exec` establishes executable startup, not application readiness; Sigy still waits for its exact library endpoint. Systemd-run's argument environment expansion is explicitly disabled, preserving literal caller arguments. Client units have a finite runtime and monitor their original launcher independently. [Systemd-run reference source](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd-run.xml). `KillMode=control-group`, final SIGKILL and a finite stop timeout are checked independently of Rust destructors. [Systemd killing reference source](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.kill.xml).
+
+## Output and qualification
+
+The existing bounded Windows output helper removes the need for an FFmpeg build with a Windows output muxer. Live listening can reuse that helper by supplying checked PCM from the service's already acquired byte stream. Sample counting, decoder progress, callback/presentation estimates and acoustic output are distinct outcomes. A short live jazz check on this Windows host was heard through headphones; cancellation completed afterward. It is one endpoint observation, not a codec/device support matrix.
+
+The available WSL instance has a non-systemd init and no active user manager. It can compile, lint and execute missing-delegation fixtures, but cannot establish delegated lifecycle or audible Omarchy behavior. Real systemd CI fixtures and an independently executed desktop check are required. No host WSL configuration, driver or privileged workstation service is changed.

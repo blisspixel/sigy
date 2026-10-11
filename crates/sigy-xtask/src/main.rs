@@ -161,6 +161,22 @@ fn verify_media(root: &Path, decoder: Option<String>) -> Result<(), Error> {
         ],
         &[("SIGY_TEST_FFMPEG", ffmpeg.as_os_str())],
         None,
+    )?;
+    run_cargo_with(
+        root,
+        &[
+            "test",
+            "--locked",
+            "-p",
+            "sigy-service",
+            "--lib",
+            "direct_live_pcm",
+            "--",
+            "--ignored",
+            "--test-threads=1",
+        ],
+        &[("SIGY_TEST_FFMPEG", ffmpeg.as_os_str())],
+        None,
     )
 }
 

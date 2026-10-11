@@ -177,6 +177,54 @@ pub struct PcmDecoded {
     pub pcm_bytes: u64,
 }
 
+/// Finite live decoding consumes only bytes already acquired by the service.
+#[derive(Debug, Clone, Copy)]
+pub struct DirectPcmRequest<'a> {
+    pub executable: &'a str,
+    pub input_format: &'a str,
+    pub format: PcmFormat,
+    pub group: &'a NativeAudioGroup,
+}
+
+/// Live decoder progress is independent of local output and service acquisition.
+#[derive(Debug, Clone, Copy)]
+pub struct DirectPcmDecoded {
+    pub decoder: super::PlaybackReport,
+    pub pcm_bytes: u64,
+}
+
+/// The existing direct-listen ceiling, not a retained interval or timing claim.
+pub const DIRECT_DURATION_US: u64 = 900_000_000;
+
+/// Open one service-owned direct-listen pipe without any source URL or file capability.
+/// # Errors
+/// Refuses invalid or unavailable capabilities within five seconds.
+pub async fn open_direct_pcm(directory: &Path, nonce: &str) -> Result<impl AsyncRead + Unpin> {
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        super::pipe::connect_listen_pipe(directory, nonce),
+    )
+    .await
+    .map_err(|_| Error::Acquisition("direct PCM input connection timed out"))?
+}
+
+/// Decode one finite direct listen to checked PCM through a bounded two-chunk queue.
+/// # Errors
+/// Refuses unsupported formats, output profiles, queues and incomplete native work.
+pub async fn decode_direct_pcm_reader(
+    request: DirectPcmRequest<'_>,
+    input: impl AsyncRead + Unpin,
+    output: mpsc::Sender<Vec<u8>>,
+) -> Result<DirectPcmDecoded> {
+    if output.max_capacity() != 2
+        || !matches!(request.input_format, "mp3" | "aac" | "flac" | "ogg" | "wav")
+    {
+        return Err(Error::Acquisition("invalid direct PCM decode bounds"));
+    }
+    request.format.maximum_bytes(DIRECT_DURATION_US)?;
+    super::decoder::decode_direct_pcm(request, input, output).await
+}
+
 /// Connect immediately to the existing private protected-reader transport.
 /// The resulting stream grants no file path, source URL or native execution.
 /// # Errors

@@ -12,7 +12,7 @@ use std::{
 };
 
 mod commands;
-pub(crate) use commands::{execute, quote, request_id, write_next};
+pub(crate) use commands::{execute, filter_arguments, quote, request_id, write_next};
 
 #[derive(Debug, Clone, Args)]
 pub struct Filters {
@@ -44,7 +44,7 @@ impl Filters {
         })
     }
 
-    fn search_filter(&self, query: Option<&str>) -> sigy_service::Result<StationFilter> {
+    pub(crate) fn search_filter(&self, query: Option<&str>) -> sigy_service::Result<StationFilter> {
         let mut filter = self.filter()?;
         if let Some(query) = query {
             query.clone_into(&mut filter.name);

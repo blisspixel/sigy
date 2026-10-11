@@ -12,9 +12,9 @@ The first complete release includes radio and podcasts, recordings and DVR, live
 
 | Everyday-radio follow-up | Required evidence |
 | --- | --- |
-| Ordinary Linux/Omarchy audio | Delegated-cgroup adapter with pre-execution placement, descendant/parent-death/cancellation/restart tests, then independent device validation; see the [adapter plan](research/46-everyday-radio-and-linux-containment.md#remaining-linux-adapter-plan) |
-| Dependable audible live output | A bounded device adapter and real device receipts for each supported profile; current direct live system output depends on FFmpeg and null decoding proves no audibility |
-| Explorer directory actions | An explicit bounded fetch for the applied scope with confirmation, generation-fenced status, rate/error handling and cache preservation; typing and selection remain passive |
+| Ordinary Linux/Omarchy audio | Experimental delegated systemd user-unit adapter implemented; real resource/death/restart fixtures and independent desktop audio checks own qualification. See [Decision0090](docs/decisions/0090-desktop-discovery-and-native-listening.md) |
+| Dependable audible live output | Windows live output shares the bounded retained-output helper; one live headphone check was heard. Final native gates and independent Linux endpoint evidence remain in [active work](docs/development/progress.md#2026-10-11-desktop-completion) |
+| Explorer directory actions | `R` then `y` explicitly fetches the frozen applied scope with bounded generation-fenced observation; startup filters, errors and cache preservation are under integrated verification. Typing and selection remain passive |
 | Daily usability and network reliability | Recorded fresh-library journeys, repeated spaced public-directory observations and real terminal/device tests, keeping fixture evidence distinct from operational qualification |
 
 **Turn the verified finite-task foundation into a polished listening and evidence journey.** S-01 restores the native fixture baseline. S-02 now freezes exact task-owned evidence and publishes selected cited findings with its frozen coverage. S-03 adds explicit owner withdrawal, preserves shared jobs and holds unresolved native completion after restart. The offline country picker works across 257 reference entries even with an empty station cache. [Active work](docs/development/progress.md) owns the exact integrated gates and limitations; these increments establish no stage exit.
