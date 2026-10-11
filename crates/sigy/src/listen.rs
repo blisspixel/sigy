@@ -291,6 +291,41 @@ pub(crate) struct ListenPlayback {
     pub format: String,
     pub report: recordings::PlaybackReport,
     pub finished: ListenView,
+    #[cfg(windows)]
+    pub output: Option<crate::audio::play::OutputReport>,
+}
+
+struct DirectPlayback {
+    report: recordings::PlaybackReport,
+    #[cfg(windows)]
+    output: Option<crate::audio::play::OutputReport>,
+}
+
+async fn direct_output(
+    executable: &str,
+    directory: &Path,
+    nonce: &str,
+    format: &str,
+    destination: PlaybackDestination,
+) -> Result<DirectPlayback, Box<dyn std::error::Error>> {
+    #[cfg(windows)]
+    if destination == PlaybackDestination::System {
+        let playback = Box::pin(crate::audio::play::direct(
+            executable, directory, nonce, format,
+        ))
+        .await?;
+        return Ok(DirectPlayback {
+            report: playback.decoder,
+            output: Some(playback.output),
+        });
+    }
+    let report =
+        recordings::play_direct_listen(executable, directory, nonce, format, destination).await?;
+    Ok(DirectPlayback {
+        report,
+        #[cfg(windows)]
+        output: None,
+    })
 }
 
 /// # Errors
@@ -352,7 +387,13 @@ pub(crate) async fn finish_new_listen(
             return Err(error);
         }
     };
-    let played = recordings::play_direct_listen(&decoder, directory, &nonce, &format, destination);
+    let played = Box::pin(direct_output(
+        &decoder,
+        directory,
+        &nonce,
+        &format,
+        destination,
+    ));
     tokio::pin!(played);
     let report = tokio::select! {
         biased;
@@ -380,8 +421,10 @@ pub(crate) async fn finish_new_listen(
     }
     Ok(ListenPlayback {
         format: format.clone(),
-        report,
+        report: report.report,
         finished,
+        #[cfg(windows)]
+        output: report.output,
     })
 }
 
@@ -401,18 +444,24 @@ pub(crate) fn write_new_listen(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if json {
-        serde_json::to_writer(
-            &mut *stdout,
-            &serde_json::json!({
-                "id": id,
-                "revision": revision,
-                "destination": destination.as_str(),
-                "format": played.format,
-                "playhead_us": played.report.playhead_us,
-                "progress_advanced": played.report.progress_advanced,
-                "replayed": false,
-            }),
-        )?;
+        let document = serde_json::json!({
+            "id": id,
+            "revision": revision,
+            "destination": destination.as_str(),
+            "format": played.format,
+            "playhead_us": played.report.playhead_us,
+            "progress_advanced": played.report.progress_advanced,
+            "replayed": false,
+        });
+        #[cfg(windows)]
+        let document = {
+            let mut document = document;
+            if let Some(output) = &played.output {
+                document["output"] = serde_json::to_value(output)?;
+            }
+            document
+        };
+        serde_json::to_writer(&mut *stdout, &document)?;
         writeln!(stdout)?;
     } else {
         writeln!(

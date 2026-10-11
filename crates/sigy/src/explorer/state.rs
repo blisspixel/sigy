@@ -295,6 +295,7 @@ pub enum Effect {
         catalog: DirectoryCatalog,
     },
     Search(SearchQuery),
+    Fetch(SearchQuery),
     SetFavorite {
         generation: u64,
         id: String,
@@ -334,6 +335,8 @@ pub enum Key {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Explorer {
+    fetch_confirmation: Option<super::search::Scope>,
+    command_prefix: String,
     play_confirmation: Option<String>,
     pub(super) context: Option<super::context::StationContext>,
     context_generation: u64,
@@ -399,6 +402,8 @@ impl Explorer {
     #[must_use]
     pub fn new(modes: Modes, now_ms: i64) -> Self {
         Self {
+            fetch_confirmation: None,
+            command_prefix: "sigy".into(),
             play_confirmation: None,
             context: None,
             context_generation: 0,
@@ -857,6 +862,40 @@ impl Explorer {
         )
     }
 
+    pub(super) fn initialize_search(
+        &mut self,
+        filter: StationFilter,
+        directory: &std::path::Path,
+    ) -> sigy_service::Result<()> {
+        filter.validate()?;
+        self.search.applied.filter = filter;
+        self.search.draft = self.search.applied.clone();
+        self.command_prefix = format!(
+            "sigy --data-dir {}",
+            crate::radio::quote(&directory.display().to_string())
+        );
+        Ok(())
+    }
+
+    pub(super) fn discovery_command(&self) -> String {
+        let suffix = crate::radio::filter_arguments(&self.search.applied.filter);
+        if self.favorites_only() {
+            format!(
+                "{} radio search{suffix} --favorites --order name",
+                self.command_prefix
+            )
+        } else {
+            format!(
+                "{} radio search{suffix} --order name --fetch",
+                self.command_prefix
+            )
+        }
+    }
+
+    pub(super) fn search_is_current(&self, generation: u64) -> bool {
+        self.pending_search == Some(generation)
+    }
+
     pub fn handle(&mut self, key: Key) -> Effect {
         self.draw = Draw::Needed;
         if matches!(key, Key::Quit) {
@@ -864,6 +903,9 @@ impl Explorer {
         }
         if matches!(key, Key::Redraw) {
             return Effect::None;
+        }
+        if self.fetch_confirmation.is_some() {
+            return self.confirm_fetch(&key);
         }
         if let Some(station) = self.play_confirmation.clone() {
             return match key {
@@ -941,8 +983,43 @@ impl Explorer {
         self.handle_browser(&key)
     }
 
+    fn confirm_fetch(&mut self, key: &Key) -> Effect {
+        match key {
+            Key::Char('y' | 'Y') => {
+                let Some(scope) = self.fetch_confirmation.take() else {
+                    return Effect::None;
+                };
+                self.search.draft = scope;
+                match self.submit_search(PageMove::First) {
+                    Effect::Search(query) => {
+                        self.note_message("Requesting one filtered directory page. Browsing and playback stay available.");
+                        Effect::Fetch(query)
+                    }
+                    effect => effect,
+                }
+            }
+            Key::Char('n' | 'N') | Key::Escape => {
+                self.fetch_confirmation = None;
+                self.note_message("Directory request discarded. No network work was requested.");
+                Effect::None
+            }
+            _ => Effect::None,
+        }
+    }
+
     fn handle_browser(&mut self, key: &Key) -> Effect {
         match key {
+            Key::Char('R') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
+                if self.favorites_only() {
+                    self.note_message("Favorites are local choices. v shows all matches before R fetches; f saves a selected station.");
+                } else if self.search.pending() {
+                    self.note_message("A search is pending. Wait for its result before requesting a directory page.");
+                } else {
+                    self.fetch_confirmation = Some(self.search.applied.clone());
+                    self.note_message(&format!("Fetch up to 100 directory rows for the applied filters? y confirms; n/Esc cancels. {}", self.discovery_command()));
+                }
+                Effect::None
+            }
             Key::Char('q') | Key::Quit => Effect::Detach,
             Key::Char('/') => {
                 self.focus = Focus::Search;

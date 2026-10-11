@@ -49,8 +49,14 @@ looks wrong, and retain a native-terminal check for actual backend qualification
 Blink timing and native font rendering are not simulated. The existing private
 cell raster can consume the JSON for separate PNG inspection.
 
-The terminal still awaits each service read synchronously. Painting pending
+Ordinary terminal metadata reads still await each service response synchronously. Painting pending
 intent before that read improves feedback but does not make quit, resize or
 navigation responsive while a request is blocked. The view clock advances on
 coarse idle ticks and fresh reloads; it grants no work and changes no immutable
 observation timestamp.
+
+Explicit directory fetch has a separate bounded observer, so rendering, quit and
+player controls remain available during that operation. This does not make the
+other metadata reads asynchronous. Empty/no-match views show the current filtered
+fetch command; when quitting with no matches, the full command is also printed
+after terminal restoration so a narrow screen does not prevent copying it.

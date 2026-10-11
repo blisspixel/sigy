@@ -236,7 +236,6 @@ fn native_containment_preflight_refuses_before_contact_and_recording_charge() ->
     )?;
     register(directory.path(), "preflight:v1", &server.url)?;
     let doctor = invoke(directory.path(), &["doctor"])?;
-    assert!(!doctor.status.success());
     let document: serde_json::Value = serde_json::from_slice(&doctor.stdout)?;
     let check = document["doctor"]["checks"]
         .as_array()
@@ -244,6 +243,17 @@ fn native_containment_preflight_refuses_before_contact_and_recording_charge() ->
         .iter()
         .find(|check| check["name"] == "decoder_containment")
         .ok_or("containment check missing")?;
+    #[cfg(target_os = "linux")]
+    if check["state"] == "ok" {
+        // The test caller is outside a delegation, but service run now enters its
+        // own managed unit. Missing-delegation fixtures run separately; do not
+        // misclassify a successfully bounded service as an unsupported host.
+        assert_eq!(server.hits(), 0);
+        assert_no_audio_files(directory.path())?;
+        success(directory.path(), &["service", "stop"])?;
+        return service.wait();
+    }
+    assert!(!doctor.status.success());
     assert_eq!(check["state"], "blocked");
     let detail = check["detail"].as_str().ok_or("detail missing")?;
     assert!(
@@ -608,7 +618,7 @@ fn direct_listen_reaches_decoder_progress_without_a_file_or_reservation() -> Tes
         .stderr(Stdio::null())
         .spawn()?;
     wait_hits(&server, 2);
-    service.0.kill()?;
+    service.kill()?;
     service.0.wait()?;
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {

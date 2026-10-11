@@ -2,7 +2,7 @@
 
 **Practical signals intelligence for everyday people.** Sigy is a local-first listening and analysis toolkit. Explore internet radio and podcasts, keep recordings, read across languages and trace findings back to their sources. Its CLI and terminal explorer share a background service that keeps working when you close the terminal.
 
-**Windows development preview.** Local speech recognition and English translation run on retained audio, but language quality and platform support are not qualified. On ordinary Linux desktops and macOS, native containment currently blocks playback, recording and native analysis; `sigy doctor` reports this before you try. Discovery and cached exploration remain available. See [platform limits](docs/install.md#platform-limits), [current evidence](docs/development/progress.md) and [what comes next](ROADMAP.md#whats-next).
+**Development preview.** Local speech recognition and English translation run on retained audio, but language quality and broad platform support are not qualified. Windows live and retained listening use a bounded native output helper. An experimental Linux adapter requires a systemd 254+ user session with delegated CPU, memory and PID controllers; unavailable bounds and macOS native work refuse before contact or reservation. See [platform limits](docs/install.md#platform-limits), [current evidence](docs/development/progress.md) and [what comes next](ROADMAP.md#whats-next).
 
 ![Sigy's radio explorer with an offline world map and selected station](docs/images/tui.png)
 
@@ -26,7 +26,7 @@ These commands build `main` from source; [installation details](docs/install.md)
 
 ## What you can do
 
-- **Explore world radio.** Search by station name, country name/code, language or tag. Use `radio search --tag jazz --fetch` to explicitly fill a short cache page. Press `C` for an offline country picker or `F` to combine filters, browse stations in name order, save favorites and explore a globe or map. Use `sigy play STATION_UUID`, or `P` then `y` in the explorer, to explicitly start a listen. The country reference has 257 entries and names in eight locales; cached station coverage varies.
+- **Explore world radio.** Search by station name, country name/code, language or tag. Use `radio search --tag jazz --fetch` to explicitly fill a short cache page, or `sigy tui --country Canada --tag jazz` and `R` then `y`. Press `C` for an offline country picker or `F` to combine filters, browse stations in name order, save favorites and explore a globe or map. Use `sigy play STATION_UUID`, or `P` then `y` in the explorer, to explicitly start a listen. The country reference has 257 entries and names in eight locales; cached station coverage varies.
 - **Keep a useful record.** Capture streams in the background, schedule recordings across time zones, and retain selected intervals. Replay an explicit excerpt or exact stored finding through the CLI. Recording timelines distinguish audio, gaps and expired material.
 - **Read across languages.** Run experimental local recognition and English translation on retained audio, search originals and translations, and correct a transcript without erasing its history.
 - **Follow a topic with evidence.** Bound a monitor's sources and resources, inspect literal matches, and save cited findings and briefings. Finite tasks can collect, process, freeze their exact evidence and publish cited findings with coverage-aware partial results. [Explicit interest withdrawal](docs/decisions/0079-task-interest-withdrawal.md) preserves shared processing. A general task planner remains ahead. Selected operations are available through the [agent plugin](docs/decisions/0021-agent-plugin.md).
@@ -55,7 +55,7 @@ sigy doctor
 sigy play STATION_UUID
 ```
 
-Replace the placeholders with your decoder path and an ID from search. `sigy stop` stops the latest quick listen. The explorer also offers `P`, confirmation with `y`, and `S` to stop; selection and Enter inspection remain passive. Live system output still depends on the configured FFmpeg build's device support. Null decoding and a running receipt do not prove audible output.
+Replace the placeholders with your decoder path and an ID from search. `sigy stop` stops the latest quick listen. The explorer also offers `P`, confirmation with `y`, and `S` to stop; selection and Enter inspection remain passive. Windows live output uses Sigy's bounded native helper; Linux needs a usable local FFmpeg output and delegated execution. Null decoding and a running receipt do not prove audible output.
 
 Sigy uses `~/.sigy/library` by default. Use `sigy init` for setup without a directory fetch, or `sigy init --no-start` to prepare storage without starting a service. See [first use](docs/install.md#first-use) for custom libraries and recording setup, and the [usage guide](docs/usage.md) for full commands.
 

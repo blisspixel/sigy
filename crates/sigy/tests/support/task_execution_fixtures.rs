@@ -257,7 +257,7 @@ fn admitted_publication_survives_restart_and_empty_evidence_stays_partial() -> T
     let accepted = execute(path, "resume", "delegate", "4")?;
     let before = success(path, &["library", "status"])?;
     let mut service = RunningChild::start(path)?;
-    service.0.kill()?;
+    service.kill()?;
     service.0.wait()?;
     let mut restarted = RunningChild::start(path)?;
     let finished = wait_terminal(path, "resume")?;

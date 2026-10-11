@@ -479,7 +479,7 @@ fn killed_directory_refresh_is_interrupted_and_never_replayed() -> TestResult {
         }
         thread::sleep(Duration::from_millis(20));
     }
-    service.0.kill()?;
+    service.kill()?;
     service.0.wait()?;
     let mut recovered = RunningChild::start(directory.path())?;
     let replay = success(directory.path(), &fixture.request("one"))?;

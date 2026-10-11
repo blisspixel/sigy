@@ -12,8 +12,13 @@ struct Entry {
 }
 
 pub(crate) fn check_vendor(root: &Path) -> Result<(), String> {
-    let vendor = root.join("vendor").join("libsqlite3-sys");
-    let manifest = fs::read(root.join("vendor").join("checksums.json"))
+    check_package(root, "libsqlite3-sys", "checksums.json")?;
+    check_package(root, "processkit", "processkit-checksums.json")
+}
+
+fn check_package(root: &Path, package: &str, inventory: &str) -> Result<(), String> {
+    let vendor = root.join("vendor").join(package);
+    let manifest = fs::read(root.join("vendor").join(inventory))
         .map_err(|error| format!("cannot read vendor checksums: {error}"))?;
     let entries: Vec<Entry> =
         serde_json::from_slice(&manifest).map_err(|error| format!("vendor checksums: {error}"))?;
@@ -159,6 +164,8 @@ mod tests {
     fn inventory_and_hashes_detect_tampering_and_extra_native_files()
     -> Result<(), Box<dyn std::error::Error>> {
         let root = tempfile::tempdir()?;
+        std::fs::create_dir_all(root.path().join("vendor/processkit"))?;
+        std::fs::write(root.path().join("vendor/processkit-checksums.json"), b"[]")?;
         let vendor = root.path().join("vendor/libsqlite3-sys");
         std::fs::create_dir_all(vendor.join("nested"))?;
         let source = vendor.join("nested/source.c");
@@ -168,6 +175,9 @@ mod tests {
         // expected value with the implementation being checked.
         std::fs::write(&checksums, br#"[{"path":"nested/source.c","sha256":"BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"}]"#)?;
         check_vendor(root.path())?;
+        std::fs::write(root.path().join("vendor/processkit/extra.rs"), b"new")?;
+        assert!(check_vendor(root.path()).is_err());
+        std::fs::remove_file(root.path().join("vendor/processkit/extra.rs"))?;
         std::fs::write(&source, b"abd")?;
         assert!(
             check_vendor(root.path())

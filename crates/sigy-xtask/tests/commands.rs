@@ -89,6 +89,11 @@ fn media_checks_require_a_real_explicit_path_and_propagate_native_test_failure()
             .status
             .success()
     );
+    let commands = fs::read_to_string(root.path().join("commands.log"))?;
+    assert!(
+        commands.contains("-p sigy-service --lib direct_live_pcm"),
+        "{commands}"
+    );
     assert!(
         !invoke(root.path(), &["verify-media", decoder], Some("test"))?
             .status

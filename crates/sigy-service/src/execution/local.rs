@@ -87,6 +87,20 @@ pub(super) async fn blocking<T: Send + 'static>(
 }
 
 pub(crate) fn contained(options: ProcessGroupOptions) -> Result<ProcessGroup> {
+    #[cfg(target_os = "linux")]
+    {
+        let parent = crate::native::delegated_parent().map_err(|error| {
+            Error::NativeContainment(
+                processkit::ErrorReason::Io(std::io::Error::other(format!(
+                    "Unenforceable delegated native bounds: {error}"
+                )))
+                .into(),
+            )
+        })?;
+        ProcessGroup::with_delegated_options(options, &parent, 256)
+            .map_err(Error::NativeContainment)
+    }
+    #[cfg(not(target_os = "linux"))]
     ProcessGroup::with_options(options).map_err(Error::NativeContainment)
 }
 

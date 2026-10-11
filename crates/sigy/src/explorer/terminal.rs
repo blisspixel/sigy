@@ -44,7 +44,9 @@ fn run_loop(
     }
     let mut clock_tick = std::time::Instant::now();
     let mut player = super::player::Player::default();
+    let mut fetcher = super::fetch::Fetcher::default();
     loop {
+        fetcher.poll(model);
         if clock_tick.elapsed() >= Duration::from_secs(1) {
             model.tick_clock(super::now_ms()?);
             player.poll(runtime, directory, model);
@@ -66,6 +68,8 @@ fn run_loop(
             }
         } else if effect == Effect::StopListen {
             player.stop(runtime, directory, model);
+        } else if let Effect::Fetch(query) = &effect {
+            fetcher.start(runtime, directory, model, query);
         }
         dispatch_effect(
             model,

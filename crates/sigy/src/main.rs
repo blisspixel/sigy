@@ -14,6 +14,8 @@ use sigy_service::{
 mod analysis;
 mod audio;
 mod backup;
+#[cfg(target_os = "linux")]
+mod delegation;
 mod dvr;
 mod explorer;
 mod init;
@@ -171,6 +173,11 @@ enum Command {
     },
     /// Open the list explorer. Selection does not start audio, capture, refresh, or a click.
     Tui {
+        /// Initial cached station-name search. Use --tag for a genre or --country for a place.
+        #[arg(conflicts_with = "name")]
+        query: Option<String>,
+        #[command(flatten)]
+        filters: radio::Filters,
         /// Freeze decorative motion. No animation is drawn in this explorer.
         #[arg(long)]
         reduced_motion: bool,
@@ -599,8 +606,15 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let mut cli = Cli::parse();
+    #[cfg(target_os = "linux")]
+    let mut managed_exit = None;
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
         init::resolve_directory(&mut cli)?;
+        #[cfg(target_os = "linux")]
+        if let Some(code) = delegation::enter(&cli)? {
+            managed_exit = Some(code);
+            return Ok(());
+        }
         if let Command::Update { check, status } = cli.command {
             return update::run(check, status, cli.json);
         }
@@ -608,6 +622,8 @@ fn main() -> ExitCode {
             return mcp::serve(library_dir(&cli)?);
         }
         if let Command::Tui {
+            query,
+            filters,
             reduced_motion,
             linear,
             monochrome,
@@ -618,6 +634,7 @@ fn main() -> ExitCode {
                 library_dir(&cli)?,
                 explorer::Modes::resolve(*reduced_motion, *linear, *monochrome),
                 inspect.as_deref(),
+                filters.search_filter(query.as_deref())?,
             );
         }
         #[cfg(unix)]
@@ -627,10 +644,27 @@ fn main() -> ExitCode {
             .max_blocking_threads(4)
             .enable_all()
             .build()?;
-        runtime.block_on(run(&cli))
+        runtime.block_on(async {
+            #[cfg(target_os = "linux")]
+            {
+                tokio::select! {
+                    result = Box::pin(run(&cli)) => result,
+                    () = delegation::owner_gone() => Err("native launcher exited".into()),
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            run(&cli).await
+        })
     })();
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => {
+            #[cfg(target_os = "linux")]
+            {
+                managed_exit.unwrap_or(ExitCode::SUCCESS)
+            }
+            #[cfg(not(target_os = "linux"))]
+            ExitCode::SUCCESS
+        }
         Err(error) => {
             let error = init::actionable_error(&cli, error);
             if error
@@ -685,6 +719,16 @@ mod future_frame_tests {
             let library = super::run_library(&cli);
             assert!(std::mem::size_of_val(&route) <= 16 * 1024);
             assert!(std::mem::size_of_val(&library) <= 16 * 1024);
+        }
+        #[cfg(windows)]
+        {
+            let live = super::audio::play::direct(
+                "not-started",
+                std::path::Path::new("not-opened"),
+                "fixture",
+                "wav",
+            );
+            assert!(std::mem::size_of_val(&live) <= 16 * 1024);
         }
         Ok(())
     }

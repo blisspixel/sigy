@@ -50,7 +50,11 @@ pub async fn load_desk(
 
 pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) -> Result<(), Error> {
     match effect {
-        Effect::None | Effect::Detach | Effect::Play { .. } | Effect::StopListen => Ok(()),
+        Effect::None
+        | Effect::Detach
+        | Effect::Play { .. }
+        | Effect::StopListen
+        | Effect::Fetch(_) => Ok(()),
         Effect::LinkedContext {
             generation,
             id,
@@ -144,7 +148,11 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
 
 pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
     match effect {
-        Effect::None | Effect::Detach | Effect::Play { .. } | Effect::StopListen => Vec::new(),
+        Effect::None
+        | Effect::Detach
+        | Effect::Play { .. }
+        | Effect::StopListen
+        | Effect::Fetch(_) => Vec::new(),
         Effect::LinkedContext { id, catalog, .. } => vec![Operation::Radio {
             command: DirectoryOperation::Linked {
                 id: id.clone(),
@@ -300,21 +308,34 @@ async fn set_favorite(
 }
 
 async fn search(directory: &Path, model: &mut Explorer, query: &SearchQuery) -> Result<(), Error> {
-    match fetch(directory, search_operation(query)).await {
+    adopt_search(
+        model,
+        query,
+        fetch(directory, search_operation(query)).await,
+    );
+    Ok(())
+}
+
+pub(super) fn adopt_search(
+    model: &mut Explorer,
+    query: &SearchQuery,
+    result: Result<(bool, Snapshot), Error>,
+) -> bool {
+    match result {
         Ok((via_service, snapshot)) => {
             let Some(page) = snapshot.ordered_station_page.as_ref() else {
                 let _ = model.fail_search(
                     query.generation,
                     "The search returned no page; the previous list is kept.",
                 );
-                return Ok(());
+                return false;
             };
             if snapshot.directory_catalog.as_ref() != Some(&page.catalog) {
                 let _ = model.fail_search(
                     query.generation,
                     "Catalog metadata disagrees; the previous list is kept.",
                 );
-                return Ok(());
+                return false;
             }
             if model.apply_ordered_search(
                 query.generation,
@@ -324,6 +345,7 @@ async fn search(directory: &Path, model: &mut Explorer, query: &SearchQuery) -> 
                 &page.catalog,
             ) {
                 model.note_link(link_from(via_service, &snapshot));
+                return true;
             }
         }
         Err(error) => {
@@ -332,7 +354,7 @@ async fn search(directory: &Path, model: &mut Explorer, query: &SearchQuery) -> 
             }
         }
     }
-    Ok(())
+    false
 }
 
 async fn apply_fetched<F>(
@@ -590,7 +612,7 @@ fn radio_status() -> Operation {
     }
 }
 
-fn search_operation(query: &SearchQuery) -> Operation {
+pub(super) fn search_operation(query: &SearchQuery) -> Operation {
     Operation::Radio {
         command: DirectoryOperation::SearchOrdered {
             filter: query.filter.clone(),

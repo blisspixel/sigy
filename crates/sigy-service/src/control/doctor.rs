@@ -211,7 +211,7 @@ fn decoder_containment() -> DoctorCheck {
         Err(error) => check(
             "decoder_containment",
             DoctorState::Blocked,
-            format!("{error}. Listening, recording and native analysis are held. The current Linux adapter cannot enforce limits in an ordinary systemd session or container; macOS whole-tree limits are unsupported. A delegated Linux adapter remains planned."),
+            format!("{error}. Listening, recording and native analysis are held. Linux needs a managed user unit with cpu, memory and pids delegation; run `service start` from a systemd user session. macOS whole-tree limits remain unsupported."),
             None,
         ),
     }

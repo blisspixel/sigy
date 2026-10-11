@@ -4,8 +4,11 @@ use serde::Serialize;
 use sigy_service::{
     control::RetainedReadSpec,
     recordings::{
-        self, RetainedPlaybackReport,
-        audio::{AudioClosure, NativeAudioGroup, PcmFormat, PcmReaderRequest},
+        self, PlaybackReport, RetainedPlaybackReport,
+        audio::{
+            AudioClosure, DIRECT_DURATION_US, DirectPcmRequest, NativeAudioGroup, PcmFormat,
+            PcmReaderRequest,
+        },
     },
 };
 use std::{fmt, path::Path, process::Stdio, time::Duration};
@@ -27,20 +30,20 @@ pub(crate) struct OutputReport {
 }
 
 #[derive(Debug)]
-pub(crate) struct Playback {
-    pub decoder: RetainedPlaybackReport,
+pub(crate) struct Playback<D = RetainedPlaybackReport> {
+    pub decoder: D,
     pub output: OutputReport,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct OutputError {
+pub(crate) struct OutputError<D = RetainedPlaybackReport> {
     pub reason: String,
     pub native_closure: Option<Box<AudioClosure>>,
-    pub decoder: Option<RetainedPlaybackReport>,
+    pub decoder: Option<D>,
     pub decoder_failure: Option<String>,
 }
 
-impl fmt::Display for OutputError {
+impl<D> fmt::Display for OutputError<D> {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             output,
@@ -55,7 +58,7 @@ impl fmt::Display for OutputError {
     }
 }
 
-impl std::error::Error for OutputError {}
+impl<D: fmt::Debug> std::error::Error for OutputError<D> {}
 
 pub(crate) async fn retained(
     executable: &str,
@@ -87,6 +90,40 @@ pub(crate) async fn retained(
                 .and_then(|()| Err("playback interrupted".into()))
         }
     };
+    finish(&group, result, completion, decoder_failure).await
+}
+
+pub(crate) async fn direct(
+    executable: &str,
+    directory: &Path,
+    nonce: &str,
+    format: &str,
+) -> Result<Playback<PlaybackReport>, OutputError<PlaybackReport>> {
+    let group = NativeAudioGroup::new().map_err(|error| before_start(&error))?;
+    let input = recordings::audio::open_direct_pcm(directory, nonce)
+        .await
+        .map_err(|error| before_start(&error))?;
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_micros(DIRECT_DURATION_US + 30_000_000);
+    let mut completion = None;
+    let mut decoder_failure = None;
+    let result = tokio::select! {
+        result = Box::pin(run_direct(executable, input, format, &group, &mut completion, &mut decoder_failure)) => result,
+        () = tokio::time::sleep_until(deadline) => Err("audio execution deadline exceeded".into()),
+        interrupted = tokio::signal::ctrl_c() => {
+            interrupted.map_err(|error| -> Failure { error.into() })
+                .and_then(|()| Err("playback interrupted".into()))
+        }
+    };
+    finish(&group, result, completion, decoder_failure).await
+}
+
+async fn finish<D: Copy>(
+    group: &NativeAudioGroup,
+    result: Result<(D, Ready, Report), Failure>,
+    completion: Option<D>,
+    decoder_failure: Option<String>,
+) -> Result<Playback<D>, OutputError<D>> {
     if result.is_err() {
         let _ = group.kill();
     }
@@ -119,7 +156,7 @@ pub(crate) async fn retained(
     }
 }
 
-fn before_start(error: &sigy_service::Error) -> OutputError {
+fn before_start<D>(error: &sigy_service::Error) -> OutputError<D> {
     OutputError {
         reason: error.to_string(),
         native_closure: None,
@@ -138,6 +175,104 @@ async fn run(
 ) -> Result<(RetainedPlaybackReport, Ready, Report), Failure> {
     let duration_us = spec.playback_duration_us()?;
     let limits = HelperLimits { duration_us }.validate()?;
+    let sink = start_output(group, limits).await?;
+    let format = PcmFormat {
+        rate_hz: sink.ready.rate_hz,
+        channels: sink.ready.channels,
+    };
+    let (send, receive) = mpsc::channel(2);
+    let decode = recordings::audio::decode_pcm_reader(
+        PcmReaderRequest {
+            executable,
+            spec,
+            format,
+            group,
+        },
+        input,
+        send,
+    );
+    let decode = async {
+        match decode.await {
+            Ok(decoded) => {
+                *observed_decoder = Some(decoded.decoder);
+                Ok((decoded.decoder, decoded.pcm_bytes))
+            }
+            Err(error) => {
+                *decoder_failure = Some(error.to_string());
+                Err::<_, Failure>(error.into())
+            }
+        }
+    };
+    Box::pin(deliver(
+        sink,
+        Box::pin(decode),
+        receive,
+        spec.file_duration_us + 30_000_000,
+    ))
+    .await
+}
+
+async fn run_direct(
+    executable: &str,
+    input: impl AsyncRead + Unpin,
+    input_format: &str,
+    group: &NativeAudioGroup,
+    observed_decoder: &mut Option<PlaybackReport>,
+    decoder_failure: &mut Option<String>,
+) -> Result<(PlaybackReport, Ready, Report), Failure> {
+    let sink = start_output(
+        group,
+        HelperLimits {
+            duration_us: DIRECT_DURATION_US,
+        },
+    )
+    .await?;
+    let format = PcmFormat {
+        rate_hz: sink.ready.rate_hz,
+        channels: sink.ready.channels,
+    };
+    let (send, receive) = mpsc::channel(2);
+    let decode = recordings::audio::decode_direct_pcm_reader(
+        DirectPcmRequest {
+            executable,
+            input_format,
+            format,
+            group,
+        },
+        input,
+        send,
+    );
+    let decode = async {
+        match decode.await {
+            Ok(decoded) => {
+                *observed_decoder = Some(decoded.decoder);
+                Ok((decoded.decoder, decoded.pcm_bytes))
+            }
+            Err(error) => {
+                *decoder_failure = Some(error.to_string());
+                Err::<_, Failure>(error.into())
+            }
+        }
+    };
+    Box::pin(deliver(
+        sink,
+        Box::pin(decode),
+        receive,
+        DIRECT_DURATION_US + 30_000_000,
+    ))
+    .await
+}
+
+#[derive(Debug)]
+struct Sink {
+    helper: tokio::process::Child,
+    stdin: tokio::process::ChildStdin,
+    stdout: BufReader<tokio::process::ChildStdout>,
+    ready: Ready,
+}
+
+async fn start_output(group: &NativeAudioGroup, limits: HelperLimits) -> Result<Sink, Failure> {
+    let limits = limits.validate()?;
     let mut command = tokio::process::Command::new(std::env::current_exe()?);
     command
         .arg("--internal-audio-output-v1")
@@ -172,46 +307,39 @@ async fn run(
         rate_hz: ready.rate_hz,
         channels: ready.channels,
     };
-    if format.maximum_bytes(duration_us)? != ready.maximum_pcm_bytes {
+    if format.maximum_bytes(limits.duration_us)? != ready.maximum_pcm_bytes {
         return Err("audio helper PCM bound mismatch".into());
     }
-    let (send, receive) = mpsc::channel(2);
-    let decode = recordings::audio::decode_pcm_reader(
-        PcmReaderRequest {
-            executable,
-            spec,
-            format,
-            group,
-        },
-        input,
-        send,
-    );
-    let feed = forward(receive, stdin, &ready);
-    let decode = async {
-        match decode.await {
-            Ok(decoded) => {
-                *observed_decoder = Some(decoded.decoder);
-                Ok(decoded)
-            }
-            Err(error) => {
-                *decoder_failure = Some(error.to_string());
-                Err::<_, Failure>(error.into())
-            }
-        }
-    };
-    let (decoded, bytes, report) = tokio::try_join!(decode, feed, final_report(&mut stdout),)?;
-    let status = helper.wait().await?;
+    Ok(Sink {
+        helper,
+        stdin,
+        stdout,
+        ready,
+    })
+}
+
+async fn deliver<D>(
+    mut sink: Sink,
+    decode: impl std::future::Future<Output = Result<(D, u64), Failure>>,
+    receive: mpsc::Receiver<Vec<u8>>,
+    work_us: u64,
+) -> Result<(D, Ready, Report), Failure> {
+    let ready = sink.ready;
+    let feed = forward(receive, sink.stdin, &ready);
+    let ((decoder, pcm_bytes), bytes, report) =
+        tokio::try_join!(decode, feed, final_report(&mut sink.stdout),)?;
+    let status = sink.helper.wait().await?;
     if report.status == Status::Failed {
-        return Err(output_failure(&report, &ready, spec.file_duration_us + 30_000_000)?.into());
+        return Err(output_failure(&report, &ready, work_us)?.into());
     }
     if !status.success() {
         return Err("audio helper did not complete".into());
     }
-    if bytes != decoded.pcm_bytes {
+    if bytes != pcm_bytes {
         return Err("audio PCM accounting mismatch".into());
     }
-    validate_report(&report, &ready, bytes, spec.file_duration_us + 30_000_000)?;
-    Ok((decoded.decoder, ready, report))
+    validate_report(&report, &ready, bytes, work_us)?;
+    Ok((decoder, ready, report))
 }
 
 fn startup_failure(report: &Report) -> Result<String, Failure> {

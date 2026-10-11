@@ -15,7 +15,7 @@ use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 
 pub const HELP_PRIMARY: &str =
-    "Help: / search F filters C country f save v fav n/p page g first r reload q quit";
+    "Help: / search F filters C country R fetch f save v fav n/p page r reload q quit";
 pub const HELP_SELECTION: &str =
     "Enter inspects; P then y plays; S stops. Selection starts no work.";
 pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
@@ -671,7 +671,9 @@ fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
             Workspace::Findings => {
                 "Help: / edit IDs, Enter reads, arrows scroll, o recording metadata, q quit"
             }
-            Workspace::Globe => "Help: h/l/j/k turn, m map, c center, n/p page, g first, q quit",
+            Workspace::Globe => {
+                "Help: h/l/j/k turn, m map, c center, R fetch, n/p page, g first, q quit"
+            }
         }
     };
     vec![plain(primary), plain(HELP_SELECTION)]
@@ -884,17 +886,21 @@ fn empty_explore(model: &Explorer) -> Vec<Line<'static>> {
         .map_or(0, |directory| directory.cached_stations);
     if cached == 0 {
         return vec![
-            plain("No stations are cached yet. This explorer never fetches a directory page."),
-            plain("Quit with q, then run sigy init --radio or sigy radio refresh --wait."),
-            plain("Add --data-dir PATH if this library is not the default one."),
+            plain(if model.favorites_only() {
+                "No stations are cached. v shows all matches, then R and y fetch explicitly."
+            } else {
+                "No stations are cached yet. R then y explicitly fetches the applied filters."
+            }),
+            plain(&model.discovery_command()),
         ];
     }
     vec![
         plain("No cached station matches this search."),
+        plain(&model.discovery_command()),
         plain(if model.favorites_only() {
             "F edits filters; x clears all; v toggles favorites. Cache matches only."
         } else {
-            "F edits filters; C chooses a country; x clears all. Cache matches only."
+            "R then y fetches these filters; F edits; C chooses a country; x clears."
         }),
     ]
 }
@@ -1601,7 +1607,11 @@ mod tests {
         model.apply_desk(desk.clone());
         let (text, _) = frame(&model, 80, 24);
         assert!(text.contains("No stations are cached yet"), "{text}");
-        assert!(text.contains("sigy init --radio"), "{text}");
+        assert!(text.contains("R then y"), "{text}");
+        assert!(
+            text.contains("sigy radio search --order name --fetch"),
+            "{text}"
+        );
         model.handle(Key::Char('3'));
         let (text, _) = frame(&model, 80, 24);
         assert!(

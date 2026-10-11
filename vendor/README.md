@@ -1,4 +1,12 @@
-# Native dependency override
+# Native dependency overrides
+
+## ProcessKit 3.3.4 delegated Linux groups
+
+Reviewed 2026-10-11. `processkit/` retains the crates.io 3.3.4 package, whose archive SHA-256 is `1549b59abbe4fc78aa39860e36c81da89262c1278679b8f7299ef4ad7668c004` and source commit is `ba1a6fe77cedad7e1ceeb9f30b158c94b5dc1bb6`. The package-local Cargo lock and registry completion marker are omitted. Its [MIT license](processkit/LICENSE), copyright and notices remain intact.
+
+The local patch changes `Cargo.toml`, `src/group.rs`, `src/sys/mod.rs` and `src/sys/linux.rs`, and adds `src/sys/linux/delegated.rs`. It adds an explicit delegated-parent constructor, immutable native bounds, serialized process admission, a separate finite task cap, exact kernel-limit readback and precompiled seccompiler 0.5.0 process-creation filters inside the existing pre-exec placement hook. Existing Windows and ordinary constructors retain their paths. No first-party unsafe implementation or new executor is introduced. [Decision0090](../docs/decisions/0090-desktop-discovery-and-native-listening.md) records the contract and limitations.
+
+`processkit-checksums.json` verifies every retained package file. Review the small patch against the pinned upstream archive before changing its inventory. Do not format unchanged third-party sources. Remove this override only after a maintained upstream interface supplies the same independently verified delegation, process/thread and lifecycle contract. Resource limits are not a hostile-code or network sandbox.
 
 ## libsqlite3-sys 0.38.2 with SQLite 3.53.4
 

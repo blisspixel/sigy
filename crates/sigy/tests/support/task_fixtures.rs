@@ -191,7 +191,7 @@ fn task_scope_and_checkpoint_replay_survive_abrupt_service_restart() -> TestResu
         success(directory.path(), &["monitor", "show", "water"])?["monitor"]["monitor"]["processing"],
     );
 
-    service.0.kill()?;
+    service.kill()?;
     service.0.wait()?;
     let mut restarted = RunningChild::start(directory.path())?;
     let replayed = create_task(directory.path(), "watch", GOAL, "0")?;

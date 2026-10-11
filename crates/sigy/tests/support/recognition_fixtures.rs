@@ -1079,7 +1079,7 @@ fn cancel_and_kill(directory: &Path, service: &mut RunningChild) -> TestResult {
         running_images(&format!("recognizer-once{}", std::env::consts::EXE_SUFFIX))?,
         1
     );
-    service.0.kill()?;
+    service.kill()?;
     service.0.wait()?;
     #[cfg(windows)]
     {

@@ -13,6 +13,8 @@ pub mod languages;
 pub mod library;
 mod local_stream;
 pub mod monitor;
+#[cfg(target_os = "linux")]
+pub mod native;
 mod podcast;
 pub(crate) mod processing;
 mod providers;

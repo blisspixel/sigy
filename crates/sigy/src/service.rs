@@ -79,6 +79,10 @@ async fn start(directory: &Path) -> Result<Snapshot> {
     // race with another simultaneous starter without permitting two writers.
     drop(Library::open(directory, false)?);
     let directory = directory.canonicalize()?;
+    #[cfg(target_os = "linux")]
+    if crate::delegation::available() {
+        return crate::delegation::start(&directory).await;
+    }
     let mut child = StartingChild(Some(ServiceChild::spawn(&directory)?));
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     while tokio::time::Instant::now() < deadline {

@@ -15,7 +15,10 @@ use crate::{
     Error, Result,
     recordings::{
         RetainedPlaybackReport,
-        audio::{PcmDecoded, PcmReaderRequest},
+        audio::{
+            DIRECT_DURATION_US, DirectPcmDecoded, DirectPcmRequest, NativeAudioGroup, PcmDecoded,
+            PcmReaderRequest,
+        },
     },
 };
 
@@ -34,7 +37,73 @@ pub(in crate::recordings) async fn decode_pcm(
     let work_seconds = spec.file_duration_us / 1_000_000 + 30;
     let limits = ProgressLimits::playback(duration_us, work_seconds * 1_000_000)?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(work_seconds);
-    let mut child = request.group.spawn(command(request, frames))?;
+    let work = PcmWork {
+        command: command(request, frames),
+        group: request.group,
+        input_bytes: spec.bytes,
+        output_bytes: maximum_pcm,
+        limits,
+        deadline,
+    };
+    let (pcm_bytes, progress) = Box::pin(decode_stream(work, input, output)).await?;
+    completion(request, frames, pcm_bytes, &progress)
+}
+
+struct PcmWork<'a> {
+    command: tokio::process::Command,
+    group: &'a NativeAudioGroup,
+    input_bytes: u64,
+    output_bytes: u64,
+    limits: ProgressLimits,
+    deadline: tokio::time::Instant,
+}
+
+pub(in crate::recordings) async fn decode_direct_pcm(
+    request: DirectPcmRequest<'_>,
+    input: impl AsyncRead + Unpin,
+    output: mpsc::Sender<Vec<u8>>,
+) -> Result<DirectPcmDecoded> {
+    let mut command = base_command(request.executable, request.input_format);
+    command.args(["-t", &timestamp(DIRECT_DURATION_US)]);
+    output_command(&mut command, request.format);
+    let work_us = DIRECT_DURATION_US + 30_000_000;
+    let work = PcmWork {
+        command,
+        group: request.group,
+        input_bytes: crate::sources::http::MAXIMUM_BODY_BYTES,
+        output_bytes: request.format.maximum_bytes(DIRECT_DURATION_US)?,
+        limits: ProgressLimits::playback(DIRECT_DURATION_US, work_us)?,
+        deadline: tokio::time::Instant::now() + Duration::from_micros(work_us),
+    };
+    let (pcm_bytes, progress) = Box::pin(decode_stream(work, input, output)).await?;
+    if !pcm_bytes.is_multiple_of(u64::from(request.format.channels) * 4) {
+        return Err(Error::Acquisition("direct PCM ended inside a frame"));
+    }
+    let frames = pcm_bytes / (u64::from(request.format.channels) * 4);
+    let clock = frames
+        .checked_mul(1_000_000)
+        .ok_or(Error::Acquisition("direct PCM clock overflow"))?;
+    let rate = u64::from(request.format.rate_hz);
+    if !(clock / rate..=clock.div_ceil(rate)).contains(&progress.max_out_us) {
+        return Err(Error::Acquisition(
+            "direct PCM progress contradicts sample count",
+        ));
+    }
+    Ok(DirectPcmDecoded {
+        decoder: crate::recordings::PlaybackReport {
+            playhead_us: progress.max_out_us,
+            progress_advanced: progress.advanced,
+        },
+        pcm_bytes,
+    })
+}
+
+async fn decode_stream(
+    plan: PcmWork<'_>,
+    input: impl AsyncRead + Unpin,
+    output: mpsc::Sender<Vec<u8>>,
+) -> Result<(u64, Progress)> {
+    let mut child = plan.group.spawn(plan.command)?;
     let mut stdin = child
         .stdin
         .take()
@@ -49,27 +118,27 @@ pub(in crate::recordings) async fn decode_pcm(
         .ok_or(Error::Acquisition("PCM decoder progress missing"))?;
     let work = async {
         let pump = async {
-            let result = copy_range(input, &mut stdin, spec.bytes).await;
+            let result = copy_range(input, &mut stdin, plan.input_bytes).await;
             drop(stdin);
             result
         };
         let ((), pcm_bytes, progress) = tokio::try_join!(
             pump,
-            copy_pcm(pcm, output, maximum_pcm, frames.is_some()),
-            read_progress(progress, limits),
+            copy_pcm(pcm, output, plan.output_bytes, true),
+            read_progress(progress, plan.limits),
         )?;
         let status = child.wait().await?;
         if !status.success() || !progress.finished || progress.max_out_us == 0 {
             return Err(Error::Acquisition("PCM decoder did not complete"));
         }
-        completion(request, frames, pcm_bytes, &progress)
+        Ok((pcm_bytes, progress))
     };
-    let result = tokio::time::timeout_at(deadline, work)
+    let result = tokio::time::timeout_at(plan.deadline, work)
         .await
         .unwrap_or(Err(Error::Acquisition("PCM decoder deadline exceeded")));
     if result.is_err() {
-        let _ = request.group.kill();
-        request.group.finish().await?;
+        let _ = plan.group.kill();
+        plan.group.finish().await?;
     }
     result
 }
@@ -195,7 +264,26 @@ fn frame_bytes(request: PcmReaderRequest<'_>, frames: u64) -> Result<u64> {
 
 fn command(request: PcmReaderRequest<'_>, frames: Option<(u64, u64)>) -> tokio::process::Command {
     let spec = request.spec;
-    let mut command = tokio::process::Command::new(request.executable);
+    let mut command = base_command(request.executable, &spec.format);
+    if let Some((first, after)) = frames {
+        command.args(["-af", &format!(
+            "aresample={}:async=0,atrim=start_sample={first}:end_sample={after},asetpts=PTS-STARTPTS",
+            request.format.rate_hz,
+        )]);
+    } else {
+        command.args([
+            "-ss",
+            &timestamp(spec.file_seek_us),
+            "-t",
+            &timestamp(spec.file_duration_us - spec.file_seek_us),
+        ]);
+    }
+    output_command(&mut command, request.format);
+    command
+}
+
+fn base_command(executable: &str, format: &str) -> tokio::process::Command {
+    let mut command = tokio::process::Command::new(executable);
     command.args([
         "-nostdin",
         "-hide_banner",
@@ -214,7 +302,7 @@ fn command(request: PcmReaderRequest<'_>, frames: Option<(u64, u64)>) -> tokio::
         "-stats_period",
         "0.1",
         "-f",
-        &spec.format,
+        format,
         "-i",
         "pipe:0",
         "-map",
@@ -227,25 +315,19 @@ fn command(request: PcmReaderRequest<'_>, frames: Option<(u64, u64)>) -> tokio::
         "-progress",
         "pipe:2",
     ]);
-    if let Some((first, after)) = frames {
-        command.args(["-af", &format!(
-            "aresample={}:async=0,atrim=start_sample={first}:end_sample={after},asetpts=PTS-STARTPTS",
-            request.format.rate_hz,
-        )]);
-    } else {
-        command.args([
-            "-ss",
-            &timestamp(spec.file_seek_us),
-            "-t",
-            &timestamp(spec.file_duration_us - spec.file_seek_us),
-        ]);
-    }
+    command
+}
+
+fn output_command(
+    command: &mut tokio::process::Command,
+    format: crate::recordings::audio::PcmFormat,
+) {
     command
         .args([
             "-ar",
-            &request.format.rate_hz.to_string(),
+            &format.rate_hz.to_string(),
             "-ac",
-            &request.format.channels.to_string(),
+            &format.channels.to_string(),
             "-acodec",
             "pcm_f32le",
             "-f",
@@ -255,5 +337,4 @@ fn command(request: PcmReaderRequest<'_>, frames: Option<(u64, u64)>) -> tokio::
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    command
 }

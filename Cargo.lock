@@ -1845,13 +1845,12 @@ dependencies = [
 [[package]]
 name = "processkit"
 version = "3.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1549b59abbe4fc78aa39860e36c81da89262c1278679b8f7299ef4ad7668c004"
 dependencies = [
  "async-trait",
  "encoding_rs",
  "libc",
  "mutants",
+ "seccompiler",
  "thiserror 2.0.20",
  "tokio",
  "tokio-stream",
@@ -2244,6 +2243,15 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "seccompiler"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4ae55de56877481d112a559bbc12667635fdaf5e005712fd4e2b2fa50ffc884"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "security-framework"
