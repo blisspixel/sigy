@@ -12,6 +12,8 @@ The pinned processkit 3.3.4 implementation accepts Linux limits only from the re
 
 Waybar's custom module accepts a single-line JSON object with text, tooltip and CSS class. Omarchy supplies a launcher for opening or focusing a TUI. A status module can therefore open Sigy's existing explorer for deliberate selection and stop through the existing CLI, without a second catalog or a shell picker that interpolates untrusted station names. Sources: [Waybar custom module](https://github.com/Alexays/Waybar/wiki/Module:-Custom), [Omarchy TUI launcher](https://github.com/omacom/omarchy/blob/master/bin/omarchy-launch-or-focus-tui), and [Omarchy project](https://github.com/omacom/omarchy). Omarchy is an Arch/Hyprland desktop; the earlier description as an agentic distribution was inaccurate.
 
+The first actual macOS contract run also exposed a separate IPC startup failure. The pinned Interprocess 2.4.4 source documents pre-bind socket `mode` as platform-dependent and returning `Unsupported` where unavailable; its local `src/os/unix/local_socket.rs` and `c_wrappers.rs` were inspected against the failed job. Linux keeps its atomic mode operation. Other Unix hosts can set mode after binding within Sigy's already verified owner-only directory, before publishing/accepting, with peer-user checks unchanged. This does not justify a process-wide umask change or a socket in a traversable shared directory. Source: [pinned socket-mode contract](https://docs.rs/crate/interprocess/2.4.4/source/src/os/unix/local_socket.rs).
+
 ## Remaining Linux adapter plan
 
 Build on the [existing delegated-cgroup audit](experiments/native-boundary/delegated-cgroups.md), preserving its separation of resource control from sandboxing. This remains proposed:

@@ -52,6 +52,12 @@ pub(crate) fn bind_listen_pipe(directory: &Path) -> Result<ListenPipe> {
     #[cfg(unix)]
     let path = prepare_socket(&directory, &nonce)?;
     let listener = pipe_options(&directory, &nonce)?.create_tokio()?;
+    #[cfg(all(unix, not(target_os = "linux")))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // The checked 0700 library protects this bind-to-chmod interval.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    }
     Ok(ListenPipe {
         nonce,
         listener,
@@ -192,6 +198,11 @@ mod tests {
         let temporary = tempfile::tempdir()?;
         let library = Library::open(temporary.path(), true)?;
         let pipe = bind_listen_pipe(library.directory())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_eq!(std::fs::symlink_metadata(&pipe.path)?.mode() & 0o777, 0o600);
+        }
         let (_running, mut stop) = tokio::sync::watch::channel(false);
         let (writer, reader) = tokio::join!(
             pipe.accept(&mut stop),

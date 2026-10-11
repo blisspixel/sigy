@@ -219,6 +219,17 @@ fn native_containment_preflight_refuses_before_contact_and_recording_charge() ->
     let server = CountServer::start("audio/wav", "", vec![0; 128])?;
     success(directory.path(), &["library", "init"])?;
     let mut service = RunningChild::start(directory.path())?;
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(
+            std::fs::symlink_metadata(directory.path())?.mode() & 0o077,
+            0
+        );
+        assert_eq!(
+            std::fs::symlink_metadata(directory.path().join("control.sock"))?.mode() & 0o777,
+            0o600
+        );
+    }
     success(
         directory.path(),
         &["dvr", "configure", "--decoder", env!("CARGO_BIN_EXE_sigy")],

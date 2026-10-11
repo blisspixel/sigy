@@ -96,7 +96,8 @@ impl Endpoint {
     }
 
     pub fn listen(&self, directory: &Path) -> Result<Listener> {
-        let options = ListenerOptions::new().name(socket_name(&self.nonce, directory)?);
+        let directory = control_directory(directory)?;
+        let options = ListenerOptions::new().name(socket_name(&self.nonce, &directory)?);
         #[cfg(windows)]
         let options = {
             use interprocess::os::windows::{
@@ -120,14 +121,25 @@ impl Endpoint {
                 Err(error) => return Err(error.into()),
             }
             // The library lock is held before removing a stale socket.
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             let options = {
                 use interprocess::os::unix::local_socket::ListenerOptionsExt;
                 options.mode(0o600)
             };
             options
         };
-        Ok(options.create_tokio()?)
+        let listener = options.create_tokio()?;
+        #[cfg(all(unix, not(target_os = "linux")))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // Other users cannot traverse the verified 0700 library. Set the
+            // socket mode before publishing or accepting any connection.
+            fs::set_permissions(
+                directory.join("control.sock"),
+                fs::Permissions::from_mode(0o600),
+            )?;
+        }
+        Ok(listener)
     }
 
     pub async fn connect(&self, directory: &Path) -> Result<LocalStream> {
