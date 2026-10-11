@@ -52,6 +52,8 @@ This folder records primary-source findings, measured experiments, design implic
 | Fixed Windows output profiles, callback timing, native child closure, finite PCM and complete dependency retention | [44. Bounded Windows audio output](44-bounded-windows-audio-output.md) |
 | Half-open sample selection, counted completion, resampling conventions and independent retained excerpt witnesses | [45. Excerpt boundaries and evidence](45-excerpt-boundaries-and-evidence.md) |
 | Desktop issue review, explicit radio discovery, finite retries, Waybar controls and Linux containment follow-up | [46. Everyday radio and Linux containment](46-everyday-radio-and-linux-containment.md) |
+| Delegated systemd-user lifecycle, separate process/task limits, Windows live PCM and decoder-clock compatibility | [47. Delegated desktop execution](47-delegated-desktop-execution.md) |
+| README journey review, responsive terminal work, exact retained audio, completion recovery and qualification sequence | [48. Complete listening journeys](48-complete-listening-journeys.md) |
 
 ## Evidence discipline
 

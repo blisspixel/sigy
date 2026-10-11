@@ -2,6 +2,8 @@
 
 Last updated: 2026-10-11
 
+The [next delivery sequence](development/near-term-implementation.md#next-delivery-sequence) follows the README through responsive listening, recoverable completion, protected retained playback, measured mixed workloads and qualified language directions. [The dated quality review](../research/48-complete-listening-journeys.md) records source findings and primary references; these are proposed increments, not new implementation or support claims.
+
 [Desktop discovery and native listening](decisions/0090-desktop-discovery-and-native-listening.md) adds confirmed filtered fetch, Windows live PCM output and an experimental delegated Linux user-session adapter. [Current evidence](development/progress.md#2026-10-11-desktop-completion) separates automated containment checks from device qualification. Omarchy listening remains a user-run check after the updated development release.
 
 [Everyday radio reliability](decisions/0089-everyday-radio-reliability.md) adds explicit cache fill, stable setup seeds, finite directory retries, automatic request IDs, exact panel admission, quick listening and confirmed terminal actions. [Desktop configuration](desktop.md) provides a Waybar example; [platform limits](install.md#platform-limits) distinguish the delegated Linux requirements from the remaining macOS native blocker. [Research](../research/46-everyday-radio-and-linux-containment.md) and [active evidence](development/progress.md#2026-10-11-everyday-radio-reliability) record that increment; Decision0090 above owns the subsequent adapter and device evidence.
