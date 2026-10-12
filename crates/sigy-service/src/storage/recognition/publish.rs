@@ -8,7 +8,6 @@ use crate::recognition::{LocalAsrOutcome, ReapedLocalAsr, RecognitionOutput};
 
 impl Store {
     /// Atomically finalize a drained worker's validated result and zero USD decision.
-    /// No production path can construct the required cleanup capability yet.
     /// Cancellation wins over a queued result. Storage errors retain the active lease.
     /// # Errors
     /// Refuses stale capabilities, conflicting successful replays or a failed transaction.
@@ -70,8 +69,11 @@ impl Store {
         if changed != 1 {
             return Err(Error::StorageIntegrity);
         }
+        // Read the response before commit: a read failure must roll publication back,
+        // rather than report an error after its durable effects have succeeded.
+        let finished_job = find_job(&tx, &job.request.id)?.ok_or(Error::StorageIntegrity)?;
         tx.commit()?;
-        self.local_asr_job(&job.request.id)
+        Ok(finished_job)
     }
 }
 

@@ -61,6 +61,8 @@ Sigy uses `~/.sigy/library` by default. Use `sigy init` for setup without a dire
 
 Your library and local processing stay on your machine by default. Paid model dispatch is not implemented. The [progress record](docs/development/progress.md#tracked-intermittent-test-issues) keeps known faults and verification gaps visible.
 
+The latest [analysis reliability repair](docs/decisions/0092-atomic-worker-responses.md) preserves exact translation history on replay and prevents a failed response read from leaving a committed claim or result. Automatic recovery of an unsettled worker result remains the next reliability increment.
+
 ## Where it's going
 
 A full-screen, retro-futuristic world listening desk with major-city discovery, integrated terminal playback and an interactive radio DVR. Original scripts, chosen qualified translations and cited findings connect discovery to understanding. English remains the implemented translation target; other targets are planned for humans and agents. The [roadmap](ROADMAP.md#whats-next) and [near-term briefs](docs/development/near-term-implementation.md) separate delivered increments from remaining work.

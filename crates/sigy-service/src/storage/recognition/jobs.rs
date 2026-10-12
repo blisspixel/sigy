@@ -127,11 +127,12 @@ impl Store {
                     if !job_pool::claim_row(&tx, Family::Analysis, id, owner, lease, now)? {
                         return Ok(None);
                     }
-                    tx.commit()?;
-                    return Ok(Some(LocalAsrWork {
-                        job: self.local_asr_job(id)?,
+                    let claimed = LocalAsrWork {
+                        job: find_job(&tx, id)?.ok_or(Error::StorageIntegrity)?,
                         input: work.input,
-                    }));
+                    };
+                    tx.commit()?;
+                    return Ok(Some(claimed));
                 }
             }
         };

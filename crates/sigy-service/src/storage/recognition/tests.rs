@@ -1806,6 +1806,7 @@ fn an_unmeasured_monitor_does_not_jump_the_queue() -> TestResult {
 
 mod atomic_monitors;
 mod corrections;
+mod settlement;
 
 mod translation {
     //! Translation storage fixtures over a published recognition transcript.
@@ -1814,6 +1815,7 @@ mod translation {
     mod briefings;
     mod findings;
     mod monitor_coverage;
+    mod settlement;
     use crate::translation::{
         TranslatedCue, TranslationOutcome, TranslationProfile, TranslationRequest,
         TranslationResult,

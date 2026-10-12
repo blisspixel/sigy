@@ -19,6 +19,8 @@ use crate::{
 const PROFILE_COLUMNS: &str = "id, engine, template, runtime_dir, executable, runtime_sha256, runtime_files, runtime_bytes, model_path, model_sha256, model_bytes, languages, threads, memory_bytes, cue_deadline_ms, profile_sha256";
 const MAX_ENGLISH_BYTES: usize = 4096;
 
+mod replay;
+
 fn sql(value: u64) -> Result<i64> {
     i64::try_from(value).map_err(|_| Error::InvalidInput("translation integer range"))
 }
@@ -253,6 +255,7 @@ impl Store {
         if !job_pool::claim_row(&tx, Family::Translation, id, owner, lease, now)? {
             return Ok(None);
         }
+        let claimed = find_job(&tx, id)?;
         tx.commit()?;
         let language = language.map(|tag| {
             tag.split('-')
@@ -261,7 +264,7 @@ impl Store {
                 .to_ascii_lowercase()
         });
         Ok(Some(TranslationWork {
-            job: self.translation_job(id)?,
+            job: claimed,
             cues,
             language,
         }))
@@ -330,18 +333,14 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let job = tx
-            .query_row(
-                &format!("SELECT {JOB_COLUMNS} FROM translation_jobs WHERE id = ?1"),
-                [&work.job.request.id],
-                job_row,
-            )
-            .optional()?
-            .ok_or(Error::NotFound)?;
+        let job = find_job(&tx, &work.job.request.id)?;
         if job.generation != work.job.generation || job.request != work.job.request {
             return Err(Error::Analysis("stale-worker"));
         }
         if !matches!(job.state.as_str(), "running" | "cancelling") {
+            if job.state == "succeeded" {
+                replay::validate_success(&tx, work, outcome, &job)?;
+            }
             return Ok(job);
         }
         let finished =
@@ -365,8 +364,9 @@ impl Store {
         if changed != 1 {
             return Err(Error::StorageIntegrity);
         }
+        let finished_job = find_job(&tx, &job.request.id)?;
         tx.commit()?;
-        self.translation_job(&job.request.id)
+        Ok(finished_job)
     }
 
     /// End every translation lease a previous service process held: requeue running
@@ -467,6 +467,17 @@ impl Store {
             stale: (transcript_revision < latest).then_some(true),
         })
     }
+}
+
+fn find_job(connection: &Connection, id: &str) -> Result<TranslationJob> {
+    connection
+        .query_row(
+            &format!("SELECT {JOB_COLUMNS} FROM translation_jobs WHERE id = ?1"),
+            [id],
+            job_row,
+        )
+        .optional()?
+        .ok_or(Error::NotFound)
 }
 
 fn has_text(connection: &rusqlite::Connection, request: &TranslationRequest) -> Result<bool> {
