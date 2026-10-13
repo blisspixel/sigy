@@ -178,7 +178,7 @@ enum Command {
         query: Option<String>,
         #[command(flatten)]
         filters: radio::Filters,
-        /// Freeze decorative motion. No animation is drawn in this explorer.
+        /// Disable optional globe rotation, including the r toggle.
         #[arg(long)]
         reduced_motion: bool,
         /// Use one reading order with explicit text labels.

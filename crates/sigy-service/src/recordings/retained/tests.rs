@@ -53,17 +53,30 @@ async fn read_fixture(
         else {
             // A failed verification may close its endpoint before this client
             // connects. Successful transfer assertions still require every byte.
-            return Ok::<_, Error>(Vec::new());
+            return Ok::<_, Error>((Vec::new(), Ok(0)));
         };
         let mut bytes = Vec::new();
-        input.read_to_end(&mut bytes).await?;
-        Ok::<_, Error>(bytes)
+        let read = input.read_to_end(&mut bytes).await;
+        Ok::<_, Error>((bytes, read))
     };
     let (receipt, bytes) =
         tokio::time::timeout(TEST_DEADLINE, async { tokio::join!(worker, client) })
             .await
             .map_err(|_| Error::Timeout)?;
-    Ok((receipt?, bytes?))
+    let receipt = receipt?;
+    let (bytes, read) = bytes?;
+    if let Err(error) = read {
+        // A Unix peer can reset an accepted socket when refusing the original.
+        // Require both independent refusal and zero bytes; successful delivery
+        // and every other I/O failure retain their strict checks.
+        if error.kind() != std::io::ErrorKind::ConnectionReset
+            || receipt.successful()
+            || !bytes.is_empty()
+        {
+            return Err(error.into());
+        }
+    }
+    Ok((receipt, bytes))
 }
 
 #[tokio::test]

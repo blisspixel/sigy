@@ -111,10 +111,18 @@ async fn transport_stream_is_retained_only_without_expanding_direct_formats() ->
     .await
     .err()
     .ok_or("missing decoder started")?;
-    assert!(matches!(
-        retained,
-        crate::Error::Acquisition("cannot start configured FFmpeg decoder")
-    ));
+    // Linux calibrates the decoder's clock before the playback spawn. Both
+    // platforms must reach their exact missing-executable refusal after the
+    // retained-format check; direct input must still reject MPEG-TS above.
+    let expected = if cfg!(target_os = "linux") {
+        "bounded audio child could not start"
+    } else {
+        "cannot start configured FFmpeg decoder"
+    };
+    assert!(
+        matches!(retained, crate::Error::Acquisition(reason) if reason == expected),
+        "{retained:?}"
+    );
     Ok(())
 }
 

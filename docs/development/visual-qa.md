@@ -49,6 +49,18 @@ looks wrong, and retain a native-terminal check for actual backend qualification
 Blink timing and native font rendering are not simulated. The existing private
 cell raster can consume the JSON for separate PNG inspection.
 
+Optional globe motion has a separate bounded offline measurement:
+
+```text
+cargo test --locked -p sigy spin_render_measurement -- --ignored --nocapture
+```
+
+This writes twenty full color production-render timing samples and a final SVG
+at each of 80 by 24 and 200 by 60 cells, under a unique gallery's `spin/` directory.
+The clock is advanced explicitly by 100 ms per sample, keeping the image
+deterministic. Timing includes TestBackend drawing and diffing and excludes
+terminal I/O. The ordinary 64-frame gallery stays static.
+
 Ordinary terminal metadata reads still await each service response synchronously. Painting pending
 intent before that read improves feedback but does not make quit, resize or
 navigation responsive while a request is blocked. The view clock advances on

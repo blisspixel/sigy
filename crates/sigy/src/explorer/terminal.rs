@@ -1,6 +1,6 @@
 //! Termina session. Quit restores the terminal and does not stop the service.
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::time::Duration;
 
@@ -21,6 +21,11 @@ pub fn drive(
     model: &mut Explorer,
     inspect: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    model.configure_motion(
+        io::stdin().is_terminal() && io::stdout().is_terminal(),
+        inspect.is_some(),
+        std::time::Instant::now(),
+    );
     let mut session = Session::open()?;
     let result = run_loop(&mut session, runtime, directory, model, inspect);
     session.restore()?;
@@ -48,6 +53,13 @@ fn run_loop(
     loop {
         fetcher.poll(model);
         player.poll(model);
+        let visible = if model.spin_requested() {
+            let (width, height) = session.size()?;
+            super::screen::globe_visible(model, ratatui::layout::Rect::new(0, 0, width, height))
+        } else {
+            false
+        };
+        let timeout = model.advance_spin(std::time::Instant::now(), visible);
         if clock_tick.elapsed() >= Duration::from_secs(1) {
             model.tick_clock(super::now_ms()?);
             player.request_status(runtime, directory);
@@ -56,9 +68,12 @@ fn run_loop(
         if model.take_dirty() {
             session.draw(model)?;
         }
-        let Some(key) = session.poll(Duration::from_millis(250))? else {
+        let Some(key) = session.poll(timeout)? else {
             continue;
         };
+        if !matches!(key, Key::Redraw) {
+            model.motion_input(std::time::Instant::now());
+        }
         let effect = model.handle(key);
         if matches!(effect, Effect::Detach) {
             return Ok(());

@@ -13,6 +13,94 @@ const PALETTE: [&str; 16] = [
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[test]
+fn spin_visibility_tracks_canvas_and_modal_ownership() {
+    use ratatui::layout::Rect;
+    let mut model = sample();
+    let area = Rect::new(0, 0, 80, 24);
+    assert!(!super::super::globe_visible(&model, area));
+    model.handle(Key::Char('7'));
+    assert!(super::super::globe_visible(&model, area));
+    for (width, height) in [(20, 8), (59, 24), (80, 15)] {
+        assert!(!super::super::globe_visible(
+            &model,
+            Rect::new(0, 0, width, height)
+        ));
+    }
+    for key in [Key::Char('F'), Key::Char('C'), Key::Enter] {
+        let mut overlay = model.clone();
+        overlay.handle(key);
+        assert!(!super::super::globe_visible(&overlay, area));
+        overlay.handle(Key::Escape);
+        // The country picker returns to its draft filter editor first.
+        overlay.handle(Key::Escape);
+        assert!(super::super::globe_visible(&overlay, area));
+    }
+}
+
+#[test]
+#[ignore = "explicit offline rotating globe render measurement"]
+fn spin_render_measurement() -> Result<()> {
+    use std::time::{Duration, Instant};
+    let directory = output_directory()?.join("spin");
+    std::fs::create_dir_all(&directory)?;
+    for (width, height) in [(80, 24), (200, 60)] {
+        let mut model = Explorer::new(
+            Modes {
+                reduced_motion: false,
+                linear: false,
+                monochrome: false,
+            },
+            10_000,
+        );
+        let mut desk = sample_desk();
+        desk.stations[0].coordinates = Some(Coordinates {
+            longitude: -109.05,
+            latitude: 35.68,
+        });
+        model.apply_desk(desk);
+        let now = Instant::now();
+        model.configure_motion(true, false, now);
+        model.handle(Key::Char('7'));
+        model.handle(Key::Char('c'));
+        model.handle(Key::Char('r'));
+        model.advance_spin(now, true);
+        let mut samples = Vec::new();
+        let mut terminal = Terminal::new(TestBackend::new(width, height))?;
+        for tick in 1..=20 {
+            model.advance_spin(now + Duration::from_millis(tick * 100), true);
+            let start = Instant::now();
+            terminal.draw(|frame| render(frame, &model))?;
+            samples.push(start.elapsed().as_micros());
+            assert!(
+                terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .any(|cell| cell.symbol() == "@")
+            );
+        }
+        let mut ordered = samples.clone();
+        ordered.sort_unstable();
+        let report = serde_json::json!({
+            "cols":width,"rows":height,"samples_us":samples,"p95_us":ordered[18],
+            "maximum_us":ordered[19],"frames":model.animation_frames(),
+            "scope":"full color production render with TestBackend draw/diff; terminal I/O excluded"
+        });
+        std::fs::write(
+            directory.join(format!("{width}x{height}.json")),
+            serde_json::to_vec_pretty(&report)?,
+        )?;
+        std::fs::write(
+            directory.join(format!("{width}x{height}.svg")),
+            svg(&model, width, height)?,
+        )?;
+        println!("{report}");
+    }
+    Ok(())
+}
+
+#[test]
 fn svg_escapes_text_and_preserves_rgb_and_indexed_colors() {
     assert_eq!(escape("<&\"'東京"), "&lt;&amp;&quot;&#39;東京");
     assert_eq!(color(Color::Rgb(1, 2, 255), false), "#0102ff");

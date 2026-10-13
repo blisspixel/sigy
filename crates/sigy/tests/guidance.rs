@@ -74,7 +74,18 @@ fn offline_mistakes_explain_what_happened_and_what_to_run() -> TestResult {
         );
     }
     let (healthy, doctor, error) = run(&library, &["doctor"])?;
-    assert!(healthy, "{error}");
+    if cfg!(target_os = "windows") {
+        assert!(healthy, "{doctor}\n{error}");
+    } else {
+        // This ordinary offline CLI child is not a delegated service owner.
+        // Linux and macOS must report the unavailable native boundary.
+        assert!(!healthy, "{doctor}");
+        assert!(doctor.contains("blocked decoder_containment"), "{doctor}");
+        assert!(
+            error.contains("doctor found a check that needs action"),
+            "{error}"
+        );
+    }
     assert!(doctor.contains("Service: not running."), "{doctor}");
     assert!(
         doctor

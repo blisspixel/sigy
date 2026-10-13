@@ -123,7 +123,7 @@ impl Fixture {
         };
         let config = base.join("scope.json");
         fs::write(&config, serde_json::to_vec(&scope)?)?;
-        fs::write(base.join("helper.ps1"), include_str!("../windows.ps1"))?;
+        write_traced_script(&base.join("helper.ps1"), include_str!("../windows.ps1"))?;
         Ok(Self {
             directory,
             source,
@@ -161,22 +161,20 @@ impl Fixture {
             .env("SIGY_FIXTURE_SOURCE", &self.source)
             .env("SIGY_FIXTURE_CALLED", base.join("called"))
             .env("SIGY_FIXTURE_GH_CALLED", base.join("gh-called"))
+            .env("SIGY_FIXTURE_STARTED", base.join("helper-started.txt"))
             .env("GIT_ALLOW_PROTOCOL", "file")
             .env("GIT_CONFIG_GLOBAL", base.join("empty-gitconfig"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env_remove("GIT_CONFIG_COUNT")
             .env_remove("GIT_CONFIG_PARAMETERS")
-            .current_dir(self.directory.path());
+            .current_dir(self.directory.path())
+            .stdout(fs::File::create(base.join("helper-stdout.txt"))?)
+            .stderr(fs::File::create(base.join("helper-stderr.txt"))?);
         Ok(command)
     }
 
     fn run(&self) -> Result<std::process::Output> {
-        let mut child = OwnedChild::from(
-            self.command()?
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?,
-        );
+        let mut child = OwnedChild::from(self.command()?.spawn()?);
         self.wait(&mut child, "update helper")?;
         let output = child.output()?;
         if !output.status.success() {
@@ -195,21 +193,28 @@ impl Fixture {
         child: &mut std::process::Child,
         phase: &str,
     ) -> Result<std::process::ExitStatus> {
-        use std::io::Read as _;
+        use std::io::{Read as _, Seek as _};
         match wait_bounded(child) {
             Ok(status) => Ok(status),
             Err(error) => {
                 let base = self.config.parent().ok_or("fixture base")?;
                 for name in [
+                    "helper-started.txt",
+                    "helper-stdout.txt",
+                    "helper-stderr.txt",
+                    "installer-started.txt",
                     "installer-stdout.txt",
                     "installer-stderr.txt",
                     "validation-error.txt",
                     "gh-called",
                     "direct-called",
                     "scope.json",
+                    "status.json",
                     "home/.sigy/update-status.json",
                 ] {
-                    if let Ok(file) = fs::File::open(base.join(name)) {
+                    if let Ok(mut file) = fs::File::open(base.join(name)) {
+                        let start = file.metadata()?.len().saturating_sub(8192);
+                        file.seek(std::io::SeekFrom::Start(start))?;
                         let mut bytes = Vec::new();
                         if file.take(8192).read_to_end(&mut bytes).is_ok() {
                             eprintln!("{phase} {name}: {}", String::from_utf8_lossy(&bytes));
@@ -228,6 +233,19 @@ impl Fixture {
             .parent()
             .is_some_and(|base| base.join("called").exists())
     }
+}
+
+fn write_traced_script(path: &Path, script: &str) -> Result<()> {
+    let (first, body) = script.split_once('\n').ok_or("fixture script header")?;
+    // Keep the helper's parameter declaration first. The marker uses no
+    // PowerShell cmdlet, distinguishing script entry from module discovery.
+    fs::write(
+        path,
+        format!(
+            "{first}\n[IO.File]::WriteAllText($env:SIGY_FIXTURE_STARTED, 'entered')\nSet-PSDebug -Trace 1\n{body}"
+        ),
+    )?;
+    Ok(())
 }
 
 fn wait_bounded(child: &mut std::process::Child) -> Result<std::process::ExitStatus> {
@@ -362,7 +380,9 @@ fn direct_installer_command(fixture: &Fixture, metadata: &Path) -> Result<Comman
             super::super::REPOSITORY
         ),
     )?;
-    let installer = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts/install.ps1");
+    let production = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts/install.ps1");
+    let installer = base.join("installer.ps1");
+    write_traced_script(&installer, &fs::read_to_string(production)?)?;
     let mut direct = Command::new("powershell");
     direct
         .args([
@@ -400,6 +420,7 @@ fn direct_installer_command(fixture: &Fixture, metadata: &Path) -> Result<Comman
         .env("SIGY_DIRECT_BINARY", &fixture.target)
         .env("SIGY_FIXTURE_CALLED", base.join("direct-called"))
         .env("SIGY_FIXTURE_GH_CALLED", base.join("gh-called"))
+        .env("SIGY_FIXTURE_STARTED", base.join("installer-started.txt"))
         .env("SIGY_FIXTURE_STAGE", base.join("direct-stage"))
         // Regular fixture files cannot fill a pipe while waiting for child exit.
         .stdout(fs::File::create(base.join("installer-stdout.txt"))?)
@@ -529,8 +550,6 @@ fn redirected_windows_powershell_publication_handles_incompatible_module_search_
         fixture
             .command()?
             .env("PSModulePath", "C:/Program Files/PowerShell/7/Modules")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
             .spawn()?,
     );
     let status = wait_bounded(&mut child)?;

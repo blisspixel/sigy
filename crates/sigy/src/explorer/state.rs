@@ -9,6 +9,7 @@ mod catalog;
 mod context;
 #[cfg(test)]
 mod ordered_tests;
+mod spin;
 const PAGE_LIMIT: u32 = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -390,6 +391,7 @@ pub struct Explorer {
 struct GlobeView {
     center: (f64, f64),
     flat: bool,
+    spin: spin::Spin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -449,6 +451,7 @@ impl Explorer {
             globe: GlobeView {
                 center: (0.0, 20.0),
                 flat: false,
+                spin: spin::Spin::default(),
             },
             monitors: super::monitor::Browser::default(),
             findings: super::finding::Browser::default(),
@@ -467,8 +470,12 @@ impl Explorer {
     }
 
     fn globe_key(&mut self, key: char) -> bool {
+        if matches!(key, 'h' | 'l' | 'j' | 'k' | 'c') {
+            self.stop_spin();
+        }
         let (lon, lat) = self.globe.center;
         match key {
+            'r' => self.toggle_spin(),
             'h' => self.globe.center = (wrap_longitude(lon - 15.0), lat),
             'l' => self.globe.center = (wrap_longitude(lon + 15.0), lat),
             'k' => self.globe.center = (lon, (lat + 15.0).min(90.0)),
@@ -648,13 +655,6 @@ impl Explorer {
     #[must_use]
     pub const fn now_ms(&self) -> i64 {
         self.now_ms
-    }
-
-    #[must_use]
-    pub const fn animation_frames(&self) -> u32 {
-        match self.draw {
-            Draw::Needed | Draw::Clean => 0,
-        }
     }
 
     #[must_use]
