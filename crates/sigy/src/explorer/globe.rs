@@ -137,6 +137,10 @@ pub fn header_lines(model: &Explorer) -> Vec<Line<'static>> {
             degrees(lat, 'N', 'S')
         )
     };
+    let controls = model.spin_label().map_or_else(
+        || "h/l/j/k rotate, m map, c center | 2-9 count, + 10 or more in one cell".to_owned(),
+        |spin| format!("h/l/j/k turn, r spin {spin}, m map, c center | 2-9 count, + 10+"),
+    );
     vec![
         Line::from(format!(
             "{view} | geometric night at {}",
@@ -146,7 +150,7 @@ pub fn header_lines(model: &Explorer) -> Vec<Line<'static>> {
             "{} of {} stations on this page have directory coordinates",
             counts.mapped, counts.total,
         )),
-        Line::from("h/l/j/k rotate, m map, c center | 2-9 count, + 10 or more in one cell"),
+        Line::from(controls),
     ]
 }
 
@@ -488,6 +492,27 @@ mod tests {
         let clusters = station_clusters(&many, None, flat_view());
         assert_eq!(clusters[0].count, 16);
         assert_eq!(clusters[0].symbol(), "+");
+    }
+
+    #[test]
+    fn turning_globe_preserves_selected_projection_and_nearby_clusters() {
+        let rows = vec![row("selected", 0.0, 0.0), row("nearby", 0.000_001, 0.0)];
+        for longitude in [-60.0, -30.0, 0.0, 30.0, 60.0] {
+            let mut view = flat_view();
+            view.flat = false;
+            view.projection = Orthographic::new(longitude, 0.0).ok();
+            let clusters = station_clusters(&rows, Some("selected"), view);
+            assert_eq!(clusters.len(), 1);
+            assert_eq!(clusters[0].symbol(), "@");
+            assert_eq!(clusters[0].count, 2);
+            assert!((clusters[0].point.x + longitude.to_radians().sin()).abs() < 1e-10);
+        }
+        // A station on the far hemisphere remains selected in the list; never
+        // invent a visible front-side position for it.
+        let mut view = flat_view();
+        view.flat = false;
+        view.projection = Orthographic::new(180.0, 0.0).ok();
+        assert!(station_clusters(&rows, Some("selected"), view).is_empty());
     }
 
     #[test]

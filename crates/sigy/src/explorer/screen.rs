@@ -54,7 +54,7 @@ pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
     render_sections(frame, area, &sections, model);
 }
 
-fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], model: &Explorer) {
+fn section_rects(area: Rect, sections: &[Section]) -> std::rc::Rc<[Rect]> {
     let constraints: Vec<Constraint> = sections
         .iter()
         .map(|section| match section.height {
@@ -62,7 +62,32 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], mode
             Height::Fill => Constraint::Min(1),
         })
         .collect();
-    let rects = Layout::vertical(constraints).split(area);
+    Layout::vertical(constraints).split(area)
+}
+
+/// Use the same layout as rendering; a workspace can have no drawable canvas.
+pub(super) fn globe_visible(model: &Explorer, area: Rect) -> bool {
+    if area.width < 60
+        || area.height < 16
+        || model.workspace() != Workspace::Globe
+        || model.context.is_some()
+        || model.search.picker.is_some()
+        || model.search.editing_filters()
+    {
+        return false;
+    }
+    let sections = full_sections(model);
+    sections
+        .iter()
+        .zip(section_rects(area, &sections).iter())
+        .any(|(section, rect)| {
+            let canvas = globe_rects(*rect)[1];
+            section.globe && canvas.width >= 4 && canvas.height >= 2
+        })
+}
+
+fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], model: &Explorer) {
+    let rects = section_rects(area, sections);
     for (section, rect) in sections.iter().zip(rects.iter()) {
         if section.globe {
             render_globe(frame, *rect, section, model);
@@ -136,10 +161,13 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], mode
     }
 }
 
-fn render_globe(frame: &mut Frame<'_>, area: Rect, section: &Section, model: &Explorer) {
+fn globe_rects(area: Rect) -> std::rc::Rc<[Rect]> {
     let header_height = if area.height >= 6 { 3 } else { 2 };
-    let rows =
-        Layout::vertical([Constraint::Length(header_height), Constraint::Min(1)]).split(area);
+    Layout::vertical([Constraint::Length(header_height), Constraint::Min(1)]).split(area)
+}
+
+fn render_globe(frame: &mut Frame<'_>, area: Rect, section: &Section, model: &Explorer) {
+    let rows = globe_rects(area);
     let mut header = super::globe::header_lines(model);
     if section.linear_focus
         && let Some(first) = header.first_mut()
@@ -670,6 +698,9 @@ fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
             }
             Workspace::Findings => {
                 "Help: / edit IDs, Enter reads, arrows scroll, o recording metadata, q quit"
+            }
+            Workspace::Globe if model.spin_label().is_some() => {
+                "Help: h/l/j/k turn, r spin, m map, c center, R fetch, n/p page, q quit"
             }
             Workspace::Globe => {
                 "Help: h/l/j/k turn, m map, c center, R fetch, n/p page, g first, q quit"
