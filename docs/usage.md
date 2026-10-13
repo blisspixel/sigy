@@ -542,6 +542,8 @@ Press `7` for the Globe workspace: an orthographic globe, or with `m` a flat wor
 
 The same page has coordinates for two stations. The globe uses those directory positions and offline coastlines; its night layer is geometric.
 
+In an interactive color terminal, `r` in the Globe workspace toggles optional slow rotation, initially off. The header shows its state. Rotation moves east at six degrees per second; `h`, `l`, `j`, `k` or `c` stops it. It pauses in a flat map, hidden pane, small terminal or after five minutes without input, and resumes without jumping. `--reduced-motion`, `SIGY_REDUCED_MOTION=1`, `--linear`, monochrome presentation, `NO_COLOR`, `TERM=dumb`, pipes and one-frame inspection disable animation. Other workspaces retain `r` to reload. See [optional globe rotation](decisions/0093-optional-globe-rotation.md).
+
 ## Desktop panel
 
 For a ready-to-copy Waybar module and six-state CSS, see [desktop integration](desktop.md). Left click opens the explorer; right click requests a listen stop. Linux playback additionally requires the delegated native context and a usable local output; a working read-only bar does not establish either.
