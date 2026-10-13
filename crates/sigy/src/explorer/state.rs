@@ -9,8 +9,8 @@ mod catalog;
 mod context;
 #[cfg(test)]
 mod ordered_tests;
-mod spin;
 mod random;
+mod spin;
 const PAGE_LIMIT: u32 = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
