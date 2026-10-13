@@ -1,5 +1,6 @@
 //! Workspace verification. This is a development tool, not the Sigy application.
 
+mod changelog;
 mod coastline;
 mod coverage;
 mod scripts;
@@ -72,6 +73,7 @@ fn run() -> Result<(), Error> {
 fn verify(root: &Path) -> Result<(), Error> {
     check_vendor(root).map_err(Error::Check)?;
     check_scripts(root).map_err(Error::Check)?;
+    changelog::check_release_changelog(root).map_err(Error::Check)?;
     run_cargo(root, &["fmt", "--all", "--", "--check"])?;
     // The running sigy-xtask binary cannot be replaced on Windows, so the
     // product commands exclude this package and its own check uses another directory.
