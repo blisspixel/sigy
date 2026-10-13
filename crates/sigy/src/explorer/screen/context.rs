@@ -70,7 +70,7 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
         };
         super::clip(&format!("{phase} | c{revision}"), usize::from(area.width))
     } else {
-        format!("{state} | cache {revision} | page {}", model.page_number())
+        format!("{state} | cache {revision} | {}", model.result_label())
     };
     frame.render_widget(Paragraph::new(status), sections[2]);
     if !narrow {

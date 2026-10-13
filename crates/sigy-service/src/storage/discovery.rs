@@ -2,6 +2,7 @@
 
 pub(crate) mod linked;
 pub(crate) mod ordered;
+mod random;
 #[cfg(test)]
 mod tests;
 

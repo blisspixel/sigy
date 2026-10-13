@@ -15,7 +15,7 @@ use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 
 pub const HELP_PRIMARY: &str =
-    "Help: / search F filters C country R fetch f save v fav n/p page r reload q quit";
+    "Help: / search F filters C country e explore R fetch f save n/p page q quit";
 pub const HELP_SELECTION: &str =
     "Enter inspects; P then y plays; S stops. Selection starts no work.";
 pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
@@ -271,7 +271,7 @@ fn compact_help(model: &Explorer, width: u16) -> &'static str {
         Workspace::Recordings => "Help: q quit, arrows select, r reload",
         Workspace::Monitors => "Help: q quit, Enter read, r reload",
         Workspace::Globe | Workspace::Explore if model.restart_required() => "q quit | g restart",
-        Workspace::Globe => "q quit Enter inspect | m map",
+        Workspace::Globe => "q quit Enter inspect | e explore | m map",
         Workspace::Explore => "q quit Enter inspect | / search | n/p page",
         Workspace::Live | Workspace::System => "Help: q quit, r reload, Tab focus",
     }
@@ -491,9 +491,9 @@ fn search_lines(model: &Explorer) -> Vec<Line<'static>> {
             color,
             Tone::Muted,
             format!(
-                " | {} | page {} | snapshot {}",
+                " | {} | {} | snapshot {}",
                 model.catalog_label(),
-                model.page_number(),
+                model.result_label(),
                 model.snapshot_age()
             ),
         ));
@@ -703,7 +703,7 @@ fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
                 "Help: h/l/j/k turn, r spin, m map, c center, R fetch, n/p page, q quit"
             }
             Workspace::Globe => {
-                "Help: h/l/j/k turn, m map, c center, R fetch, n/p page, g first, q quit"
+                "Help: h/l/j/k turn, m map, e explore, R fetch, n/p page, g first, q quit"
             }
         }
     };
@@ -762,7 +762,7 @@ fn explore_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'sta
         return empty_explore(model);
     }
     let columns = Columns::for_width(width);
-    let mut title = format!("Stations, page {}", model.page_number());
+    let mut title = format!("Stations, {}", model.result_label());
     match (model.has_next_page(), model.page_number() > 1) {
         (true, true) => title.push_str(" (n, p)"),
         (true, false) => title.push_str(" (n more)"),

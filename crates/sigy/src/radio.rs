@@ -440,6 +440,9 @@ fn write_countries(
 }
 
 pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<()> {
+    if let Some(result) = &view.random_station {
+        write_random_station(writer, result, ink)?;
+    }
     if let Some(page) = &view.linked_station_context {
         writeln!(
             writer,
@@ -526,6 +529,45 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
     }
     if let Some(page) = &view.ordered_station_page {
         write_ordered_stations(writer, page, ink)?;
+    }
+    Ok(())
+}
+
+fn write_random_station(
+    writer: &mut impl Write,
+    result: &sigy_service::discovery::ordered::RandomStation,
+    ink: Ink,
+) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Random pick from {} eligible cached stations | cache revision {}.",
+        result.eligible_count, result.catalog.revision
+    )?;
+    if let Some(station) = &result.station {
+        write_stations(
+            writer,
+            &sigy_service::control::StationPage {
+                entries: vec![station.clone()],
+                favorite_ids: if result.favorite {
+                    vec![station.id.clone()]
+                } else {
+                    Vec::new()
+                },
+                next_after: None,
+            },
+            ink,
+        )?;
+        if let (Some(latitude), Some(longitude)) = (station.latitude, station.longitude) {
+            writeln!(
+                writer,
+                "  Directory coordinates (approximate): {latitude:.4}, {longitude:.4}. Selection does not start playback."
+            )?;
+        }
+    } else {
+        writeln!(
+            writer,
+            "No cached stations with coordinates match these filters. Fetch a directory page explicitly with radio search --fetch."
+        )?;
     }
     Ok(())
 }
@@ -720,6 +762,52 @@ mod tests {
     };
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    #[tokio::test]
+    async fn explore_cli_reuses_filters_and_renders_explicit_random_result() -> TestResult {
+        use clap::Parser;
+        let directory = tempfile::tempdir()?;
+        drop(sigy_service::library::Library::open(
+            directory.path(),
+            true,
+        )?);
+        let cli = crate::Cli::try_parse_from([
+            "sigy",
+            "--data-dir",
+            directory.path().to_str().ok_or("path")?,
+            "explore",
+            "--country",
+            "Canada",
+            "--language",
+            "french",
+            "--tag",
+            "news",
+            "--favorites",
+            "--healthy",
+        ])?;
+        let view = Box::pin(crate::execute(&cli)).await?.ok_or("snapshot")?;
+        let result = view.random_station.as_ref().ok_or("random result")?;
+        assert_eq!(result.eligible_count, 0);
+        let mut bytes = Vec::new();
+        crate::render_library_snapshot(&mut bytes, &cli, &view, Ink::stdout(true))?;
+        assert!(String::from_utf8(bytes)?.contains("No cached stations with coordinates"));
+        let mut picked = result.clone();
+        picked.eligible_count = 1;
+        picked.favorite = true;
+        picked.station = Some(serde_json::from_value(serde_json::json!({
+            "provider":"radio_browser", "id":"00000000-0000-0000-0000-000000000001",
+            "name":"Montréal", "country":"CA", "state":"", "languages":["french"], "language_codes":[], "tags":["news"],
+            "codec":"MP3", "bitrate_kbps":128, "hls":false, "last_check_ok":true,
+            "latitude":45.5, "longitude":-73.6, "stream_origin":"https://station.example", "observed_ms":1000, "refresh_id":"fixture"
+        }))?);
+        let mut bytes = Vec::new();
+        write_random_station(&mut bytes, &picked, Ink::stdout(true))?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.contains("Directory coordinates (approximate): 45.5000, -73.6000"));
+        assert!(text.contains("[favorite]"));
+        assert!(!text.contains("--after") && !text.contains('\u{1b}'));
+        Ok(())
+    }
 
     #[tokio::test]
     async fn country_command_executes_without_opening_the_selected_library() -> TestResult {

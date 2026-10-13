@@ -1,6 +1,6 @@
 use super::{Operation, Snapshot, SourcePage};
 pub use crate::discovery::linked::{LinkedRecording, LinkedSource, LinkedStationContext};
-pub use crate::discovery::ordered::{DirectoryCatalog, OrderedStationPage};
+pub use crate::discovery::ordered::{DirectoryCatalog, OrderedStationPage, RandomStation};
 use crate::{
     Error, Result,
     discovery::{RefreshRequest, Station, StationFilter},
@@ -16,6 +16,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DirectoryOperation {
+    Explore {
+        filter: StationFilter,
+        #[serde(default)]
+        favorites_only: bool,
+    },
     Refresh {
         id: String,
         request: RefreshRequest,
@@ -132,12 +137,24 @@ impl StationPage {
 }
 
 pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Snapshot> {
-    if let DirectoryOperation::Linked { id, catalog } = &command {
-        return apply_linked(store, id, catalog.as_ref());
+    match command {
+        DirectoryOperation::Explore {
+            filter,
+            favorites_only,
+        } => store.guarded_directory_read(|store| {
+            let mut view = super::snapshot(store)?;
+            let result = store.random_station_in_work(&filter, favorites_only)?;
+            view.directory_catalog = Some(result.catalog.clone());
+            view.random_station = Some(Box::new(result));
+            Ok(view)
+        }),
+        DirectoryOperation::Linked { id, catalog } => apply_linked(store, &id, catalog.as_ref()),
+        DirectoryOperation::SearchOrdered { .. } => apply_ordered(store, command),
+        _ => apply_listing(store, command),
     }
-    if matches!(command, DirectoryOperation::SearchOrdered { .. }) {
-        return apply_ordered(store, command);
-    }
+}
+
+fn apply_listing(store: &mut Store, command: DirectoryOperation) -> Result<Snapshot> {
     let mut view = super::snapshot(store)?;
     let listed = matches!(
         &command,
@@ -159,7 +176,9 @@ pub(super) fn apply(store: &mut Store, command: DirectoryOperation) -> Result<Sn
             (None, None)
         }
         DirectoryOperation::Status {} => (None, None),
-        DirectoryOperation::SearchOrdered { .. } | DirectoryOperation::Linked { .. } => {
+        DirectoryOperation::SearchOrdered { .. }
+        | DirectoryOperation::Linked { .. }
+        | DirectoryOperation::Explore { .. } => {
             return Err(Error::RequestState);
         }
         DirectoryOperation::Search {
