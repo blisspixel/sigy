@@ -1,0 +1,499 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sigy monitor_coverage structured output",
+  "description": "Live monitor coverage in the existing CLI snapshot, not a frozen briefing. Capture, publication, recognition, no-text, translation, gaps and missed schedule occurrences are distinct; truncation is explicit.",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/snapshot"
+    },
+    {
+      "$ref": "#/$defs/error"
+    }
+  ],
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "directory": {
+          "type": "null"
+        },
+        "directory_refresh": {
+          "type": "null"
+        },
+        "station_page": {
+          "type": "null"
+        },
+        "ordered_station_page": {
+          "type": "null"
+        },
+        "random_station": {
+          "type": "null"
+        },
+        "directory_catalog": {
+          "$ref": "#/$defs/directoryCatalog"
+        },
+        "linked_station_context": {
+          "type": "null"
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sqlite_version": {
+          "type": "string"
+        },
+        "provider_dispatch_available": {
+          "type": "boolean"
+        },
+        "budgets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/budget"
+          }
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/service"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "captures": {
+          "$ref": "#/$defs/captures"
+        },
+        "source_page": {
+          "type": "null"
+        },
+        "recording_page": {
+          "type": "null"
+        },
+        "dvr": {
+          "type": "null"
+        },
+        "recording_metadata": {
+          "type": "null"
+        },
+        "playlist": {
+          "type": "null"
+        },
+        "directory_click": {
+          "type": "null"
+        },
+        "listen": {
+          "type": "null"
+        },
+        "retained": {
+          "type": "null"
+        },
+        "playback": {
+          "type": "null"
+        },
+        "podcast_page": {
+          "type": "null"
+        },
+        "podcast_feed": {
+          "type": "null"
+        },
+        "publisher_text": {
+          "type": "null"
+        },
+        "doctor": {
+          "type": "null"
+        },
+        "schedule": {
+          "type": "null"
+        },
+        "directory_policy": {
+          "type": "null"
+        },
+        "analysis": {
+          "type": "null"
+        },
+        "analysis_job": {
+          "type": "null"
+        },
+        "recognition": {
+          "type": "null"
+        },
+        "provider": {
+          "type": "null"
+        },
+        "monitor": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "coverage"
+            },
+            "coverage": {
+              "$ref": "#/$defs/monitorCoverage"
+            }
+          },
+          "required": [
+            "kind",
+            "coverage"
+          ],
+          "additionalProperties": false
+        },
+        "briefing_export": {
+          "type": "null"
+        },
+        "task": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "directory",
+        "directory_refresh",
+        "station_page",
+        "ordered_station_page",
+        "random_station",
+        "directory_catalog",
+        "linked_station_context",
+        "schema_version",
+        "sqlite_version",
+        "provider_dispatch_available",
+        "budgets",
+        "service",
+        "captures",
+        "source_page",
+        "recording_page",
+        "dvr",
+        "recording_metadata",
+        "playlist",
+        "directory_click",
+        "listen",
+        "retained",
+        "playback",
+        "podcast_page",
+        "podcast_feed",
+        "publisher_text",
+        "doctor",
+        "schedule",
+        "directory_policy",
+        "analysis",
+        "analysis_job",
+        "recognition",
+        "provider",
+        "monitor",
+        "briefing_export",
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "description": "CLI JSON error envelope. MCP preserves this stderr envelope or synthesizes it for adapter failures; isError is carried outside structuredContent."
+    },
+    "money": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]{6}$",
+      "description": "Exact USD decimal string with six fractional digits; never a JSON floating-point amount."
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "limit_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "settled_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "reserved_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "available_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "frozen": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "scope",
+        "limit_usd",
+        "settled_usd",
+        "reserved_usd",
+        "available_usd",
+        "frozen"
+      ],
+      "additionalProperties": false
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "process_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uptime_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stopping": {
+          "type": "boolean"
+        },
+        "maximum_clients": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "process_id",
+        "uptime_seconds",
+        "stopping",
+        "maximum_clients"
+      ],
+      "additionalProperties": false
+    },
+    "captures": {
+      "type": "object",
+      "properties": {
+        "dispatch_available": {
+          "type": "boolean"
+        },
+        "scheduled": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interrupted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminal": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dispatch_available",
+        "scheduled",
+        "active",
+        "interrupted",
+        "terminal"
+      ],
+      "additionalProperties": false
+    },
+    "directoryCatalog": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "comparison": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace",
+        "revision",
+        "comparison"
+      ],
+      "additionalProperties": false
+    },
+    "monitorCoverage": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "from_ms": {
+          "type": "integer",
+          "description": "Inclusive capture-start window in Unix milliseconds."
+        },
+        "to_ms": {
+          "type": "integer",
+          "description": "Exclusive capture-start window in Unix milliseconds."
+        },
+        "daily_audio_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceCoverage"
+          }
+        },
+        "schedules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scheduleCoverage"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "from_ms",
+        "to_ms",
+        "daily_audio_seconds",
+        "sources",
+        "schedules"
+      ],
+      "additionalProperties": false
+    },
+    "sourceCoverage": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "captures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "published": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recorded_us": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gaps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gap_us": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pinned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transcribed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pins whose latest recognition revision has text."
+        },
+        "transcribed_us": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "no_text": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pins whose latest recognition revision completed without text; distinct from failure or missing work."
+        },
+        "no_text_us": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "translated_cues": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "untranslated_cues": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cues_without_translation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "untranslated_reasons": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": 0
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2,
+            "items": false
+          }
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "More captures existed than this request reads; counts are partial."
+        }
+      },
+      "required": [
+        "source",
+        "captures",
+        "published",
+        "recorded_us",
+        "gaps",
+        "gap_us",
+        "pinned",
+        "transcribed",
+        "transcribed_us",
+        "no_text",
+        "no_text_us",
+        "translated_cues",
+        "untranslated_cues",
+        "cues_without_translation",
+        "untranslated_reasons",
+        "truncated"
+      ],
+      "additionalProperties": false
+    },
+    "scheduleCoverage": {
+      "type": "object",
+      "properties": {
+        "schedule": {
+          "type": "string"
+        },
+        "admitted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missed_elapsed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missed_spring_forward": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "waiting": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "schedule",
+        "admitted",
+        "missed_elapsed",
+        "missed_spring_forward",
+        "waiting"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,636 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sigy doctor structured output",
+  "description": "Read-only doctor CLI snapshot, including attention and blocked checks on unsuccessful exit, or an error envelope. Checks report observations, not platform or language qualification.",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/snapshot"
+    },
+    {
+      "$ref": "#/$defs/error"
+    }
+  ],
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/directoryStatus"
+        },
+        "directory_refresh": {
+          "type": "null"
+        },
+        "station_page": {
+          "type": "null"
+        },
+        "ordered_station_page": {
+          "type": "null"
+        },
+        "random_station": {
+          "type": "null"
+        },
+        "directory_catalog": {
+          "$ref": "#/$defs/directoryCatalog"
+        },
+        "linked_station_context": {
+          "type": "null"
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sqlite_version": {
+          "type": "string"
+        },
+        "provider_dispatch_available": {
+          "type": "boolean"
+        },
+        "budgets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/budget"
+          }
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/service"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "captures": {
+          "$ref": "#/$defs/captures"
+        },
+        "source_page": {
+          "type": "null"
+        },
+        "recording_page": {
+          "type": "null"
+        },
+        "dvr": {
+          "$ref": "#/$defs/dvrStatus"
+        },
+        "recording_metadata": {
+          "type": "null"
+        },
+        "playlist": {
+          "type": "null"
+        },
+        "directory_click": {
+          "type": "null"
+        },
+        "listen": {
+          "type": "null"
+        },
+        "retained": {
+          "type": "null"
+        },
+        "playback": {
+          "type": "null"
+        },
+        "podcast_page": {
+          "type": "null"
+        },
+        "podcast_feed": {
+          "type": "null"
+        },
+        "publisher_text": {
+          "type": "null"
+        },
+        "doctor": {
+          "$ref": "#/$defs/doctorReport"
+        },
+        "schedule": {
+          "type": "null"
+        },
+        "directory_policy": {
+          "type": "null"
+        },
+        "analysis": {
+          "type": "null"
+        },
+        "analysis_job": {
+          "type": "null"
+        },
+        "recognition": {
+          "type": "null"
+        },
+        "provider": {
+          "type": "null"
+        },
+        "monitor": {
+          "type": "null"
+        },
+        "briefing_export": {
+          "type": "null"
+        },
+        "task": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "directory",
+        "directory_refresh",
+        "station_page",
+        "ordered_station_page",
+        "random_station",
+        "directory_catalog",
+        "linked_station_context",
+        "schema_version",
+        "sqlite_version",
+        "provider_dispatch_available",
+        "budgets",
+        "service",
+        "captures",
+        "source_page",
+        "recording_page",
+        "dvr",
+        "recording_metadata",
+        "playlist",
+        "directory_click",
+        "listen",
+        "retained",
+        "playback",
+        "podcast_page",
+        "podcast_feed",
+        "publisher_text",
+        "doctor",
+        "schedule",
+        "directory_policy",
+        "analysis",
+        "analysis_job",
+        "recognition",
+        "provider",
+        "monitor",
+        "briefing_export",
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "description": "CLI JSON error envelope. MCP preserves this stderr envelope or synthesizes it for adapter failures; isError is carried outside structuredContent."
+    },
+    "money": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]{6}$",
+      "description": "Exact USD decimal string with six fractional digits; never a JSON floating-point amount."
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "limit_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "settled_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "reserved_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "available_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "frozen": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "scope",
+        "limit_usd",
+        "settled_usd",
+        "reserved_usd",
+        "available_usd",
+        "frozen"
+      ],
+      "additionalProperties": false
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "process_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uptime_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stopping": {
+          "type": "boolean"
+        },
+        "maximum_clients": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "process_id",
+        "uptime_seconds",
+        "stopping",
+        "maximum_clients"
+      ],
+      "additionalProperties": false
+    },
+    "captures": {
+      "type": "object",
+      "properties": {
+        "dispatch_available": {
+          "type": "boolean"
+        },
+        "scheduled": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interrupted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminal": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dispatch_available",
+        "scheduled",
+        "active",
+        "interrupted",
+        "terminal"
+      ],
+      "additionalProperties": false
+    },
+    "directoryCatalog": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "comparison": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace",
+        "revision",
+        "comparison"
+      ],
+      "additionalProperties": false
+    },
+    "doctorReport": {
+      "type": "object",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/doctorCheck"
+          }
+        }
+      },
+      "required": [
+        "checks"
+      ],
+      "additionalProperties": false
+    },
+    "doctorCheck": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "attention",
+            "blocked"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "state",
+        "detail",
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    "directoryStatus": {
+      "type": "object",
+      "properties": {
+        "cached_stations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "favorite_stations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_stations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "oldest_observed_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "newest_observed_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stale_stations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "latest_refresh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/refreshStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "cached_stations",
+        "favorite_stations",
+        "maximum_stations",
+        "oldest_observed_ms",
+        "newest_observed_ms",
+        "stale_stations",
+        "latest_refresh"
+      ],
+      "additionalProperties": false
+    },
+    "refreshStatus": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/refreshRequest"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "started_ms": {
+          "type": "integer"
+        },
+        "completed_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "accepted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mirror_origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "request",
+        "state",
+        "started_ms",
+        "completed_ms",
+        "accepted",
+        "skipped",
+        "mirror_origin",
+        "failure"
+      ],
+      "additionalProperties": false
+    },
+    "refreshRequest": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "$ref": "#/$defs/stationFilter"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mirror": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "network": {
+          "$ref": "#/$defs/networkScope"
+        }
+      },
+      "required": [
+        "filter",
+        "limit",
+        "offset",
+        "mirror",
+        "network"
+      ],
+      "additionalProperties": false
+    },
+    "stationFilter": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "country": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "healthy_only": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "country",
+        "language",
+        "tag",
+        "healthy_only"
+      ],
+      "additionalProperties": false
+    },
+    "networkScope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "public_internet"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "pinned_address"
+            },
+            "address": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "address"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "dvrStatus": {
+      "type": "object",
+      "properties": {
+        "quota_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reserved_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "available_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minimum_free_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retention_days": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "decoder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "quota_bytes",
+        "charged_bytes",
+        "reserved_bytes",
+        "available_bytes",
+        "minimum_free_bytes",
+        "retention_days",
+        "decoder"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

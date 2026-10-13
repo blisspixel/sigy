@@ -15,3 +15,5 @@ Amended 2026-09-24: analysis tools let an agent pin and publish a recording, que
 Amended 2026-09-24: monitor tools let an agent list and show monitors, read the action log, coverage and literal term matches, and record a proposal. The proposal's origin is fixed to `model` and is not a tool argument, so an agent cannot record a user action. No tool creates, revises, pauses or resumes a monitor; versions stay with the user. See [monitor versions and actions](0046-monitor-versions-and-actions.md).
 
 Amended 2026-10-02: `analysis_search` reads stored original-script cues and English translations across the library with the bounds of `analysis search`. It is read-only and starts no work, and the term is always passed as the value of `--term`. It publishes no finding. See [archive passage search](0075-archive-passage-search.md).
+
+Amended 2026-10-13: `doctor`, `analysis_search`, `monitor_matches`, `monitor_coverage`, `analysis_transcript` and `analysis_translation` declare self-contained output schemas for their existing CLI snapshots and error envelopes. See [MCP evidence output schemas](0095-mcp-evidence-output-schemas.md).

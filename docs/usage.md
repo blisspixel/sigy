@@ -571,6 +571,8 @@ sigy --data-dir PATH_TO_LIBRARY panel stop
 
 `listen_file` accepts an optional bounded `request` replay ID. `listen_reader_show` and `listen_reader_list` inspect its durable receipts without new work. No reader-stop tool is added; the existing library and finite tool-process limits remain in force.
 
+`doctor`, `analysis_search`, `monitor_matches`, `monitor_coverage`, `analysis_transcript` and `analysis_translation` declare an `outputSchema` in `tools/list`. Their `structuredContent` preserves the complete CLI JSON snapshot. Failures without a snapshot use `{ "error": "message" }`; failed doctor checks retain the report and set `isError`. The [checked-in schemas](schemas/) describe required evidence, nullability and revision fields. See [the output contract](decisions/0095-mcp-evidence-output-schemas.md).
+
 ## Verification
 
 When your environment points multiple checkouts at one global Cargo target, set `CARGO_TARGET_DIR` to a dedicated Sigy target before `cargo verify-coverage`. Its lock protects Sigy's collection, but cannot fence unrelated Cargo cleanup in the same instrumented directory. Preserve the unique report path printed by a successful run. Coverage still requires at least 80% for every workspace crate without source exclusions.
