@@ -63,6 +63,7 @@ impl Explorer {
         }
         self.pending_random = None;
         self.random_count = Some(result.eligible_count);
+        self.stop_spin();
         self.selection = 0;
         self.focus = Focus::Results;
         self.workspace = Workspace::Globe;

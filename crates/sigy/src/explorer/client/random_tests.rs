@@ -57,6 +57,13 @@ pub(crate) fn snapshot(result: &RandomStation) -> Result<Snapshot, serde_json::E
 fn random_jump_is_passive_and_cuts_to_coordinates_in_both_motion_modes() -> TestResult {
     for reduced in [false, true] {
         let mut model = model(reduced);
+        model.observe_playback(PlaybackView {
+            id: "existing-listen".into(),
+            state: "running".into(),
+            format: None,
+            source_revision: "existing:v1".into(),
+            failure: None,
+        });
         let query = query(&mut model);
         assert!(matches!(
             operations_for(&Effect::ExploreRandom(query.clone()), &model).as_slice(),
@@ -76,6 +83,10 @@ fn random_jump_is_passive_and_cuts_to_coordinates_in_both_motion_modes() -> Test
         assert_eq!(model.workspace(), Workspace::Globe);
         assert_eq!(model.random_count(), Some(37));
         assert_eq!(model.rows().len(), 1);
+        assert_eq!(
+            model.playback().map(|view| view.id.as_str()),
+            Some("existing-listen")
+        );
         assert!(!model.has_next_page());
         assert!(model.catalog_label().contains("random selection"));
         assert!(model.status().contains("approximate"));
@@ -87,6 +98,34 @@ fn random_jump_is_passive_and_cuts_to_coordinates_in_both_motion_modes() -> Test
         };
         assert!(first.after.is_none());
     }
+    Ok(())
+}
+
+#[test]
+fn random_jump_stops_enabled_spin_before_replacing_the_camera() -> TestResult {
+    let mut model = Explorer::new(
+        Modes {
+            reduced_motion: false,
+            monochrome: false,
+            linear: false,
+        },
+        1000,
+    );
+    model.note_link(Link::LocalCatalog);
+    let now = std::time::Instant::now();
+    model.configure_motion(true, false, now);
+    model.handle(Key::Char('7'));
+    model.handle(Key::Char('r'));
+    assert!(model.spin_requested());
+    let query = query(&mut model);
+    assert!(adopt_random(
+        &mut model,
+        &query,
+        Ok((false, snapshot(&result()?)?))
+    ));
+    assert!(!model.spin_requested());
+    model.advance_spin(now + std::time::Duration::from_secs(1), true);
+    assert_eq!(model.globe_center(), (-73.6, 45.5));
     Ok(())
 }
 
