@@ -23,3 +23,13 @@ pub struct OrderedStationPage {
     pub next_after: Option<String>,
     pub catalog: DirectoryCatalog,
 }
+
+/// One uniform pick from the complete eligible portion of the partial local cache.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RandomStation {
+    pub station: Option<Station>,
+    pub favorite: bool,
+    pub eligible_count: u32,
+    pub catalog: DirectoryCatalog,
+}

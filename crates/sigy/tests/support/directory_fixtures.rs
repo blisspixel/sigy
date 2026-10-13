@@ -126,6 +126,64 @@ fn response() -> Vec<u8> {
     format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes()
 }
 
+#[test]
+fn random_explore_uses_cached_coordinates_without_directory_or_stream_contact() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let stream = DirectoryServer::start(Vec::new(), Duration::ZERO)?;
+    let body = serde_json::json!([{
+        "stationuuid":"12345678-1234-1234-1234-123456789abc", "name":"Radio Québec",
+        "url":format!("{}/audio", stream.origin),
+        "countrycode":"CA", "language":"french", "tags":"news", "lastcheckok":1,
+        "geo_lat":45.5, "geo_long":-73.6
+    }])
+    .to_string();
+    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes();
+    let fixture = DirectoryServer::start(response, Duration::ZERO)?;
+    success(directory.path(), &["library", "init"])?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(directory.path(), &fixture.request("random-fixture"))?;
+    assert_eq!(
+        wait_refresh(directory.path(), "random-fixture")?["directory_refresh"]["accepted"],
+        1
+    );
+    let id = "12345678-1234-1234-1234-123456789abc";
+    success(directory.path(), &["radio", "favorite", id])?;
+    for _ in 0..3 {
+        let picked = success(
+            directory.path(),
+            &[
+                "explore",
+                "--country",
+                "Canada",
+                "--name",
+                "QUÉBEC",
+                "--language",
+                "FRENCH",
+                "--tag",
+                "news",
+                "--favorites",
+                "--healthy",
+            ],
+        )?;
+        assert_eq!(picked["random_station"]["station"]["id"], id);
+        assert_eq!(picked["random_station"]["eligible_count"], 1);
+        assert_eq!(picked["random_station"]["favorite"], true);
+        assert!(
+            picked["source_page"].is_null()
+                && picked["listen"].is_null()
+                && picked["directory_refresh"].is_null()
+        );
+    }
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    let offline = success(directory.path(), &["explore", "--country", "US"])?;
+    assert_eq!(offline["random_station"]["eligible_count"], 0);
+    assert!(offline["random_station"]["station"].is_null());
+    assert_eq!(fixture.connections(), 1);
+    assert_eq!(stream.connections(), 0);
+    Ok(())
+}
+
 fn wait_refresh(
     directory: &std::path::Path,
     id: &str,

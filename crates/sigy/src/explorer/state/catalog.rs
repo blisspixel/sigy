@@ -61,7 +61,15 @@ impl Explorer {
                 if self.restart_required {
                     format!("g restart | cache r{}", catalog.revision)
                 } else {
-                    format!("name order | cache r{}", catalog.revision)
+                    format!(
+                        "{} | cache r{}",
+                        if self.random_count.is_some() {
+                            "random selection"
+                        } else {
+                            "name order"
+                        },
+                        catalog.revision
+                    )
                 }
             },
         )

@@ -4,6 +4,16 @@ Updated: 2026-10-13. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-13 random cached exploration
+
+[Decision0094](../decisions/0094-random-cached-exploration.md) implements issue #16 through CLI `explore` and terminal `e`. A bounded full-cache count and rejection-sampled rank share one deferred read snapshot, all applied filters and catalog identity. The selected row uses the existing metadata validation. The distinct result reports eligible count without a page cursor. Accepted jumps stop rotation, preserve playback and cut directly to approximate directory coordinates, including under reduced motion. Schema stays v51; local IPC advances to v53. No dependency changes or external source work are introduced.
+
+Five service fixtures cover all 38 eligible ranks beyond the first page, combined filters/favorites, empty eligibility, corrupt selected metadata, entropy rejection/exhaustion and the full 10,000-station cache. The full-cache measurement selected the final rank in 88.22 ms with 560,000 checkpoint SQL operations. Its measurement wall ceiling was ten seconds to isolate SQL work under build load; production retains the 100 ms cooperative guard and may refuse exhausted work. This sample is not a latency guarantee. A deliberately reduced SQL-work allowance refuses rather than returning a partial-population sample.
+
+Client fixtures cover stale generations/catalogs, missing or malformed replies, invalid coordinates, immediate jumps in both motion modes, retained playback and stopped rotation. The service-backed CLI fixture seeds once, then repeated filtered favorite picks add no directory or stream connections; an offline empty-scope read uses the same authority. Independent review accepted the service, client and spin integration. The 70-frame production gallery includes picked, empty and monochrome random results. Inspected 80x24 and 132x40 frames show eligible counts, approximate coordinates and selected identity; the 20x8 view remains compact and clipped, with Enter inspection available. These synthetic renders do not qualify native terminals or audio output.
+
+Final `cargo verify` passes 1,147 ordinary test executions, 27 ignored, formatting, warnings-denied Clippy, build, native hashes and the audit of 343 locked dependencies against 1,310 advisories. Clean full `cargo verify-coverage` passes all crates above 80%, minimum 86.81%, with no source exclusions, and all 27 ignored entries including the native fixtures and rendered gallery. The final documentation rebase leaves runtime, manifests, configuration and tests byte-identical to the verified source. Verification and coverage log SHA-256 values are `31ccf3992a1d72a7375832e1bf2100083217841fe094495e1591b92f4690b6a9` and `8367465d6a5179e22ecd2f3420dbb96a6e685e9d1b8df07718934f88a4fa6102`. Private logs and unmerged managed-child profiles remain under `.agents/verification/`; final gallery receipt is `target/visual-qa/1791907004822975405-3763890/manifest.json`. Per-crate counts and report hash follow in the snapshot. Exact-commit hosted verification remains required before source-only publication. No stage exit or broader platform qualification follows; external spend remains USD 0.
+
 ## 2026-10-13 optional globe rotation
 
 [Decision0093](../decisions/0093-optional-globe-rotation.md) implements issue #12 as presentation-only, initially off rotation. Globe `r` toggles six degrees per second eastward with a monotonic clock and a 100 ms motion cadence. Manual geographic controls stop it. Hidden, flat, small and five-minute-idle views discard their timing anchor and resume without a longitude jump. Reduced motion, monochrome, linear, noninteractive and one-frame modes stay static. Layout visibility shares the renderer's actual canvas and modal ownership. Selected-station projection and clustering remain correct while rotating. Schema v51, IPC v52 and dependencies are unchanged.
@@ -318,23 +328,23 @@ The repaired tree passes `cargo verify`: 751 test executions, 16 native fixtures
 
 | Item | Current value |
 | --- | --- |
-| Catalog schema / local IPC | v51 / v52 |
-| Verification | Current `cargo verify` passes 1,136 ordinary test executions, 27 ignored and all checks. Clean full coverage runs ordinary and all ignored entries, passes each crate's 80% gate without exclusions, minimum 86.59%, and renders the 64-frame gallery plus two spin frames. [Optional globe rotation](#2026-10-13-optional-globe-rotation) records exact scope and prerequisite fixture corrections. Exact-commit hosted verification remains required before source-only publication |
+| Catalog schema / local IPC | v51 / v53 |
+| Verification | Current `cargo verify` passes 1,147 ordinary test executions, 27 ignored and all checks. Clean full coverage runs ordinary and all ignored entries, passes each crate's 80% gate without exclusions, minimum 86.81%, and renders the 70-frame gallery plus two spin frames. [Random cached exploration](#2026-10-13-random-cached-exploration) records exact scope; the preceding rotation increment records prerequisite fixture corrections. Exact-commit hosted verification remains required before source-only publication |
 | Host | Current: Linux x86_64 on Ryzen 7 7840U with an actual delegated systemd user manager, Rust 1.98.1, FFmpeg 9.0.1 and the signed 6.1.1 negative fixture. Two build jobs, two ordinary test threads, one ignored-test thread. Earlier Windows 11 measurements retain their historical platform scope |
 | Other platforms | Actual Ubuntu systemd-user CI passes delegated resource/death contracts, exact decoder-clock acceptance/refusal and four loopback media/restart fixtures. macOS passes all-target build/lint and IPC/platform contracts; native work remains unavailable there. WSL passes all-target warnings-denied Clippy and unsupported-host refusal tests, but lacks a user manager and does not pass the full native service suite. Omarchy acoustic testing is deferred by the user. Small always-on hosts and broader Unix audio remain unqualified; no platform support claim is established |
 | Public source | `main` on [blisspixel/sigy](https://github.com/blisspixel/sigy); [source-only development prereleases](https://github.com/blisspixel/sigy/releases); none is a supported release |
 
-The current optional-globe runtime passes `cargo verify-coverage` with cargo-llvm-cov 0.9.1 and Rust 1.98.1 LLVM tools. These are line counts of compiled Linux Rust code, including tests and build scripts, with no source exclusions. They do not establish branch coverage, native terminal timing or broader platform qualification. The gate compares integer counts against 80%; percentages are truncated.
+The current random-exploration runtime passes `cargo verify-coverage` with cargo-llvm-cov 0.9.1 and Rust 1.98.1 LLVM tools. These are line counts of compiled Linux Rust code, including tests and build scripts, with no source exclusions. They do not establish branch coverage, native terminal timing or broader platform qualification. The gate compares integer counts against 80%; percentages are truncated.
 
 | Workspace crate | Covered / executable lines | Line coverage |
 | --- | --- | --- |
-| `sigy` | 26,915 / 31,082 | 86.59% |
+| `sigy` | 27,410 / 31,572 | 86.81% |
 | `sigy-core` | 1,435 / 1,521 | 94.34% |
-| `sigy-service` | 57,384 / 64,617 | 88.80% |
+| `sigy-service` | 57,670 / 64,906 | 88.85% |
 | `sigy-test-recognizer` | 257 / 283 | 90.81% |
 | `sigy-xtask` | 1,359 / 1,487 | 91.39% |
 
-The current dedicated-target receipt is `target/coverage-reports/workspace-3709613-1791906594902746262.json`, SHA-256 `84fba909bc4bce2f267ebe28847de859016205ee4972f061ac23f8e13dbeabcc`. Its clean collection excludes all earlier failed/aborted profiles and uncollected managed-grandchild profiles; the latter limitation cannot inflate coverage. The final runtime inventory and log hashes are recorded above. Documentation-only updates afterward do not change the measured runtime.
+The current dedicated-target receipt is `target/coverage-reports/workspace-3715074-1791906623739917384.json`, SHA-256 `adfc310bbfe329e2b1d2166ae118a5b1a4004d9da3ef950cddf0bdf880f5bef8`. Its clean collection excludes all earlier failed/aborted profiles and uncollected managed-grandchild profiles; the latter limitation cannot inflate coverage. The random-exploration log hashes are recorded above. Documentation-only updates afterward do not change the measured runtime.
 
 The preceding atomic-response runtime source passed `cargo verify-coverage` with `cargo-llvm-cov` 0.9.1, Rust 1.98.1 and its LLVM tools. Ordinary tests use two threads; ignored measurements, the gallery and all 21 native media checks use one. System audio was not selected during coverage. No workspace crate or source is excluded; test sources and build scripts are included. These are line measurements of compiled Windows Rust code, not branch coverage or platform qualification. The gate checks integer counts against 80%; percentages below are truncated.
 

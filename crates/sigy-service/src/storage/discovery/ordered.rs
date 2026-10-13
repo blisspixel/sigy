@@ -325,7 +325,7 @@ fn decode(value: &str) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn station_row(row: &Row<'_>) -> Result<(Station, String, bool)> {
+pub(super) fn station_row(row: &Row<'_>) -> Result<(Station, String, bool)> {
     let id = text(row, 0, 36)?;
     let json = text(row, 1, 8192)?;
     let endpoint = text(row, 2, 2048)?;

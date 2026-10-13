@@ -20,6 +20,9 @@ use crate::explorer::text::sanitize;
 
 const PAGE: u32 = Explorer::page_limit();
 
+#[cfg(test)]
+pub(crate) mod random_tests;
+
 pub async fn load_desk(
     directory: &Path,
     query: &SearchQuery,
@@ -138,6 +141,7 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
             .await
         }
         Effect::Search(query) => Box::pin(search(directory, model, query)).await,
+        Effect::ExploreRandom(query) => Box::pin(explore_random(directory, model, query)).await,
         Effect::SetFavorite {
             generation,
             id,
@@ -160,6 +164,7 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
             },
         }],
         Effect::Search(query) => vec![search_operation(query)],
+        Effect::ExploreRandom(query) => vec![random_operation(query)],
         Effect::SetFavorite { id, favorite, .. } => vec![favorite_operation(id, *favorite)],
         Effect::MonitorList => vec![monitor_operation(MonitorOperation::List {})],
         Effect::MonitorDetail { id } => monitor_reads(id, model.now_ms()),
@@ -312,6 +317,19 @@ async fn search(directory: &Path, model: &mut Explorer, query: &SearchQuery) -> 
         model,
         query,
         fetch(directory, search_operation(query)).await,
+    );
+    Ok(())
+}
+
+async fn explore_random(
+    directory: &Path,
+    model: &mut Explorer,
+    query: &SearchQuery,
+) -> Result<(), Error> {
+    adopt_random(
+        model,
+        query,
+        fetch(directory, random_operation(query)).await,
     );
     Ok(())
 }
@@ -550,28 +568,91 @@ fn directory_status(status: &sigy_service::storage::discovery::DirectoryStatus) 
 fn rows_from(page: &sigy_service::control::OrderedStationPage) -> Vec<StationRow> {
     page.entries
         .iter()
-        .map(|station| StationRow {
-            id: station.id.clone(),
-            name: sanitize(&station.name, 80),
-            favorite: page.favorite_ids.iter().any(|id| id == &station.id),
-            directory_health: match station.last_check_ok {
-                Some(true) => Health::Succeeded,
-                Some(false) => Health::Failed,
-                None => Health::Unknown,
-            },
-            directory_languages: sanitize(&station.languages.join(", "), 80),
-            observed_ms: station.observed_ms,
-            hls: station.hls,
-            coordinates: match (station.latitude, station.longitude) {
-                (Some(latitude), Some(longitude)) => Some(super::state::Coordinates {
-                    latitude,
-                    longitude,
-                }),
-                _ => None,
-            },
-            metadata: Some(station.clone()),
+        .map(|station| {
+            row_from(
+                station,
+                page.favorite_ids.iter().any(|id| id == &station.id),
+            )
         })
         .collect()
+}
+
+fn row_from(station: &sigy_service::discovery::Station, favorite: bool) -> StationRow {
+    StationRow {
+        id: station.id.clone(),
+        name: sanitize(&station.name, 80),
+        favorite,
+        directory_health: match station.last_check_ok {
+            Some(true) => Health::Succeeded,
+            Some(false) => Health::Failed,
+            None => Health::Unknown,
+        },
+        directory_languages: sanitize(&station.languages.join(", "), 80),
+        observed_ms: station.observed_ms,
+        hls: station.hls,
+        coordinates: match (station.latitude, station.longitude) {
+            (Some(latitude), Some(longitude)) => Some(super::state::Coordinates {
+                latitude,
+                longitude,
+            }),
+            _ => None,
+        },
+        metadata: Some(station.clone()),
+    }
+}
+
+fn random_operation(query: &SearchQuery) -> Operation {
+    Operation::Radio {
+        command: DirectoryOperation::Explore {
+            filter: query.filter.clone(),
+            favorites_only: query.favorites_only,
+        },
+    }
+}
+
+pub(super) fn adopt_random(
+    model: &mut Explorer,
+    query: &SearchQuery,
+    result: Result<(bool, Snapshot), Error>,
+) -> bool {
+    match result {
+        Ok((via_service, snapshot)) => {
+            let Some(result) = snapshot.random_station.as_ref() else {
+                let _ = model.fail_search(
+                    query.generation,
+                    "Random station result missing; previous selection kept.",
+                );
+                return false;
+            };
+            if snapshot.directory_catalog.as_ref() != Some(&result.catalog) {
+                let _ = model.fail_search(
+                    query.generation,
+                    "Random station catalog mismatch; previous selection kept.",
+                );
+                return false;
+            }
+            let rows = result
+                .station
+                .iter()
+                .map(|station| row_from(station, result.favorite))
+                .collect();
+            if model.apply_random_station(
+                query.generation,
+                result,
+                rows,
+                directory_from(&snapshot, model),
+            ) {
+                model.note_link(link_from(via_service, &snapshot));
+                return true;
+            }
+        }
+        Err(error) => {
+            if model.fail_search(query.generation, &error.to_string()) {
+                report(model, &error);
+            }
+        }
+    }
+    false
 }
 
 fn quota_from(status: &DvrStatus) -> QuotaView {

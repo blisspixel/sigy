@@ -1,8 +1,10 @@
 # Design documents
 
-[Optional globe rotation](decisions/0093-optional-globe-rotation.md) adds a local presentation control with accessibility and idle pauses; its measured render evidence belongs in active work.
-
 Last updated: 2026-10-13
+
+[Random cached exploration](decisions/0094-random-cached-exploration.md) adds `sigy explore` and the explorer's `e` key with full-cache filtered uniform selection, approximate directory coordinates and no stream contact. Schema remains v51; local IPC is v53.
+
+[Optional globe rotation](decisions/0093-optional-globe-rotation.md) adds a local presentation control with accessibility and idle pauses; its measured render evidence belongs in active work.
 
 The [next delivery sequence](development/near-term-implementation.md#next-delivery-sequence) follows the README through responsive listening, recoverable completion, protected retained playback, measured mixed workloads and qualified language directions. [Responsive player observation](decisions/0091-responsive-player-observation.md) implements its first bounded status/stop slice; native terminal timing remains unmeasured. [Atomic worker responses](decisions/0092-atomic-worker-responses.md) implements the first settlement foundation and exact successful translation replay. [The dated quality review](../research/48-complete-listening-journeys.md) records source findings and primary references; bounded retry and the remaining sequence are proposed work.
 

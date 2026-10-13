@@ -1,12 +1,14 @@
 # Roadmap
 
-Last updated: 2026-10-11
+Last updated: 2026-10-13
 
 Build Sigy into a dependable multilingual listening and analysis instrument: discover sources, retain observations, understand them in context and trace each result back to evidence. A complete CLI and an expressive terminal explorer share the same persistent service. Local processing remains useful with paid inference disabled.
 
 The first complete release includes radio and podcasts, recordings and DVR, live translation, bounded topic monitoring, a durable task workflow and evidence inspection. Language, platform, capacity, privacy and recovery claims require measured profiles. No roadmap stage has exited and there is no supported release. [Active work](docs/development/progress.md) records implementation and verification; the stages below remain acceptance requirements.
 
 ## What's next
+
+[Random cached exploration](docs/decisions/0094-random-cached-exploration.md) supplies CLI `explore` and terminal `e` with uniform selection across the full filtered local cache, approximate directory positions and no stream contact. This bounded discovery increment does not change the remaining listening, recovery or qualification priorities below.
 
 **Immediate priority: a complete, responsive listening journey with dependable recovery.** The reported desktop repairs are implemented in [Decision0089](docs/decisions/0089-everyday-radio-reliability.md) and [Decision0090](docs/decisions/0090-desktop-discovery-and-native-listening.md). The next quality review follows the README from discovery through listening, retained passages and evidence, with separate operational and language gates. [Dated source research](research/48-complete-listening-journeys.md) and [the next delivery sequence](docs/development/near-term-implementation.md#next-delivery-sequence) explain the order and acceptance criteria. [Decision0091](docs/decisions/0091-responsive-player-observation.md) implements bounded independent player status/stop observation. Native key-to-frame timing remains unmeasured. Decision0092 below supplies the first settlement foundation; bounded actor completion recovery is next.
 
