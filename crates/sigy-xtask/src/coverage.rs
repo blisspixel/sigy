@@ -179,7 +179,7 @@ fn prepare(
         fs::TryLockError::Error(error) => Error::Io(error),
     })?;
     let target = target_root.join("llvm-cov-target");
-    fs::create_dir_all(&target)?;
+    prepare_cache(&target)?;
     let reports = target_root.join("coverage-reports");
     fs::create_dir_all(&reports)?;
     let stamp = std::time::SystemTime::now()
@@ -189,6 +189,34 @@ fn prepare(
     let report = reports.join(format!("workspace-{}-{stamp}.json", std::process::id()));
     fs::File::create_new(&report)?;
     Ok((lock, target, report))
+}
+
+/// Cargo refuses to clean an existing unmarked directory. Create its standard
+/// marker only for a newly owned cache; never relabel an existing directory.
+fn prepare_cache(target: &Path) -> Result<(), Error> {
+    use std::io::Read;
+    const SIGNATURE: &[u8; 43] = b"Signature: 8a477f597d28d172789f06886806bc55";
+    match fs::create_dir(target) {
+        Ok(()) => fs::write(target.join("CACHEDIR.TAG"), SIGNATURE)?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let mut observed = [0; 43];
+            let marker = target.join("CACHEDIR.TAG");
+            let valid = fs::symlink_metadata(target)?.is_dir()
+                && fs::symlink_metadata(&marker).is_ok_and(|metadata| metadata.is_file())
+                && fs::File::open(&marker)
+                    .and_then(|mut file| file.read_exact(&mut observed))
+                    .is_ok()
+                && &observed == SIGNATURE;
+            if !valid {
+                return Err(Error::Check(format!(
+                    "coverage cache {} lacks a valid Cargo CACHEDIR.TAG; inspect the owned cache before cleaning",
+                    target.display()
+                )));
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
 }
 
 fn collect(root: &Path, target: &Path, ffmpeg: &Path) -> Result<(), Error> {
@@ -409,6 +437,46 @@ fn enforce(rows: &[CrateCoverage]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coverage_cache_is_marked_only_on_creation_and_foreign_contents_are_preserved()
+    -> Result<(), Error> {
+        let root = tempfile::tempdir()?;
+        let target = root.path().join("llvm-cov-target");
+        prepare_cache(&target)?;
+        assert!(
+            fs::read(target.join("CACHEDIR.TAG"))?
+                .starts_with(b"Signature: 8a477f597d28d172789f06886806bc55")
+        );
+        prepare_cache(&target)?;
+        fs::write(target.join("keep"), b"unrelated bytes")?;
+        for marker in [b"".as_slice(), b"invalid cache signature"] {
+            fs::write(target.join("CACHEDIR.TAG"), marker)?;
+            assert!(prepare_cache(&target).is_err());
+            assert_eq!(fs::read(target.join("CACHEDIR.TAG"))?, marker);
+            assert_eq!(fs::read(target.join("keep"))?, b"unrelated bytes");
+        }
+        fs::remove_file(target.join("CACHEDIR.TAG"))?;
+        assert!(prepare_cache(&target).is_err());
+        assert!(!target.join("CACHEDIR.TAG").exists());
+        assert_eq!(fs::read(target.join("keep"))?, b"unrelated bytes");
+        fs::create_dir(target.join("CACHEDIR.TAG"))?;
+        assert!(prepare_cache(&target).is_err());
+        fs::remove_dir(target.join("CACHEDIR.TAG"))?;
+        #[cfg(unix)]
+        {
+            fs::write(
+                root.path().join("other-marker"),
+                b"Signature: 8a477f597d28d172789f06886806bc55",
+            )?;
+            std::os::unix::fs::symlink(
+                root.path().join("other-marker"),
+                target.join("CACHEDIR.TAG"),
+            )?;
+            assert!(prepare_cache(&target).is_err());
+        }
+        Ok(())
+    }
 
     #[test]
     fn concurrent_runs_cannot_share_profiles_and_receipts_are_never_replaced() -> Result<(), Error>
