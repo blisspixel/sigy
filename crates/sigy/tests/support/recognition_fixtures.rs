@@ -1067,8 +1067,8 @@ fn cancel_and_kill(directory: &Path, service: &mut RunningChild) -> TestResult {
     let cancelled = wait_job(directory, "asr-cancel")?;
     assert_eq!(cancelled["state"], "cancelled", "{cancelled}");
 
-    // Killing the service ends its contained recognizer; restart requeues the job under
-    // a new generation, and the second attempt publishes exactly one transcript revision.
+    // Windows requeues native work after owner death; other platforms retain the
+    // interrupted attempt because native restart requeue is deliberately disabled.
     let before = newest(directory)?["transcript"]["revision"]
         .as_i64()
         .ok_or("revision")?;
@@ -1079,6 +1079,8 @@ fn cancel_and_kill(directory: &Path, service: &mut RunningChild) -> TestResult {
         running_images(&format!("recognizer-once{}", std::env::consts::EXE_SUFFIX))?,
         1
     );
+    #[cfg(not(windows))]
+    let original_lease = killed_lease(directory)?;
     service.kill()?;
     service.0.wait()?;
     #[cfg(windows)]
@@ -1094,14 +1096,10 @@ fn cancel_and_kill(directory: &Path, service: &mut RunningChild) -> TestResult {
     }
     let mut restarted = RunningChild::start(directory)?;
     let requeued = wait_job(directory, "asr-killed")?;
-    assert_eq!(requeued["state"], "succeeded", "{requeued}");
-    assert_eq!(requeued["generation"], 2);
-    assert_eq!(requeued["attempt"], 2);
-    let page = newest(directory)?;
-    assert_eq!(page["transcript"]["revision"], before + 1);
-    assert_eq!(page["transcript"]["job_id"], "asr-killed");
-    assert_eq!(page["transcript"]["job_generation"], 2);
-    assert_eq!(page["cues"][0]["script"], "encore");
+    #[cfg(windows)]
+    assert_requeued(directory, &requeued, before)?;
+    #[cfg(not(windows))]
+    assert_interrupted(directory, &requeued, before, &original_lease)?;
     assert!(
         !directory
             .join("analysis-scratch")
@@ -1114,5 +1112,74 @@ fn cancel_and_kill(directory: &Path, service: &mut RunningChild) -> TestResult {
     assert_eq!(status["budgets"][0]["settled_usd"], "0.000000");
     success(directory, &["service", "stop"])?;
     restarted.wait()?;
+    #[cfg(not(windows))]
+    assert_eq!(killed_lease(directory)?, original_lease);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn assert_requeued(directory: &Path, requeued: &serde_json::Value, before: i64) -> TestResult {
+    assert_eq!(requeued["state"], "succeeded", "{requeued}");
+    assert_eq!(requeued["generation"], 2);
+    assert_eq!(requeued["attempt"], 2);
+    let page = newest(directory)?;
+    assert_eq!(page["transcript"]["revision"], before + 1);
+    assert_eq!(page["transcript"]["job_id"], "asr-killed");
+    assert_eq!(page["transcript"]["job_generation"], 2);
+    assert_eq!(page["cues"][0]["script"], "encore");
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn killed_lease(directory: &Path) -> Result<(String, i64, i64), Box<dyn std::error::Error>> {
+    let connection = rusqlite::Connection::open_with_flags(
+        directory.join("catalog.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+    Ok(connection.query_row(
+        "SELECT lease_owner, lease_expires_ms, started_ms FROM analysis_jobs WHERE id = 'asr-killed'",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?)
+}
+
+#[cfg(not(windows))]
+fn assert_interrupted(
+    directory: &Path,
+    interrupted: &serde_json::Value,
+    before: i64,
+    original_lease: &(String, i64, i64),
+) -> TestResult {
+    assert_eq!(interrupted["state"], "interrupted", "{interrupted}");
+    assert_eq!(interrupted["reason"], "service-restarted");
+    assert_eq!(interrupted["generation"], 2);
+    assert_eq!(interrupted["attempt"], 1);
+    assert_eq!(newest(directory)?["transcript"]["revision"], before);
+    assert_eq!(&killed_lease(directory)?, original_lease);
+    let connection = rusqlite::Connection::open_with_flags(
+        directory.join("catalog.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+    let attempt: (i64, i64, String, String, String) = connection.query_row(
+        "SELECT attempt, generation, lease_owner, outcome, reason FROM job_attempts WHERE family = 'analysis' AND job_id = 'asr-killed'",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+    )?;
+    assert_eq!(
+        attempt,
+        (
+            1,
+            1,
+            original_lease.0.clone(),
+            "interrupted".into(),
+            "service-restarted".into()
+        )
+    );
+    let counts: (i64, i64) = connection.query_row(
+        "SELECT (SELECT count(*) FROM job_attempts WHERE family = 'analysis' AND job_id = 'asr-killed'), (SELECT count(*) FROM transcripts WHERE job_id = 'asr-killed')",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!(counts, (1, 0));
     Ok(())
 }
