@@ -3,6 +3,7 @@ name: verify
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -26,6 +27,14 @@ jobs:
       - name: Check installer script syntax
         shell: bash
         run: sh -n scripts/install.sh
+      - name: Require a changelog heading for a release tag
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -F "## ${version} " CHANGELOG.md \
+            || grep -F "## ${version} (" CHANGELOG.md \
+            || grep -Fx "## ${version}" CHANGELOG.md
       - name: Install the pinned toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
         with:
@@ -53,6 +62,14 @@ jobs:
           persist-credentials: false
       - name: Check installer script syntax
         run: sh -n scripts/install.sh
+      - name: Require a changelog heading for a release tag
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -F "## ${version} " CHANGELOG.md \
+            || grep -F "## ${version} (" CHANGELOG.md \
+            || grep -Fx "## ${version}" CHANGELOG.md
       - name: Install the pinned toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
         with:

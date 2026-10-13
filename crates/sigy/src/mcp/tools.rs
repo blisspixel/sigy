@@ -257,20 +257,44 @@ fn run(
     let stderr_bytes = stderr_handle.join().unwrap_or_default();
     let stdout = String::from_utf8_lossy(&stdout_bytes);
     let stderr = String::from_utf8_lossy(&stderr_bytes);
-    if status.success() {
-        Ok(success_result(stdout.trim()))
-    } else {
-        let detail = if stderr.trim().is_empty() {
-            stdout.trim()
-        } else {
-            stderr.trim()
-        };
-        Ok(error_result(if detail.is_empty() {
-            "command failed".to_owned()
-        } else {
-            detail.to_owned()
-        }))
+    Ok(command_result(
+        status.success(),
+        stdout.trim(),
+        stderr.trim(),
+    ))
+}
+
+/// A non-zero exit keeps JSON stdout as structured content. Stderr stays in
+/// the text. A failure that prints no JSON stays a plain error.
+fn command_result(success: bool, stdout: &str, stderr: &str) -> Value {
+    let stdout = stdout.trim();
+    let stderr = stderr.trim();
+    if success {
+        return success_result(stdout);
     }
+    if let Ok(parsed) = serde_json::from_str::<Value>(stdout) {
+        if !stdout.is_empty() {
+            let text = if stderr.is_empty() { stdout } else { stderr };
+            let text = if text.is_empty() {
+                "command failed"
+            } else {
+                text
+            };
+            return json!({
+                "resultType": "complete",
+                "content": [{"type": "text", "text": text}],
+                "structuredContent": parsed,
+                "isError": true,
+                "_meta": server_meta(),
+            });
+        }
+    }
+    let detail = if stderr.is_empty() { stdout } else { stderr };
+    error_result(if detail.is_empty() {
+        "command failed".to_owned()
+    } else {
+        detail.to_owned()
+    })
 }
 
 fn success_result(text: &str) -> Value {
@@ -1307,6 +1331,52 @@ const RECORD_START: &[Slot] = &[
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn failed_json_stdout_stays_structured_and_plain_failures_do_not() {
+        use super::command_result;
+        let failed = command_result(
+            false,
+            r#"{"checks":[{"name":"catalog","state":"needs-action"}]}"#,
+            "doctor found a check that needs action",
+        );
+        assert_eq!(failed["isError"], true);
+        assert_eq!(
+            failed["structuredContent"]["checks"][0]["state"],
+            "needs-action"
+        );
+        assert_eq!(
+            failed["content"][0]["text"],
+            "doctor found a check that needs action"
+        );
+
+        let stdout_only = command_result(
+            false,
+            r#"{"checks":[{"name":"decoder","state":"failed"}]}"#,
+            "",
+        );
+        assert_eq!(stdout_only["isError"], true);
+        assert_eq!(
+            stdout_only["structuredContent"]["checks"][0]["name"],
+            "decoder"
+        );
+        assert!(
+            stdout_only["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("decoder")
+        );
+
+        let plain = command_result(false, "not json", "command failed");
+        assert_eq!(plain["isError"], true);
+        assert!(plain.get("structuredContent").is_none());
+        assert_eq!(plain["content"][0]["text"], "command failed");
+
+        let empty = command_result(false, "   ", "  ");
+        assert_eq!(empty["isError"], true);
+        assert!(empty.get("structuredContent").is_none());
+        assert_eq!(empty["content"][0]["text"], "command failed");
+    }
+
     #[test]
     fn retained_reader_adapter_preserves_request_and_query_authority() -> Result<(), String> {
         use super::*;

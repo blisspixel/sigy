@@ -2,7 +2,125 @@
 
 ## Unreleased
 
-Nothing yet.
+- MCP tools keep JSON stdout as structured content when a command exits non-zero, and keep stderr in the text. A failure that prints no JSON stays plain text.
+- `cargo verify` and the verify workflow reject a release tag that has no CHANGELOG heading.
+
+## 0.1.0-dev.20261011.3 (development prerelease, source only)
+
+Source-only checkpoint for atomic recognition and translation responses. Catalog schema and local IPC remain v51 and v52. No binaries or models are distributed, and no roadmap stage exit or supported release is claimed.
+
+- Claimed work and completed jobs are read inside their transaction and returned only after commit succeeds. A failed response read rolls back its claim or publication.
+- Successful translation replay checks the original job, artifact, zero-USD metadata and every ordered cue. Different results are refused.
+- Eleven fault and replay regressions cover response reads, commit refusal, cancellation, reopen, all 256 cues, Unicode differences and corrupted membership. Linux and macOS CI run them with the Windows gate.
+- Automatic actor completion retry, attempt and claim-owner binding, durable exhaustion and finite shutdown handling remain open. Cumulative external spend is not newly incurred by this checkpoint.
+
+## 0.1.0-dev.20261011.2 (development prerelease, source only)
+
+Source-only checkpoint for responsive player observation. Catalog schema and local IPC remain v51 and v52. No binaries or models are distributed.
+
+- Independent bounded status and stop lanes keep local navigation and quit moving while a player reply is delayed. Repeated keys coalesce. Exact listen and generation checks reject stale results.
+- Stop closes owned client stdin immediately. Uncertain delivery stays visible. A fresh same-ID running receipt allows another explicit stop, without automatic resends.
+- The installer lock owner-death fixture uses an owned Rust child. Session-hint JSON is limited to 4,096 bytes with one-byte lookahead.
+- The completion-settlement audit records post-commit read failures and shutdown cases. That repair is not in this checkpoint. The proposed native 100 ms key-to-frame target remains unmeasured.
+
+## 0.1.0-dev.20261011.1 (development prerelease, source only)
+
+Source-only checkpoint for desktop discovery and native listening. Catalog schema and local IPC remain v51 and v52. No binaries or models are distributed. Linux and Omarchy qualification flags remain false.
+
+- Explorer startup filters and `R` then `y` fetch the exact applied directory scope, with bounded asynchronous observation, cache preservation and copyable guidance. Locale suggestions stay optional.
+- Windows live playback uses checked PCM and the bounded native output helper. One live CLI jazz listen through headphones was confirmed by the user.
+- Linux native commands use experimental delegated systemd user units, with checked CPU, memory and task limits, separate process limits, pre-exec placement and manager-owned cleanup after main-process death. Missing authority refuses before effects.
+- Linux decoding checks a known one-second media clock inside its bounded group and refuses incompatible conventions. Null decoding and one Windows acoustic observation do not establish a device or codec matrix.
+
+## 0.1.0-dev.20261011 (development prerelease, source only)
+
+Source-only checkpoint for everyday radio discovery and explicit listening. Catalog schema and local IPC remain v51 and v52. No binaries or models are distributed. Ordinary Linux and macOS native containment remains unavailable.
+
+- Filtered `radio search --fetch`, positional name search, country and tag setup seeds, automatic refresh IDs and bounded `--wait`. Transient directory reads retry inside one admitted request and keep the last cache.
+- `sigy play STATION_UUID`, `sigy stop`, and confirmed explorer `P`/`y` playback with `S` stop observe the actual service receipt.
+- Panel favorite admission, Unix PID handling, absent-fence cancellation and large CLI future stack frames are repaired.
+- Doctor reports native containment failures and refuses new listen or recording attempts before contact or reservation.
+- macOS control-socket startup keeps owner-only directory and socket permissions and peer-user checks. Oversized socket paths are refused with shorter-library guidance.
+
+## 0.1.0-dev.20261010.1 (development prerelease, source only)
+
+Source-only checkpoint that restores the Unix installer. Catalog schema and local IPC remain v51 and v52. No binaries or models are distributed.
+
+- `scripts/install.sh` closes its conditional with `fi`, restoring the macOS and Linux install path, including Omarchy and Arch.
+- `cargo verify` checks `scripts/install.sh` with `sh -n` when `sh` is present. The verify workflow runs the same syntax check, including Git Bash on Windows.
+
+## 0.1.0-dev.20261010 (development prerelease, source only)
+
+Source-only checkpoint for desktop panel status. Catalog schema and local IPC remain v51 and v52. No binaries or models are distributed. Platform qualification on Arch, Omarchy and Linux audio routing remains open.
+
+- `sigy panel status` reads library and service state, including an offline SQLite read when the service is absent. It does not start a daemon or use the network. It reports service presence, directory freshness, up to four favorites and up to four active captures.
+- `sigy panel bar` emits one JSON object with `text`, `class` and `tooltip` for the states `offline`, `failed`, `playing`, `recording`, `stale` and `idle`.
+- Panel output states `"qualified_platform": false`, `"qualified_linux": false` and `"qualified_omarchy": false`. Language recognition and acoustic delivery are not qualified by the panel.
+- `sigy panel play STATION` admits playback only for a cached favorite with exactly one registered `http_audio` revision and no active prior panel listen. `panel stop` ends that listen. Stdin close and a dead parent process cancel playback.
+
+## 0.1.0-dev.20261004.2 (development prerelease, source only)
+
+Source-only checkpoint for exact cited audio excerpts. Catalog schema is v51 and local IPC is v52. No binaries or models are distributed.
+
+- `listen file --seek-us START --end-us END` plays an explicit retained excerpt. The end is exclusive. `listen finding MONITOR FINDING --request ID` resolves the immutable citation and protects the original file in the same admission.
+- New excerpts require exact finite PCM samples and checked completion. Silent playback uses 48 kHz stereo without a device. Decoder, native group, output and original-reader evidence stay distinct.
+- Failed original-reader cleanup keeps completed stage observations and the admitted receipt, reports `reader_closure_failure`, and does not claim closure.
+- Backup audits reader identity before creating its destination. Restore rejects a malformed range or identity hash even when the outer backup hash agrees.
+- The same-rate WAV oracle does not establish a general compressed or resampled profile, acoustic delivery, cold-file latency or sustained capacity.
+
+## 0.1.0-dev.20261004.1 (development prerelease, source only)
+
+Source-only checkpoint for terminal review and Windows source updates. No binaries or models are distributed.
+
+- Windows source updates build an exact prepared commit, stage and hash the executable before publication, fence older helpers against later installations, and expose bounded local status through `sigy update --status`.
+- Installer repairs preserve caller paths and failure results. Custom-root instructions name the installed executable.
+- The terminal review adds a reproducible 64-frame production-render gallery across seven workspaces, three sizes, dialogs and failure states.
+- Scheduling an update is not the same as a successful installation. File replacement does not establish universal rollback or power-loss durability.
+
+## 0.1.0-dev.20261004 (development prerelease, source only)
+
+Source-only checkpoint for protected Windows retained output and linked station context. Catalog schema is v50 and local IPC is v51. No binaries or models are distributed.
+
+- Retained Windows system output uses a bounded decoder and helper group, fixed endpoint selection, strict PCM framing, and separate decoder, presentation, native-closure and original-reader outcomes. Replay starts no new output.
+- Explore and Globe keep local Enter inspection and exact Back restoration. `i` and `radio linked UUID` inspect immutable registrations and exact recording metadata, with four-by-four bounds and truthful more or unknown labels.
+- Indexed catalog migration keeps historical identities. Plain linked and name-ordered CLI routing and bounded unknown decoder timestamps are repaired.
+- Acoustic delivery, sustained capacity and language quality remain unqualified. Exact cited end bounds and interactive DVR controls remain open.
+
+## 0.1.0-dev.20261003.3 (development prerelease, source only)
+
+Source-only checkpoint for service-owned protected retained playback. Catalog schema is v49 and local IPC is v50. No binaries or models are distributed.
+
+- Admission freezes one retained segment and protects its original file until the reader actually closes. Replaying an explicit request starts no new reader or decoder.
+- Reader inspection and cancellation are in the CLI. MCP can inspect the receipt and does not start playback.
+- Nonzero timeline-origin seeks, single-frame progress, discarded-prefix pacing, and backup of published sealed segments from a still-running recording are fixed.
+- Audio-format checks used null output. Audible output on the validation machine remained unqualified because that FFmpeg build had no usable Windows audio output muxer.
+
+## 0.1.0-dev.20261003.2 (development prerelease, source only)
+
+Source-only checkpoint for focused station context. No binaries or models are distributed.
+
+- Enter in Explore or Globe opens full cached station context, with compact inspection and a wide results and detail view. Back restores the same query, draft, page and selection. Inspection starts no network, capture or playback.
+- Directory statistics survive ordered reads inside the observed namespace and become unknown after that namespace is replaced.
+- Task snapshot fitting counts exact serialized citation bytes once. Existing byte and work limits, truncation and immutable JSON identity stay intact.
+- Executable lessons, cryptographic profiles, protected playback and linked recording context remain future work in this checkpoint.
+
+## 0.1.0-dev.20261003.1 (development prerelease, source only)
+
+Source-only checkpoint for ordered station discovery. Catalog schema is v48 and local IPC is v49. No binaries or models are distributed. Browsing starts no station connection.
+
+- Cached station discovery supports revision-bound name ordering in the terminal explorer, `radio search --order name`, and read-only MCP `radio_search`. CLI and MCP defaults keep UUID ordering.
+- A changed catalog refuses a stale continuation and keeps the previous page visible. `g` restarts cached page one.
+- Stop an older service with its existing binary before replacing it. Task and evidence history, favorites, source provenance and spending authority are preserved.
+- City lookup, complete interactive DVR playback, SDR and LoRa adapters remain planned. English remains the implemented translation target.
+
+## 0.1.0-dev.20261003 (development prerelease, source only)
+
+Source-only evidence workstation checkpoint. No binaries or models are distributed. External task spend was USD 0 of the USD 20 ceiling, excluding the development harness.
+
+- Finite tasks can freeze exact collected evidence, publish up to 64 literal findings, and read a briefing bound to that snapshot's coverage. Historical checkpoint execution stays compatible and shares the same lifetime run allowance.
+- Explicit processing-interest withdrawal preserves shared jobs. Unresolved native completion after restart holds protected work rather than guessing cleanup.
+- The CLI and TUI add an offline country reference with 257 entries, eight display locales, script-preserving aliases, explicit ambiguity and English fallback. Country selection applies only the existing cached query.
+- City lookup, station name ordering and complete interactive DVR playback remain planned in this checkpoint. Later Strange Signals Desk proposals are not an implemented SETI detector.
 
 ## 0.1.0-dev.20261001.3 (development prerelease, source only)
 
