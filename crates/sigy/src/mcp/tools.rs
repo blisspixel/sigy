@@ -272,22 +272,22 @@ fn command_result(success: bool, stdout: &str, stderr: &str) -> Value {
     if success {
         return success_result(stdout);
     }
-    if let Ok(parsed) = serde_json::from_str::<Value>(stdout) {
-        if !stdout.is_empty() {
-            let text = if stderr.is_empty() { stdout } else { stderr };
-            let text = if text.is_empty() {
-                "command failed"
-            } else {
-                text
-            };
-            return json!({
-                "resultType": "complete",
-                "content": [{"type": "text", "text": text}],
-                "structuredContent": parsed,
-                "isError": true,
-                "_meta": server_meta(),
-            });
-        }
+    if let Ok(parsed) = serde_json::from_str::<Value>(stdout)
+        && !stdout.is_empty()
+    {
+        let text = if stderr.is_empty() { stdout } else { stderr };
+        let text = if text.is_empty() {
+            "command failed"
+        } else {
+            text
+        };
+        return json!({
+            "resultType": "complete",
+            "content": [{"type": "text", "text": text}],
+            "structuredContent": parsed,
+            "isError": true,
+            "_meta": server_meta(),
+        });
     }
     let detail = if stderr.is_empty() { stdout } else { stderr };
     error_result(if detail.is_empty() {
@@ -1359,12 +1359,16 @@ mod tests {
             stdout_only["structuredContent"]["checks"][0]["name"],
             "decoder"
         );
-        assert!(
-            stdout_only["content"][0]["text"]
-                .as_str()
-                .unwrap()
-                .contains("decoder")
-        );
+        match stdout_only["content"][0]["text"].as_str() {
+            Some(text) => assert!(
+                text.contains("decoder"),
+                "expected a structured error mentioning decoder, got {text}"
+            ),
+            None => panic!(
+                "expected structured error text, got {}",
+                stdout_only["content"][0]["text"]
+            ),
+        }
 
         let plain = command_result(false, "not json", "command failed");
         assert_eq!(plain["isError"], true);
