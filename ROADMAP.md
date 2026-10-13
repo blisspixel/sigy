@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-10-11
+Last updated: 2026-10-13
 
 Build Sigy into a dependable multilingual listening and analysis instrument: discover sources, retain observations, understand them in context and trace each result back to evidence. A complete CLI and an expressive terminal explorer share the same persistent service. Local processing remains useful with paid inference disabled.
 
