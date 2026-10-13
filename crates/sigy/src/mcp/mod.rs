@@ -1,3 +1,4 @@
+mod output;
 mod tools;
 
 use std::{
@@ -133,10 +134,10 @@ fn dispatch(directory: &Path, executable: &Path, message: &Value) -> Option<Valu
     }
     match method {
         "server/discover" => Some(discover(id)),
-        "tools/list" => {
-            let body = tools::tool_list();
-            Some(result(id, &body))
-        }
+        "tools/list" => Some(match tools::tool_list() {
+            Ok(body) => result(id, &body),
+            Err(message) => error(id, -32603, &message, None),
+        }),
         "tools/call" => Some(call(directory, executable, id, message)),
         "notifications/cancelled" | "notifications/initialized" => None,
         _ => Some(error(id, -32601, "method not found", None)),
@@ -199,7 +200,7 @@ fn call(directory: &Path, executable: &Path, id: Option<&Value>, message: &Value
         return error(id, -32602, "missing tool name", None);
     }
     if !allow() {
-        let body = rate_limited();
+        let body = rate_limited(name);
         return result(id, &body);
     }
     let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
@@ -207,13 +208,16 @@ fn call(directory: &Path, executable: &Path, id: Option<&Value>, message: &Value
     result(id, &body)
 }
 
-fn rate_limited() -> Value {
-    json!({
-        "resultType": "complete",
-        "content": [{"type": "text", "text": "rate limit: 60 tool calls in 60 seconds"}],
-        "isError": true,
-        "_meta": tools::server_meta(),
-    })
+fn rate_limited(name: &str) -> Value {
+    output::complete(
+        name,
+        json!({
+            "resultType": "complete",
+            "content": [{"type": "text", "text": "rate limit: 60 tool calls in 60 seconds"}],
+            "isError": true,
+            "_meta": tools::server_meta(),
+        }),
+    )
 }
 
 fn allow() -> bool {
@@ -261,6 +265,36 @@ fn error(id: Option<&Value>, code: i64, message: &str, data: Option<Value>) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rate_limit_errors_follow_declared_output_schemas() -> Result<(), Box<dyn std::error::Error>>
+    {
+        for name in [
+            "doctor",
+            "analysis_search",
+            "monitor_matches",
+            "monitor_coverage",
+            "analysis_transcript",
+            "analysis_translation",
+        ] {
+            let body = rate_limited(name);
+            assert_eq!(body["isError"], true);
+            assert_eq!(
+                body["structuredContent"]["error"],
+                "rate limit: 60 tool calls in 60 seconds"
+            );
+            let schema = output::schema(name)?.ok_or("missing output schema")?;
+            jsonschema::draft202012::new(&schema)?
+                .validate(&body["structuredContent"])
+                .map_err(|error| error.to_string())?;
+        }
+        assert!(
+            rate_limited("library_status")
+                .get("structuredContent")
+                .is_none()
+        );
+        Ok(())
+    }
 
     fn request(method: &str, params: &Value) -> Value {
         json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
@@ -320,7 +354,7 @@ mod tests {
 
     #[test]
     fn provider_configuration_is_not_an_agent_tool() -> Result<(), String> {
-        let list = tools::tool_list();
+        let list = tools::tool_list()?;
         let tools = list["tools"].as_array().ok_or("tools")?;
         if tools.is_empty()
             || tools.iter().any(|tool| {
@@ -337,7 +371,7 @@ mod tests {
     #[test]
     fn analysis_tools_exist_but_profiles_and_executables_are_not_agent_tools() -> Result<(), String>
     {
-        let list = tools::tool_list();
+        let list = tools::tool_list()?;
         let tools = list["tools"].as_array().ok_or("tools")?;
         let names: Vec<&str> = tools
             .iter()
@@ -367,7 +401,7 @@ mod tests {
 
     #[test]
     fn monitor_tools_read_and_propose_but_never_author_a_version() -> Result<(), String> {
-        let list = tools::tool_list();
+        let list = tools::tool_list()?;
         let tools = list["tools"].as_array().ok_or("tools")?;
         let names: Vec<&str> = tools
             .iter()

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- MCP tools keep JSON stdout as structured content when a command exits non-zero, and keep stderr in the text. A failure that prints no JSON stays plain text.
+- MCP tools keep JSON stdout as structured content when a command exits non-zero, and keep stderr in the text. Six diagnostic and evidence tools now declare output schemas; failures without JSON stdout use a structured error envelope for those tools. Other tools retain plain-text failures.
 - `cargo verify` and the verify workflow reject a release tag that has no CHANGELOG heading.
 
 ## 0.1.0-dev.20261011.3 (development prerelease, source only)

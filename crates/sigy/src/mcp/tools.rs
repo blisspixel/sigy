@@ -9,6 +9,8 @@ use std::{
 
 use serde_json::{Map, Value, json};
 
+use super::output;
+
 const SERVER_VERSION: &str = "0.1.0-dev";
 const MAX_TEXT: u64 = 2_048;
 const MAX_OUTPUT: usize = 65_536;
@@ -40,38 +42,46 @@ struct Tool {
     timeout: Duration,
 }
 
-pub(crate) fn tool_list() -> Value {
-    json!({
+pub(crate) fn tool_list() -> Result<Value, String> {
+    let tools = TOOLS
+        .iter()
+        .map(tool_schema)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(json!({
         "resultType": "complete",
-        "tools": TOOLS.iter().map(tool_schema).collect::<Vec<_>>(),
+        "tools": tools,
         "ttlMs": 300_000,
         "cacheScope": "public",
         "_meta": server_meta(),
-    })
+    }))
 }
 
 pub(crate) fn call(executable: &Path, directory: &Path, name: &str, arguments: &Value) -> Value {
     let Some(tool) = TOOLS.iter().find(|tool| tool.name == name) else {
         return error_result(format!("unknown tool: {name}"));
     };
+    let result = call_known(executable, directory, tool, arguments).unwrap_or_else(error_result);
+    output::complete(name, result)
+}
+
+fn call_known(
+    executable: &Path,
+    directory: &Path,
+    tool: &Tool,
+    arguments: &Value,
+) -> Result<Value, String> {
     let Some(arguments) = arguments
         .as_object()
         .cloned()
         .or_else(|| arguments.is_null().then(Map::new))
     else {
-        return error_result("tool arguments must be an object");
+        return Err("tool arguments must be an object".into());
     };
-    let args = match argv(tool, &arguments) {
-        Ok(args) => args,
-        Err(message) => return error_result(message),
-    };
-    match run(executable, directory, &args, tool.timeout) {
-        Ok(output) => output,
-        Err(message) => error_result(message),
-    }
+    let args = argv(tool, &arguments)?;
+    run(executable, directory, &args, tool.timeout)
 }
 
-fn tool_schema(tool: &Tool) -> Value {
+fn tool_schema(tool: &Tool) -> Result<Value, String> {
     let mut properties = Map::new();
     let mut required = Vec::new();
     for slot in tool.slots {
@@ -107,7 +117,7 @@ fn tool_schema(tool: &Tool) -> Value {
             required.push(slot.key);
         }
     }
-    json!({
+    let mut schema = json!({
         "name": tool.name,
         "title": tool.name,
         "description": tool.description,
@@ -123,7 +133,11 @@ fn tool_schema(tool: &Tool) -> Value {
             "idempotentHint": (tool.hints & HINT_IDEMPOTENT) != 0,
             "openWorldHint": (tool.hints & HINT_WORLD) != 0,
         },
-    })
+    });
+    if let Some(output_schema) = output::schema(tool.name)? {
+        schema["outputSchema"] = output_schema;
+    }
+    Ok(schema)
 }
 
 fn argv(tool: &Tool, arguments: &Map<String, Value>) -> Result<Vec<String>, String> {
@@ -265,7 +279,8 @@ fn run(
 }
 
 /// A non-zero exit keeps JSON stdout as structured content. Stderr stays in
-/// the text. A failure that prints no JSON stays a plain error.
+/// the text. The caller adds the declared error envelope for selected tools
+/// when the command prints no JSON stdout.
 fn command_result(success: bool, stdout: &str, stderr: &str) -> Value {
     let stdout = stdout.trim();
     let stderr = stderr.trim();
@@ -1451,7 +1466,7 @@ mod tests {
         ] {
             assert!(argv(tool, arguments.as_object().ok_or("object")?).is_err());
         }
-        let schema = tool_schema(tool);
+        let schema = tool_schema(tool)?;
         assert_eq!(
             schema["inputSchema"]["properties"]["order"]["enum"],
             json!(["id", "name"])
@@ -1510,7 +1525,7 @@ mod tests {
             )
             .is_err()
         );
-        let schema = tool_schema(tool);
+        let schema = tool_schema(tool)?;
         assert_eq!(
             schema["inputSchema"]["properties"]["after"]["maxLength"],
             8192
@@ -1532,7 +1547,7 @@ mod tests {
             .iter()
             .find(|tool| tool.name == "analysis_search")
             .ok_or("analysis_search")?;
-        let schema = tool_schema(tool);
+        let schema = tool_schema(tool)?;
         if schema["annotations"]["readOnlyHint"] != true
             || schema["annotations"]["openWorldHint"] != false
             || schema["inputSchema"]["required"] != json!(["term"])

@@ -1,0 +1,588 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sigy analysis_transcript structured output",
+  "description": "Stored original-script transcript cues in the existing CLI snapshot, or an explicit empty projection. Revisions and original scripts are immutable evidence; recognition output is not language-quality qualification.",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/snapshot"
+    },
+    {
+      "$ref": "#/$defs/error"
+    }
+  ],
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "directory": {
+          "type": "null"
+        },
+        "directory_refresh": {
+          "type": "null"
+        },
+        "station_page": {
+          "type": "null"
+        },
+        "ordered_station_page": {
+          "type": "null"
+        },
+        "random_station": {
+          "type": "null"
+        },
+        "directory_catalog": {
+          "$ref": "#/$defs/directoryCatalog"
+        },
+        "linked_station_context": {
+          "type": "null"
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sqlite_version": {
+          "type": "string"
+        },
+        "provider_dispatch_available": {
+          "type": "boolean"
+        },
+        "budgets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/budget"
+          }
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/service"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "captures": {
+          "$ref": "#/$defs/captures"
+        },
+        "source_page": {
+          "type": "null"
+        },
+        "recording_page": {
+          "type": "null"
+        },
+        "dvr": {
+          "type": "null"
+        },
+        "recording_metadata": {
+          "type": "null"
+        },
+        "playlist": {
+          "type": "null"
+        },
+        "directory_click": {
+          "type": "null"
+        },
+        "listen": {
+          "type": "null"
+        },
+        "retained": {
+          "type": "null"
+        },
+        "playback": {
+          "type": "null"
+        },
+        "podcast_page": {
+          "type": "null"
+        },
+        "podcast_feed": {
+          "type": "null"
+        },
+        "publisher_text": {
+          "type": "null"
+        },
+        "doctor": {
+          "type": "null"
+        },
+        "schedule": {
+          "type": "null"
+        },
+        "directory_policy": {
+          "type": "null"
+        },
+        "analysis": {
+          "type": "null"
+        },
+        "analysis_job": {
+          "type": "null"
+        },
+        "recognition": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "transcript"
+                },
+                "page": {
+                  "$ref": "#/$defs/transcriptPage"
+                }
+              },
+              "required": [
+                "kind",
+                "page"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "$ref": "#/$defs/empty"
+            }
+          ]
+        },
+        "provider": {
+          "type": "null"
+        },
+        "monitor": {
+          "type": "null"
+        },
+        "briefing_export": {
+          "type": "null"
+        },
+        "task": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "directory",
+        "directory_refresh",
+        "station_page",
+        "ordered_station_page",
+        "random_station",
+        "directory_catalog",
+        "linked_station_context",
+        "schema_version",
+        "sqlite_version",
+        "provider_dispatch_available",
+        "budgets",
+        "service",
+        "captures",
+        "source_page",
+        "recording_page",
+        "dvr",
+        "recording_metadata",
+        "playlist",
+        "directory_click",
+        "listen",
+        "retained",
+        "playback",
+        "podcast_page",
+        "podcast_feed",
+        "publisher_text",
+        "doctor",
+        "schedule",
+        "directory_policy",
+        "analysis",
+        "analysis_job",
+        "recognition",
+        "provider",
+        "monitor",
+        "briefing_export",
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "description": "CLI JSON error envelope. MCP preserves this stderr envelope or synthesizes it for adapter failures; isError is carried outside structuredContent."
+    },
+    "money": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]{6}$",
+      "description": "Exact USD decimal string with six fractional digits; never a JSON floating-point amount."
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "limit_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "settled_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "reserved_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "available_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "frozen": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "scope",
+        "limit_usd",
+        "settled_usd",
+        "reserved_usd",
+        "available_usd",
+        "frozen"
+      ],
+      "additionalProperties": false
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "process_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uptime_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stopping": {
+          "type": "boolean"
+        },
+        "maximum_clients": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "process_id",
+        "uptime_seconds",
+        "stopping",
+        "maximum_clients"
+      ],
+      "additionalProperties": false
+    },
+    "captures": {
+      "type": "object",
+      "properties": {
+        "dispatch_available": {
+          "type": "boolean"
+        },
+        "scheduled": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interrupted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminal": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dispatch_available",
+        "scheduled",
+        "active",
+        "interrupted",
+        "terminal"
+      ],
+      "additionalProperties": false
+    },
+    "directoryCatalog": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "comparison": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace",
+        "revision",
+        "comparison"
+      ],
+      "additionalProperties": false
+    },
+    "empty": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "empty"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false,
+      "description": "The requested ID has no latest published revision; distinct from a published no-text or legacy revision."
+    },
+    "transcriptPage": {
+      "type": "object",
+      "properties": {
+        "transcript": {
+          "$ref": "#/$defs/transcriptSummary"
+        },
+        "coverages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/recognitionCoverage"
+          },
+          "description": "All coverage rows accompany each cue page; absence does not invent coverage."
+        },
+        "cues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/recognitionCue"
+          },
+          "maxItems": 16
+        },
+        "next_after_ordinal": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stale_translation_of": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Present only when this newest transcript has no translation but an older revision does. Omitted otherwise; never null."
+        },
+        "stale_language_of": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Present only when this newest transcript has no language evidence but an older revision does. Omitted otherwise; never null."
+        }
+      },
+      "required": [
+        "transcript",
+        "coverages",
+        "cues",
+        "next_after_ordinal"
+      ],
+      "additionalProperties": false
+    },
+    "transcriptSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "analysis_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recording_id": {
+          "type": "string"
+        },
+        "media_sha256": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "legacy_placeholder",
+            "recognition",
+            "correction"
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "legacy",
+            "text",
+            "no_text"
+          ]
+        },
+        "parent_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile": {
+          "type": "string"
+        },
+        "profile_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "job_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "job_generation": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cue_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "created_ms": {
+          "type": "integer"
+        },
+        "amount_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "wording": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "analysis_revision",
+        "recording_id",
+        "media_sha256",
+        "kind",
+        "outcome",
+        "parent_revision",
+        "profile",
+        "profile_sha256",
+        "job_id",
+        "job_generation",
+        "cue_count",
+        "text_bytes",
+        "created_ms",
+        "amount_usd",
+        "wording"
+      ],
+      "additionalProperties": false
+    },
+    "recognitionCue": {
+      "type": "object",
+      "properties": {
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "start_us": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Inclusive media-clock start in microseconds."
+        },
+        "end_us": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Exclusive media-clock end in microseconds."
+        },
+        "script": {
+          "type": "string",
+          "description": "Original script as stored, without normalization."
+        }
+      },
+      "required": [
+        "ordinal",
+        "start_us",
+        "end_us",
+        "script"
+      ],
+      "additionalProperties": false
+    },
+    "recognitionCoverage": {
+      "type": "object",
+      "properties": {
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interval_ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "start_us": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_us": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_sha256": {
+          "type": "string"
+        },
+        "decoded_sha256": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sample_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "ordinal",
+        "interval_ordinal",
+        "start_us",
+        "end_us",
+        "source_sha256",
+        "decoded_sha256",
+        "sample_rate",
+        "sample_count"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

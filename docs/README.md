@@ -2,6 +2,8 @@
 
 Last updated: 2026-10-13
 
+[MCP evidence output schemas](decisions/0095-mcp-evidence-output-schemas.md) declare the existing structured results for six diagnostic and evidence reads, including explicit errors and offline contract validation.
+
 [Random cached exploration](decisions/0094-random-cached-exploration.md) adds `sigy explore` and the explorer's `e` key with full-cache filtered uniform selection, approximate directory coordinates and no stream contact. Schema remains v51; local IPC is v53.
 
 [Optional globe rotation](decisions/0093-optional-globe-rotation.md) adds a local presentation control with accessibility and idle pauses; its measured render evidence belongs in active work.

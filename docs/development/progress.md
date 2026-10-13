@@ -4,6 +4,16 @@ Updated: 2026-10-13. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-13 MCP evidence output schemas
+
+[Decision0095](../decisions/0095-mcp-evidence-output-schemas.md) implements issue #19 with self-contained output schemas for doctor, archive search, monitor matches and coverage, transcripts and translations. Success and failed doctor snapshots preserve CLI JSON. Other failures for those six tools use the existing CLI error shape, including rate limits. Schema and IPC stay v51/v53; the validator dependency is development-only and adds no runtime capability.
+
+Independent adapter review found a rate-limit branch that bypassed structured errors; it now uses the same selected-tool normalization with schema-checked regressions. Seventeen focused MCP unit tests and five offline integration fixtures pass. Actual stdio results validate against the advertised schemas and equal CLI snapshots, including original cues, translated and untranslated pairs, literal-match citations, coverage counts, empty results, cursors, catalog failures, invalid arguments and rate limits. An isolated Linux service proves a successful doctor read through the canonical controller. Live-service parity checks the same process and monotonic uptime, then compares every other field exactly. Cleanup waits for library ownership to release. Windows ordinary fixtures require doctor success; ordinary Unix blocked reports permit only the declared native-containment blocker.
+
+The synthetic publication fixture restores its admission triggers before the production catalog audits run. It proves representation and metadata projection, not capture, recognition, translation quality or physical media availability. Stale or expired media and populated language/schedule variants were source-reviewed but are not exercised by these new fixtures.
+
+Full `cargo verify` passes 1,155 ordinary test executions with 28 ignored, formatting, warnings-denied Clippy, build, native hashes and 381 locked dependencies against 1,310 advisories. Its log SHA-256 is `ddd3906c54c108d3895ef688b7db64ed17d4b5ca9608f5760f031659ecf74c72`. Clean full `cargo verify-coverage` passes every crate above 80%, minimum 87.06%, without source exclusions, and all 28 ignored entries. All 669 frozen runtime, configuration, schema and fixture hashes remained unchanged. Coverage log SHA-256 is `496f682062ad80dcd2f0128efea4d769ded7788180c7dcb4da2f8a7f06d10e51`; the unique report and per-crate counts follow below. All 140 JSON/SVG hashes in the 70-frame gallery match the previously inspected random-exploration baseline. Exact-commit hosted verification remains required before integration and source publication. No stage exit or broader platform qualification follows; external spend remains USD 0.
+
 ## 2026-10-13 random cached exploration
 
 [Decision0094](../decisions/0094-random-cached-exploration.md) implements issue #16 through CLI `explore` and terminal `e`. A bounded full-cache count and rejection-sampled rank share one deferred read snapshot, all applied filters and catalog identity. The selected row uses the existing metadata validation. The distinct result reports eligible count without a page cursor. Accepted jumps stop rotation, preserve playback and cut directly to approximate directory coordinates, including under reduced motion. Schema stays v51; local IPC advances to v53. No dependency changes or external source work are introduced.
@@ -329,12 +339,24 @@ The repaired tree passes `cargo verify`: 751 test executions, 16 native fixtures
 | Item | Current value |
 | --- | --- |
 | Catalog schema / local IPC | v51 / v53 |
-| Verification | Current `cargo verify` passes 1,147 ordinary test executions, 27 ignored and all checks. Clean full coverage runs ordinary and all ignored entries, passes each crate's 80% gate without exclusions, minimum 86.81%, and renders the 70-frame gallery plus two spin frames. [Random cached exploration](#2026-10-13-random-cached-exploration) records exact scope; the preceding rotation increment records prerequisite fixture corrections. Exact-commit hosted verification remains required before source-only publication |
+| Verification | Current `cargo verify` passes 1,155 ordinary test executions, 28 ignored and all checks. Clean full coverage runs ordinary and all ignored entries, passes each crate's 80% gate without exclusions, minimum 87.06%, and renders the unchanged 70-frame gallery plus two spin frames. [MCP evidence schemas](#2026-10-13-mcp-evidence-output-schemas) records exact scope. Exact-commit hosted verification remains required before source-only publication |
 | Host | Current: Linux x86_64 on Ryzen 7 7840U with an actual delegated systemd user manager, Rust 1.98.1, FFmpeg 9.0.1 and the signed 6.1.1 negative fixture. Two build jobs, two ordinary test threads, one ignored-test thread. Earlier Windows 11 measurements retain their historical platform scope |
 | Other platforms | Actual Ubuntu systemd-user CI passes delegated resource/death contracts, exact decoder-clock acceptance/refusal and four loopback media/restart fixtures. macOS passes all-target build/lint and IPC/platform contracts; native work remains unavailable there. WSL passes all-target warnings-denied Clippy and unsupported-host refusal tests, but lacks a user manager and does not pass the full native service suite. Omarchy acoustic testing is deferred by the user. Small always-on hosts and broader Unix audio remain unqualified; no platform support claim is established |
 | Public source | `main` on [blisspixel/sigy](https://github.com/blisspixel/sigy); [source-only development prereleases](https://github.com/blisspixel/sigy/releases); none is a supported release |
 
-The current random-exploration runtime passes `cargo verify-coverage` with cargo-llvm-cov 0.9.1 and Rust 1.98.1 LLVM tools. These are line counts of compiled Linux Rust code, including tests and build scripts, with no source exclusions. They do not establish branch coverage, native terminal timing or broader platform qualification. The gate compares integer counts against 80%; percentages are truncated.
+The current MCP-schema runtime passes `cargo verify-coverage` with cargo-llvm-cov 0.9.1 and Rust 1.98.1 LLVM tools. These are line counts of compiled Linux Rust code, including tests and build scripts, with no source exclusions. They do not establish branch coverage, native terminal timing or broader platform qualification. The gate compares integer counts against 80%; percentages are truncated.
+
+| Workspace crate | Covered / executable lines | Line coverage |
+| --- | --- | --- |
+| `sigy` | 28,079 / 32,249 | 87.06% |
+| `sigy-core` | 1,435 / 1,521 | 94.34% |
+| `sigy-service` | 57,712 / 64,906 | 88.91% |
+| `sigy-test-recognizer` | 257 / 283 | 90.81% |
+| `sigy-xtask` | 1,359 / 1,487 | 91.39% |
+
+The dedicated-target receipt is `target/coverage-reports/workspace-48638-1791916136101793488.json`, SHA-256 `df0ca26bf71079283ab515ab1d07f55b8cea075f261762f0dfc3ecaad5a85d24`. This was a clean collection on frozen source; final documentation-only edits do not change the measured runtime.
+
+The preceding random-exploration runtime passed the same Linux line-coverage gate:
 
 | Workspace crate | Covered / executable lines | Line coverage |
 | --- | --- | --- |
@@ -344,7 +366,7 @@ The current random-exploration runtime passes `cargo verify-coverage` with cargo
 | `sigy-test-recognizer` | 257 / 283 | 90.81% |
 | `sigy-xtask` | 1,359 / 1,487 | 91.39% |
 
-The current dedicated-target receipt is `target/coverage-reports/workspace-3715074-1791906623739917384.json`, SHA-256 `adfc310bbfe329e2b1d2166ae118a5b1a4004d9da3ef950cddf0bdf880f5bef8`. Its clean collection excludes all earlier failed/aborted profiles and uncollected managed-grandchild profiles; the latter limitation cannot inflate coverage. The random-exploration log hashes are recorded above. Documentation-only updates afterward do not change the measured runtime.
+That dedicated-target receipt is `target/coverage-reports/workspace-3715074-1791906623739917384.json`, SHA-256 `adfc310bbfe329e2b1d2166ae118a5b1a4004d9da3ef950cddf0bdf880f5bef8`. Its clean collection excludes all earlier failed/aborted profiles and uncollected managed-grandchild profiles; the latter limitation cannot inflate coverage. The random-exploration log hashes are recorded above. Documentation-only updates afterward do not change the measured runtime.
 
 The preceding atomic-response runtime source passed `cargo verify-coverage` with `cargo-llvm-cov` 0.9.1, Rust 1.98.1 and its LLVM tools. Ordinary tests use two threads; ignored measurements, the gallery and all 21 native media checks use one. System audio was not selected during coverage. No workspace crate or source is excluded; test sources and build scripts are included. These are line measurements of compiled Windows Rust code, not branch coverage or platform qualification. The gate checks integer counts against 80%; percentages below are truncated.
 

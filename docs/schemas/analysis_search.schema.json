@@ -1,0 +1,662 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sigy analysis_search structured output",
+  "description": "Bounded literal search of stored originals and English translations in the existing CLI snapshot. Hits are evidence pointers, not semantic findings or independent corroboration. No media is opened or protected by this read.",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/snapshot"
+    },
+    {
+      "$ref": "#/$defs/error"
+    }
+  ],
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "directory": {
+          "type": "null"
+        },
+        "directory_refresh": {
+          "type": "null"
+        },
+        "station_page": {
+          "type": "null"
+        },
+        "ordered_station_page": {
+          "type": "null"
+        },
+        "random_station": {
+          "type": "null"
+        },
+        "directory_catalog": {
+          "$ref": "#/$defs/directoryCatalog"
+        },
+        "linked_station_context": {
+          "type": "null"
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sqlite_version": {
+          "type": "string"
+        },
+        "provider_dispatch_available": {
+          "type": "boolean"
+        },
+        "budgets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/budget"
+          }
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/service"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "captures": {
+          "$ref": "#/$defs/captures"
+        },
+        "source_page": {
+          "type": "null"
+        },
+        "recording_page": {
+          "type": "null"
+        },
+        "dvr": {
+          "type": "null"
+        },
+        "recording_metadata": {
+          "type": "null"
+        },
+        "playlist": {
+          "type": "null"
+        },
+        "directory_click": {
+          "type": "null"
+        },
+        "listen": {
+          "type": "null"
+        },
+        "retained": {
+          "type": "null"
+        },
+        "playback": {
+          "type": "null"
+        },
+        "podcast_page": {
+          "type": "null"
+        },
+        "podcast_feed": {
+          "type": "null"
+        },
+        "publisher_text": {
+          "type": "null"
+        },
+        "doctor": {
+          "type": "null"
+        },
+        "schedule": {
+          "type": "null"
+        },
+        "directory_policy": {
+          "type": "null"
+        },
+        "analysis": {
+          "type": "null"
+        },
+        "analysis_job": {
+          "type": "null"
+        },
+        "recognition": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "search"
+            },
+            "page": {
+              "$ref": "#/$defs/archivePage"
+            }
+          },
+          "required": [
+            "kind",
+            "page"
+          ],
+          "additionalProperties": false
+        },
+        "provider": {
+          "type": "null"
+        },
+        "monitor": {
+          "type": "null"
+        },
+        "briefing_export": {
+          "type": "null"
+        },
+        "task": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "directory",
+        "directory_refresh",
+        "station_page",
+        "ordered_station_page",
+        "random_station",
+        "directory_catalog",
+        "linked_station_context",
+        "schema_version",
+        "sqlite_version",
+        "provider_dispatch_available",
+        "budgets",
+        "service",
+        "captures",
+        "source_page",
+        "recording_page",
+        "dvr",
+        "recording_metadata",
+        "playlist",
+        "directory_click",
+        "listen",
+        "retained",
+        "playback",
+        "podcast_page",
+        "podcast_feed",
+        "publisher_text",
+        "doctor",
+        "schedule",
+        "directory_policy",
+        "analysis",
+        "analysis_job",
+        "recognition",
+        "provider",
+        "monitor",
+        "briefing_export",
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "description": "CLI JSON error envelope. MCP preserves this stderr envelope or synthesizes it for adapter failures; isError is carried outside structuredContent."
+    },
+    "money": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]{6}$",
+      "description": "Exact USD decimal string with six fractional digits; never a JSON floating-point amount."
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "limit_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "settled_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "reserved_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "available_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "frozen": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "scope",
+        "limit_usd",
+        "settled_usd",
+        "reserved_usd",
+        "available_usd",
+        "frozen"
+      ],
+      "additionalProperties": false
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "process_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uptime_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stopping": {
+          "type": "boolean"
+        },
+        "maximum_clients": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "process_id",
+        "uptime_seconds",
+        "stopping",
+        "maximum_clients"
+      ],
+      "additionalProperties": false
+    },
+    "captures": {
+      "type": "object",
+      "properties": {
+        "dispatch_available": {
+          "type": "boolean"
+        },
+        "scheduled": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interrupted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminal": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dispatch_available",
+        "scheduled",
+        "active",
+        "interrupted",
+        "terminal"
+      ],
+      "additionalProperties": false
+    },
+    "directoryCatalog": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "comparison": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace",
+        "revision",
+        "comparison"
+      ],
+      "additionalProperties": false
+    },
+    "archivePage": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "$ref": "#/$defs/archiveQuery"
+        },
+        "hits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/archiveHit"
+          },
+          "maxItems": 64
+        },
+        "transcripts_scanned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rows_scanned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "language_rows_scanned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "results",
+                "page_bytes",
+                "rows",
+                "deadline"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Null means every row after the cursor was read; a stop reason marks a bounded partial page."
+        },
+        "next": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Pass unchanged as after with the same query to continue."
+        }
+      },
+      "required": [
+        "query",
+        "hits",
+        "transcripts_scanned",
+        "rows_scanned",
+        "language_rows_scanned",
+        "stopped",
+        "next"
+      ],
+      "additionalProperties": false
+    },
+    "archiveQuery": {
+      "type": "object",
+      "properties": {
+        "term": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "fields": {
+          "type": "string",
+          "enum": [
+            "original",
+            "english",
+            "both"
+          ]
+        },
+        "revisions": {
+          "type": "string",
+          "enum": [
+            "current",
+            "all"
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "from_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "to_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "scan_rows": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 200000
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 2000
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Opaque continuation encoded as ID/REVISION/PASS/ORDINAL, not an object."
+        }
+      },
+      "required": [
+        "term",
+        "fields",
+        "revisions",
+        "source",
+        "from_ms",
+        "to_ms",
+        "language",
+        "limit",
+        "scan_rows",
+        "deadline_ms",
+        "after"
+      ],
+      "additionalProperties": false
+    },
+    "archiveHit": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "recording_id": {
+          "type": "string"
+        },
+        "capture_start_ms": {
+          "type": "integer"
+        },
+        "transcript_id": {
+          "type": "string"
+        },
+        "transcript_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "transcript_kind": {
+          "type": "string",
+          "enum": [
+            "recognition",
+            "correction"
+          ]
+        },
+        "cue_ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "start_us": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Inclusive media-clock start in microseconds."
+        },
+        "end_us": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Exclusive media-clock end in microseconds."
+        },
+        "field": {
+          "type": "string",
+          "enum": [
+            "original",
+            "english"
+          ]
+        },
+        "original": {
+          "type": "string"
+        },
+        "translation_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "english": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "untranslated_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stale_transcript": {
+          "type": "boolean",
+          "description": "A newer text revision exists."
+        },
+        "stale_translation": {
+          "type": "boolean",
+          "description": "A newer translation of this transcript revision exists."
+        },
+        "media": {
+          "type": "string",
+          "enum": [
+            "retained",
+            "released",
+            "expired",
+            "missing",
+            "unavailable"
+          ],
+          "description": "Catalog observation at read time: retained means matching checksum and a covering unreleased interval without gaps; released means its segment was released; expired means deleting/deleted recording; missing means uncovered or gap; unavailable includes checksum mismatch. This does not verify the file or grant retention/playback authority."
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/archiveLanguage"
+          },
+          "maxItems": 8
+        },
+        "more_languages": {
+          "type": "boolean",
+          "description": "More overlapping language labels exist than this hit reports."
+        }
+      },
+      "required": [
+        "source",
+        "recording_id",
+        "capture_start_ms",
+        "transcript_id",
+        "transcript_revision",
+        "transcript_kind",
+        "cue_ordinal",
+        "start_us",
+        "end_us",
+        "field",
+        "original",
+        "translation_revision",
+        "english",
+        "untranslated_reason",
+        "stale_transcript",
+        "stale_translation",
+        "media",
+        "languages",
+        "more_languages"
+      ],
+      "additionalProperties": false
+    },
+    "archiveLanguage": {
+      "type": "object",
+      "properties": {
+        "tag": {
+          "type": "string"
+        },
+        "evidence_id": {
+          "type": "string"
+        },
+        "evidence_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transcript_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Null for evidence not bound to a transcript; an older revision predates a correction."
+        },
+        "capability": {
+          "type": "string",
+          "description": "Stored route capability, such as unevaluated; a language label does not establish quality."
+        }
+      },
+      "required": [
+        "tag",
+        "evidence_id",
+        "evidence_revision",
+        "transcript_revision",
+        "capability"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

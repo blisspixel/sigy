@@ -29,6 +29,7 @@ cpal.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 rusqlite.workspace = true
+jsonschema.workspace = true
 
 [lints]
 workspace = true
