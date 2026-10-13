@@ -151,7 +151,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        64
+        70
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -182,6 +182,9 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
         "catalog-stale",
         "linear",
         "monochrome",
+        "random-picked",
+        "random-empty",
+        "random-monochrome",
     ] {
         assert!(cases.iter().any(|(name, _, _)| *name == expected));
     }
@@ -355,7 +358,7 @@ fn visual_qa_gallery() -> Result<()> {
             manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome}));
         }
     }
-    assert!(manifest.len() <= 64);
+    assert!(manifest.len() <= 70);
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
@@ -449,7 +452,49 @@ fn cases() -> Result<Vec<Case>> {
         model.apply_desk(sample_desk());
         cases.push((name, model, vec![(80, 24), (132, 40)]));
     }
+    append_random_cases(&mut cases)?;
     Ok(cases)
+}
+
+fn append_random_cases(cases: &mut Vec<Case>) -> Result<()> {
+    use crate::explorer::{client, state::Effect};
+    for (name, empty, monochrome, sizes) in [
+        (
+            "random-picked",
+            false,
+            false,
+            vec![(20, 8), (80, 24), (132, 40)],
+        ),
+        ("random-empty", true, false, vec![(80, 24)]),
+        ("random-monochrome", false, true, vec![(80, 24), (132, 40)]),
+    ] {
+        let mut model = Explorer::new(
+            Modes {
+                reduced_motion: true,
+                linear: false,
+                monochrome,
+            },
+            1000,
+        );
+        model.apply_desk(sample_desk());
+        let Effect::ExploreRandom(query) = model.handle(Key::Char('e')) else {
+            return Err("random fixture request".into());
+        };
+        let mut result = client::random_tests::result()?;
+        if empty {
+            result.station = None;
+            result.eligible_count = 0;
+        }
+        if !client::adopt_random(
+            &mut model,
+            &query,
+            Ok((false, client::random_tests::snapshot(&result)?)),
+        ) {
+            return Err("random fixture result".into());
+        }
+        cases.push((name, model, sizes));
+    }
+    Ok(())
 }
 
 fn case_at_size(name: &str, original: &Explorer, width: u16, height: u16) -> Result<Explorer> {

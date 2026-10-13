@@ -147,8 +147,14 @@ pub fn header_lines(model: &Explorer) -> Vec<Line<'static>> {
             utc_label(model.now_ms())
         )),
         Line::from(format!(
-            "{} of {} stations on this page have directory coordinates",
-            counts.mapped, counts.total,
+            "{} of {} stations {} have directory coordinates (approximate)",
+            counts.mapped,
+            counts.total,
+            if model.random_count().is_some() {
+                "in this random result"
+            } else {
+                "on this page"
+            },
         )),
         Line::from(controls),
     ]

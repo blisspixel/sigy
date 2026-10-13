@@ -60,7 +60,7 @@ pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, Sche
 pub use server::{request, run};
 pub use task::{TaskOperation, TaskPage};
 
-pub const PROTOCOL_VERSION: u32 = 52;
+pub const PROTOCOL_VERSION: u32 = 53;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -226,6 +226,8 @@ pub struct Snapshot {
     pub directory_refresh: Option<crate::storage::discovery::RefreshStatus>,
     pub station_page: Option<StationPage>,
     pub ordered_station_page: Option<OrderedStationPage>,
+    #[serde(default)]
+    pub random_station: Option<Box<discovery::RandomStation>>,
     pub directory_catalog: Option<DirectoryCatalog>,
     #[serde(default)]
     pub linked_station_context: Option<crate::discovery::linked::LinkedStationContext>,
@@ -443,6 +445,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         directory_refresh: None,
         station_page: None,
         ordered_station_page: None,
+        random_station: None,
         directory_catalog: Some(store.directory_catalog()?),
         linked_station_context: None,
         schema_version: crate::storage::SCHEMA_VERSION,

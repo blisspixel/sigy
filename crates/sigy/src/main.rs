@@ -58,6 +58,14 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Pick a random cached station with directory coordinates. Never contacts a stream.
+    Explore {
+        #[command(flatten)]
+        filters: radio::Filters,
+        /// Pick only from saved favorites.
+        #[arg(long)]
+        favorites: bool,
+    },
     /// Play one cached station, registering its first audio revision if needed.
     Play {
         /// Station UUID from radio search or the explorer.
@@ -261,6 +269,13 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         command.operation()
     } else if let Command::Radio { command } = &cli.command {
         return Ok(Some(radio::execute(data_dir, command).await?));
+    } else if let Command::Explore { filters, favorites } = &cli.command {
+        Operation::Radio {
+            command: control::DirectoryOperation::Explore {
+                filter: filters.filter()?,
+                favorites_only: *favorites,
+            },
+        }
     } else if let Command::Record { command } = &cli.command {
         command.operation()?
     } else if let Command::Schedule { command } = &cli.command {
@@ -455,6 +470,7 @@ fn render_library_snapshot(
     } else if let Some(text) = &view.publisher_text {
         podcast::render_text(stdout, text)?;
     } else if view.directory.is_some()
+        || view.random_station.is_some()
         || view.ordered_station_page.is_some()
         || view.linked_station_context.is_some()
     {

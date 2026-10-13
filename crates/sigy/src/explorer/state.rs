@@ -10,6 +10,7 @@ mod context;
 #[cfg(test)]
 mod ordered_tests;
 mod spin;
+mod random;
 const PAGE_LIMIT: u32 = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -296,6 +297,7 @@ pub enum Effect {
         catalog: DirectoryCatalog,
     },
     Search(SearchQuery),
+    ExploreRandom(SearchQuery),
     Fetch(SearchQuery),
     SetFavorite {
         generation: u64,
@@ -377,6 +379,8 @@ pub struct Explorer {
     search_generation: u64,
     applied_search: u64,
     pending_search: Option<u64>,
+    pending_random: Option<u64>,
+    random_count: Option<u32>,
     favorite_generation: u64,
     pending_favorite: Option<u64>,
     status: String,
@@ -443,6 +447,8 @@ impl Explorer {
             search_generation: 0,
             applied_search: 0,
             pending_search: None,
+            pending_random: None,
+            random_count: None,
             favorite_generation: 0,
             pending_favorite: None,
             status: "Quit detaches this client. It does not stop the service or a recording."
@@ -730,6 +736,7 @@ impl Explorer {
             .unwrap_or(0);
         self.playback = desk.playback;
         self.rows = desk.stations;
+        self.random_count = None;
         if let Some(catalog) = desk.catalog {
             self.install_catalog(&catalog);
             self.page_catalog = Some(catalog);
@@ -784,6 +791,7 @@ impl Explorer {
         self.applied_search = generation;
         self.directory = Some(directory);
         self.rows = rows;
+        self.random_count = None;
         self.next_after = next_after;
         match self.pending_page.take() {
             Some(PageMove::Next(after)) => {
@@ -1009,6 +1017,9 @@ impl Explorer {
 
     fn handle_browser(&mut self, key: &Key) -> Effect {
         match key {
+            Key::Char('e') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
+                self.explore_random()
+            }
             Key::Char('R') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
                 if self.favorites_only() {
                     self.note_message("Favorites are local choices. v shows all matches before R fetches; f saves a selected station.");
@@ -1261,6 +1272,7 @@ impl Explorer {
     }
 
     fn submit_search(&mut self, movement: PageMove) -> Effect {
+        self.pending_random = None;
         if matches!(self.link, Link::Disconnected) {
             self.status = "Disconnected; the search was not submitted. r reconnects.".into();
             return Effect::None;
