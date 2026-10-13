@@ -8,6 +8,8 @@ The first complete release includes radio and podcasts, recordings and DVR, live
 
 ## What's next
 
+[Random cached exploration](docs/decisions/0094-random-cached-exploration.md) supplies CLI `explore` and terminal `e` with uniform selection across the full filtered local cache, approximate directory positions and no stream contact. This bounded discovery increment does not change the remaining listening, recovery or qualification priorities below.
+
 **Immediate priority: a complete, responsive listening journey with dependable recovery.** The reported desktop repairs are implemented in [Decision0089](docs/decisions/0089-everyday-radio-reliability.md) and [Decision0090](docs/decisions/0090-desktop-discovery-and-native-listening.md). The next quality review follows the README from discovery through listening, retained passages and evidence, with separate operational and language gates. [Dated source research](research/48-complete-listening-journeys.md) and [the next delivery sequence](docs/development/near-term-implementation.md#next-delivery-sequence) explain the order and acceptance criteria. [Decision0091](docs/decisions/0091-responsive-player-observation.md) implements bounded independent player status/stop observation. Native key-to-frame timing remains unmeasured. Decision0092 below supplies the first settlement foundation; bounded actor completion recovery is next.
 
 | Next result | Required evidence |

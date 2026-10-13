@@ -38,6 +38,8 @@ The globe uses offline geometry and cached station coordinates. This 2026-10-04 
 
 ## Get started
 
+For discovery by chance, use `sigy explore --country Canada` or press `e` in the explorer. Each pick comes from all cached coordinate-bearing stations under the active filters. The globe jumps to its approximate directory position; playing still requires the explicit play action. `g` returns to ordered results.
+
 Create your local library, start the background service and load a first station page:
 
 ```text
