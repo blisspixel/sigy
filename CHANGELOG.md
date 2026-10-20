@@ -2,10 +2,17 @@
 
 ## Unreleased
 
-- Explorer search, linked context, monitor, finding and reload reads no longer block resize, Back, stop or quit. A late reply keeps the newer view. A favorite change is not cancelled by a newer read. Catalog schema and local IPC stay v51 and v53.
+## 0.1.0-dev.20261020 (development prerelease, source only)
+
+Source-only checkpoint for responsive metadata reads, random cached exploration, optional globe rotation, MCP evidence schemas and the published rustls advisory lock. Catalog schema remains v51. Local IPC is v53. No binaries or models are distributed, and no roadmap stage exit or supported release is claimed.
+
+- Explorer search, linked context, monitor, finding and reload reads no longer block resize, Back, stop or quit. A late reply keeps the newer view. A favorite change is not cancelled by a newer read.
+- `sigy explore` and terminal `e` select one cached station that matches the applied filters and has coordinates. The result reports the eligible count and does not contact a stream. Accepting it stops globe rotation. Local IPC advanced to v53 for that operation.
+- Globe `r` toggles optional eastward rotation at six degrees per second. Reduced motion, monochrome, linear, noninteractive and one-frame modes stay still. Native key-to-frame timing remains unmeasured.
+- MCP tools keep JSON stdout as structured content when a command exits non-zero, and keep stderr in the text. Six diagnostic and evidence tools now declare output schemas. Failures without JSON stdout use a structured error envelope for those tools. Other tools retain plain-text failures.
 - Locked `rustls` 0.23.46, `rustls-webpki` 0.103.16 and `webpki-root-certs` 1.0.10. Those releases clear RUSTSEC-2026-0346, RUSTSEC-2026-0347, RUSTSEC-2026-0348, RUSTSEC-2026-0349, RUSTSEC-2026-0382 and RUSTSEC-2026-0383. Tokio stays 1.53.1.
-- MCP tools keep JSON stdout as structured content when a command exits non-zero, and keep stderr in the text. Six diagnostic and evidence tools now declare output schemas; failures without JSON stdout use a structured error envelope for those tools. Other tools retain plain-text failures.
-- `cargo verify` and the verify workflow reject a release tag that has no CHANGELOG heading.
+- Repository instructions require a short evidence-backed note before an issue is finished or closed. `cargo verify` and the verify workflow reject a release tag that has no CHANGELOG heading.
+- Hosted verify of `cac8890` passed on Windows, Ubuntu and macOS: https://github.com/blisspixel/sigy/actions/runs/39487469870. Coverage was not repeated after the metadata reads and TLS lock. The last coverage receipt remains the 2026-10-13 MCP schema run. Language, platform and acoustic qualification remain unchanged.
 
 ## 0.1.0-dev.20261011.3 (development prerelease, source only)
 
