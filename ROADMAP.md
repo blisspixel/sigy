@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-10-13
+Last updated: 2026-10-20
 
 Build Sigy into a dependable multilingual listening and analysis instrument: discover sources, retain observations, understand them in context and trace each result back to evidence. A complete CLI and an expressive terminal explorer share the same persistent service. Local processing remains useful with paid inference disabled.
 
@@ -10,11 +10,11 @@ The first complete release includes radio and podcasts, recordings and DVR, live
 
 [Random cached exploration](docs/decisions/0094-random-cached-exploration.md) supplies CLI `explore` and terminal `e` with uniform selection across the full filtered local cache, approximate directory positions and no stream contact. This bounded discovery increment does not change the remaining listening, recovery or qualification priorities below.
 
-**Immediate priority: a complete, responsive listening journey with dependable recovery.** The reported desktop repairs are implemented in [Decision0089](docs/decisions/0089-everyday-radio-reliability.md) and [Decision0090](docs/decisions/0090-desktop-discovery-and-native-listening.md). The next quality review follows the README from discovery through listening, retained passages and evidence, with separate operational and language gates. [Dated source research](research/48-complete-listening-journeys.md) and [the next delivery sequence](docs/development/near-term-implementation.md#next-delivery-sequence) explain the order and acceptance criteria. [Decision0091](docs/decisions/0091-responsive-player-observation.md) implements bounded independent player status/stop observation. Native key-to-frame timing remains unmeasured. Decision0092 below supplies the first settlement foundation; bounded actor completion recovery is next.
+**Immediate priority: a complete, responsive listening journey with dependable recovery.** The reported desktop repairs are implemented in [Decision0089](docs/decisions/0089-everyday-radio-reliability.md) and [Decision0090](docs/decisions/0090-desktop-discovery-and-native-listening.md). The next quality review follows the README from discovery through listening, retained passages and evidence, with separate operational and language gates. [Dated source research](research/48-complete-listening-journeys.md) and [the next delivery sequence](docs/development/near-term-implementation.md#next-delivery-sequence) explain the order and acceptance criteria. [Decision0091](docs/decisions/0091-responsive-player-observation.md) implements bounded independent player status/stop observation. [Decision0096](docs/decisions/0096-responsive-metadata-reads.md) moves search, linked, monitor, finding and reload metadata off the terminal thread. Native key-to-frame timing remains unmeasured. Decision0092 below supplies the first settlement foundation; bounded actor completion recovery is next.
 
 | Next result | Required evidence |
 | --- | --- |
-| Responsive player controls (EX-02C) | Bounded independent status/stop, session fences and pressure/delayed-response fixtures are implemented; native key-to-frame measurement and broader metadata responsiveness remain |
+| Responsive player controls (EX-02C) | Bounded independent status/stop and fenced metadata reads are implemented; native key-to-frame measurement remains |
 | Recoverable completion settlement (S-03B followup) | [Atomic claim/completion responses and exact successful translation replay](docs/decisions/0092-atomic-worker-responses.md) are implemented; next preserve completed outcomes through classified transient failure with bounded retry, no duplicate release and finite shutdown |
 | Retained listening in the terminal (DV-01B/C and DV-02) | Deliberate exact recording/finding playback first, then actual pause/seek and separately admitted segment handoff; honest gap, expiry, open-tail and closure states |
 | Measured mixed-workload reliability (S-06/S-07) | Small capture/playback/query/processing profile, pressure/fairness and byte-verified restore; aggregate admission before higher concurrency |

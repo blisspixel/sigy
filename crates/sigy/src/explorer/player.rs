@@ -212,6 +212,23 @@ impl Player {
 }
 
 #[cfg(test)]
+impl Player {
+    pub(super) fn prepare_listen_identity(&mut self, id: &str) {
+        self.current = Some(id.to_owned());
+    }
+
+    #[must_use]
+    pub(super) const fn observation_generation(&self) -> u64 {
+        self.generation
+    }
+
+    #[must_use]
+    pub(super) fn stop_pending(&self) -> bool {
+        self.stop.busy()
+    }
+}
+
+#[cfg(test)]
 mod tests;
 
 impl Drop for Player {

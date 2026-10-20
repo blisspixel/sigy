@@ -46,6 +46,7 @@ impl Explorer {
                 if let Some(context) = self.context.take() {
                     self.focus = context.return_focus;
                 }
+                self.invalidate_reads();
             }
             Key::Char('q') | Key::Quit => return Effect::Detach,
             Key::Char('i') => {

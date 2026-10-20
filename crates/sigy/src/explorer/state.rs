@@ -383,6 +383,8 @@ pub struct Explorer {
     random_count: Option<u32>,
     favorite_generation: u64,
     pending_favorite: Option<u64>,
+    /// Fences discardable metadata reads. A late success or failure is ignored.
+    read_epoch: u64,
     status: String,
     draw: Draw,
     globe: GlobeView,
@@ -451,6 +453,7 @@ impl Explorer {
             random_count: None,
             favorite_generation: 0,
             pending_favorite: None,
+            read_epoch: 0,
             status: "Quit detaches this client. It does not stop the service or a recording."
                 .into(),
             draw: Draw::Needed,
@@ -747,6 +750,7 @@ impl Explorer {
     }
 
     pub fn note_disconnect(&mut self, now_ms: i64, reason: &str) {
+        self.invalidate_reads();
         self.link = Link::Disconnected;
         self.now_ms = now_ms;
         self.pending_search = None;
@@ -904,6 +908,45 @@ impl Explorer {
         self.pending_search == Some(generation)
     }
 
+    /// Epoch of the newest discardable metadata read.
+    #[must_use]
+    pub(super) const fn read_epoch(&self) -> u64 {
+        self.read_epoch
+    }
+
+    /// Starts one discardable read generation. `None` means the counter is exhausted.
+    pub(super) fn begin_read(&mut self) -> Option<u64> {
+        let next = self.read_epoch.checked_add(1)?;
+        self.read_epoch = next;
+        Some(next)
+    }
+
+    /// Drops pending discardable reads. An in-flight favorite is left alone.
+    pub(super) fn invalidate_reads(&mut self) {
+        self.read_epoch = self.read_epoch.saturating_add(1);
+        self.pending_search = None;
+        self.pending_page = None;
+        self.pending_random = None;
+        self.search.interrupt();
+    }
+
+    /// Restores the favorite generation that is already in flight.
+    pub(super) fn restore_pending_favorite(&mut self, generation: u64) {
+        self.pending_favorite = Some(generation);
+    }
+
+    #[must_use]
+    pub(super) fn playback_snapshot(&self) -> Option<PlaybackView> {
+        self.playback.clone()
+    }
+
+    pub(super) fn restore_playback(&mut self, playback: Option<PlaybackView>) {
+        if self.playback != playback {
+            self.playback = playback;
+            self.draw = Draw::Needed;
+        }
+    }
+
     pub fn handle(&mut self, key: Key) -> Effect {
         self.draw = Draw::Needed;
         if matches!(key, Key::Quit) {
@@ -966,10 +1009,14 @@ impl Explorer {
         if self.context.is_some() {
             return self.context_key(&key);
         }
-        if self.workspace == Workspace::Findings
-            && let Some(effect) = self.findings.handle(&key)
-        {
-            return effect;
+        if self.workspace == Workspace::Findings {
+            let previous_query = self.findings.query().to_owned();
+            if let Some(effect) = self.findings.handle(&key) {
+                if self.findings.query() != previous_query {
+                    self.invalidate_reads();
+                }
+                return effect;
+            }
         }
         if self.focus == Focus::Search {
             return self.edit_search(key);
@@ -1106,7 +1153,8 @@ impl Explorer {
         }
     }
 
-    fn workspace_effect(&self) -> Effect {
+    fn workspace_effect(&mut self) -> Effect {
+        self.invalidate_reads();
         if self.workspace == Workspace::Monitors {
             Effect::MonitorList
         } else {
@@ -1163,7 +1211,10 @@ impl Explorer {
     fn monitor_key(&mut self, key: &Key) -> Option<Effect> {
         match key {
             Key::Up | Key::Down => self.monitors.move_selection(*key == Key::Down),
-            Key::Escape => self.monitors.back(),
+            Key::Escape => {
+                self.monitors.back();
+                self.invalidate_reads();
+            }
             Key::Enter => return Some(self.monitors.open()),
             Key::Char('r') => return Some(self.monitors.reload()),
             Key::Char('f' | 'v' | '/') => self.note_message(

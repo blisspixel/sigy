@@ -12,8 +12,10 @@ use sigy_service::{
     storage::dvr::DvrStatus,
 };
 
+#[cfg(test)]
+use crate::explorer::state::Effect;
 use crate::explorer::state::{
-    BudgetLine, Desk, DirectoryView, Effect, Explorer, Health, Link, PlaybackView, QuotaView,
+    BudgetLine, Desk, DirectoryView, Explorer, Health, Link, PlaybackView, QuotaView,
     RecordingLine, RefreshView, SearchQuery, StationRow,
 };
 use crate::explorer::text::sanitize;
@@ -51,6 +53,7 @@ pub async fn load_desk(
     ))
 }
 
+#[cfg(test)]
 pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) -> Result<(), Error> {
     match effect {
         Effect::None
@@ -63,93 +66,59 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
             id,
             catalog,
         } => {
-            let operation = Operation::Radio {
-                command: DirectoryOperation::Linked {
-                    id: id.clone(),
-                    catalog: Some(catalog.clone()),
-                },
-            };
-            match fetch(directory, operation).await {
-                Ok((_, snapshot)) => {
-                    if snapshot.directory_catalog.as_ref() == Some(catalog)
-                        && let Some(page) = snapshot.linked_station_context
-                    {
-                        model.apply_linked_context(*generation, id, catalog, page);
-                    } else {
-                        model.fail_linked_context(
-                            *generation,
-                            "missing or mismatched catalog response",
-                        );
-                    }
-                }
-                Err(error) => model.fail_linked_context(*generation, &error.to_string()),
-            }
+            let result = fetch(directory, linked_operation(id, catalog)).await;
+            adopt_linked(model, *generation, id, catalog, result);
             Ok(())
         }
         Effect::Reload => Box::pin(reload(directory, model)).await,
         Effect::MonitorList => {
-            apply_fetched(
-                directory,
-                model,
-                monitor_operation(MonitorOperation::List {}),
-                |model, snapshot| {
-                    if let Some(MonitorPage::List { ids }) = snapshot.monitor.as_deref() {
-                        model.monitors.load_ids(ids.clone());
-                    }
-                },
-            )
-            .await
+            let result = fetch(directory, monitor_operation(MonitorOperation::List {})).await;
+            adopt_monitor_list(model, result);
+            Ok(())
         }
-        Effect::MonitorDetail { id } => read_monitor(directory, model, id).await,
+        Effect::MonitorDetail { id } => {
+            adopt_monitor_detail(model, monitor_detail_steps(directory, id).await);
+            Ok(())
+        }
         Effect::Finding { monitor, finding } => {
-            apply_fetched(
-                directory,
-                model,
-                finding_operation(monitor, finding),
-                |model, snapshot| {
-                    if let Some(MonitorPage::Finding { finding: page }) =
-                        snapshot.monitor.as_deref()
-                        && model.findings.load(monitor, finding, page)
-                    {
-                        model.note_message(
-                        "Stored citation read. Arrows scroll; o reads original recording metadata.",
-                    );
-                    } else {
-                        model.note_message("Unexpected finding page; previous citation kept.");
-                    }
-                },
-            )
-            .await
+            let result = fetch(directory, finding_operation(monitor, finding)).await;
+            adopt_finding(model, monitor, finding, result);
+            Ok(())
         }
         Effect::FindingOriginal { recording } => {
-            apply_fetched(
-                directory,
-                model,
-                original_operation(recording),
-                |model, snapshot| {
-                    if let Some(page) = &snapshot.recording_page
-                        && page.entries.len() == 1
-                        && page.entries[0].id == *recording
-                        && model.findings.load_original(&page.entries[0])
-                    {
-                        model.open_finding_recording(recording_from(&page.entries[0]));
-                    } else {
-                        model.note_message("Unexpected recording page; previous citation kept.");
-                    }
-                },
-            )
-            .await
+            let result = fetch(directory, original_operation(recording)).await;
+            adopt_original(model, recording, result);
+            Ok(())
         }
-        Effect::Search(query) => Box::pin(search(directory, model, query)).await,
-        Effect::ExploreRandom(query) => Box::pin(explore_random(directory, model, query)).await,
+        Effect::Search(query) => {
+            adopt_search(
+                model,
+                query,
+                fetch(directory, search_operation(query)).await,
+            );
+            Ok(())
+        }
+        Effect::ExploreRandom(query) => {
+            adopt_random(
+                model,
+                query,
+                fetch(directory, random_operation(query)).await,
+            );
+            Ok(())
+        }
         Effect::SetFavorite {
             generation,
             id,
             favorite,
-        } => set_favorite(directory, model, *generation, id, *favorite).await,
+        } => {
+            let result = fetch(directory, favorite_operation(id, *favorite)).await;
+            adopt_favorite(model, *generation, id, *favorite, result);
+            Ok(())
+        }
     }
 }
 
+#[cfg(test)]
 pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
     match effect {
         Effect::None
@@ -180,21 +149,31 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
     }
 }
 
-fn monitor_operation(command: MonitorOperation) -> Operation {
+pub(super) fn monitor_operation(command: MonitorOperation) -> Operation {
     Operation::Monitor { command }
 }
 
-fn finding_operation(monitor: &str, finding: &str) -> Operation {
+pub(super) fn finding_operation(monitor: &str, finding: &str) -> Operation {
     monitor_operation(MonitorOperation::ShowFinding {
         monitor: monitor.into(),
         finding: finding.into(),
     })
 }
 
-fn original_operation(recording: &str) -> Operation {
+pub(super) fn original_operation(recording: &str) -> Operation {
     Operation::Record {
         command: RecordingOperation::Show {
             id: recording.into(),
+        },
+    }
+}
+
+#[cfg(test)]
+fn linked_operation(id: &str, catalog: &sigy_service::control::DirectoryCatalog) -> Operation {
+    Operation::Radio {
+        command: DirectoryOperation::Linked {
+            id: id.to_owned(),
+            catalog: Some(catalog.clone()),
         },
     }
 }
@@ -220,20 +199,60 @@ fn monitor_reads(id: &str, now: i64) -> Vec<Operation> {
     ]
 }
 
-async fn read_monitor(directory: &Path, model: &mut Explorer, id: &str) -> Result<(), Error> {
-    let now = std::time::SystemTime::now()
+fn monitor_clock() -> Result<i64, Error> {
+    let elapsed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| Error::InvalidInput("system clock"))?;
-    let now = i64::try_from(now.as_millis()).map_err(|_| Error::InvalidInput("system clock"))?;
+    i64::try_from(elapsed.as_millis()).map_err(|_| Error::InvalidInput("system clock"))
+}
+
+pub(super) async fn monitor_detail_steps(
+    directory: &Path,
+    id: &str,
+) -> Vec<Result<(bool, Snapshot), Error>> {
+    let now = match monitor_clock() {
+        Ok(now) => now,
+        Err(error) => return vec![Err(error)],
+    };
+    let mut steps = Vec::with_capacity(3);
+    for operation in monitor_reads(id, now) {
+        match fetch(directory, operation).await {
+            Ok(result) => {
+                let recognized = matches!(
+                    result.1.monitor.as_deref(),
+                    Some(
+                        MonitorPage::Monitor { .. }
+                            | MonitorPage::Coverage { .. }
+                            | MonitorPage::Matches { .. }
+                    )
+                );
+                steps.push(Ok(result));
+                if !recognized {
+                    break;
+                }
+            }
+            Err(error) => {
+                steps.push(Err(error));
+                break;
+            }
+        }
+    }
+    steps
+}
+
+pub(super) fn adopt_monitor_detail(
+    model: &mut Explorer,
+    steps: Vec<Result<(bool, Snapshot), Error>>,
+) {
     let mut monitor = None;
     let mut coverage = None;
     let mut matches = None;
-    for operation in monitor_reads(id, now) {
-        let (via_service, snapshot) = match fetch(directory, operation).await {
+    for step in steps {
+        let (via_service, snapshot) = match step {
             Ok(result) => result,
             Err(error) => {
                 report(model, &error);
-                return Ok(());
+                return;
             }
         };
         model.note_link(link_from(via_service, &snapshot));
@@ -245,7 +264,7 @@ async fn read_monitor(directory: &Path, model: &mut Explorer, id: &str) -> Resul
                 model.note_message(
                     "The monitor read returned an unexpected page; previous snapshot kept.",
                 );
-                return Ok(());
+                return;
             }
         }
     }
@@ -260,38 +279,98 @@ async fn read_monitor(directory: &Path, model: &mut Explorer, id: &str) -> Resul
             );
         }
     }
-    Ok(())
 }
 
-async fn reload(directory: &Path, model: &mut Explorer) -> Result<(), Error> {
-    if let Ok(now) = super::now_ms() {
-        model.tick_clock(now);
-    }
-    match Box::pin(load_desk(
-        directory,
-        &model.current_search(),
-        model.now_ms(),
-    ))
-    .await
-    {
-        Ok(desk) => model.apply_desk(desk),
+pub(super) fn adopt_monitor_list(model: &mut Explorer, result: Result<(bool, Snapshot), Error>) {
+    match result {
+        Ok((via_service, snapshot)) => {
+            model.note_link(link_from(via_service, &snapshot));
+            if let Some(MonitorPage::List { ids }) = snapshot.monitor.as_deref() {
+                model.monitors.load_ids(ids.clone());
+            }
+        }
         Err(error) => report(model, &error),
     }
-    Ok(())
 }
 
-async fn set_favorite(
-    directory: &Path,
+pub(super) fn adopt_linked(
+    model: &mut Explorer,
+    generation: u64,
+    id: &str,
+    catalog: &sigy_service::control::DirectoryCatalog,
+    result: Result<(bool, Snapshot), Error>,
+) {
+    match result {
+        Ok((_, snapshot)) => {
+            if snapshot.directory_catalog.as_ref() == Some(catalog)
+                && let Some(page) = snapshot.linked_station_context
+            {
+                model.apply_linked_context(generation, id, catalog, page);
+            } else {
+                model.fail_linked_context(generation, "missing or mismatched catalog response");
+            }
+        }
+        Err(error) => model.fail_linked_context(generation, &error.to_string()),
+    }
+}
+
+pub(super) fn adopt_finding(
+    model: &mut Explorer,
+    monitor: &str,
+    finding: &str,
+    result: Result<(bool, Snapshot), Error>,
+) {
+    match result {
+        Ok((via_service, snapshot)) => {
+            model.note_link(link_from(via_service, &snapshot));
+            if let Some(MonitorPage::Finding { finding: page }) = snapshot.monitor.as_deref()
+                && model.findings.load(monitor, finding, page)
+            {
+                model.note_message(
+                    "Stored citation read. Arrows scroll; o reads original recording metadata.",
+                );
+            } else {
+                model.note_message("Unexpected finding page; previous citation kept.");
+            }
+        }
+        Err(error) => report(model, &error),
+    }
+}
+
+pub(super) fn adopt_original(
+    model: &mut Explorer,
+    recording: &str,
+    result: Result<(bool, Snapshot), Error>,
+) {
+    match result {
+        Ok((via_service, snapshot)) => {
+            model.note_link(link_from(via_service, &snapshot));
+            if let Some(page) = &snapshot.recording_page
+                && page.entries.len() == 1
+                && page.entries[0].id == recording
+                && model.findings.load_original(&page.entries[0])
+            {
+                model.open_finding_recording(recording_from(&page.entries[0]));
+            } else {
+                model.note_message("Unexpected recording page; previous citation kept.");
+            }
+        }
+        Err(error) => report(model, &error),
+    }
+}
+
+pub(super) fn adopt_favorite(
     model: &mut Explorer,
     generation: u64,
     id: &str,
     saved: bool,
-) -> Result<(), Error> {
-    match fetch(directory, favorite_operation(id, saved)).await {
+    result: Result<(bool, Snapshot), Error>,
+) {
+    match result {
         Ok((via_service, snapshot)) => {
             let Some(catalog) = &snapshot.directory_catalog else {
                 let _ = model.fail_favorite(generation, "Favorite reply omitted catalog identity; previous rows kept. g rereads cached page 1.");
-                return Ok(());
+                return;
             };
             if model.apply_ordered_favorite(
                 generation,
@@ -309,28 +388,23 @@ async fn set_favorite(
             }
         }
     }
-    Ok(())
 }
 
-async fn search(directory: &Path, model: &mut Explorer, query: &SearchQuery) -> Result<(), Error> {
-    adopt_search(
-        model,
-        query,
-        fetch(directory, search_operation(query)).await,
-    );
-    Ok(())
-}
-
-async fn explore_random(
-    directory: &Path,
-    model: &mut Explorer,
-    query: &SearchQuery,
-) -> Result<(), Error> {
-    adopt_random(
-        model,
-        query,
-        fetch(directory, random_operation(query)).await,
-    );
+#[cfg(test)]
+async fn reload(directory: &Path, model: &mut Explorer) -> Result<(), Error> {
+    if let Ok(now) = super::now_ms() {
+        model.tick_clock(now);
+    }
+    match Box::pin(load_desk(
+        directory,
+        &model.current_search(),
+        model.now_ms(),
+    ))
+    .await
+    {
+        Ok(desk) => model.apply_desk(desk),
+        Err(error) => report(model, &error),
+    }
     Ok(())
 }
 
@@ -375,26 +449,10 @@ pub(super) fn adopt_search(
     false
 }
 
-async fn apply_fetched<F>(
+pub(super) async fn fetch(
     directory: &Path,
-    model: &mut Explorer,
     operation: Operation,
-    apply: F,
-) -> Result<(), Error>
-where
-    F: FnOnce(&mut Explorer, &Snapshot),
-{
-    match fetch(directory, operation).await {
-        Ok((via_service, snapshot)) => {
-            model.note_link(link_from(via_service, &snapshot));
-            apply(model, &snapshot);
-        }
-        Err(error) => report(model, &error),
-    }
-    Ok(())
-}
-
-async fn fetch(directory: &Path, operation: Operation) -> Result<(bool, Snapshot), Error> {
+) -> Result<(bool, Snapshot), Error> {
     match Library::open(directory, false) {
         Ok(mut library) => {
             let snapshot = control::apply_library(&mut library, operation)?;
@@ -406,7 +464,7 @@ async fn fetch(directory: &Path, operation: Operation) -> Result<(bool, Snapshot
     }
 }
 
-fn report(model: &mut Explorer, error: &Error) {
+pub(super) fn report(model: &mut Explorer, error: &Error) {
     let message = error.to_string();
     if message.contains("ordered station cursor scope changed") {
         model.note_cursor_changed();
@@ -601,7 +659,7 @@ fn row_from(station: &sigy_service::discovery::Station, favorite: bool) -> Stati
     }
 }
 
-fn random_operation(query: &SearchQuery) -> Operation {
+pub(super) fn random_operation(query: &SearchQuery) -> Operation {
     Operation::Radio {
         command: DirectoryOperation::Explore {
             filter: query.filter.clone(),
@@ -704,7 +762,7 @@ pub(super) fn search_operation(query: &SearchQuery) -> Operation {
     }
 }
 
-fn favorite_operation(id: &str, favorite: bool) -> Operation {
+pub(super) fn favorite_operation(id: &str, favorite: bool) -> Operation {
     Operation::Radio {
         command: DirectoryOperation::SetFavorite {
             id: id.to_owned(),

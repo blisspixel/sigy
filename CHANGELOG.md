@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Explorer search, linked context, monitor, finding and reload reads no longer block resize, Back, stop or quit. A late reply keeps the newer view. A favorite change is not cancelled by a newer read. Catalog schema and local IPC stay v51 and v53.
+- Locked `rustls` 0.23.46, `rustls-webpki` 0.103.16 and `webpki-root-certs` 1.0.10. Those releases clear RUSTSEC-2026-0346, RUSTSEC-2026-0347, RUSTSEC-2026-0348, RUSTSEC-2026-0349, RUSTSEC-2026-0382 and RUSTSEC-2026-0383. Tokio stays 1.53.1.
 - MCP tools keep JSON stdout as structured content when a command exits non-zero, and keep stderr in the text. Six diagnostic and evidence tools now declare output schemas; failures without JSON stdout use a structured error envelope for those tools. Other tools retain plain-text failures.
 - `cargo verify` and the verify workflow reject a release tag that has no CHANGELOG heading.
 

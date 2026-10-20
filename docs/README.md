@@ -1,6 +1,8 @@
 # Design documents
 
-Last updated: 2026-10-13
+Last updated: 2026-10-20
+
+[Responsive metadata reads](decisions/0096-responsive-metadata-reads.md) keep resize, Back, stop and quit available while search, linked context, monitor, finding and reload reads are delayed. A late reply cannot replace a newer view. Schema remains v51 and local IPC remains v53. Native key-to-frame timing stays unmeasured.
 
 [MCP evidence output schemas](decisions/0095-mcp-evidence-output-schemas.md) declare the existing structured results for six diagnostic and evidence reads, including explicit errors and offline contract validation.
 

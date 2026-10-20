@@ -11,7 +11,6 @@ use termina::escape::csi::{Csi, DecPrivateMode, DecPrivateModeCode, Mode};
 use termina::event::{Event, KeyCode, KeyEventKind, Modifiers};
 use termina::{EventReader, PlatformTerminal};
 
-use crate::explorer::client;
 use crate::explorer::screen::render;
 use crate::explorer::state::{Effect, Explorer, Key};
 
@@ -50,9 +49,11 @@ fn run_loop(
     let mut clock_tick = std::time::Instant::now();
     let mut player = super::player::Player::default();
     let mut fetcher = super::fetch::Fetcher::default();
+    let mut metadata = super::metadata::Reads::default();
     loop {
         fetcher.poll(model);
         player.poll(model);
+        metadata.poll(runtime, directory, model);
         let visible = if model.spin_requested() {
             let (width, height) = session.size()?;
             super::screen::globe_visible(model, ratatui::layout::Rect::new(0, 0, width, height))
@@ -87,32 +88,25 @@ fn run_loop(
         } else if let Effect::Fetch(query) = &effect {
             fetcher.start(runtime, directory, model, query);
         }
-        dispatch_effect(
-            model,
-            &effect,
-            |model| session.draw(model).map(|_| ()).map_err(Into::into),
-            |model, effect| {
-                runtime
-                    .block_on(client::perform(directory, model, effect))
-                    .map_err(Into::into)
-            },
-        )?;
+        dispatch_metadata(model, &effect, &mut metadata, runtime, directory, |model| {
+            session.draw(model).map(|_| ()).map_err(Into::into)
+        })?;
     }
 }
 
-/// Paint intent before a synchronous read, then paint its adopted outcome.
-fn dispatch_effect(
+/// Paint the key's intent, queue its read, and return before that read finishes.
+pub(super) fn dispatch_metadata(
     model: &mut Explorer,
     effect: &Effect,
+    metadata: &mut super::metadata::Reads,
+    runtime: &tokio::runtime::Runtime,
+    directory: &Path,
     mut draw: impl FnMut(&Explorer) -> Result<(), Box<dyn std::error::Error>>,
-    perform: impl FnOnce(&mut Explorer, &Effect) -> Result<(), Box<dyn std::error::Error>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if model.take_dirty() {
         draw(model)?;
     }
-    if !client::operations_for(effect, model).is_empty() {
-        perform(model, effect)?;
-    }
+    metadata.submit(runtime, directory, model, effect);
     if model.take_dirty() {
         draw(model)?;
     }
@@ -299,6 +293,12 @@ mod tests {
     #[test]
     fn production_dispatch_draws_intent_before_read_and_outcome_after()
     -> Result<(), Box<dyn std::error::Error>> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()?;
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("missing");
         let mut model = Explorer::new(
             Modes {
                 reduced_motion: true,
@@ -311,23 +311,34 @@ mod tests {
         model.handle(Key::Char('/'));
         model.handle(Key::Paste("Tokyo".into()));
         let effect = model.handle(Key::Enter);
+        let (release_send, release_recv) = tokio::sync::oneshot::channel();
+        let mut metadata = super::super::metadata::Reads::default();
+        metadata.withhold_next(release_recv);
         let trace = std::cell::RefCell::new(Vec::new());
-        dispatch_effect(
-            &mut model,
-            &effect,
-            |_| {
-                trace.borrow_mut().push("draw");
-                Ok(())
-            },
-            |model, _| {
-                assert_eq!(*trace.borrow(), ["draw"]);
-                trace.borrow_mut().push("read");
-                model.note_message("Read refused; previous observation kept.");
-                Ok(())
-            },
-        )?;
-        assert_eq!(*trace.borrow(), ["draw", "read", "draw"]);
-        assert!(!model.take_dirty());
+        dispatch_metadata(&mut model, &effect, &mut metadata, &runtime, &path, |_| {
+            trace.borrow_mut().push("draw");
+            Ok(())
+        })?;
+        assert_eq!(*trace.borrow(), ["draw"]);
+        assert!(metadata.read_busy());
+        assert!(model.status().contains("Reading cached station matches"));
+        let _ = release_send.send(());
+        runtime.block_on(async {
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    metadata.poll(&runtime, &path, &mut model);
+                    if !metadata.read_busy() {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            })
+            .await
+        })?;
+        assert!(model.take_dirty());
+        trace.borrow_mut().push("draw");
+        assert_eq!(*trace.borrow(), ["draw", "draw"]);
+        assert!(model.status().contains("Disconnected"));
         Ok(())
     }
 }
