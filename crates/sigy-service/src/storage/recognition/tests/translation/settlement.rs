@@ -286,3 +286,40 @@ fn successful_replay_detects_extra_untranslated_membership_with_lookahead() -> T
     ));
     Ok(())
 }
+
+#[test]
+fn translation_finish_keeps_the_committed_attempt_and_owner() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = transcribed(&directory.path().join("catalog"))?;
+    store.enqueue_translation(&request("mt")?, 30)?;
+    let mut work = store
+        .claim_translation("mt", TEST_OWNER, 31)?
+        .ok_or("claim")?;
+    assert_eq!(work.claim_owner, TEST_OWNER);
+    assert_eq!(work.job.attempt, 1);
+    let result = TranslationOutcome::synthetic_fixture(
+        &work.job,
+        TranslationResult::Succeeded(vec![translated(0, "A world fair")]),
+    );
+    work.claim_owner = "other-owner".into();
+    assert!(matches!(
+        store.finish_translation(&work, &result, 32),
+        Err(Error::Analysis("stale-worker"))
+    ));
+    assert_eq!(store.translation_job("mt")?.state, "running");
+    assert_eq!(store.latest_translation_revision("pin", 1)?, 0);
+    work.claim_owner = TEST_OWNER.into();
+    work.job.attempt = 2;
+    assert!(matches!(
+        store.finish_translation(&work, &result, 33),
+        Err(Error::Analysis("stale-worker"))
+    ));
+    assert_eq!(store.latest_translation_revision("pin", 1)?, 0);
+    work.job.attempt = 1;
+    assert_eq!(
+        store.finish_translation(&work, &result, 34)?.state,
+        "succeeded"
+    );
+    assert_eq!(store.latest_translation_revision("pin", 1)?, 1);
+    Ok(())
+}

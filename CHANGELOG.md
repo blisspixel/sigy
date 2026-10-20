@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Recognition and translation finish tokens carry the lease owner stored by their committed claim. Finish refuses a token whose attempt or owner differs from that row and publishes nothing. The actor still drops an in-memory completion before settlement. Completed slots, classified retry, exhaustion and shutdown remain unimplemented. No retry count, lock wait or deadline is selected. Schema v51 and local IPC v53 are unchanged.
+
 ## 0.1.0-dev.20261020 (development prerelease, source only)
 
 Source-only checkpoint for responsive metadata reads, random cached exploration, optional globe rotation, MCP evidence schemas and the published rustls advisory lock. Catalog schema remains v51. Local IPC is v53. No binaries or models are distributed, and no roadmap stage exit or supported release is claimed.

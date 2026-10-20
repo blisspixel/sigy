@@ -185,12 +185,14 @@ pub struct SourceCue {
 }
 
 /// Returned only by a committed claim of a queued job. Replays cannot obtain a work token.
+/// `claim_owner` is the lease owner stored by that claim.
 #[derive(Debug)]
 pub struct TranslationWork {
     pub(crate) job: TranslationJob,
     pub(crate) cues: Vec<SourceCue>,
     /// The recognizer's block language label for the source transcript, when stored.
     pub(crate) language: Option<String>,
+    pub(crate) claim_owner: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

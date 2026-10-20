@@ -1,6 +1,6 @@
 # Atomic worker responses and exact translation replay
 
-Date: 2026-10-11. Status: implemented first S-03B settlement foundation; integrated verification belongs in [active work](../development/progress.md). Catalog v51, local IPC v52 and dependencies are unchanged.
+Date: 2026-10-11. Status: implemented first S-03B settlement foundation; the 2026-10-20 amendment adds committed attempt and claim-owner checks. Integrated verification belongs in [active work](../development/progress.md). S-03B remains open. Catalog v51, local IPC v52 and dependencies are unchanged by the original foundation.
 
 ## Problem
 
@@ -20,4 +20,10 @@ Disposable SQLite catalogs use connection-local authorizer/update hooks to deny 
 
 These fixtures use synthetic drained outcomes and establish no new native execution or device evidence. [SQLite commit hooks](https://www.sqlite.org/c3ref/commit_hook.html), [authorization callbacks](https://www.sqlite.org/c3ref/set_authorizer.html) and the pinned [rusqlite transaction contract](https://docs.rs/rusqlite/0.40.2/rusqlite/struct.Transaction.html) define the exercised boundaries.
 
-The actor still removes a completion before fallible settlement. Preserving that capability needs bounded completed slots, explicit attempt/claim-owner checks, classified transient failures and finite exhaustion/shutdown semantics. Launch-refusal settlement, language-evidence followup and legacy restart behavior remain separate boundaries. This foundation does not close S-03B or establish a roadmap stage exit.
+The actor still removes a completion before fallible settlement. Preserving that capability needs bounded completed slots, classified transient failures and finite exhaustion/shutdown semantics. Launch-refusal settlement, language-evidence followup and legacy restart behavior remain separate boundaries. This foundation does not close S-03B or establish a roadmap stage exit.
+
+## 2026-10-20 amendment
+
+Recognition and translation claims read the stored attempt and lease owner in the same transaction as the claim. The work token returned after commit carries that owner. An empty owner remains only an uncommitted admission value. Finish compares the token with the stored row before terminal replay or publication. A different attempt or owner returns `stale-worker` and writes nothing. A claim that cannot read back an owner equal to the claimant, or an attempt that disagrees with the claimed job, returns a storage integrity fault and does not commit the token. Catalog transition triggers still reject a direct SQL change of those fields. Verification keeps its existing generation check and does not use this token. This slice changes no schema, IPC version, dependency, or retry policy.
+
+The actor still removes a completion before fallible settlement. Bounded completed slots, classified transient retry, exhaustion and finite shutdown remain unimplemented. Retry attempt count, lock wait and monotonic deadline are not selected. Uncommitted in-memory evidence is not reconstructible after process death. This amendment does not close S-03B or establish a roadmap stage exit.

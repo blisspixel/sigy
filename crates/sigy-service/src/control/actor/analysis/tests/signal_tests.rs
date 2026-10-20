@@ -52,6 +52,7 @@ fn translation_work() -> crate::translation::TranslationWork {
         },
         cues: Vec::new(),
         language: None,
+        claim_owner: "owner".into(),
     }
 }
 

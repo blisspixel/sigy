@@ -33,6 +33,9 @@ impl Store {
         {
             return Err(Error::Analysis("stale-worker"));
         }
+        if !same_claim(&tx, work)? {
+            return Err(Error::Analysis("stale-worker"));
+        }
         if !matches!(job.state.as_str(), "running" | "cancelling") {
             if job.state == "succeeded" {
                 let stored = reads::output(&tx, &job)?;
@@ -75,6 +78,15 @@ impl Store {
         tx.commit()?;
         Ok(finished_job)
     }
+}
+
+fn same_claim(connection: &Connection, work: &LocalAsrWork) -> Result<bool> {
+    let (attempt, owner) = super::super::job_pool::committed_claim(
+        connection,
+        super::super::job_pool::Family::Analysis,
+        &work.job.request.id,
+    )?;
+    Ok(attempt == work.job.attempt && owner.as_deref() == Some(work.claim_owner.as_str()))
 }
 
 fn terminal_outcome(

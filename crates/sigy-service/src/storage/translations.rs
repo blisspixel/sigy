@@ -255,7 +255,15 @@ impl Store {
         if !job_pool::claim_row(&tx, Family::Translation, id, owner, lease, now)? {
             return Ok(None);
         }
+        let (attempt, stored_owner) = job_pool::committed_claim(&tx, Family::Translation, id)?;
+        let stored_owner = stored_owner.ok_or(Error::StorageIntegrity)?;
+        if stored_owner != owner {
+            return Err(Error::StorageIntegrity);
+        }
         let claimed = find_job(&tx, id)?;
+        if claimed.attempt != attempt {
+            return Err(Error::StorageIntegrity);
+        }
         tx.commit()?;
         let language = language.map(|tag| {
             tag.split('-')
@@ -267,6 +275,7 @@ impl Store {
             job: claimed,
             cues,
             language,
+            claim_owner: stored_owner,
         }))
     }
 
@@ -335,6 +344,11 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let job = find_job(&tx, &work.job.request.id)?;
         if job.generation != work.job.generation || job.request != work.job.request {
+            return Err(Error::Analysis("stale-worker"));
+        }
+        let (attempt, owner) =
+            job_pool::committed_claim(&tx, Family::Translation, &job.request.id)?;
+        if attempt != work.job.attempt || owner.as_deref() != Some(work.claim_owner.as_str()) {
             return Err(Error::Analysis("stale-worker"));
         }
         if !matches!(job.state.as_str(), "running" | "cancelling") {

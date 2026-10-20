@@ -70,6 +70,7 @@ impl Store {
                 started_ms: None,
             },
             input,
+            claim_owner: String::new(),
         }))
     }
 
@@ -106,6 +107,7 @@ impl Store {
                 let work = LocalAsrWork {
                     job: job.clone(),
                     input,
+                    claim_owner: String::new(),
                 };
                 if !current_input(&tx, &work)? {
                     Some("input-no-longer-current")
@@ -127,9 +129,20 @@ impl Store {
                     if !job_pool::claim_row(&tx, Family::Analysis, id, owner, lease, now)? {
                         return Ok(None);
                     }
+                    let (attempt, stored_owner) =
+                        job_pool::committed_claim(&tx, Family::Analysis, id)?;
+                    let stored_owner = stored_owner.ok_or(Error::StorageIntegrity)?;
+                    if stored_owner != owner {
+                        return Err(Error::StorageIntegrity);
+                    }
+                    let claimed_job = find_job(&tx, id)?.ok_or(Error::StorageIntegrity)?;
+                    if claimed_job.attempt != attempt {
+                        return Err(Error::StorageIntegrity);
+                    }
                     let claimed = LocalAsrWork {
-                        job: find_job(&tx, id)?.ok_or(Error::StorageIntegrity)?,
+                        job: claimed_job,
                         input: work.input,
+                        claim_owner: stored_owner,
                     };
                     tx.commit()?;
                     return Ok(Some(claimed));

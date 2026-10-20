@@ -138,10 +138,13 @@ impl LocalAsrInput {
 }
 
 /// Returned only by a committed claim of a queued job. Replays cannot obtain a work token.
+/// `claim_owner` is the lease owner stored by that claim. An empty owner is only an
+/// uncommitted admission value and cannot match a stored lease.
 #[derive(Debug)]
 pub struct LocalAsrWork {
     pub(crate) job: LocalAsrJob,
     pub(crate) input: LocalAsrInput,
+    pub(crate) claim_owner: String,
 }
 
 impl LocalAsrWork {

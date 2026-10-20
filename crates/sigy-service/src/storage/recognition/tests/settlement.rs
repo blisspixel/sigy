@@ -137,3 +137,37 @@ fn recognition_commit_refusal_returns_no_claim_or_partial_result() -> TestResult
     assert!(store.begin_delete("one", false).is_err());
     Ok(())
 }
+
+#[test]
+fn recognition_finish_keeps_the_committed_attempt_and_owner() -> TestResult {
+    let owner = super::super::super::analysis_jobs::TEST_OWNER;
+    let directory = tempfile::tempdir()?;
+    let mut store = setup(&directory.path().join("catalog"), false)?;
+    store.enqueue_local_asr(&request("asr", 0), 20)?;
+    let mut work = store.claim_local_asr("asr", owner, 21)?.ok_or("claim")?;
+    assert_eq!(work.claim_owner, owner);
+    assert_eq!(work.job.attempt, 1);
+    work.claim_owner = "other-owner".into();
+    assert!(matches!(
+        store.finish_local_asr(&work, &proof(&work, "speech"), 22),
+        Err(Error::Analysis("stale-worker"))
+    ));
+    assert_eq!(store.local_asr_job("asr")?.state, "running");
+    assert_eq!(counts(&store)?, (0, 0, 0, 0));
+    work.claim_owner = owner.into();
+    work.job.attempt = 2;
+    assert!(matches!(
+        store.finish_local_asr(&work, &proof(&work, "speech"), 23),
+        Err(Error::Analysis("stale-worker"))
+    ));
+    assert_eq!(counts(&store)?, (0, 0, 0, 0));
+    work.job.attempt = 1;
+    assert_eq!(
+        store
+            .finish_local_asr(&work, &proof(&work, "speech"), 24)?
+            .state,
+        "succeeded"
+    );
+    assert_eq!(counts(&store)?, (1, 1, 1, 1));
+    Ok(())
+}

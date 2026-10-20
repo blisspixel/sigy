@@ -146,6 +146,20 @@ pub(super) fn claim_row(
     Ok(changed == 1)
 }
 
+/// The attempt and lease owner currently stored for one job.
+/// A queued or finished row may have no owner.
+pub(super) fn committed_claim(
+    connection: &Connection,
+    family: Family,
+    id: &str,
+) -> Result<(u32, Option<String>)> {
+    let sql = match family {
+        Family::Analysis => "SELECT attempt, lease_owner FROM analysis_jobs WHERE id = ?1",
+        Family::Translation => "SELECT attempt, lease_owner FROM translation_jobs WHERE id = ?1",
+    };
+    Ok(connection.query_row(sql, [id], |row| Ok((row.get(0)?, row.get(1)?)))?)
+}
+
 /// End a queued job that can no longer run, without a worker.
 pub(super) fn end_queued(
     connection: &Connection,
