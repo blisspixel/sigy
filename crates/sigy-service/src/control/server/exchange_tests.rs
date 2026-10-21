@@ -95,7 +95,7 @@ async fn stalled_and_hostile_peers_are_released_at_the_deadline() -> TestResult 
     send(&mut extra, Operation::Status {}).await?;
     extra.write_all(b"x").await?;
     read_snapshot(&mut extra).await?;
-    assert!(end_of_stream(&mut extra).await?.is_empty());
+    assert_eq!(end_of_stream(&mut extra).await?, [] as [u8; 0]);
 
     // Reads only the length prefix of its response.
     let mut partial = endpoint.connect(&directory).await?;
@@ -121,16 +121,16 @@ async fn stalled_and_hostile_peers_are_released_at_the_deadline() -> TestResult 
     // holds no task or thread and completes once the client reads it.
     let stopped = read_snapshot(&mut silent).await?;
     assert!(stopped.service.is_some());
-    assert!(end_of_stream(&mut silent).await?.is_empty());
+    assert_eq!(end_of_stream(&mut silent).await?, [] as [u8; 0]);
 
     assert!(peer_end_closes(&mut partial, Duration::from_secs(10)).await);
     let mut body = vec![0; length];
     partial.read_exact(&mut body).await?;
     let response: Response = serde_json::from_slice(&body)?;
     assert!(response.result.is_ok());
-    assert!(end_of_stream(&mut partial).await?.is_empty());
+    assert_eq!(end_of_stream(&mut partial).await?, [] as [u8; 0]);
 
-    assert!(end_of_stream(&mut lingering).await?.is_empty());
+    assert_eq!(end_of_stream(&mut lingering).await?, [] as [u8; 0]);
     Ok(())
 }
 
@@ -212,7 +212,7 @@ async fn the_client_closes_after_a_response_or_cancellation() -> TestResult {
     let sent: Request = frame::read(&mut stream, MAX_REQUEST_BYTES).await?;
     assert_eq!(sent.version, PROTOCOL_VERSION);
     assert!(matches!(sent.operation, Operation::Status {}));
-    assert!(end_of_stream(&mut stream).await?.is_empty());
+    assert_eq!(end_of_stream(&mut stream).await?, [] as [u8; 0]);
 
     // Cancelled while its response read is pending.
     let silent =

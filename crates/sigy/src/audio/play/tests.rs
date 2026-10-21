@@ -119,7 +119,7 @@ async fn incomplete_empty_excess_and_oversized_pcm_never_emit_success_end() -> T
     ] {
         let (sent, bytes) = forwarded(chunks, 16).await;
         assert!(sent.is_err());
-        assert!(bytes.is_empty());
+        assert_eq!(bytes, [] as [u8; 0]);
     }
     let (sent, bytes) = forwarded(vec![vec![1; 16], vec![1]], 16).await;
     assert!(sent.is_err());

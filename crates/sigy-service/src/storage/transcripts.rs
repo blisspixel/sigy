@@ -749,7 +749,7 @@ mod tests {
         assert_eq!(cue.start_us, 30_000_000);
         assert_eq!(cue.end_us, 31_000_000);
         assert_eq!(cue.wording, "uncertain");
-        assert!(cue.script.is_empty());
+        assert_eq!(cue.script, "");
         let rendered = serde_json::to_string(page)?;
         assert!(!rendered.contains("example.com"));
         assert_ledger(library.store(), 0)?;

@@ -91,18 +91,16 @@ fn segments_map_to_the_pinned_media_clock_in_original_script() -> TestResult {
 #[test]
 fn empty_transcription_is_valid_no_text_and_blank_segments_are_skipped() -> TestResult {
     let pinned = input(0, 10_000_000);
-    assert!(
+    assert_eq!(
         parse(&json(""), &pinned, 160_000)
             .map_err(str::to_owned)?
-            .cues
-            .is_empty()
+            .cues,
+        []
     );
     let blank = json(&segment(0, 1000, " \t "));
-    assert!(
-        parse(&blank, &pinned, 160_000)
-            .map_err(str::to_owned)?
-            .cues
-            .is_empty()
+    assert_eq!(
+        parse(&blank, &pinned, 160_000).map_err(str::to_owned)?.cues,
+        []
     );
     Ok(())
 }

@@ -63,7 +63,7 @@ fn legal_no_text_results_freeze_their_exact_coverage_and_reject_changed_outcome(
     let mut snapshot = store.freeze_task_evidence("task", "freeze", 0, now + 93_000)?;
     assert_eq!(snapshot.evidence.outcome, TaskOutcome::Partial);
     assert_eq!(snapshot.evidence.recognized_us, 60_000_000);
-    assert!(snapshot.evidence.citations.is_empty());
+    assert_eq!(snapshot.evidence.citations, []);
     assert_eq!(store.task_evidence_snapshot("task", 1)?, snapshot);
     snapshot.evidence.entries[1].transcript_outcome = Some("text".into());
     replace(&store, &snapshot)?;
@@ -78,7 +78,7 @@ fn removing_a_literal_match_from_a_rehashed_complete_selection_is_refused() -> T
     let now = clock(&store)?;
     let mut snapshot = store.freeze_task_evidence("task", "freeze", 0, now + 93_000)?;
     assert!(!snapshot.evidence.more);
-    assert!(!snapshot.evidence.citations.is_empty());
+    assert_ne!(snapshot.evidence.citations, []);
     snapshot.evidence.citations.clear();
     replace(&store, &snapshot)?;
     assert!(store.task_evidence_snapshot("task", 1).is_err());

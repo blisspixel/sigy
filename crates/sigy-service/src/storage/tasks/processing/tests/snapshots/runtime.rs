@@ -139,7 +139,7 @@ fn original_only_snapshot_stays_partial_even_when_translation_finishes_later() -
     assert_eq!(done.state, TaskRunState::Partial);
     let page = store.task_evidence_briefing("task")?.ok_or("briefing")?;
     assert_eq!(page.snapshot.as_ref(), &frozen);
-    assert!(page.members.is_empty());
+    assert_eq!(page.members, []);
     assert_eq!(count(&store, "SELECT count(*) FROM monitor_findings")?, 0);
     Ok(())
 }

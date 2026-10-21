@@ -139,7 +139,7 @@ fn exact_reader_replay_capacity_and_restart_keep_retention_protected() -> TestRe
         store.begin_delete("recording", false),
         Err(Error::RequestState)
     ));
-    assert!(store.prune_candidates(true)?.is_empty());
+    assert_eq!(store.prune_candidates(true)?, [] as [String; 0]);
     assert!(store.next_segment_release(true, 12)?.is_none());
     assert!(
         store

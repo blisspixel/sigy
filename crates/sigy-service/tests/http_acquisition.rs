@@ -137,7 +137,7 @@ async fn timed_recording_without_audio_cannot_be_published() -> TestResult {
             .await
             .is_err()
     );
-    assert!(received.is_empty());
+    assert_eq!(received, [] as [u8; 0]);
     Ok(())
 }
 
@@ -189,7 +189,7 @@ async fn episode_content_length_above_the_ceiling_writes_nothing() -> TestResult
         error,
         Error::Acquisition("declared length exceeds the episode ceiling")
     ));
-    assert!(received.is_empty());
+    assert_eq!(received, [] as [u8; 0]);
     Ok(())
 }
 
@@ -231,7 +231,7 @@ async fn redirect_never_contacts_its_target_or_emits_sensitive_location() -> Tes
         Error::Acquisition("redirect requires a separately authorized source revision")
     ));
     assert!(!error.to_string().contains("secret"));
-    assert!(bytes.is_empty());
+    assert_eq!(bytes, [] as [u8; 0]);
     assert!(
         timeout(Duration::from_millis(100), target.accept())
             .await
@@ -264,7 +264,7 @@ async fn unsupported_and_ambiguous_headers_fail_before_body_writes() -> TestResu
                 .is_err(),
             "accepted {headers:?}"
         );
-        assert!(bytes.is_empty());
+        assert_eq!(bytes, [] as [u8; 0]);
     }
     Ok(())
 }
@@ -433,7 +433,7 @@ async fn untrusted_tls_certificate_cannot_deliver_an_audio_body() -> TestResult 
     .await?;
     server?;
     assert!(client.is_err());
-    assert!(received.is_empty());
+    assert_eq!(received, [] as [u8; 0]);
     Ok(())
 }
 

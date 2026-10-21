@@ -153,7 +153,7 @@ fn bounded_no_match_is_partial_and_original_plus_target_bytes_are_charged() -> T
             .task_evidence_bounded("task", bounds)?
             .ok_or("evidence")?;
         assert_eq!(evidence.outcome, TaskOutcome::Partial);
-        assert!(evidence.citations.is_empty());
+        assert_eq!(evidence.citations, []);
         assert!(evidence.more);
         assert_eq!(evidence.reasons, [reason]);
     }

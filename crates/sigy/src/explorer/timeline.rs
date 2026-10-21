@@ -285,13 +285,13 @@ mod tests {
         assert!(oversized.summary().starts_with("Partial counts:"));
         assert!(oversized.axis().contains("Timeline unavailable"));
         assert!(oversized.compact_axis().contains("Timeline unavailable"));
-        assert!(oversized.cells(120).is_empty());
+        assert_eq!(oversized.cells(120), "");
         // The omitted last interval extends beyond the plan. Its absence must not
         // produce either an understated axis or a fabricated unpublished region.
         recording.intervals[MAX_INTERVALS].decoded_start_us = 10_000_000;
         recording.intervals[MAX_INTERVALS].decoded_end_us = 20_000_000;
         let omitted_publication = Timeline::from_recording(&recording);
-        assert!(omitted_publication.cells(120).is_empty());
+        assert_eq!(omitted_publication.cells(120), "");
         assert!(!omitted_publication.axis().contains("5000000"));
         assert!(!omitted_publication.compact_axis().contains("5000000"));
         Ok(())

@@ -12,7 +12,7 @@ Microsoft documents a creation-time alternative. `PROC_THREAD_ATTRIBUTE_JOB_LIST
 
 Sigy keeps the existing suspended create, assign, and resume sequence. Creation-time assignment stays an explicit limitation and a release gate for recognition on user recordings.
 
-The pinned toolchain is stable Rust 1.98.1. On Rust 1.98 and Rust 1.99, `std::os::windows::process::CommandExt::spawn_with_attributes` and `ProcThreadAttributeList` remain nightly-only under `windows_process_extensions_raw_attribute`, tracking issue 114854. A toolchain bump to 1.99 does not make that API available. Tokio 1.53.1 builds on `std::process::Command` and exposes no attribute list.
+This review used stable Rust 1.98.1. The active pin is stable Rust 1.99.1. On both releases, `std::os::windows::process::CommandExt::spawn_with_attributes` and `ProcThreadAttributeList` remain nightly-only under `windows_process_extensions_raw_attribute`, tracking issue 114854. The 1.99.1 pin does not make that API available. Tokio 1.53.1 builds on `std::process::Command` and exposes no attribute list.
 
 Vendored ProcessKit 3.3.4 is the latest crates.io release of that crate. Its Windows `Job::spawn` sets `CREATE_SUSPENDED`, calls the command's own `spawn`, and then calls `AssignProcessToJobObject`. The crate documents the parent-death gap on the job handle. Its pseudoconsole path builds an attribute list for the console handle and still assigns the job afterward. Sigy enables the `limits` feature only, so that pseudoconsole path is not in the product build. The ordinary path is the one recognizers, translators, decoders, and the audio helper use. The vendored tree contains no job-list attribute.
 

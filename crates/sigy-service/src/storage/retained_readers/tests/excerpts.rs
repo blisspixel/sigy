@@ -133,7 +133,7 @@ fn excerpt_checks_interior_gaps_and_accepts_gap_adjacent_exclusive_edges() -> Te
             "retained excerpt overlaps a recording gap"
         ))
     ));
-    assert!(store.retained_readers()?.is_empty());
+    assert_eq!(store.retained_readers()?, []);
     let (mut forged, _) = store.admit_retained_reader("point", "recording", 125_000, 10)?;
     forged.request_id = "forged".into();
     forged.excerpt = Some(RetainedExcerpt {

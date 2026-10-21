@@ -260,7 +260,7 @@ fn live_window_keeps_sequence_numbers_and_discontinuity_epochs() -> TestResult {
         b"#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:9\n",
         Mode::Live,
     )?;
-    assert!(empty.segments.is_empty());
+    assert_eq!(empty.segments, []);
     assert_eq!(empty.media_sequence, 9);
     let mut window = String::from("#EXTM3U\n#EXT-X-TARGETDURATION:1\n");
     for index in 0..=MAX_LIVE_WINDOW {
@@ -678,7 +678,7 @@ async fn unusable_first_documents_fail_before_any_segment() -> TestResult {
             matches!(&outcome, Err(Error::InvalidInput(text)) if *text == message),
             "{outcome:?}"
         );
-        assert!(written.is_empty());
+        assert_eq!(written, "");
         assert_eq!(fixture.requested(), ["/live.m3u8"]);
     }
     let fixture = Fixture::start(Arc::new(|path, _| {
@@ -694,7 +694,7 @@ async fn unusable_first_documents_fail_before_any_segment() -> TestResult {
         outcome,
         Err(Error::Acquisition("unsupported audio content type"))
     ));
-    assert!(written.is_empty());
+    assert_eq!(written, "");
     Ok(())
 }
 

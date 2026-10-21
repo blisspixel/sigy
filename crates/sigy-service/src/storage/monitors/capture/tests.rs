@@ -805,7 +805,7 @@ fn populated_capture_and_refusal_history_survive_current_schema_backup_restore()
     let backup = dir.path().join("backup");
     let manifest = crate::backup::backup(&library, &backup)?;
     assert_eq!(manifest.schema_version, crate::storage::SCHEMA_VERSION);
-    assert!(manifest.media.is_empty());
+    assert_eq!(manifest.media, []);
     drop(library);
     let restored = dir.path().join("restored");
     crate::backup::restore(&backup, &restored)?;

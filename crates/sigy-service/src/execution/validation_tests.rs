@@ -302,7 +302,7 @@ async fn malformed_but_freshly_hashed_specs_never_stage_or_spawn() -> TestResult
         let envelope = LocalProcessExecutor.execute(spec, stage, signal).await?;
         let (result, accounts) = envelope.accept(&id, 1, Some(&hash))?;
         assert_eq!(result, expected);
-        assert!(accounts.is_empty());
+        assert_eq!(accounts, []);
         assert_eq!(std::fs::read(&sentinel)?, b"unchanged");
         assert!(!root.path().join("unavailable").exists());
     }

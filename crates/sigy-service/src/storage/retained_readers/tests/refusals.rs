@@ -39,7 +39,7 @@ fn missing_unpublished_deleted_and_completed_edge_have_specific_atomic_refusals(
             "recording has no verified retained media"
         ))
     ));
-    assert!(store.retained_readers()?.is_empty());
+    assert_eq!(store.retained_readers()?, []);
     Ok(())
 }
 
@@ -84,7 +84,7 @@ fn open_tail_requires_actual_running_open_reservation_and_creates_no_reader() ->
             Err(Error::InvalidInput("open tail is not readable"))
         ));
     }
-    assert!(store.retained_readers()?.is_empty());
+    assert_eq!(store.retained_readers()?, []);
     let (spec, _) = store.admit_retained_reader("sealed", "segmented", 500_000, 11)?;
     assert_eq!(spec.file_seek_us, 500_000);
     assert_eq!(store.retained_readers()?.len(), 1);
@@ -136,6 +136,6 @@ fn gap_cause_refusals_preserve_original_wording_without_admitting_readers() -> T
             other => return Err(format!("expected typed gap refusal: {other:?}").into()),
         }
     }
-    assert!(store.retained_readers()?.is_empty());
+    assert_eq!(store.retained_readers()?, []);
     Ok(())
 }

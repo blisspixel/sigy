@@ -121,7 +121,7 @@ async fn wrong_checksum_or_size_sends_no_unverified_bytes() -> TestResult {
             library.hold_ownership(),
         )
         .await?;
-        assert!(bytes.is_empty());
+        assert_eq!(bytes, [] as [u8; 0]);
         assert!(!receipt.successful());
         assert!(receipt.matches(&spec));
         assert_eq!(
@@ -312,7 +312,7 @@ async fn nonregular_owned_object_is_refused_before_open_and_sends_no_bytes() -> 
     )
     .await?;
     assert!(!receipt.successful());
-    assert!(observed.is_empty());
+    assert_eq!(observed, [] as [u8; 0]);
     Ok(())
 }
 

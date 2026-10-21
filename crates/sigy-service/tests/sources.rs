@@ -195,7 +195,7 @@ fn immutable_revisions_replay_exactly_and_paginate_without_connecting() -> TestR
     store.register_source("station:v2", &changed)?;
     assert_eq!(store.sources(None, 1)?[0], first.revision);
     assert_eq!(store.sources(Some("station:v1"), 1)?[0].id, "station:v2");
-    assert!(store.sources(Some("station:v2"), 32)?.is_empty());
+    assert_eq!(store.sources(Some("station:v2"), 32)?, []);
     assert!(store.sources(None, 0).is_err());
     assert!(store.sources(None, 33).is_err());
     let connection = rusqlite::Connection::open(&path)?;
@@ -226,7 +226,7 @@ fn source_write_failure_is_atomic_and_corrupt_authority_fails_on_reopen() -> Tes
     let source = HttpSource::new("Station", "https://radio.example/audio", PUBLIC)?;
     connection.execute_batch("CREATE TRIGGER inject_failure AFTER INSERT ON source_revisions BEGIN SELECT RAISE(ABORT, 'fixture'); END;")?;
     assert!(store.register_source("station:v1", &source).is_err());
-    assert!(store.sources(None, 32)?.is_empty());
+    assert_eq!(store.sources(None, 32)?, []);
     connection.execute("DROP TRIGGER inject_failure", [])?;
     store.register_source("station:v1", &source)?;
     connection.execute_batch("DROP TRIGGER source_revisions_no_update; UPDATE source_revisions SET endpoint = 'http://127.0.0.1/';")?;

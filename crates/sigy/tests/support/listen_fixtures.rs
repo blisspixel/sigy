@@ -160,12 +160,10 @@ fn assert_quota(
     assert_eq!(&status["dvr"]["charged_bytes"], charged);
     assert_eq!(&status["dvr"]["reserved_bytes"], reserved);
     let listed = success(directory, &["record", "list"])?;
-    assert!(
-        listed["recording_page"]["entries"]
-            .as_array()
-            .ok_or("records")?
-            .is_empty()
-    );
+    let entries = listed["recording_page"]["entries"]
+        .as_array()
+        .ok_or("records")?;
+    assert_eq!(entries.as_slice(), &[] as &[serde_json::Value]);
     Ok(())
 }
 

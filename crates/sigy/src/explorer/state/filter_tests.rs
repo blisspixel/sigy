@@ -260,7 +260,7 @@ fn empty_cache_still_selects_every_reference_country_and_name_resolves() {
     model.handle(Key::Paste("中国".into()));
     assert_eq!(model.handle(Key::Enter), Effect::None);
     assert_eq!(model.search.draft.filter.country, "CN");
-    assert!(model.rows().is_empty());
+    assert_eq!(model.rows(), []);
     model.handle(Key::Escape);
     let query = country(&mut model, "Canada");
     assert_eq!(query.filter.country, "CA");

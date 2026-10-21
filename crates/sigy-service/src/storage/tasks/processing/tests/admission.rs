@@ -217,12 +217,15 @@ fn cancellation_fences_task_admissions_and_keeps_admitted_and_independent_work()
             .is_some()
     );
     assert!(store.enqueue_local_asr(&second, now + 3)?.1);
-    assert!(store.pending_task_processing_ids(None, 4)?.0.is_empty());
+    assert_eq!(
+        store.pending_task_processing_ids(None, 4)?.0,
+        [] as [String; 0]
+    );
     let facts = store
         .task_processing_facts("task", now + 4)?
         .ok_or("facts")?;
     assert_eq!(facts.hold, Some("cancelled"));
-    assert!(crate::task::processing::plan(&facts).is_empty());
+    assert_eq!(crate::task::processing::plan(&facts), []);
     store
         .connection
         .execute_batch("DROP TRIGGER task_processing_step_binding")?;

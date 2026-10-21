@@ -603,8 +603,8 @@ fn legacy_and_zero_cue_revisions_stay_distinct_and_parent_is_exact() -> TestResu
     store.finish_local_asr(&first, &proof(&first, ""), 21)?;
     let silence = store.transcript_cues_page("pin", 2, None)?;
     assert_eq!(silence.transcript.outcome, "no_text");
-    assert!(silence.cues.is_empty());
-    assert!(!silence.coverages.is_empty());
+    assert_eq!(silence.cues, []);
+    assert_ne!(silence.coverages, []);
     assert_eq!(silence.next_after_ordinal, None);
     let second = admit(&mut store, "text", 2)?;
     store.finish_local_asr(&second, &proof(&second, "speech"), 22)?;
@@ -809,7 +809,7 @@ fn cue_pagination_bounds_escaped_bytes_and_has_no_skips() -> TestResult {
         let page = store.transcript_cues_page("pin", 1, cursor)?;
         assert!(serde_json::to_vec(&page)?.len() <= TRANSCRIPT_PAGE_BYTES);
         assert!(page.cues.len() <= 2);
-        assert!(!page.cues.is_empty());
+        assert_ne!(page.cues, []);
         collected.extend(page.cues);
         cursor = page.next_after_ordinal;
         if cursor.is_none() {
@@ -817,12 +817,7 @@ fn cue_pagination_bounds_escaped_bytes_and_has_no_skips() -> TestResult {
         }
     }
     assert_eq!(collected, value.cues);
-    assert!(
-        store
-            .transcript_cues_page("pin", 1, Some(15))?
-            .cues
-            .is_empty()
-    );
+    assert_eq!(store.transcript_cues_page("pin", 1, Some(15))?.cues, []);
     assert!(store.transcript_cues_page("pin", 0, None).is_err());
     assert!(
         store

@@ -98,13 +98,13 @@ fi
 
 if ! command -v cargo >/dev/null 2>&1; then
     if ! command -v curl >/dev/null 2>&1; then
-        echo "cargo is missing and curl is unavailable. Install Rust 1.98.1, then run this script again." >&2
+        echo "cargo is missing and curl is unavailable. Install Rust 1.99.1, then run this script again." >&2
         exit 1
     fi
-    echo "Installing Rust 1.98.1 for the current user."
+    echo "Installing Rust 1.99.1 for the current user."
     installer=$(mktemp)
     curl --proto '=https' --tlsv1.2 -fsS https://sh.rustup.rs -o "$installer"
-    sh "$installer" -y --default-toolchain 1.98.1 --profile minimal
+    sh "$installer" -y --default-toolchain 1.99.1 --profile minimal
     rm -f "$installer"
     # shellcheck disable=SC1091
     . "$cargo_home/env"

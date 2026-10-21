@@ -16,7 +16,7 @@ fn every_included_country_is_selectable_without_a_library() -> TestResult {
             for locale in LOCALES {
                 let label = page(&country.code, locale, None)?;
                 assert!(!label.locale_fallback);
-                assert!(!label.entries[0].name.is_empty());
+                assert_ne!(label.entries[0].name, "");
             }
         }
         if result.next_after.is_none() {

@@ -356,7 +356,7 @@ async fn the_local_executor_refuses_a_tampered_spec_without_starting_a_process()
     let envelope = LocalProcessExecutor.execute(spec, stage, signal).await?;
     let hash = envelope.spec_sha256.clone();
     let (result, accounts) = envelope.accept("asr-tamper", 1, hash.as_deref())?;
-    assert!(accounts.is_empty());
+    assert_eq!(accounts, []);
     assert_eq!(
         result,
         TaskResult::Recognition(RecognitionResult::Failed(LocalAsrFailure::RecognizerFailed))
@@ -380,7 +380,7 @@ async fn an_unmapped_hash_is_unavailable_without_starting_a_process() -> TestRes
         .execute(spec, LocalStage::new(root.path()), signal)
         .await?;
     let (result, accounts) = envelope.accept("mt-golden", 1, Some(&hash))?;
-    assert!(accounts.is_empty());
+    assert_eq!(accounts, []);
     assert_eq!(
         result,
         TaskResult::Translation(TranslationResult::Failed("translator-failed"))
@@ -579,8 +579,8 @@ fn silence_advances_a_full_window_without_a_language() {
     };
     assert_eq!(coverage.end_us, 2_000_000);
     assert_eq!(coverage.sample_count, 32_000);
-    assert!(cues.is_empty());
-    assert!(languages.is_empty());
+    assert_eq!(cues, []);
+    assert_eq!(languages, []);
 }
 
 #[test]

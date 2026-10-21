@@ -659,7 +659,7 @@ async fn absent_decoder_refuses_before_reader_admission_or_source_contact() -> T
         },
     )
     .await?;
-    assert!(snapshot.retained.ok_or("reader list")?.entries.is_empty());
+    assert_eq!(snapshot.retained.ok_or("reader list")?.entries, []);
     Ok(())
 }
 

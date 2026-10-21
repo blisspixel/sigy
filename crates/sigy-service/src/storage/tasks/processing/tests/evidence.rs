@@ -145,7 +145,7 @@ fn interrupted_and_uninterrupted_runs_reach_identical_effects_charges_and_citati
     assert_eq!(resumed, reference);
     assert_eq!(evidence, expected);
     assert_eq!(evidence.outcome, TaskOutcome::Cited);
-    assert!(evidence.reasons.is_empty());
+    assert_eq!(evidence.reasons, [] as [String; 0]);
     assert_eq!(evidence.citations.len(), 1);
     assert_eq!(evidence.citations[0].translation_revision, Some(1));
     assert_eq!(
@@ -307,7 +307,7 @@ fn holds_failed_recognition_and_no_text_never_report_success() -> TestResult {
         view.entries[1].reasons,
         ["recognition-cancelled", "unprocessed-time"]
     );
-    assert!(view.citations.is_empty());
+    assert_eq!(view.citations, []);
     let directory = tempfile::tempdir()?;
     let mut held = setup(&directory.path().join("catalog"), false)?;
     let recordings = collect(&mut held)?;

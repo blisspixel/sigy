@@ -56,7 +56,7 @@ fn final_segment_refuses_direct_release_and_recovers_failed_whole_file_cleanup()
     assert_eq!(after.intervals.len(), 1);
     assert!(!after.intervals[0].released);
     assert!(!audio_file.exists());
-    assert!(library.store().pending_deletions()?.is_empty());
+    assert_eq!(library.store().pending_deletions()?, [] as [String; 0]);
     assert!(!crate::recordings::release_segments_at(
         &mut library,
         Store::clock_ms()?,

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The pinned toolchain is stable Rust 1.99.1. The installer and verify workflow use that release. `spawn_with_attributes` remains nightly-only, so creation-time Job Object assignment stays the Decision 0099 limitation.
 - The Linux CI decoder fixture retries each pinned FFmpeg download three times and deletes a partial file after a failed attempt. The same SHA-256 and release signature still run once. This fixture is not installed by Sigy.
 - Windows native workers still join their Job Object after a suspended `CreateProcess`. Creation-time assignment stays a documented limitation. The stable Rust command API does not expose `PROC_THREAD_ATTRIBUTE_JOB_LIST`, and ProcessKit 3.3.4 assigns only after the process exists. Decision 0099 records that review. Schema v51 and local IPC v53 are unchanged.
 - Recognition and translation finish tokens carry the lease owner stored by their committed claim. Finish refuses a token whose attempt or owner differs from that row and publishes nothing. A drained outcome waits in a completed slot. Busy and locked settlement is retried at most three times within 15 seconds, using the existing five-second catalog lock wait. Uncertain I/O is not published again while that claim is still running. Exhaustion drops the slot and leaves the running or cancelling row. Process exit still loses the in-memory outcome. Schema v51 and local IPC v53 are unchanged.

@@ -132,7 +132,7 @@ fn update_status_is_local_bounded_and_preserves_structured_data() -> TestResult 
             .as_str()
             .is_some_and(|message| message.contains("byte bound"))
     );
-    assert!(oversized.stdout.is_empty());
+    assert_eq!(oversized.stdout, [] as [u8; 0]);
     let conflict = invoke(&["update", "--check", "--status"])?;
     assert!(!conflict.status.success());
     assert!(String::from_utf8(conflict.stderr)?.contains("cannot be used with"));
@@ -148,7 +148,7 @@ fn help_and_version_work_without_initializing_a_library() -> TestResult {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert!(!output.stdout.is_empty());
+        assert_ne!(output.stdout, [] as [u8; 0]);
         if arguments == ["--help"] {
             let help = String::from_utf8(output.stdout)?;
             assert!(help.contains("Usage: sigy [OPTIONS] <COMMAND>"), "{help}");
@@ -199,7 +199,7 @@ fn missing_library_fails_with_json_and_no_success_output() -> TestResult {
             .args(["--json", "library", "status"]),
     )?;
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, [] as [u8; 0]);
     let error: serde_json::Value = serde_json::from_slice(&output.stderr)?;
     assert!(error["error"].is_string());
     Ok(())
@@ -228,7 +228,7 @@ fn source_cli_registers_explicit_authority_preserves_languages_and_bounds_lists(
         "http://127.0.0.1:8123/audio",
     ])?;
     assert!(!public_denied.status.success());
-    assert!(public_denied.stdout.is_empty());
+    assert_eq!(public_denied.stdout, [] as [u8; 0]);
     let arguments = [
         "source",
         "add",
@@ -326,7 +326,7 @@ fn podcast_subscribe_is_local_and_omits_feed_paths() -> TestResult {
         ],
     )?;
     assert!(!denied.status.success());
-    assert!(denied.stdout.is_empty());
+    assert_eq!(denied.stdout, [] as [u8; 0]);
     assert!(!String::from_utf8_lossy(&denied.stderr).contains("hidden"));
     let arguments = [
         "podcast",

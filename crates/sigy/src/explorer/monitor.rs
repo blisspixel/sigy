@@ -368,7 +368,7 @@ mod tests {
             browser.move_selection(true);
         }
         assert!(seen.contains("東京Cafe\u{301} FINAL-SUFFIX"));
-        assert!(!browser.lines_at_width(1, 132).is_empty());
+        assert_ne!(browser.lines_at_width(1, 132), [] as [String; 0]);
     }
     use sigy_service::monitor::{
         MonitorCaptureUsage, MonitorProcessing, MonitorSpec, MonitorTerm, MonitorVersion,

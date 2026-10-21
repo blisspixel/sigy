@@ -275,11 +275,11 @@ fn malformed_metadata_cursor_and_work_failure_restore_guard_state() -> TestResul
         name: "does not match".into(),
         ..StationFilter::default()
     };
-    assert!(
+    assert_eq!(
         store
             .search_stations_ordered(&none, false, None, 16)?
-            .entries
-            .is_empty()
+            .entries,
+        []
     );
     assert_eq!(
         store

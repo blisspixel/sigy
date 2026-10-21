@@ -785,7 +785,7 @@ mod tests {
             let error = render_replay(&mut bytes, &receipt.id, &receipt, false)
                 .err()
                 .ok_or("must fail")?;
-            assert!(bytes.is_empty());
+            assert_eq!(bytes, [] as [u8; 0]);
             assert!(!error.to_string().chars().any(char::is_control));
         }
         receipt.failure = None;

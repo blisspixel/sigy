@@ -82,7 +82,7 @@ fn empty_checkpoint_materializes_one_frozen_partial_briefing_and_reopens() -> Te
     let accepted = accept(&mut store, "task")?;
     assert_eq!(accepted.generation, 1);
     assert_eq!(accepted.planned_findings, 0);
-    assert!(accepted.steps.is_empty());
+    assert_eq!(accepted.steps, []);
     assert_eq!(count(&store, "monitor_briefings")?, 0);
     let done = store.advance_task_run("task", 1, 102)?;
     assert_eq!(done.generation, 2);
@@ -95,7 +95,7 @@ fn empty_checkpoint_materializes_one_frozen_partial_briefing_and_reopens() -> Te
         briefing.coverage,
         store.task_checkpoint("task", 1)?.coverage
     );
-    assert!(briefing.members.is_empty());
+    assert_eq!(briefing.members, []);
     assert_eq!(store.advance_task_run("task", 2, 103)?, done);
     assert!(matches!(
         store.advance_task_run("task", 1, 103),

@@ -266,7 +266,7 @@ fn insufficient_funds_reserve_nothing_and_send_nothing() -> TestResult {
     assert!(fixture.store.reservation("r2")?.is_none());
     assert!(fixture.store.provider_attempt("r2")?.is_none());
     assert_eq!(fixture.store.budget("global")?.reserved(), Usd::ZERO);
-    assert!(fake.sends.is_empty());
+    assert_eq!(fake.sends, []);
     fixture.audit()
 }
 
@@ -279,7 +279,7 @@ fn a_configured_route_and_secret_with_a_zero_limit_cannot_submit() -> TestResult
         Err(Error::Budget(BudgetError::Disabled))
     ));
     assert!(fixture.store.reservation("r1")?.is_none());
-    assert!(fake.sends.is_empty());
+    assert_eq!(fake.sends, []);
     fixture.audit()
 }
 
@@ -296,7 +296,7 @@ fn overload_never_opens_a_paid_route() -> TestResult {
         Err(Error::ProviderRefused(_))
     ));
     assert!(fixture.store.reservation("r1")?.is_none());
-    assert!(fake.sends.is_empty());
+    assert_eq!(fake.sends, []);
     assert_eq!(fixture.store.budget("global")?.reserved(), Usd::ZERO);
     fixture.audit()
 }
@@ -353,7 +353,7 @@ fn release_before_submit_frees_the_reservation_and_never_sends() -> TestResult {
         dispatch(&mut fixture.store, &mut fake, &request("r1"), NOW)?,
         Dispatched::Replayed(RequestState::Released)
     );
-    assert!(fake.sends.is_empty());
+    assert_eq!(fake.sends, []);
     assert_eq!(fixture.store.budget("global")?.reserved(), Usd::ZERO);
     assert!(
         fixture
@@ -621,7 +621,7 @@ fn a_stale_or_future_price_snapshot_is_refused_before_reserve() -> TestResult {
         ));
     }
     assert!(fixture.store.reservation("r1")?.is_none());
-    assert!(fake.sends.is_empty());
+    assert_eq!(fake.sends, []);
     fixture.audit()
 }
 
@@ -642,7 +642,7 @@ fn an_unbounded_price_dimension_is_refused_before_reserve() -> TestResult {
         Err(Error::Pricing(_))
     ));
     assert!(fixture.store.reservation("r1")?.is_none());
-    assert!(fake.sends.is_empty());
+    assert_eq!(fake.sends, []);
     fixture.audit()
 }
 
@@ -683,7 +683,7 @@ fn unauthorized_pairs_tasks_and_bounds_are_refused_before_reserve() -> TestResul
         Err(Error::InvalidInput(_))
     ));
     assert!(fixture.store.reservation("r1")?.is_none());
-    assert!(fake.sends.is_empty());
+    assert_eq!(fake.sends, []);
     fixture.audit()
 }
 

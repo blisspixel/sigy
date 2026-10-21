@@ -436,7 +436,7 @@ fn killed_capture_preserves_partial_bytes_and_never_replays() -> TestResult {
     service.kill()?;
     service.0.wait()?;
     let retained = std::fs::read(&path)?;
-    assert!(!retained.is_empty());
+    assert_ne!(retained, [] as [u8; 0]);
     let mut restarted = RunningChild::start(directory.path())?;
     let record = success(directory.path(), &start)?;
     assert_eq!(

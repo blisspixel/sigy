@@ -165,13 +165,13 @@ fn genuine_v23_v24_v25_migrations_preserve_legacy_language_and_verification() ->
         drop(store);
         let mut reopened = Store::open(&path)?;
         assert_eq!(legacy_rows(&reopened.connection)?, before);
-        assert!(
+        assert_eq!(
             reopened
                 .local_transcript("pin", 1)?
                 .ok_or("missing legacy")?
                 .cues[0]
-                .script
-                .is_empty()
+                .script,
+            ""
         );
         if let Some(expected) = expected_evidence {
             assert_eq!(reopened.language_evidence("legacy-evidence", 1)?, expected);
@@ -566,7 +566,7 @@ fn completion_failure_rolls_back_every_result_row_and_keeps_native_lease() -> Te
     drop(store);
     let mut reopened = Store::open(&path)?;
     assert!(reopened.begin_delete("one", true).is_err());
-    assert!(reopened.prune_candidates(true)?.is_empty());
+    assert_eq!(reopened.prune_candidates(true)?, [] as [String; 0]);
     reopened.recover_analysis_jobs()?;
     let expected = if crate::storage::job_pool::NATIVE_REQUEUE {
         "queued"

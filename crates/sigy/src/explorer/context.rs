@@ -381,9 +381,9 @@ mod tests {
                 .contains("running")
         );
         let resized = context.visible(132, 10, 2000);
-        assert!(!resized.is_empty());
+        assert_ne!(resized, []);
         context.scroll(false);
-        assert!(!context.visible(2, 1, 2000).is_empty());
+        assert_ne!(context.visible(2, 1, 2000), []);
     }
 
     #[test]

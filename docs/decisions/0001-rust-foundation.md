@@ -2,6 +2,8 @@
 
 Date: 2026-09-20. Status: accepted for foundation development after the user advanced the implementation phase. Release qualification remains open.
 
+Active pin, 2026-10-20: stable Rust 1.99.1, edition 2024. The selection below records the 2026-09-20 foundation evidence on Rust 1.98.1. Rust 1.99.1 does not stabilize `windows_process_extensions_raw_attribute`.
+
 ## Decision
 
 Use Rust 1.98.1, edition 2024, for the application and service. Keep a small workspace: `sigy-core` owns validated domain invariants without dependencies, `sigy-service` owns persistence and application operations, and `sigy` composes interfaces. Existing native media/model engines can be supervised dependencies. Python remains excluded.

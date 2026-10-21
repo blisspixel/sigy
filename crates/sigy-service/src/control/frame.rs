@@ -108,7 +108,7 @@ mod tests {
             Err(Error::Protocol(_))
         ));
         assert!(count.get() <= 4);
-        assert!(output.is_empty());
+        assert_eq!(output, [] as [u8; 0]);
         assert!(matches!(encode(&true, 0), Err(Error::Protocol(_))));
         Ok(())
     }
@@ -121,7 +121,7 @@ mod tests {
         write(&mut output, &value, expected.len()).await?;
         let mut input = output.as_slice();
         assert_eq!(read::<String>(&mut input, expected.len()).await?, value);
-        assert!(input.is_empty());
+        assert_eq!(input, &[] as &[u8]);
         assert_eq!(output.get(4..), Some(expected.as_slice()));
         assert!(matches!(
             encode(&value, expected.len() - 1),

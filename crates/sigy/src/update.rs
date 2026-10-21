@@ -320,7 +320,7 @@ fn cargo_install(directory: &Path, commit: &str, operation: &str) -> Result<(), 
         return windows::install(directory, commit, operation);
     }
     let output = cargo_command(directory, commit)?.output().map_err(|_| {
-        "cargo is not available. Install Rust 1.98.1, then run sigy update.".to_owned()
+        "cargo is not available. Install Rust 1.99.1, then run sigy update.".to_owned()
     })?;
     if output.status.success() {
         validate_managed_checkout(directory, false)?;
@@ -337,7 +337,7 @@ fn cargo_install(directory: &Path, commit: &str, operation: &str) -> Result<(), 
 
 fn cargo_command(directory: &Path, commit: &str) -> Result<Command, String> {
     let cargo = find_tool("cargo").map_err(|_| {
-        "cargo is not available. Install Rust 1.98.1, then run sigy update.".to_owned()
+        "cargo is not available. Install Rust 1.99.1, then run sigy update.".to_owned()
     })?;
     let mut command = Command::new(cargo);
     if let Some(path) = cargo_path() {

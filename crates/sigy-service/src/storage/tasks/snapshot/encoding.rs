@@ -145,7 +145,7 @@ mod tests {
         let mut fresh = Capped::default();
         let oversized = vec![b'a'; MAX_SNAPSHOT_BYTES + 1];
         assert!(fresh.write(&oversized).is_err());
-        assert!(fresh.bytes.is_empty());
+        assert_eq!(fresh.bytes, [] as [u8; 0]);
         assert_eq!(fresh.bytes.capacity(), capacity);
         Ok(())
     }

@@ -144,7 +144,7 @@ fn checkpoints_are_frozen_idempotent_cas_ordered_and_survive_drift() -> TestResu
     let first = store.checkpoint_task("task", "first", 0, 20)?;
     assert_eq!(first.coverage.sources.len(), 2);
     assert_eq!(first.transcripts_scanned, 0);
-    assert!(first.citations.is_empty());
+    assert_eq!(first.citations, []);
     assert!(!first.window_elapsed);
     assert_eq!(store.checkpoint_task("task", "first", 0, 99)?, first);
     assert!(matches!(

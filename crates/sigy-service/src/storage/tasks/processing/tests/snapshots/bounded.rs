@@ -38,7 +38,7 @@ fn byte_truncation_makes_pending_partial_and_preserves_required_coverage() -> Te
     assert!(json.len() <= MAX_SNAPSHOT_BYTES);
     assert_eq!(oversized.evidence.outcome, TaskOutcome::Partial);
     assert!(oversized.evidence.more);
-    assert!(oversized.evidence.citations.is_empty());
+    assert_eq!(oversized.evidence.citations, []);
     assert!(
         oversized
             .evidence
@@ -75,9 +75,9 @@ fn waiting_collection_freezes_missing_coverage_without_fabricating_recordings() 
             .iter()
             .all(|e| e.recording_id.is_none())
     );
-    assert!(frozen.jobs.is_empty());
-    assert!(frozen.media.is_empty());
-    assert!(frozen.evidence.citations.is_empty());
+    assert_eq!(frozen.jobs, []);
+    assert_eq!(frozen.media, []);
+    assert_eq!(frozen.evidence.citations, []);
     assert_eq!(store.task_evidence_snapshot("task", 1)?, frozen);
     collect(&mut store)?;
     assert_eq!(store.task_evidence_snapshot("task", 1)?, frozen);
@@ -145,7 +145,7 @@ fn citation_prefix_exact_boundary_preserves_escaped_bytes_and_truncation_flags()
     extra.scope.goal = format!("{}x", expected.scope.goal);
     extra.evidence.citations = expected.evidence.citations.clone();
     let actual = crate::storage::tasks::snapshot::fit_for_test(&mut extra)?;
-    assert!(extra.evidence.citations.is_empty());
+    assert_eq!(extra.evidence.citations, []);
     assert_eq!(extra.evidence.outcome, TaskOutcome::Partial);
     assert!(actual.len() <= MAX_SNAPSHOT_BYTES);
     // Fitting all members keeps original flags and exact serialized/hash bytes.

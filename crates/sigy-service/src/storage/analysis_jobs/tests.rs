@@ -94,8 +94,8 @@ fn assert_no_paid_work(store: &Store) -> Result<()> {
 fn assert_lease(store: &mut Store) -> Result<()> {
     assert!(store.begin_delete("one", false).is_err());
     assert!(store.begin_delete("one", true).is_err());
-    assert!(store.prune_candidates(true)?.is_empty());
-    assert!(store.prune_candidates(false)?.is_empty());
+    assert_eq!(store.prune_candidates(true)?, [] as [String; 0]);
+    assert_eq!(store.prune_candidates(false)?, [] as [String; 0]);
     let aged = Store::clock_ms()? + 15 * 86_400_000;
     assert!(store.next_segment_release(true, aged)?.is_none());
     assert!(store.next_segment_release(false, aged)?.is_none());

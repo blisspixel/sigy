@@ -178,7 +178,7 @@ fn blocks_mixed_unknown_non_speech_and_overlap_keep_their_meanings() -> TestResu
     assert_eq!(saved.spans.len(), 3);
     assert_eq!(saved.spans[0].languages.len(), 1);
     assert_eq!(saved.spans[1].start_us, 250_000);
-    assert!(saved.spans[1].languages.is_empty());
+    assert_eq!(saved.spans[1].languages, []);
     Ok(())
 }
 
@@ -406,7 +406,7 @@ fn v23_upgrade_keeps_legacy_rows_and_rolls_back_schema_conflicts() -> TestResult
     let transcript = store
         .local_transcript("pin", 1)?
         .ok_or("missing legacy transcript")?;
-    assert!(transcript.cues[0].script.is_empty());
+    assert_eq!(transcript.cues[0].script, "");
     assert_eq!(transcript.amount_micros, 0);
     assert!(
         matches!(store.language_evidence_list("pin", 1, None)?, LanguagePage::List { records, .. } if records.is_empty())

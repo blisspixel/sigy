@@ -146,10 +146,10 @@ if (Test-Path -LiteralPath (Join-Path $cargoHome "cargo.exe")) {
 
 $cargo = Get-Command cargo -ErrorAction SilentlyContinue
 if (-not $cargo) {
-    Write-Host "Installing Rust 1.98.1 for the current user."
+    Write-Host "Installing Rust 1.99.1 for the current user."
     $installer = Join-Path $env:TEMP "rustup-init.exe"
     Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $installer
-    & $installer -y --default-toolchain 1.98.1 --profile minimal
+    & $installer -y --default-toolchain 1.99.1 --profile minimal
     if ($LASTEXITCODE -ne 0) {
         throw "rustup-init failed with exit code $LASTEXITCODE"
     }

@@ -301,7 +301,7 @@ fn stale_success_and_failure_leave_the_newer_view() -> TestResult {
     )?;
     assert_eq!(model.status(), status);
     assert_eq!(model.link(), &Link::LocalCatalog);
-    assert!(model.rows().is_empty());
+    assert_eq!(model.rows(), []);
     Ok(())
 }
 

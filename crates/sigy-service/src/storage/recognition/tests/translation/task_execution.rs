@@ -209,11 +209,11 @@ fn untranslated_citation_is_explicit_partial_without_a_new_job() -> TestResult {
     );
     let final_view = store.advance_task_run("task", skipped.generation, now + 4)?;
     assert_eq!(final_view.state, TaskRunState::Partial);
-    assert!(
+    assert_eq!(
         store
             .briefing("fair", final_view.briefing_id.as_deref().ok_or("briefing")?)?
-            .members
-            .is_empty()
+            .members,
+        []
     );
     assert_eq!(work_counts(&store)?, counts);
     drop(store);
@@ -251,7 +251,7 @@ fn a_manual_finding_collision_is_not_claimed_or_included_in_the_task_briefing() 
     let done = store.advance_task_run("task", skipped.generation, now + 5)?;
     assert_eq!(done.state, TaskRunState::Partial);
     let briefing = store.briefing("fair", done.briefing_id.as_deref().ok_or("briefing")?)?;
-    assert!(briefing.members.is_empty());
+    assert_eq!(briefing.members, []);
     assert_eq!(store.finding("fair", &effect)?, manual);
     drop(store);
     assert_eq!(Store::open(&path)?.task_run("task")?, Some(done));

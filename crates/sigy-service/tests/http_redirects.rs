@@ -154,7 +154,7 @@ async fn redirect_denials_happen_before_secondary_contact_or_body_writes() -> Te
                 .await
                 .is_err()
         );
-        assert!(sink.is_empty());
+        assert_eq!(sink, [] as [u8; 0]);
         assert_eq!(chain.hits.load(Ordering::SeqCst), 1);
         assert_eq!(target.hits.load(Ordering::SeqCst), 0);
     }
@@ -232,7 +232,7 @@ async fn stop_cancels_waiting_for_redirect_headers() -> TestResult {
     .await?;
     cancelled?;
     assert!(result.is_err());
-    assert!(sink.is_empty());
+    assert_eq!(sink, [] as [u8; 0]);
     Ok(())
 }
 
@@ -257,7 +257,7 @@ async fn redirect_waits_share_one_acquisition_deadline() -> TestResult {
     )
     .await?;
     assert!(result.is_err());
-    assert!(sink.is_empty());
+    assert_eq!(sink, [] as [u8; 0]);
     assert!(chain.hits.load(Ordering::SeqCst) <= 2);
     Ok(())
 }

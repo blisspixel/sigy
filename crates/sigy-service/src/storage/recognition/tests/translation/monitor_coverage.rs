@@ -336,7 +336,7 @@ fn task_checkpoints_preserve_cited_revisions_after_translation_correction_and_re
     );
     assert_eq!(first.citations[0].translation_revision, Some(1));
     assert_eq!(first.coverage.sources[0].untranslated_cues, 1);
-    assert!(first.coverage.schedules.is_empty());
+    assert_eq!(first.coverage.schedules, []);
     translate(&mut store, "mt-2", translated(0, "A world fair"), 40)?;
     let second = store
         .checkpoint_task("fair-task", "second", 1, now + 2)
@@ -406,7 +406,7 @@ fn monitor_facts_and_steps_drive_recognition_then_translation() -> TestResult {
         Err(Error::IdempotencyConflict)
     ));
     let facts = store.monitor_facts("fair", now)?;
-    assert!(facts.candidates.is_empty());
+    assert_eq!(facts.candidates, []);
     assert_eq!(
         (facts.used_today_us, facts.used_total_us),
         (1_000_000, 1_000_000)
@@ -425,7 +425,7 @@ fn monitor_facts_and_steps_drive_recognition_then_translation() -> TestResult {
         &step("one", "translation", Err("no-translation-profile"), 0),
         now,
     )?;
-    assert!(store.monitor_facts("fair", now)?.recognized.is_empty());
+    assert_eq!(store.monitor_facts("fair", now)?.recognized, []);
     let view = store.monitor("fair")?;
     assert_eq!(view.processing.recognition_queued, 1);
     assert_eq!(

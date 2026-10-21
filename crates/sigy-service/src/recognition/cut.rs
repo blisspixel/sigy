@@ -198,7 +198,7 @@ mod tests {
         let cut = cut_window(0, heard, false, &cues);
         assert_eq!(cut.end_us, heard);
         let kept = kept_cues(&cues, &cut).unwrap_or_else(|| panic!("cues"));
-        assert!(kept.is_empty());
+        assert_eq!(kept, []);
     }
 
     #[test]

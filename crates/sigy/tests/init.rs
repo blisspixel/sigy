@@ -114,7 +114,7 @@ fn parse_success(output: &Output) -> Result<Value, Box<dyn std::error::Error>> {
 
 fn assert_refused(output: &Output, guidance: &str) {
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, [] as [u8; 0]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains(guidance), "{stderr}");
 }
@@ -224,7 +224,7 @@ fn offline_setup_creates_no_owner_refresh_or_capture_and_can_reopen() -> TestRes
     assert_eq!(setup["snapshot"]["captures"]["scheduled"], 0);
     assert_eq!(setup["snapshot"]["captures"]["active"], 0);
     let owner = Library::open(sandbox.library(), false)?;
-    assert!(owner.store().sources(None, 16)?.is_empty());
+    assert_eq!(owner.store().sources(None, 16)?, []);
     assert!(owner.store().recordings(None, 16)?.is_empty());
     let directory = owner.store().directory_status()?;
     assert_eq!(directory.cached_stations, 0);
@@ -277,8 +277,8 @@ fn setup_retries_after_unserved_ownership_without_resetting_settings() -> TestRe
     let owner = Library::open(sandbox.library(), false)?;
     let blocked = sandbox.output(&["init"])?;
     assert!(!blocked.status.success());
-    assert!(blocked.stdout.is_empty());
-    assert!(!blocked.stderr.is_empty());
+    assert_eq!(blocked.stdout, [] as [u8; 0]);
+    assert_ne!(blocked.stderr, [] as [u8; 0]);
     assert_eq!(
         owner.store().budget("global")?.limit().to_string(),
         "0.345678"
@@ -344,10 +344,10 @@ fn missing_backup_keeps_its_error_when_an_unused_library_is_supplied() -> TestRe
             .arg(&missing_backup),
     )?;
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, [] as [u8; 0]);
     let document: Value = serde_json::from_slice(&output.stderr)?;
     let error = document["error"].as_str().ok_or("missing backup error")?;
-    assert!(!error.is_empty());
+    assert_ne!(error, "");
     assert!(!error.contains("sigy init"));
     assert!(!library.exists());
     assert!(!sandbox.home.join(".sigy").exists());

@@ -1373,7 +1373,7 @@ mod tests {
         let (small, _) = frame(&globe_model(true), 80, 24);
         assert!(small.contains("Globe centered"), "{small}");
         let (tiny, _) = frame(&globe_model(true), 40, 10);
-        assert!(!tiny.is_empty());
+        assert_ne!(tiny, "");
     }
 
     #[test]
@@ -1592,7 +1592,7 @@ mod tests {
             model.handle(Key::Down);
             model.handle(Key::Down);
             let selected = row_cells(&model, 80, 24, ">");
-            assert!(!selected.is_empty());
+            assert_ne!(selected, []);
             assert!(
                 selected
                     .iter()

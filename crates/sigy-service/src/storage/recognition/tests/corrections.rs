@@ -118,7 +118,7 @@ fn a_correction_keeps_the_previous_revision_and_does_not_dispatch() -> TestResul
         (old.cues[1].start_us, old.cues[1].end_us),
         (heard.mid, heard.end)
     );
-    assert!(!old.coverages.is_empty());
+    assert_ne!(old.coverages, []);
     assert_eq!(old.transcript.kind, "recognition");
     assert_eq!(new.transcript.kind, "correction");
     assert_eq!(new.transcript.profile, "user-correction-v1");
@@ -127,7 +127,7 @@ fn a_correction_keeps_the_previous_revision_and_does_not_dispatch() -> TestResul
     assert_eq!(new.transcript.amount_usd, "0.000000");
     assert!(new.transcript.job_id.is_none());
     assert!(new.transcript.profile_sha256.is_none());
-    assert!(new.coverages.is_empty());
+    assert_eq!(new.coverages, []);
     assert_eq!(new.cues[0].script, "alpha corrected");
     assert_eq!(new.cues[1].script, "gamma delta");
     assert_eq!(

@@ -203,7 +203,7 @@ mod tests {
         let audio = splitter.push(b"ab\x00cd\x00")?;
         splitter.finish()?;
         assert_eq!(audio, b"abcd");
-        assert!(splitter.into_observations().is_empty());
+        assert_eq!(splitter.into_observations(), []);
         let mut splitter = IcySplitter::new(1)?;
         assert!(splitter.push(b"a").is_ok());
         assert!(splitter.finish().is_err());

@@ -122,7 +122,10 @@ fn queued_withdrawal_is_atomic_exact_and_never_refills() -> TestResult {
             .enqueue_task_recognition(&scope(1, &recordings[1], AUDIO[1]), &second, START + 90_003)
             .is_err()
     );
-    assert!(store.pending_task_processing_ids(None, 4)?.0.is_empty());
+    assert_eq!(
+        store.pending_task_processing_ids(None, 4)?.0,
+        [] as [String; 0]
+    );
     assert!(matches!(
         store.cancel_task_processing("task", "later-legacy-stop", 1, START + 90_001),
         Err(Error::InvalidInput("task processing clock"))

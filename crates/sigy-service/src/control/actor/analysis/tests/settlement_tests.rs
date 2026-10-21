@@ -176,7 +176,7 @@ async fn a_committed_launch_refusal_does_not_stop_the_service() -> TestResult {
     assert_eq!(job.state, "failed");
     assert_eq!(job.reason.as_deref(), Some("recognizer-failed"));
     assert_eq!(job.attempt, 1);
-    assert!(attempts(&actor)?.is_empty());
+    assert_eq!(attempts(&actor)?, []);
     assert!(actor.pool.recognition_slots.is_empty());
     assert!(actor.pool.recognition.is_empty());
     assert!(actor.idle());
@@ -203,7 +203,7 @@ async fn a_busy_refusal_stays_in_the_slot_until_a_later_finish_commits() -> Test
     let running = actor.library.store().local_asr_job("asr")?;
     assert_eq!(running.state, "running");
     assert_eq!((running.generation, running.attempt), (generation, 1));
-    assert!(attempts(&actor)?.is_empty());
+    assert_eq!(attempts(&actor)?, []);
     actor.pool.stop();
     assert!(!actor.pool.accepting);
     assert_eq!(actor.pool.recognition_slots.len(), 1);
@@ -213,7 +213,7 @@ async fn a_busy_refusal_stays_in_the_slot_until_a_later_finish_commits() -> Test
     assert_eq!(job.state, "failed");
     assert_eq!(job.reason.as_deref(), Some("recognizer-failed"));
     assert_eq!(job.attempt, 1);
-    assert!(attempts(&actor)?.is_empty());
+    assert_eq!(attempts(&actor)?, []);
     assert!(actor.pool.recognition_slots.is_empty());
     assert_eq!(actor.settlement_attempts, 1);
     Ok(())
@@ -236,7 +236,7 @@ async fn three_busy_attempts_drop_the_slot_and_leave_the_running_row() -> TestRe
     let job = actor.library.store().local_asr_job("asr")?;
     assert_eq!(job.state, "running");
     assert_eq!(job.attempt, 1);
-    assert!(attempts(&actor)?.is_empty());
+    assert_eq!(attempts(&actor)?, []);
     Ok(())
 }
 
@@ -270,7 +270,7 @@ async fn uncertain_io_does_not_finish_again_while_the_row_is_running() -> TestRe
     assert_eq!(actor.pool.recognition_tries("asr"), Some(1));
     assert_eq!(actor.settlement_attempts, 1);
     assert_eq!(actor.library.store().local_asr_job("asr")?.state, "running");
-    assert!(attempts(&actor)?.is_empty());
+    assert_eq!(attempts(&actor)?, []);
     Ok(())
 }
 
@@ -311,7 +311,7 @@ async fn a_changed_claim_refuses_without_a_second_publication() -> TestResult {
     let job = actor.library.store().local_asr_job("asr")?;
     assert_eq!(job.state, "running");
     assert_eq!(job.attempt, 1);
-    assert!(attempts(&actor)?.is_empty());
+    assert_eq!(attempts(&actor)?, []);
     Ok(())
 }
 
@@ -334,7 +334,7 @@ async fn cancellation_wins_on_the_retry_that_commits() -> TestResult {
     let job = actor.library.store().local_asr_job("asr")?;
     assert_eq!(job.state, "cancelled");
     assert_eq!(job.attempt, 1);
-    assert!(attempts(&actor)?.is_empty());
+    assert_eq!(attempts(&actor)?, []);
     assert!(actor.pool.recognition_slots.is_empty());
     Ok(())
 }
@@ -403,7 +403,7 @@ async fn shutdown_with_an_expired_slot_finishes_the_catalog_thread() -> TestResu
     assert!(actor.pool.recognition_slots.is_empty());
     assert_eq!(actor.settlement_attempts, 1);
     assert_eq!(actor.library.store().local_asr_job("asr")?.state, "running");
-    assert!(attempts(&actor)?.is_empty());
+    assert_eq!(attempts(&actor)?, []);
     Ok(())
 }
 
@@ -426,7 +426,7 @@ async fn a_committed_translation_launch_refusal_does_not_stop_the_service() -> T
     assert_eq!(job.state, "failed");
     assert_eq!(job.reason.as_deref(), Some("worker-start-failed"));
     assert_eq!(job.attempt, 1);
-    assert!(translation_attempts(&actor)?.is_empty());
+    assert_eq!(translation_attempts(&actor)?, []);
     assert!(actor.pool.translation_slots.is_empty());
     assert!(actor.pool.translation.is_empty());
     assert!(actor.idle());
@@ -457,7 +457,7 @@ async fn a_busy_translation_stays_in_the_slot_until_a_later_finish_commits() -> 
     assert_eq!(job.state, "failed");
     assert_eq!(job.reason.as_deref(), Some("worker-start-failed"));
     assert_eq!(job.attempt, 1);
-    assert!(translation_attempts(&actor)?.is_empty());
+    assert_eq!(translation_attempts(&actor)?, []);
     assert!(actor.pool.translation_slots.is_empty());
     assert_eq!(actor.settlement_attempts, 1);
     Ok(())

@@ -162,6 +162,6 @@ fn finding_reader_refuses_missing_expired_gap_and_foreign_citation_without_recei
             "finding has no retained cited interval"
         ))
     ));
-    assert!(store.retained_readers()?.is_empty());
+    assert_eq!(store.retained_readers()?, []);
     Ok(())
 }

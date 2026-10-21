@@ -326,7 +326,7 @@ fn an_empty_library_reads_nothing_and_writes_nothing() -> TestResult {
     let before = writes(&store)?;
     let changes = store.connection.total_changes();
     let page = store.archive_search(query("feria"))?;
-    assert!(page.hits.is_empty());
+    assert_eq!(page.hits, []);
     assert_eq!(page.stopped, None);
     assert_eq!(page.next, None);
     assert_eq!(
@@ -391,13 +391,13 @@ fn multilingual_scripts_match_as_written_ignoring_letter_case_only() -> TestResu
     assert_eq!(found("النهضة")?, vec![0]);
     assert_eq!(found("बाँध")?, vec![1]);
     // Anusvara is a different code point from candrabindu: no normalization.
-    assert!(found("बांध")?.is_empty());
+    assert_eq!(found("बांध")?, [] as [u32; 0]);
     assert_eq!(found("大坝")?, vec![2]);
     // Precomposed and decomposed accents stay distinct; letter case is ignored.
     assert_eq!(found("CAFÉ")?, vec![4]);
     assert_eq!(found("cafe\u{301}")?, vec![3]);
     assert_eq!(found("del mundo")?, vec![3, 4]);
-    assert!(found("cafe del")?.is_empty());
+    assert_eq!(found("cafe del")?, [] as [u32; 0]);
     let dam = store.archive_search(query("DAM"))?;
     assert_eq!(keys(&dam).len(), 3);
     assert!(
@@ -417,7 +417,7 @@ fn multilingual_scripts_match_as_written_ignoring_letter_case_only() -> TestResu
     assert!(!first.stale_transcript && !first.stale_translation);
     let mut original_only = query("DAM");
     original_only.fields = ArchiveFields::Original;
-    assert!(store.archive_search(original_only)?.hits.is_empty());
+    assert_eq!(store.archive_search(original_only)?.hits, []);
     let untranslated = store.archive_search(query("MUNDO"))?;
     assert_eq!(
         untranslated.hits[0].untranslated_reason.as_deref(),
@@ -526,7 +526,7 @@ fn library_search_agrees_with_monitor_matches_for_the_same_terms() -> TestResult
     ];
     follow(&mut store, &terms)?;
     let matches = store.monitor_matches("dam", start, start + 1)?;
-    assert!(!matches.matches.is_empty());
+    assert_ne!(matches.matches, []);
     for (language, text) in terms {
         let monitor: BTreeSet<Citation> = matches
             .matches
@@ -551,11 +551,11 @@ fn library_search_agrees_with_monitor_matches_for_the_same_terms() -> TestResult
     let mut later = query("Dam");
     later.from_ms = Some(start + 1);
     later.to_ms = Some(start + 2);
-    assert!(store.archive_search(later)?.hits.is_empty());
+    assert_eq!(store.archive_search(later)?.hits, []);
     let mut elsewhere = query("Dam");
     elsewhere.source = Some("other:v1".into());
     let page = store.archive_search(elsewhere)?;
-    assert!(page.hits.is_empty());
+    assert_eq!(page.hits, []);
     assert_eq!(page.transcripts_scanned, 1);
     assert_eq!(page.rows_scanned, 1);
     Ok(())
@@ -584,7 +584,7 @@ fn corrections_and_retranslations_label_stale_revisions_without_rewriting() -> T
         ask
     };
     // The corrected-away word is only in revision 1, which is stale.
-    assert!(store.archive_search(query("mundial"))?.hits.is_empty());
+    assert_eq!(store.archive_search(query("mundial"))?.hits, []);
     let old = store.archive_search(history("mundial"))?;
     assert_eq!(
         keys(&old),
@@ -613,7 +613,7 @@ fn corrections_and_retranslations_label_stale_revisions_without_rewriting() -> T
         ]
     );
     // The English of the stale revision is not current.
-    assert!(store.archive_search(query("world"))?.hits.is_empty());
+    assert_eq!(store.archive_search(query("world"))?.hits, []);
     // A second translation of revision 1 makes the first one stale.
     translate(
         &mut store,
@@ -760,7 +760,7 @@ fn language_filters_use_stored_labels_and_report_their_binding() -> TestResult {
     assert_eq!(filtered(&store, "FR-ca")?, vec![1]);
     assert_eq!(filtered(&store, "nv")?, vec![2]);
     assert_eq!(filtered(&store, "tlh")?, vec![3]);
-    assert!(filtered(&store, "de")?.is_empty());
+    assert_eq!(filtered(&store, "de")?, [] as [u32; 0]);
     let all = store.archive_search(query("radio"))?;
     assert_eq!(all.hits.len(), 4);
     let canadian = &all.hits[1].languages;

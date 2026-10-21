@@ -121,7 +121,7 @@ fn running_captures_wait_and_unusable_recordings_are_refused_once() {
     for (case, reason) in cases.drain(..).zip(expected) {
         let steps = plan(&facts(vec![case]));
         match reason {
-            None => assert!(steps.is_empty()),
+            None => assert_eq!(steps, []),
             Some(reason) => assert!(
                 matches!(&steps[..], [ProcessingStep::SkipRecognition { reason: found, .. }] if found == reason),
                 "{reason}"
@@ -151,7 +151,7 @@ fn translation_follows_only_the_task_recognition_result() {
         done.recognition = Some(recognition);
         let steps = plan(&facts(vec![done.clone()]));
         match reason {
-            None => assert!(steps.is_empty()),
+            None => assert_eq!(steps, []),
             Some(reason) => assert!(
                 matches!(&steps[..], [ProcessingStep::SkipTranslation { reason: found, .. }] if found == reason),
                 "{reason}"
@@ -175,7 +175,7 @@ fn translation_follows_only_the_task_recognition_result() {
         [ProcessingStep::SkipTranslation { reason, .. }] if reason == "no-translation-profile"
     ));
     done.translation_recorded = true;
-    assert!(plan(&facts(vec![done.clone()])).is_empty());
+    assert_eq!(plan(&facts(vec![done.clone()])), []);
     done.translation_recorded = false;
     done.recognition = Some(RecognitionFacts {
         queued: false,
@@ -183,7 +183,7 @@ fn translation_follows_only_the_task_recognition_result() {
         job_state: None,
         transcript: None,
     });
-    assert!(plan(&facts(vec![done])).is_empty());
+    assert_eq!(plan(&facts(vec![done])), []);
 }
 
 #[test]
@@ -191,6 +191,6 @@ fn every_hold_admits_nothing() {
     for hold in ["cancelled", "scope-changed", "clock"] {
         let mut held = facts(vec![capture(0, "completed", Some(1_000_000))]);
         held.hold = Some(hold);
-        assert!(plan(&held).is_empty());
+        assert_eq!(plan(&held), []);
     }
 }

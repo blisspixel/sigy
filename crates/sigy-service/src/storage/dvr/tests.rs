@@ -347,7 +347,7 @@ fn age_pressure_and_processing_never_evict_protected_or_active_media() -> TestRe
     }
     store.admit_recording("active", "radio:v1", 60, 600, Retention::Temporary, false)?;
     let now = now_ms()?;
-    assert!(store.prune_candidates_at(false, now)?.is_empty());
+    assert_eq!(store.prune_candidates_at(false, now)?, [] as [String; 0]);
     assert_eq!(
         store.prune_candidates_at(false, now + 15 * 86_400_000)?,
         vec!["a", "d"]
@@ -356,7 +356,7 @@ fn age_pressure_and_processing_never_evict_protected_or_active_media() -> TestRe
     store.acknowledge_processing("d", "analysis:receipt1")?;
     assert_eq!(store.prune_candidates_at(false, now)?, vec!["d"]);
     store.retain_recording("d", Retention::Kept)?;
-    assert!(store.prune_candidates_at(false, now)?.is_empty());
+    assert_eq!(store.prune_candidates_at(false, now)?, [] as [String; 0]);
     assert!(store.acknowledge_processing("active", "premature").is_err());
     Ok(())
 }
@@ -372,7 +372,7 @@ fn icy_observations_do_not_change_the_source_or_the_audio_hash() -> TestResult {
     let hidden = titled(20, 20, title);
     assert!(store.publish_recording(&denied.version, &hidden).is_err());
     assert_eq!(store.recording("plain")?.storage_state, "reserved");
-    assert!(store.recording_observations("plain")?.is_empty());
+    assert_eq!(store.recording_observations("plain")?, []);
     assert!(matches!(
         store.admit_recording("plain", "radio:v1", 60, 600, Retention::Temporary, true),
         Err(Error::IdempotencyConflict)
@@ -425,7 +425,7 @@ fn icy_observations_do_not_change_the_source_or_the_audio_hash() -> TestResult {
     store.audit_dvr()?;
     let plain = crate::recordings::metadata::export(&store, &store.recording("plain")?)?;
     assert_eq!(plain.schema_version, 2);
-    assert!(plain.capture.icy_observations.is_empty());
+    assert_eq!(plain.capture.icy_observations, []);
     Ok(())
 }
 
@@ -722,7 +722,7 @@ fn recovery_returns_an_open_ceiling_to_the_escrow() -> TestResult {
     assert_eq!(record.open_ceiling, 0);
     assert_eq!(record.escrow_bytes, budget);
     assert_eq!(record.charged_bytes, budget);
-    assert!(record.intervals.is_empty());
+    assert_eq!(record.intervals, []);
     assert_eq!(record.media_bytes, None);
     assert_hole(&record, GapCause::Recovery, 0)?;
     assert!(matches!(
@@ -770,11 +770,11 @@ fn disconnect_journals_a_gap_without_a_silence_file() -> TestResult {
     let record = store.recording("drop")?;
     assert_eq!(record.state, "failed");
     assert_eq!(record.media_bytes, None);
-    assert!(record.intervals.is_empty());
+    assert_eq!(record.intervals, []);
     assert_hole(&record, GapCause::Disconnect, 0)?;
     let other = running(&mut store, "other", 1024)?;
     store.fail_recording(&other, &Error::Acquisition("deadline reached"))?;
-    assert!(store.recording("other")?.gaps.is_empty());
+    assert_eq!(store.recording("other")?.gaps, []);
     store.audit_dvr()?;
     Ok(())
 }
@@ -840,7 +840,7 @@ fn capture_pause_journals_a_gap_and_interrupts() -> TestResult {
     let record = store.recording("pause")?;
     assert_eq!(record.state, "interrupted");
     assert_eq!(record.media_bytes, None);
-    assert!(record.intervals.is_empty());
+    assert_eq!(record.intervals, []);
     assert_hole(&record, GapCause::CapturePause, 0)?;
     assert!(matches!(
         store.seal_segment(&version, &seal(1, 1, "aa")),

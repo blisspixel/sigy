@@ -140,7 +140,10 @@ fn ungranted_translation_and_out_of_order_refusals_are_rejected() -> TestResult 
         "recording-failed",
         now + 3
     )?);
-    assert!(store.pending_task_processing_ids(None, 4)?.0.is_empty());
+    assert_eq!(
+        store.pending_task_processing_ids(None, 4)?.0,
+        [] as [String; 0]
+    );
     assert_eq!(count(&store, "SELECT count(*) FROM translation_jobs")?, 0);
     Ok(())
 }

@@ -4,7 +4,7 @@ Sigy is a development preview. The source installer has been exercised on Window
 
 ## Prerequisites
 
-- Git and a working Rust build environment. The installer uses the repository's pinned Rust 1.98.1 toolchain. If Cargo is absent, it installs Rust for the current user through the official rustup installer. Windows native dependencies may require the [Microsoft C++ build tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+- Git and a working Rust build environment. The installer uses the repository's pinned Rust 1.99.1 toolchain. If Cargo is absent, it installs Rust for the current user through the official rustup installer. Windows native dependencies may require the [Microsoft C++ build tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
 - PowerShell on Windows, or a POSIX shell and `curl` on macOS or Linux.
 - Enough free space for Rust dependencies and a source build. Recordings need additional space in a private library outside the checkout.
 - A trusted local FFmpeg executable for recording and playback. Sigy does not download FFmpeg. The current decoded-format evidence is one Windows run with FFmpeg 9.0.1, not a platform support matrix.

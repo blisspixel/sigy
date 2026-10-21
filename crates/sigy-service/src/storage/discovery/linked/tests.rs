@@ -86,9 +86,9 @@ fn linked_context_uses_exact_identity_and_preserves_historical_metadata_and_expi
     assert_eq!(page.sources[0].recordings[0].storage_state, "deleted");
     assert!(!page.sources[0].recordings[0].retained_segments);
     assert_eq!(page.sources[0].recordings[0].source_revision, "radio:v1");
-    assert!(page.sources[1].recordings.is_empty());
+    assert_eq!(page.sources[1].recordings, []);
     let duplicate = store.linked_station_context("00000000-0000-0000-0000-000000000002", None)?;
-    assert!(duplicate.sources.is_empty());
+    assert_eq!(duplicate.sources, []);
     assert!(store.linked_station_context(ID, Some(&before)).is_err());
     assert_eq!(
         store
