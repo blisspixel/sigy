@@ -87,6 +87,9 @@ jobs:
           cargo test --locked -p sigy-service --lib recordings::pipe::tests -- --test-threads=2
           cargo test --locked -p sigy --bin sigy lifecycle_tests -- --test-threads=2
           cargo test --locked -p sigy --test service native_containment_preflight -- --test-threads=2
+      - name: Exercise Linux default library locations
+        if: runner.os == 'Linux'
+        run: cargo test --locked -p sigy --test init -- --test-threads=2
       - name: Test atomic worker responses and exact replay
         run: |
           cargo test --locked -p sigy-service --lib storage::recognition::tests::settlement -- --test-threads=2

@@ -120,6 +120,21 @@ fn parse_success(output: &Output) -> Result<Value, Box<dyn std::error::Error>> {
     Ok(serde_json::from_slice(&output.stdout)?)
 }
 
+/// Doctor writes its snapshot before a blocked check fails the process.
+/// Native containment can be blocked on a Linux host with no delegated unit.
+#[cfg(target_os = "linux")]
+fn doctor_snapshot(sandbox: &Sandbox) -> Result<Value, Box<dyn std::error::Error>> {
+    let output = common::output(sandbox.command().arg("--json").args(["doctor"]))?;
+    if !output.status.success() {
+        let document: Value = serde_json::from_slice(&output.stderr)?;
+        let error = document["error"].as_str().ok_or("doctor error")?;
+        if error != "doctor found a check that needs action" || document["code"] != "failure" {
+            return Err(format!("doctor failed: {error}").into());
+        }
+    }
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+
 fn assert_refused(output: &Output, guidance: &str) {
     assert!(!output.status.success());
     assert_eq!(output.stdout, [] as [u8; 0]);
@@ -375,7 +390,7 @@ fn an_existing_home_library_stays_until_an_explicit_move() -> TestResult {
         setup["library"],
         legacy.canonicalize()?.to_string_lossy().as_ref()
     );
-    let doctor = sandbox.json(&["doctor"])?;
+    let doctor = doctor_snapshot(&sandbox)?;
     let checks = doctor["doctor"]["checks"]
         .as_array()
         .ok_or("doctor checks")?;
@@ -398,7 +413,7 @@ fn an_existing_home_library_stays_until_an_explicit_move() -> TestResult {
         "abc\n"
     );
     sandbox.libraries.push(destination);
-    let after = sandbox.json(&["doctor"])?;
+    let after = doctor_snapshot(&sandbox)?;
     let checks = after["doctor"]["checks"]
         .as_array()
         .ok_or("doctor checks")?;
