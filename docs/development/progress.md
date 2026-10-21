@@ -4,11 +4,19 @@ Updated: 2026-10-21. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-21 installer fixture fence
+
+Hosted verify of `e812e8f` failed: https://github.com/blisspixel/sigy/actions/runs/39562086243. Ubuntu and macOS build and lint passed. The Windows `cargo verify` job failed `direct_installer_fences_a_real_helper_before_build`. The traced `install.ps1` was still running `git archive` when the fixture stopped it at 15 seconds. The update receipt was already fenced as `installer-superseded`.
+
+The offline fixture hang fence is now 60 seconds, the same bound the Windows helper uses while it waits for its parent. Schema v51 and local IPC v53 are unchanged.
+
+`cargo fmt --all` completed. `git diff --check` passed. `cargo test -p sigy --bin sigy update::windows::tests -- --test-threads=2` passed 11 tests in 5.61 seconds. `cargo clippy` was not re-run. Full `cargo verify` was not re-run. Coverage was not re-run. Hosted verify of this repair has not been run. External spend remains USD 0.
+
 ## 2026-10-21 non-interactive explorer
 
 Issue 31 refuses `sigy tui` unless stdin and stdout are both terminals and `TERM` is not `dumb`. The refusal is one plain line, `The explorer needs an interactive terminal.`, then `Next:` with the same search command the explorer would show, including a passed `--data-dir` and the current filters. It exits 1, writes no escape sequence, and does not open the library or change terminal modes. `--json` reports `error` and `next` on stderr. `--inspect` follows the same refusal. A zero-size window is rejected before raw mode. After modes are acquired, a later setup failure writes the cursor, alternate-screen, bracketed-paste, and synchronized-output resets before the terminal returns to cooked mode. The panic hook writes those same resets, and Termina then restores the platform mode. Normal quit still restores on the way out. An external stop, Unix `SIGTERM` or a Windows console close, is polled at least every 250 ms, restores, and exits 130. A delivered console control event uses that same exit. Schema v51 and local IPC v53 are unchanged.
 
-`cargo fmt --all` completed. `cargo clippy -p sigy --all-targets --locked -- -D warnings` passed. `cargo test -p sigy --bin sigy -- --test-threads=2` passed 339 ordinary tests and 6 ignored, in 23.19 seconds. `cargo test -p sigy --test cli tui_refuses -- --test-threads=2` passed. Full `cargo verify` was not re-run. Coverage was not re-run. `cargo visual-qa` was not required. Unix `SIGTERM` was not sent on this Windows host. A live zero-size console was not measured; the zero-size gate is the unit check that runs before raw mode. Hosted verify of `221d2ac` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/39558018485. This slice has no hosted verify yet. External spend remains USD 0.
+`cargo fmt --all` completed. `cargo clippy -p sigy --all-targets --locked -- -D warnings` passed. `cargo test -p sigy --bin sigy -- --test-threads=2` passed 339 ordinary tests and 6 ignored, in 23.19 seconds. `cargo test -p sigy --test cli tui_refuses -- --test-threads=2` passed. Full `cargo verify` was not re-run. Coverage was not re-run. `cargo visual-qa` was not required. Unix `SIGTERM` was not sent on this Windows host. A live zero-size console was not measured; the zero-size gate is the unit check that runs before raw mode. Hosted verify of `221d2ac` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/39558018485. Hosted verify of `e812e8f` failed the Windows `cargo verify` job and passed Ubuntu and macOS build and lint: https://github.com/blisspixel/sigy/actions/runs/39562086243. The failed test is the installer fixture fence recorded above. External spend remains USD 0.
 
 ## 2026-10-21 globe motion
 

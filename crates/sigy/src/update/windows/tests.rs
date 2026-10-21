@@ -249,7 +249,9 @@ fn write_traced_script(path: &Path, script: &str) -> Result<()> {
 }
 
 fn wait_bounded(child: &mut std::process::Child) -> Result<std::process::ExitStatus> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    // The helper waits 60 seconds for its parent. A traced install.ps1 on a
+    // slow Windows runner was still inside git archive when 15 seconds elapsed.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok(status);
@@ -257,7 +259,7 @@ fn wait_bounded(child: &mut std::process::Child) -> Result<std::process::ExitSta
         if std::time::Instant::now() >= deadline {
             child.kill()?;
             child.wait()?;
-            return Err("offline update fixture exceeded 15 seconds".into());
+            return Err("offline update fixture exceeded 60 seconds".into());
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
