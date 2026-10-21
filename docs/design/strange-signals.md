@@ -1,6 +1,6 @@
 # Strange signals and curious investigations
 
-Updated: 2026-10-03. Status: confirmed later product direction; the workflows below are proposals. No claim-extraction engine, IQ/astronomy importer, SETI detector or autonomous investigation is implemented. [Primary-source research](../../research/41-strange-signals-and-claim-exploration.md) records sources, alternatives and qualification limits. This extends [Intent](../../INTENT.md) without changing the first-release dependency order.
+Updated: 2026-10-21. Status: confirmed later product direction; the workflows below are proposals. No claim-extraction engine, IQ/astronomy importer, SETI detector or autonomous investigation is implemented. [Decision 0104](../decisions/0104-manual-claims.md) stores a claim the user writes and links to an existing finding. It does not score that claim or fetch a source. [Primary-source research](../../research/41-strange-signals-and-claim-exploration.md) records sources, alternatives and qualification limits. This extends [Intent](../../INTENT.md) without changing the first-release dependency order.
 
 ## The experience
 

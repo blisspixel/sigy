@@ -14,6 +14,7 @@ use sigy_service::{
 mod analysis;
 mod audio;
 mod backup;
+mod claim;
 mod copy;
 #[cfg(target_os = "linux")]
 mod delegation;
@@ -181,6 +182,11 @@ enum Command {
         #[command(subcommand)]
         command: monitor::MonitorCommand,
     },
+    /// Write a claim and link a stored finding. Nothing is fetched and no score is set.
+    Claim {
+        #[command(subcommand)]
+        command: claim::ClaimCommand,
+    },
     /// Keep bounded task progress and explicitly delegate cited publications.
     Task {
         #[command(subcommand)]
@@ -330,6 +336,8 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
         command.operation()?
     } else if let Command::Monitor { command } = &cli.command {
         command.operation()?
+    } else if let Command::Claim { command } = &cli.command {
+        command.operation()
     } else if let Command::Task { command } = &cli.command {
         command.operation()?
     } else if let Command::Provider { command } = &cli.command {
@@ -537,6 +545,8 @@ fn render_library_snapshot(
         dvr::render_policy(stdout, policy, ink)?;
     } else if let Some(page) = &view.recording_page {
         dvr::render_records(stdout, page, ink)?;
+    } else if let Some(page) = &view.claim {
+        claim::render(stdout, page)?;
     } else if let Some(page) = &view.monitor {
         monitor::render(stdout, page)?;
     } else if let Some(page) = &view.task {

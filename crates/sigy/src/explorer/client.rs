@@ -826,7 +826,8 @@ mod tests {
             | Operation::SetBudget { .. }
             | Operation::RegisterSource { .. }
             | Operation::Playlist { .. }
-            | Operation::Task { .. } => true,
+            | Operation::Task { .. }
+            | Operation::Claim { .. } => true,
             Operation::Monitor { command } => !matches!(
                 command,
                 MonitorOperation::List {}

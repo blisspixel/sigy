@@ -430,6 +430,21 @@ mod tests {
         }) {
             return Err(format!("{names:?}"));
         }
+        for expected in ["claim_list", "claim_show"] {
+            if !names.contains(&expected) {
+                return Err(format!("missing {expected}"));
+            }
+        }
+        if names.iter().any(|name| {
+            name.starts_with("claim_")
+                && (name.contains("create")
+                    || name.contains("revise")
+                    || name.contains("sighting")
+                    || name.contains("evidence")
+                    || name.contains("status"))
+        }) {
+            return Err(format!("{names:?}"));
+        }
         let propose = tools
             .iter()
             .find(|tool| tool["name"] == "monitor_propose")

@@ -5,7 +5,7 @@ use std::{error::Error, io};
 use sigy_service::Error as ServiceError;
 
 use crate::{
-    Cli, Command, LibraryCommand, dvr::RecordCommand, listen::ListenCommand,
+    Cli, Command, LibraryCommand, claim::ClaimCommand, dvr::RecordCommand, listen::ListenCommand,
     podcast::PodcastCommand, radio::PolicyCommand, radio::RadioCommand, schedule::ScheduleCommand,
     service::ServiceCommand, sources::PlaylistCommand, sources::SourceCommand,
 };
@@ -140,6 +140,7 @@ fn missing(cli: &Cli) -> String {
             "that monitor or finding was not found".into(),
             "monitor list",
         ),
+        Command::Claim { command } => claim_missing(command),
         Command::Task { .. } => ("that task was not found".into(), "task list"),
         _ => ("the named record was not found".into(), ""),
     };
@@ -150,6 +151,23 @@ fn missing(cli: &Cli) -> String {
         "{what}. `{}` shows existing IDs",
         pasted(cli, &format!("sigy {list}"))
     )
+}
+
+fn claim_missing(command: &ClaimCommand) -> (String, &'static str) {
+    let id = match command {
+        ClaimCommand::Create { id, .. }
+        | ClaimCommand::Revise { id, .. }
+        | ClaimCommand::Show { id } => id.as_str(),
+        ClaimCommand::Sighting { claim, .. }
+        | ClaimCommand::Evidence { claim, .. }
+        | ClaimCommand::Status { claim, .. } => claim.as_str(),
+        ClaimCommand::List => "",
+    };
+    if id.is_empty() {
+        ("that claim was not found".into(), "claim list")
+    } else {
+        (named("claim", id), "claim list")
+    }
 }
 
 fn named(kind: &str, id: &str) -> String {
@@ -375,6 +393,7 @@ mod tests {
             ],
             &["sigy", "podcast", "episodes", "x"],
             &["sigy", "monitor", "show", "x"],
+            &["sigy", "claim", "show", "x"],
             &["sigy", "task", "show", "x"],
             &["sigy", "analysis", "show", "x"],
         ] {

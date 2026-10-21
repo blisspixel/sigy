@@ -1808,6 +1808,7 @@ mod translation {
     use super::*;
 
     mod briefings;
+    mod claims;
     mod findings;
     mod monitor_coverage;
     mod settlement;

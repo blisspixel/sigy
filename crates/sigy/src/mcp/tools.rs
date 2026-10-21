@@ -961,6 +961,22 @@ const TOOLS: &[Tool] = &[
         ],
         timeout: SHORT,
     },
+    Tool {
+        name: "claim_list",
+        description: "List claim ids. A claim is written by the user through the CLI. This tool does not create, revise, link, or set a status, and the page has no truth or credibility score.",
+        hints: HINT_QUERY,
+        words: &["claim", "list"],
+        slots: &[],
+        timeout: SHORT,
+    },
+    Tool {
+        name: "claim_show",
+        description: "Read one claim: its wording history, the timeline of what was searched, links to stored findings, user evidence, status, and source lanes. Independence stays unknown. This tool does not create or change a claim and reports no truth or credibility score.",
+        hints: HINT_QUERY,
+        words: &["claim", "show"],
+        slots: &[pos("id", "Claim id.")],
+        timeout: SHORT,
+    },
 ];
 
 const WINDOW: &[Slot] = &[
@@ -1603,6 +1619,32 @@ break"}),
             argv(tool, valid.as_object().ok_or("object")?)?,
             ["radio", "show", "station-123"]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn claim_tools_only_list_and_show() -> Result<(), String> {
+        let list = TOOLS
+            .iter()
+            .find(|tool| tool.name == "claim_list")
+            .ok_or("claim_list")?;
+        let show = TOOLS
+            .iter()
+            .find(|tool| tool.name == "claim_show")
+            .ok_or("claim_show")?;
+        assert_eq!(list.hints, HINT_QUERY);
+        assert_eq!(show.hints, HINT_QUERY);
+        assert_eq!(argv(list, &serde_json::Map::new())?, ["claim", "list"]);
+        let arguments = json!({"id": "dam"});
+        assert_eq!(
+            argv(show, arguments.as_object().ok_or("object")?)?,
+            ["claim", "show", "dam"]
+        );
+        assert!(TOOLS.iter().all(|tool| {
+            !tool.name.starts_with("claim_")
+                || tool.name == "claim_list"
+                || tool.name == "claim_show"
+        }));
         Ok(())
     }
 }

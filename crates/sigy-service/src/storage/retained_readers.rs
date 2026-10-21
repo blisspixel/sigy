@@ -154,6 +154,7 @@ impl Store {
 
 #[cfg(test)]
 pub(crate) fn revert_051_for_tests(connection: &rusqlite::Connection) -> Result<()> {
+    super::claims::revert_052_for_tests(connection)?;
     let exists: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM pragma_table_info('retained_readers') WHERE name='excerpt_version')",
         [], |row| row.get(0),

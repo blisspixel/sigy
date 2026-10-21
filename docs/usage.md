@@ -4,7 +4,7 @@ This is the command reference for the current checkout. Examples use `sigy` afte
 
 Commands use a per-user library by default. Windows and macOS use `~/.sigy/library` (`%USERPROFILE%\.sigy\library` on Windows). A new Linux library uses `$XDG_DATA_HOME/sigy/library` when that value is absolute, otherwise `$HOME/.local/share/sigy/library`. An existing `$HOME/.sigy/library` on Linux stays until `sigy init --move-xdg`. `--data-dir PATH` selects another library and works before or after a subcommand. Use a private directory outside the checkout. MCP requires an explicit `--data-dir`; help, version, updates and backup verification or restore do not need a library. `--json` emits one structured response for automation. Every argument in `--help` states its meaning, unit or accepted range. Page sizes outside the service bounds are refused before any request, for example `radio search --limit` accepts 1 to 16. Common failures add the next command: a missing recording names `sigy record list`, `service status` without a running service says so, a service-only command says to run `sigy service start`, and an unresolved `--decoder` asks for an absolute ffmpeg path. Amounts in JSON are exact decimal USD strings. Displayed origins omit paths and queries. Full URLs stay in the private catalog in plaintext. Do not put access credentials in source URLs.
 
-Catalog schema is v51 and local IPC is v53. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
+Catalog schema is v52 and local IPC is v54. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
 ## Exit codes
 
@@ -387,6 +387,26 @@ To opt into capture, provide all three finite flags on `monitor create` or `moni
 `monitor finding MONITOR FINDING add` stores one citation of one translation cue. `--transcript`, `--transcript-revision`, `--translation-revision`, and `--ordinal` name that cue. `--original` defaults to `retained`. Retained copies the cue's own start and end when the recording is still retained, the checksum matches, the cue sits inside one published interval, and no gap overlaps it. `expired` and `missing` store no interval, and only when that statement is true. Citing retained when the range is absent is rejected and writes nothing. Repeating the same citation changes nothing. A different citation for the same finding id conflicts and writes nothing. `show` reads the citation. A newer transcript revision, or a newer translation of the cited revision, is labeled stale, and the finding is not rewritten. Wording remains uncertain. This is not human review. The command does not start recognition or translation and does not spend. Transcript text and a passage match do not create a finding. `sigy mcp` has no tool that publishes one.
 
 `monitor briefing MONITOR ID add` stores one generation for a coverage window. The default is the last 24 hours. `--from-ms` and `--to-ms` name an exact range of at most 31 days. The text states coverage first, then every finding stored on the monitor at that moment. A repeated original script, compared after lowercase and whitespace folding, counts once. A different script stays an unresolved conflict. Classification stays off. Support, contradiction, and independence stay unresolved. Repeating the same window changes nothing. A different window for that id conflicts and writes nothing. `show` reads the generation and the coverage frozen with it. `monitor coverage` stays a live read. `export` prints a redacted JSON snapshot. That document is not the catalog and grants no permission, spend, or retention. A finding added later stays out of the old generation. Wording remains uncertain. This is not human review. The command does not start recognition or translation and does not spend. Transcript text does not create a briefing. `sigy mcp` has no tool that publishes or exports one.
+
+## Claims
+
+```text
+sigy --data-dir PATH_TO_LIBRARY claim create dam --text "Several stations carried one bulletin."
+sigy --data-dir PATH_TO_LIBRARY claim revise dam --expected-revision 1 --text "Several stations carried one bulletin about the dam."
+sigy --data-dir PATH_TO_LIBRARY claim list
+sigy --data-dir PATH_TO_LIBRARY claim show dam
+sigy --data-dir PATH_TO_LIBRARY claim sighting dam first --monitor fair --finding world
+sigy --data-dir PATH_TO_LIBRARY claim evidence dam note --sighting first --type disputes --relation correction --note "The user stored this correction."
+sigy --data-dir PATH_TO_LIBRARY claim status dam --expected-revision 0 --status retracted --evidence note
+```
+
+`claim create` stores one claim in your words. Repeating that id with the same first text changes nothing. A different text for an existing id conflicts and writes nothing. `revise` appends a wording after the text revision you last saw. Earlier wording stays. Feed text, transcript text, and a model cannot create or change a claim.
+
+`sighting` links one finding that is already stored. A passage match that is not a stored finding is refused and writes nothing. The same sighting id and finding changes nothing. A different finding for that id conflicts. A newer transcript or translation is labeled stale on `show` and does not rewrite the link. `evidence` records what you say that sighting does. `--type` is `supports`, `disputes`, `context`, or `unresolved`. `--relation` may be `quotation`, `negation`, `sarcasm`, `changed-date`, `translation`, `shared-press-release`, or `correction`. Omitting it stores `unspecified`. The origin is `user`. These labels are yours. They are not a classifier, and storing one does not set a status.
+
+Unverified means no status row exists. `status` requires an evidence link you already stored. `--expected-revision` is how many status rows you last saw, and zero means none. The setter is `user`. `retracted` is shown as "retracted or corrected by source". A later status appends. Nothing sets a status for you.
+
+`show` prints the timeline before any sighting. The timeline says this page searched linked findings only, did not search the library, did not assess languages outside the cited cues, and names the cited window or `none`. Each sighting names its time basis. Carriers group sightings that share a source revision. Repetition and independence stay unknown. That grouping is not corroboration. The page has no truth or credibility score. `claim_list` and `claim_show` are the only MCP tools, and both only read. See [manual claims](decisions/0104-manual-claims.md).
 
 ## Tasks
 

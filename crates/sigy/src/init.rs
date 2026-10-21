@@ -40,6 +40,7 @@ Keep
 Understand
   sigy analysis  recognition and translation
   sigy monitor  bounds, findings, and briefings
+  sigy claim  a claim you write over a finding
   sigy task  finite evidence work
 Sources
   sigy radio  cached stations and fetch

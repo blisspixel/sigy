@@ -25,6 +25,7 @@ pub(crate) mod analysis_jobs;
 mod archive;
 pub(crate) mod backup;
 pub(crate) mod briefings;
+pub(crate) mod claims;
 pub(crate) mod corrections;
 mod cue_media;
 mod deadline;
@@ -45,7 +46,7 @@ mod widen;
 mod widen_tests;
 pub(crate) mod withdrawals;
 
-pub const SCHEMA_VERSION: u32 = 51;
+pub const SCHEMA_VERSION: u32 = 52;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -123,6 +124,7 @@ impl Store {
         store.audit_monitor_capture()?;
         store.audit_transcripts()?;
         store.audit_findings()?;
+        store.audit_claims()?;
         store.audit_briefings()?;
         store.audit_language_evidence()?;
         store.audit_analysis_jobs()?;
@@ -331,6 +333,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=50).contains(&version) {
         transaction.execute_batch(include_str!("051-retained-excerpts.sql"))?;
+    }
+    if (0..=51).contains(&version) {
+        transaction.execute_batch(include_str!("052-claims.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

@@ -150,6 +150,9 @@
         },
         "task": {
           "type": "null"
+        },
+        "claim": {
+          "type": "null"
         }
       },
       "required": [
@@ -187,7 +190,8 @@
         "provider",
         "monitor",
         "briefing_export",
-        "task"
+        "task",
+        "claim"
       ],
       "additionalProperties": false
     },

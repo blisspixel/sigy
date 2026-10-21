@@ -2,6 +2,7 @@
 
 mod actor;
 mod analysis;
+mod claim;
 mod discovery;
 pub(crate) mod doctor;
 mod dvr;
@@ -34,6 +35,7 @@ pub use analysis::{
     AnalysisOperation, AnalysisPage, AnalysisView, LanguageOperation, ProfileOperation,
     RecognitionView, TranscriptCueView, TranscriptView, TranslationProfileOperation,
 };
+pub use claim::{ClaimOperation, ClaimPage};
 pub use discovery::{
     DirectoryCatalog, DirectoryOperation, DirectoryPolicyPage, LinkedRecording, LinkedSource,
     LinkedStationContext, OrderedStationPage, PolicyDisposition, StationPage,
@@ -60,7 +62,7 @@ pub use schedule::{ScheduleOccurrenceView, ScheduleOperation, SchedulePage, Sche
 pub use server::{request, run};
 pub use task::{TaskOperation, TaskPage};
 
-pub const PROTOCOL_VERSION: u32 = 53;
+pub const PROTOCOL_VERSION: u32 = 54;
 pub const MAX_CLIENTS: usize = 32;
 pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -153,6 +155,10 @@ pub enum Operation {
     Task {
         command: TaskOperation,
     },
+    /// A manual claim over a stored finding. Nothing is fetched and no score is assigned.
+    Claim {
+        command: ClaimOperation,
+    },
 }
 
 impl std::fmt::Debug for Operation {
@@ -178,6 +184,7 @@ impl std::fmt::Debug for Operation {
             Self::Provider { .. } => "provider",
             Self::Monitor { .. } => "monitor",
             Self::Task { .. } => "task",
+            Self::Claim { .. } => "claim",
         };
         f.debug_struct("Operation")
             .field("kind", &kind)
@@ -273,6 +280,9 @@ pub struct Snapshot {
     pub briefing_export: Option<Box<crate::monitor::BriefingExport>>,
     #[serde(default)]
     pub task: Option<Box<TaskPage>>,
+    /// A manual claim page. Absent fields are not a score.
+    #[serde(default)]
+    pub claim: Option<Box<ClaimPage>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -332,15 +342,14 @@ pub fn apply(store: &mut Store, operation: Operation) -> Result<Snapshot> {
         Operation::Playlist { command } => return playlist::apply(store, command),
         Operation::Listen { command } => return listen::apply(store, command),
         Operation::Retained { command } => return retained::apply(store, command),
-        Operation::Playback { .. } => {
-            return Err(Error::ServiceRequired);
-        }
+        Operation::Playback { .. } => return Err(Error::ServiceRequired),
         Operation::Podcast { command } => return podcast::apply(store, command),
         Operation::Schedule { command } => return schedule::apply(store, command),
         Operation::Analysis { command } => return analysis::apply(store, command),
         Operation::Provider { command } => return provider::apply(store, command),
         Operation::Monitor { command } => return monitor::apply(store, command),
         Operation::Task { command } => return task::apply(store, command),
+        Operation::Claim { command } => return claim::apply(store, command),
         Operation::Record { command } => {
             if let RecordingOperation::Metadata { id } = &command {
                 recording_metadata = Some(crate::recordings::metadata::export(
@@ -475,6 +484,7 @@ fn snapshot(store: &Store) -> Result<Snapshot> {
         monitor: None,
         briefing_export: None,
         task: None,
+        claim: None,
         captures: CaptureStatus {
             dispatch_available: false,
             scheduled: captures.scheduled,
