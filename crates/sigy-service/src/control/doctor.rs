@@ -211,10 +211,7 @@ fn decoder_containment() -> DoctorCheck {
         Err(error) => check(
             "decoder_containment",
             DoctorState::Blocked,
-            format!(
-                "Listening, recording and analysis are held. {}",
-                containment_cause(&error)
-            ),
+            blocked_containment_detail(&error),
             None,
         ),
     }
@@ -410,11 +407,36 @@ fn directory_fetch() -> String {
     crate::guidance::DirectoryHint::empty_fetch().command()
 }
 
+fn blocked_containment_detail(error: &crate::Error) -> String {
+    compose_blocked_containment(&containment_cause(error))
+}
+
+fn compose_blocked_containment(cause: &str) -> String {
+    format!(
+        "Listening, recording and analysis are held. {cause}. {}",
+        containment_platform()
+    )
+}
+
+fn containment_platform() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "Linux needs a managed user unit with cpu, memory and pids delegation. These limits are unsupported without that unit."
+    } else if cfg!(target_os = "macos") {
+        "macOS whole-tree limits remain unsupported."
+    } else {
+        "These memory, process and CPU limits are unsupported on this host."
+    }
+}
+
 fn containment_cause(error: &crate::Error) -> String {
     let raw = std::error::Error::source(error)
         .map(ToString::to_string)
         .filter(|text| !text.is_empty())
         .unwrap_or_else(|| error.to_string());
+    readable_cause(&raw)
+}
+
+fn readable_cause(raw: &str) -> String {
     let text = raw
         .replace("bounded native containment unavailable:", "")
         .replace("inspect `sigy doctor`", "")
@@ -498,6 +520,24 @@ mod tests {
             return Err(format!("fresh pace was not unmeasured: {recognition:?}").into());
         }
         Ok(())
+    }
+
+    #[test]
+    fn blocked_containment_names_unsupported_limits_without_a_self_reference() {
+        let cause = super::readable_cause(
+            "bounded native containment unavailable: memory limit is not supported on this platform; inspect `sigy doctor`",
+        );
+        assert_eq!(cause, "memory limit is not supported on this platform");
+        assert_eq!(
+            super::readable_cause("inspect `sigy doctor`"),
+            "the operating system refused the requested limits"
+        );
+        let detail = super::compose_blocked_containment(&cause);
+        assert!(detail.starts_with("Listening, recording and analysis are held."));
+        assert!(detail.contains("not supported"));
+        assert!(detail.contains("unsupported"));
+        assert!(!detail.contains("sigy doctor"));
+        assert!(!detail.contains("bounded native containment unavailable"));
     }
 
     #[test]

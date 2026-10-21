@@ -45,7 +45,7 @@ mod update;
     version,
     about = "Practical signals intelligence for everyday people.",
     before_help = init::GET_STARTED,
-    help_template = "{about}\n\n{before-help}\n\n{options}"
+    help_template = "{about}\n\n{before-help}\n\n{usage-heading} {usage}\n\n{options}"
 )]
 struct Cli {
     /// Library directory. Defaults to ~/.sigy/library; MCP requires an explicit directory.
@@ -835,6 +835,7 @@ mod future_frame_tests {
         let text = String::from_utf8(buffer)?;
         assert!(text.contains("Practical signals intelligence for everyday people."));
         assert!(text.contains("sigy init --radio"));
+        assert!(text.contains("Usage: sigy [OPTIONS] <COMMAND>"));
         assert!(!text.contains("sigy radio search\n"));
         for line in text.lines() {
             assert!(visible_width(line) <= 60, "{line}");
