@@ -157,7 +157,7 @@ async fn exchange(endpoint: &Endpoint, directory: &Path, operation: Operation) -
     }
     response
         .result
-        .map_err(|failure| Error::Remote(failure.message))
+        .map_err(|failure| Error::remote(failure.code, failure.message))
 }
 
 #[cfg(test)]

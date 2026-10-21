@@ -56,7 +56,15 @@ Admin
   sigy update  a newer source checkout
 Commands use ~/.sigy/library unless you pass --data-dir.
 Guide:
-  https://github.com/blisspixel/sigy/blob/main/docs/usage.md";
+  https://github.com/blisspixel/sigy/blob/main/docs/usage.md
+Exit codes
+  0 completed
+  1 other failure
+  2 usage
+  3 service unavailable
+  4 refused
+  5 partial result
+  130 interrupted";
 const RADIO_REQUEST: &str = "sigy-init-radio-v1";
 const RADIO_WAIT: Duration = Duration::from_secs(15);
 

@@ -1212,7 +1212,11 @@ fn failure(error: &Error) -> Failure {
             Error::SourceCapacity | Error::CaptureCapacity | Error::PodcastCapacity => "capacity",
             Error::StorageQuota => "storage_quota",
             Error::Budget(_) => "budget_rejected",
-            Error::ServiceStopped => "stopping",
+            Error::ServiceStopped | Error::ServiceRequired => "stopping",
+            Error::DirectoryRefreshRate
+            | Error::RequestState
+            | Error::StaleCapture
+            | Error::NativeContainment(_) => "refused",
             _ => "catalog_failure",
         }
         .into(),

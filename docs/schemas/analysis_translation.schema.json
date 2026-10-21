@@ -196,13 +196,27 @@
       "properties": {
         "error": {
           "type": "string"
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "failure",
+            "usage",
+            "service_unavailable",
+            "refused",
+            "partial",
+            "interrupted"
+          ]
+        },
+        "next": {
+          "type": "string"
         }
       },
       "required": [
         "error"
       ],
       "additionalProperties": false,
-      "description": "CLI JSON error envelope. MCP preserves this stderr envelope or synthesizes it for adapter failures; isError is carried outside structuredContent."
+      "description": "CLI JSON error envelope. MCP preserves this stderr envelope or synthesizes it for adapter failures; isError is carried outside structuredContent. code and next are present when the command knows them."
     },
     "money": {
       "type": "string",

@@ -6,6 +6,20 @@ Commands use `~/.sigy/library` by default: `%USERPROFILE%\.sigy\library` on Wind
 
 Catalog schema is v51 and local IPC is v53. Stop an older service with its existing binary before replacing that binary, then start it again. `service run` keeps the controller in the foreground. `service start` detaches it from the client. Neither command installs an operating-system startup service. The service holds the library lock. Other commands reconnect to it while it is running.
 
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | the command completed |
+| 1 | another failure |
+| 2 | usage, including an unknown command |
+| 3 | the background service is unavailable |
+| 4 | the service refused the job |
+| 5 | a partial result |
+| 130 | the command was interrupted |
+
+A failed, refused, or partial command does not exit 0. A broken pipe while writing output can still exit 0, because the reader went away. `--json` writes the failure to stderr as one object with `error`, `code`, and `next` when a next command is known. Human text uses that same message. `sigy --help` lists the codes after the getting-started guide. Long waits do not emit a terminal progress sequence.
+
 ## Quick start
 
 `sigy explore --country Canada --language french` picks one random cached station with coordinates. Optional `--name`, `--tag`, `--healthy` and `--favorites` combine with these filters. `--json` returns `random_station` with the eligible count and cache identity; no cursor is implied. Empty matches require an explicit directory fetch. The command never contacts or plays a station.

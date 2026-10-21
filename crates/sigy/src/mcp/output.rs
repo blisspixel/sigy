@@ -41,20 +41,38 @@ pub(super) fn complete(name: &str, mut result: Value) -> Value {
         .as_str()
         .unwrap_or("command failed");
     let structured = if result["isError"] == true {
-        serde_json::from_str::<Value>(text)
-            .ok()
-            .filter(|value| {
-                value.as_object().is_some_and(|object| {
-                    object.len() == 1 && object.get("error").is_some_and(Value::is_string)
-                })
-            })
-            .unwrap_or_else(|| json!({"error": text}))
+        error_document(text)
     } else {
-        json!({"error": "sigy command returned no JSON output"})
+        json!({"error": "sigy command returned no JSON output", "code": "failure"})
     };
     result["structuredContent"] = structured;
     result["isError"] = json!(true);
     result
+}
+
+fn error_document(text: &str) -> Value {
+    let Some(mut value) = serde_json::from_str::<Value>(text)
+        .ok()
+        .filter(is_error_document)
+    else {
+        return json!({
+            "error": text,
+            "code": if text.starts_with("rate limit:") { "refused" } else { "failure" }
+        });
+    };
+    if value.get("code").is_none() {
+        value["code"] = json!("failure");
+    }
+    value
+}
+
+fn is_error_document(value: &Value) -> bool {
+    value.as_object().is_some_and(|object| {
+        object.get("error").is_some_and(Value::is_string)
+            && object
+                .keys()
+                .all(|key| matches!(key.as_str(), "error" | "code" | "next"))
+    })
 }
 
 #[cfg(test)]
@@ -73,7 +91,10 @@ mod tests {
                 "analysis_transcript",
                 json!({"content":[{"type":"text","text":text}], "isError":true}),
             );
-            assert_eq!(result["structuredContent"], json!({"error":error}));
+            assert_eq!(
+                result["structuredContent"],
+                json!({"error": error, "code": "failure"})
+            );
             assert_eq!(result["content"][0]["text"], text);
             assert_eq!(result["isError"], true);
         }

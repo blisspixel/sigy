@@ -533,14 +533,21 @@ fn output_failure_preserves_completed_decoder_and_observed_native_closure() -> T
 #[test]
 fn only_exact_local_or_remote_missing_receipt_allows_fresh_admission() {
     assert!(is_not_found(&sigy_service::Error::NotFound));
-    assert!(is_not_found(&sigy_service::Error::Remote(
+    assert!(is_not_found(&sigy_service::Error::remote(
+        "not_found",
         sigy_service::Error::NotFound.to_string()
     )));
     for error in [
         sigy_service::Error::StorageIntegrity,
         sigy_service::Error::LibraryBusy,
-        sigy_service::Error::Remote("resource not found, because integrity failed".into()),
-        sigy_service::Error::Remote(sigy_service::Error::StorageIntegrity.to_string()),
+        sigy_service::Error::remote(
+            "catalog_failure",
+            "resource not found, because integrity failed",
+        ),
+        sigy_service::Error::remote(
+            "catalog_failure",
+            sigy_service::Error::StorageIntegrity.to_string(),
+        ),
     ] {
         assert!(!is_not_found(&error));
     }

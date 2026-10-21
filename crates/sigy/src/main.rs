@@ -19,6 +19,7 @@ mod copy;
 mod delegation;
 mod doctor_view;
 mod dvr;
+mod exit;
 mod explorer;
 mod hints;
 mod init;
@@ -419,25 +420,7 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             command: dvr::RecordCommand::Path { .. }
         }
     ) {
-        let record = view
-            .recording_page
-            .as_ref()
-            .and_then(|page| page.entries.first())
-            .ok_or("recording not found")?;
-        if record.storage_state != "retained" {
-            return Err("recording has no verified retained media".into());
-        }
-        let path = sigy_service::recordings::media_path(library_dir(cli)?, &record.object_key)?;
-        if !path.is_file() {
-            return Err("retained media is missing".into());
-        }
-        if cli.json {
-            serde_json::to_writer(&mut stdout, &serde_json::json!({"path": path}))?;
-            writeln!(stdout)?;
-        } else {
-            writeln!(stdout, "{}", path.display())?;
-        }
-        return Ok(());
+        return write_recording_path(&mut stdout, cli, &view);
     }
     render_library_snapshot(&mut stdout, cli, &view, ink)?;
     if let Command::Radio { command } = &cli.command {
@@ -462,7 +445,50 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if let Command::Doctor { strict } = &cli.command {
         refuse_doctor(&view, *strict, cli.json)?;
     }
+    if view.task.as_deref().is_some_and(task::is_partial) {
+        return Err(exit::Partial.into());
+    }
     Ok(())
+}
+
+fn write_recording_path(
+    stdout: &mut impl Write,
+    cli: &Cli,
+    view: &Snapshot,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let record = view
+        .recording_page
+        .as_ref()
+        .and_then(|page| page.entries.first())
+        .ok_or("recording not found")?;
+    if record.storage_state != "retained" {
+        return Err("recording has no verified retained media".into());
+    }
+    let path = sigy_service::recordings::media_path(library_dir(cli)?, &record.object_key)?;
+    if !path.is_file() {
+        return Err("retained media is missing".into());
+    }
+    if cli.json {
+        serde_json::to_writer(&mut *stdout, &serde_json::json!({"path": path}))?;
+        writeln!(stdout)?;
+    } else {
+        writeln!(stdout, "{}", path.display())?;
+    }
+    Ok(())
+}
+
+fn exit_usage(error: &clap::Error) -> ! {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let next = hints::suggestion(&args);
+    if args.iter().any(|argument| argument == "--json") {
+        let document = exit::error_document(error.to_string().trim(), "usage", next.as_deref());
+        let _ = writeln!(io::stderr(), "{document}");
+        std::process::exit(2);
+    }
+    if let Some(next) = next {
+        eprintln!("Next: {next}");
+    }
+    error.exit()
 }
 
 fn refuse_doctor(
@@ -666,13 +692,7 @@ fn open_explorer(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 fn parse_cli() -> Cli {
     match Cli::try_parse() {
         Ok(cli) => cli,
-        Err(error) => {
-            let args = std::env::args().skip(1).collect::<Vec<_>>();
-            if let Some(next) = hints::suggestion(&args) {
-                eprintln!("Next: {next}");
-            }
-            error.exit()
-        }
+        Err(error) => exit_usage(&error),
     }
 }
 
@@ -761,40 +781,58 @@ fn blocked_explorer(cli: &Cli) -> Result<Option<explorer::Refusal>, Box<dyn std:
 
 fn report_failure(cli: &Cli, error: Box<dyn std::error::Error>) -> ExitCode {
     if error.is::<explorer::Interrupted>() {
-        return ExitCode::from(130);
+        return write_classified(cli.json, "interrupted", "interrupted", None, 130);
     }
     if let Some(refusal) = error.downcast_ref::<explorer::Refusal>() {
         return write_refusal(cli.json, refusal);
     }
+    let class = exit::classify(error.as_ref(), &cli.command);
     let error = init::actionable_error(cli, error);
-    if error
-        .downcast_ref::<io::Error>()
-        .is_some_and(|e| e.kind() == io::ErrorKind::BrokenPipe)
-        || error
-            .downcast_ref::<serde_json::Error>()
-            .is_some_and(|e| e.io_error_kind() == Some(io::ErrorKind::BrokenPipe))
-    {
+    if broken_pipe(error.as_ref()) {
         return ExitCode::SUCCESS;
     }
+    let message = error.to_string();
+    let next = exit::next_command(&message);
+    write_classified(cli.json, &message, class.code, next.as_deref(), class.exit)
+}
+
+fn broken_pipe(error: &(dyn std::error::Error + 'static)) -> bool {
+    error
+        .downcast_ref::<io::Error>()
+        .is_some_and(|cause| cause.kind() == io::ErrorKind::BrokenPipe)
+        || error
+            .downcast_ref::<serde_json::Error>()
+            .is_some_and(|cause| cause.io_error_kind() == Some(io::ErrorKind::BrokenPipe))
+}
+
+fn write_classified(
+    json: bool,
+    message: &str,
+    code: &str,
+    next: Option<&str>,
+    exit: u8,
+) -> ExitCode {
+    if !json && code == "interrupted" {
+        return ExitCode::from(exit);
+    }
     let mut stderr = io::stderr().lock();
-    let written = if cli.json {
-        writeln!(
-            stderr,
-            "{}",
-            serde_json::json!({ "error": error.to_string() })
-        )
+    let written = if json {
+        writeln!(stderr, "{}", exit::error_document(message, code, next))
     } else {
         writeln!(
             stderr,
             "{} {}",
             style::Ink::stderr().tint(style::Tone::Fail, "sigy:"),
-            explorer::text::sanitize(&error.to_string(), 4096)
+            explorer::text::sanitize(message, 4096)
         )
     };
-    if written.is_err() {
-        return ExitCode::FAILURE;
+    if written
+        .as_ref()
+        .is_err_and(|error| error.kind() == io::ErrorKind::BrokenPipe)
+    {
+        return ExitCode::SUCCESS;
     }
-    ExitCode::FAILURE
+    ExitCode::from(exit)
 }
 
 fn write_refusal(json: bool, refusal: &explorer::Refusal) -> ExitCode {
@@ -803,10 +841,7 @@ fn write_refusal(json: bool, refusal: &explorer::Refusal) -> ExitCode {
         writeln!(
             stderr,
             "{}",
-            serde_json::json!({
-                "error": explorer::Refusal::MESSAGE,
-                "next": refusal.next(),
-            })
+            exit::error_document(explorer::Refusal::MESSAGE, "failure", Some(refusal.next()))
         )
     } else {
         writeln!(stderr, "{refusal}")
@@ -893,6 +928,8 @@ mod future_frame_tests {
         assert!(text.contains("Practical signals intelligence for everyday people."));
         assert!(text.contains("sigy init --radio"));
         assert!(text.contains("Usage: sigy [OPTIONS] <COMMAND>"));
+        assert!(text.contains("Exit codes"));
+        assert!(text.contains("130 interrupted"));
         assert!(!text.contains("sigy radio search\n"));
         for line in text.lines() {
             assert!(visible_width(line) <= 60, "{line}");

@@ -14,8 +14,8 @@ pub enum Error {
     Timeout,
     #[error("service is shutting down")]
     ServiceStopped,
-    #[error("service rejected the request: {0}")]
-    Remote(String),
+    #[error("service rejected the request: {message}")]
+    Remote { code: String, message: String },
     #[error("catalog operation failed: {0}")]
     Database(#[from] rusqlite::Error),
     #[error(transparent)]
@@ -80,6 +80,17 @@ pub enum Error {
     CaptureTransition(#[from] sigy_core::capture::InvalidTransition),
     #[error("system clock cannot be represented: {0}")]
     Clock(#[from] std::time::SystemTimeError),
+}
+
+impl Error {
+    /// Keeps the service failure code with the message the client already shows.
+    #[must_use]
+    pub fn remote(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::Remote {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

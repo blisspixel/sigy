@@ -376,7 +376,7 @@ async fn refuse_reply(directory: &Path, id: &str, scope: Scope<'_>, detail: &str
 fn is_not_found(error: &(dyn std::error::Error + 'static)) -> bool {
     match error.downcast_ref::<sigy_service::Error>() {
         Some(sigy_service::Error::NotFound) => true,
-        Some(sigy_service::Error::Remote(message)) => {
+        Some(sigy_service::Error::Remote { message, .. }) => {
             message == &sigy_service::Error::NotFound.to_string()
         }
         _ => false,

@@ -682,5 +682,86 @@ fn tui_refuses_a_pipe_and_a_dumb_terminal_without_escape_sequences() -> TestResu
         "The explorer needs an interactive terminal."
     );
     assert_eq!(value["next"], "sigy radio search --fetch");
+    assert_eq!(value["code"], "failure");
+    Ok(())
+}
+
+#[test]
+fn exit_codes_separate_usage_failure_and_an_unavailable_service() -> TestResult {
+    let version = common::output(Command::new(env!("CARGO_BIN_EXE_sigy")).arg("--version"))?;
+    assert_eq!(version.status.code(), Some(0));
+
+    let usage =
+        common::output(Command::new(env!("CARGO_BIN_EXE_sigy")).args(["--json", "not-a-command"]))?;
+    assert_eq!(usage.status.code(), Some(2));
+    assert_eq!(usage.stdout, [] as [u8; 0]);
+    let usage_json: serde_json::Value = serde_json::from_slice(&usage.stderr)?;
+    assert_eq!(usage_json["code"], "usage");
+    assert!(usage_json["error"].is_string());
+
+    let directory = tempfile::tempdir()?;
+    let library = directory.path().join("library");
+    let missing = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(&library)
+            .args(["--json", "library", "status"]),
+    )?;
+    assert_eq!(missing.status.code(), Some(1));
+    assert_eq!(missing.stdout, [] as [u8; 0]);
+    let missing_json: serde_json::Value = serde_json::from_slice(&missing.stderr)?;
+    assert_eq!(missing_json["code"], "failure");
+    let human = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(&library)
+            .args(["library", "status"]),
+    )?;
+    let human_text = String::from_utf8(human.stderr)?;
+    let message = missing_json["error"].as_str().ok_or("error")?;
+    assert!(human_text.contains(message), "{human_text}");
+
+    let prepared = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(&library)
+            .args(["init", "--no-start"]),
+    )?;
+    assert!(
+        prepared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    let refresh = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(&library)
+            .args(["--json", "radio", "refresh"]),
+    )?;
+    assert_eq!(
+        refresh.status.code(),
+        Some(3),
+        "{}",
+        String::from_utf8_lossy(&refresh.stderr)
+    );
+    assert_eq!(refresh.stdout, [] as [u8; 0]);
+    let refresh_json: serde_json::Value = serde_json::from_slice(&refresh.stderr)?;
+    assert_eq!(refresh_json["code"], "service_unavailable");
+    let next = refresh_json["next"].as_str().ok_or("next")?;
+    assert!(next.contains("service start"), "{next}");
+    let human_refresh = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(&library)
+            .args(["radio", "refresh"]),
+    )?;
+    assert_eq!(human_refresh.status.code(), Some(3));
+    let human_refresh_text = String::from_utf8(human_refresh.stderr)?;
+    let refresh_message = refresh_json["error"].as_str().ok_or("error")?;
+    assert!(
+        human_refresh_text.contains(refresh_message),
+        "{human_refresh_text}"
+    );
+    assert!(human_refresh_text.contains(next), "{human_refresh_text}");
     Ok(())
 }

@@ -1,6 +1,6 @@
 # Interface language
 
-Updated: 2026-10-21. Status: selected contract for the interface issues under [tracker 23](https://github.com/blisspixel/sigy/issues/23). The words stay authoritative. Color only reinforces them. This file records the rules those issues implement. Issue 25 applies the vocabulary, shared counts, compact USD and the recording timeline text. Issue 24 applies the color roles, favorite and live markers, and high contrast. Issue 26 applies one next command, the readable doctor report, journey help, and the key overlay. Issue 27 applies the explorer layout, including a hint line that ends in `? more`. Issue 28 applies globe motion. Exit codes still belong to later issues. Nothing here grants network, playback, capture or spending authority.
+Updated: 2026-10-21. Status: selected contract for the interface issues under [tracker 23](https://github.com/blisspixel/sigy/issues/23). The words stay authoritative. Color only reinforces them. This file records the rules those issues implement. Issue 25 applies the vocabulary, shared counts, compact USD and the recording timeline text. Issue 24 applies the color roles, favorite and live markers, and high contrast. Issue 26 applies one next command, the readable doctor report, journey help, and the key overlay. Issue 27 applies the explorer layout, including a hint line that ends in `? more`. Issue 28 applies globe motion. Issue 30 applies the exit codes under Agent and JSON parity. Issue 31 refuses a non-interactive explorer. Nothing here grants network, playback, capture or spending authority.
 
 Low floor: a curious newcomer can turn the globe, pick a station and press play in the first minute. High ceiling: an analyst can trace any line to a field, a revision and an exact interval, and script all of it. Character: a calm, modern instrument with retro roots. The feel comes from real geography, real timelines and crisp alignment, with a few quiet flourishes that explain what changed.
 
@@ -149,7 +149,7 @@ Exit codes, selected for issue 30:
 | 5 | a partial result |
 | 130 | the command was interrupted |
 
-A failed, refused or partial run is never exit 0. A broken pipe while writing output may still exit 0, because the reader went away. Today, runtime failures other than that broken-pipe path exit 1, and clap usage exits 2. Codes 3, 4 and 5 are the contract issue 30 implements. They are not current process behavior.
+A failed, refused or partial run is never exit 0. A broken pipe while writing output may still exit 0, because the reader went away. A command exits 0 when it completes, 2 for usage, 3 when the background service is unavailable, 4 when the service refuses the job, and 5 when the returned task result is partial. Other failures exit 1. An external stop exits 130. JSON errors use `error`, `code`, and `next` when a next command is known. Long-wait terminal progress indicators are not emitted.
 
 ## Proposed, not implemented
 

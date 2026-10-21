@@ -58,7 +58,7 @@ fn pasted(cli: &Cli, command: &str) -> String {
 
 fn classify(error: &(dyn Error + 'static), command: &Command) -> Option<Kind> {
     let service = error.downcast_ref::<ServiceError>()?;
-    let remote = |expected: &ServiceError| matches!(service, ServiceError::Remote(message) if *message == expected.to_string());
+    let remote = |expected: &ServiceError| matches!(service, ServiceError::Remote { message, .. } if *message == expected.to_string());
     match service {
         ServiceError::NotFound => Some(Kind::NotFound),
         ServiceError::ServiceRequired => Some(Kind::ServiceRequired),
@@ -326,7 +326,7 @@ mod tests {
                 "refresh-status",
                 "first",
             ],
-            ServiceError::Remote(ServiceError::NotFound.to_string()),
+            ServiceError::remote("not_found", ServiceError::NotFound.to_string()),
         )?;
         assert!(
             remote.contains("no directory refresh has ID first"),
@@ -422,7 +422,10 @@ mod tests {
         assert!(backup.contains("`sigy service stop`"), "{backup}");
         let station = message(
             &["sigy", "radio", "show", "bad"],
-            ServiceError::Remote(ServiceError::InvalidInput("station UUID").to_string()),
+            ServiceError::remote(
+                "invalid_request",
+                ServiceError::InvalidInput("station UUID").to_string(),
+            ),
         )?;
         assert!(station.contains("`sigy radio search`"), "{station}");
         let untouched = message(&["sigy", "radio", "show", "bad"], ServiceError::Timeout)?;

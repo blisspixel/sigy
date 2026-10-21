@@ -539,6 +539,29 @@ fn render_coverage(
     Ok(())
 }
 
+/// A partial or still-pending task observation is not a completed result.
+#[must_use]
+pub(crate) fn is_partial(page: &TaskPage) -> bool {
+    match page {
+        TaskPage::Evidence {
+            evidence: Some(view),
+        } => matches!(
+            view.outcome,
+            sigy_service::task::evidence::TaskOutcome::Partial
+                | sigy_service::task::evidence::TaskOutcome::Pending
+        ),
+        TaskPage::EvidenceSnapshot { snapshot } => matches!(
+            snapshot.evidence.outcome,
+            sigy_service::task::evidence::TaskOutcome::Partial
+                | sigy_service::task::evidence::TaskOutcome::Pending
+        ),
+        TaskPage::Execution { run: Some(run) } => {
+            matches!(run.state, sigy_service::task::run::TaskRunState::Partial)
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     mod exact;
@@ -554,6 +577,62 @@ mod tests {
     struct Only {
         #[command(subcommand)]
         command: TaskCommand,
+    }
+
+    #[test]
+    fn partial_task_results_are_distinct_from_completed_ones() {
+        let mut evidence = sigy_service::task::evidence::TaskEvidenceView {
+            id: "task".into(),
+            template: String::new(),
+            monitor_id: String::new(),
+            monitor_version: 1,
+            outcome: sigy_service::task::evidence::TaskOutcome::Cited,
+            reasons: Vec::new(),
+            planned_us: 0,
+            recorded_us: 0,
+            uncovered_us: 0,
+            recognized_us: 0,
+            unprocessed_us: 0,
+            entries: Vec::new(),
+            citations: Vec::new(),
+            more: false,
+            paid_allowance_usd: "0.000000".into(),
+        };
+        let cited = TaskPage::Evidence {
+            evidence: Some(Box::new(evidence.clone())),
+        };
+        assert!(!is_partial(&cited));
+        evidence.outcome = sigy_service::task::evidence::TaskOutcome::Partial;
+        assert!(is_partial(&TaskPage::Evidence {
+            evidence: Some(Box::new(evidence.clone())),
+        }));
+        evidence.outcome = sigy_service::task::evidence::TaskOutcome::Pending;
+        assert!(is_partial(&TaskPage::Evidence {
+            evidence: Some(Box::new(evidence)),
+        }));
+        assert!(!is_partial(&TaskPage::Evidence { evidence: None }));
+        let run = sigy_service::task::run::TaskRunView {
+            task_id: "task".into(),
+            request_id: "request".into(),
+            spec: sigy_service::task::run::TaskRunSelection::Checkpoint(
+                sigy_service::task::run::TaskRunSpec {
+                    checkpoint_ordinal: 1,
+                    maximum_findings: 1,
+                },
+            ),
+            generation: 1,
+            state: sigy_service::task::run::TaskRunState::Partial,
+            created_ms: 0,
+            updated_ms: 0,
+            planned_findings: 1,
+            published_findings: 0,
+            skipped_findings: 0,
+            briefing_id: None,
+            steps: Vec::new(),
+        };
+        assert!(is_partial(&TaskPage::Execution {
+            run: Some(Box::new(run)),
+        }));
     }
 
     fn parse(arguments: &[&str]) -> Result<Operation, Box<dyn std::error::Error>> {

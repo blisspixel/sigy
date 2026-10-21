@@ -29,7 +29,7 @@ async fn read_snapshot(stream: &mut LocalStream) -> Result<Snapshot> {
     assert_eq!(response.version, PROTOCOL_VERSION);
     response
         .result
-        .map_err(|failure| Error::Remote(failure.message))
+        .map_err(|failure| Error::remote(failure.code, failure.message))
 }
 
 async fn end_of_stream(stream: &mut LocalStream) -> Result<Vec<u8>> {
