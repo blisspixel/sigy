@@ -411,6 +411,8 @@ pub struct Explorer {
     captures_active: u64,
     quota: Option<QuotaView>,
     playback: Option<PlaybackView>,
+    /// Station whose play was confirmed. Cleared when that listen is not running.
+    live_station: Option<String>,
     schema_version: u32,
     sqlite_version: String,
     provider_dispatch_available: bool,
@@ -489,6 +491,7 @@ impl Explorer {
             captures_active: 0,
             quota: None,
             playback: None,
+            live_station: None,
             schema_version: 0,
             sqlite_version: String::new(),
             provider_dispatch_available: false,
@@ -530,25 +533,26 @@ impl Explorer {
     }
 
     fn globe_key(&mut self, key: char) -> bool {
-        if matches!(key, 'h' | 'l' | 'j' | 'k' | 'c') {
-            self.stop_spin();
-        }
-        let (lon, lat) = self.globe.center;
         match key {
             'r' => self.toggle_spin(),
-            'h' => self.globe.center = (wrap_longitude(lon - 15.0), lat),
-            'l' => self.globe.center = (wrap_longitude(lon + 15.0), lat),
-            'k' => self.globe.center = (lon, (lat + 15.0).min(90.0)),
-            'j' => self.globe.center = (lon, (lat - 15.0).max(-90.0)),
+            'h' => self.turn_by(-15.0, 0.0),
+            'l' => self.turn_by(15.0, 0.0),
+            'k' => self.turn_by(0.0, 15.0),
+            'j' => self.turn_by(0.0, -15.0),
             'm' => self.globe.flat = !self.globe.flat,
-            'c' => match self.selected().and_then(|row| row.coordinates) {
-                Some(place) => {
-                    self.globe.center = (place.longitude, place.latitude);
-                    self.status =
-                        "Centered on the selected station's directory coordinates.".into();
+            'c' => {
+                self.stop_spin();
+                match self.selected().and_then(|row| row.coordinates) {
+                    Some(place) => {
+                        self.glide_toward(place.longitude, place.latitude);
+                        self.status =
+                            "Centered on the selected station's directory coordinates.".into();
+                    }
+                    None => {
+                        self.status = "The selected station has no directory coordinates.".into();
+                    }
                 }
-                None => self.status = "The selected station has no directory coordinates.".into(),
-            },
+            }
             _ => return false,
         }
         true
@@ -671,6 +675,17 @@ impl Explorer {
             self.playback = Some(playback);
             self.draw = Draw::Needed;
         }
+        self.retain_live_station();
+    }
+
+    fn retain_live_station(&mut self) {
+        let running = self
+            .playback
+            .as_ref()
+            .is_some_and(|view| matches!(view.state.as_str(), "running" | "playing"));
+        if !running {
+            self.live_station = None;
+        }
     }
 
     #[must_use]
@@ -790,11 +805,12 @@ impl Explorer {
         self.dispatch_available = desk.dispatch_available;
         self.directory = desk.directory;
         self.quota = desk.quota;
+        self.playback = desk.playback;
+        self.retain_live_station();
         self.recordings = desk.recordings;
         self.recording_selection = recording
             .and_then(|id| self.recordings.iter().position(|record| record.id == id))
             .unwrap_or(0);
-        self.playback = desk.playback;
         self.rows = desk.stations;
         self.random_count = None;
         if let Some(catalog) = desk.catalog {
@@ -1019,15 +1035,17 @@ impl Explorer {
             self.playback = playback;
             self.draw = Draw::Needed;
         }
+        self.retain_live_station();
     }
 
     pub fn handle(&mut self, key: Key) -> Effect {
         self.draw = Draw::Needed;
-        if matches!(key, Key::Quit) {
-            return Effect::Detach;
-        }
         if matches!(key, Key::Redraw) {
             return Effect::None;
+        }
+        self.settle_motion();
+        if matches!(key, Key::Quit) {
+            return Effect::Detach;
         }
         if self.fetch_confirmation.is_some() {
             return self.confirm_fetch(&key);
@@ -1036,6 +1054,7 @@ impl Explorer {
             return match key {
                 Key::Char('y' | 'Y') => {
                     self.play_confirmation = None;
+                    self.live_station = Some(station.clone());
                     self.note_message(
                         "Starting the explicitly selected station. Browsing stays independent.",
                     );
@@ -1059,6 +1078,7 @@ impl Explorer {
                     Workspace::Explore | Workspace::Globe | Workspace::Live
                 )
             {
+                self.live_station = None;
                 return Effect::StopListen;
             }
             if key == Key::Char('P')
@@ -1139,7 +1159,25 @@ impl Explorer {
         }
     }
 
+    fn globe_results_arrow(&mut self, key: &Key) -> Option<Effect> {
+        if self.workspace != Workspace::Globe || self.focus != Focus::Results {
+            return None;
+        }
+        let (longitude, latitude) = match key {
+            Key::Left => (-15.0, 0.0),
+            Key::Right => (15.0, 0.0),
+            Key::Up => (0.0, 15.0),
+            Key::Down => (0.0, -15.0),
+            _ => return None,
+        };
+        self.turn_by(longitude, latitude);
+        Some(Effect::None)
+    }
+
     fn handle_browser(&mut self, key: &Key) -> Effect {
+        if let Some(effect) = self.globe_results_arrow(key) {
+            return effect;
+        }
         match key {
             Key::Char('e') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
                 self.explore_random()
@@ -1788,6 +1826,10 @@ mod tests {
             model.handle(Key::Right);
             assert_eq!(model.workspace(), expected);
         }
+        assert_eq!(model.workspace(), Workspace::Globe);
+        assert_eq!(model.focus(), Focus::Results);
+        model.handle(Key::Tab);
+        assert_eq!(model.focus(), Focus::Detail);
         model.handle(Key::Right);
         assert_eq!(model.workspace(), Workspace::Explore);
         model.handle(Key::Left);

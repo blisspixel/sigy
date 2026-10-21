@@ -10,9 +10,9 @@ use std::{collections::BTreeMap, sync::OnceLock};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::Color,
+    style::{Color, Style},
     symbols::Marker,
-    text::Line,
+    text::{Line, Span},
     widgets::{
         Widget,
         canvas::{Canvas, Circle, Context, Line as Segment, Points},
@@ -108,8 +108,11 @@ pub fn header_lines(model: &Explorer) -> Vec<Line<'static>> {
         )
     };
     let controls = model.spin_label().map_or_else(
-        || "h/l/j/k rotate, m map, c center | 2-9 count, + 10 or more in one cell".to_owned(),
-        |spin| format!("h/l/j/k turn, r spin {spin}, m map, c center | 2-9 count, + 10+"),
+        || {
+            "arrows or h/l/j/k turn, m map, c center | 2-9 count, + 10 or more in one cell"
+                .to_owned()
+        },
+        |spin| format!("arrows turn, r spin {spin}, m map, c center | 2-9 count, + 10+"),
     );
     vec![
         Line::from(format!(
@@ -210,10 +213,17 @@ impl Widget for GlobeWidget<'_> {
                         radius: 1.0,
                         color: palette.rim,
                     });
-                    draw_globe_coast(ctx, &projection, palette.coast);
+                    draw_globe_coast(ctx, &projection, palette);
                 }
                 ctx.layer();
                 draw_stations(ctx, model, &view, palette);
+                if model.flourish_wordmark() {
+                    ctx.print(
+                        0.0,
+                        0.0,
+                        Line::from(Span::styled("Sigy", Style::default().fg(palette.selected))),
+                    );
+                }
             })
             .render(area, buffer);
     }
@@ -250,7 +260,21 @@ fn night_points(
     points
 }
 
-fn draw_globe_coast(ctx: &mut Context<'_>, projection: &Orthographic, color: Color) {
+/// Limb segments sit at or outside 0.85 radii. `0.7225` is that radius squared.
+const LIMB_RADIUS_SQUARED: f64 = 0.7225;
+
+fn coast_color(palette: MapPalette, x1: f64, y1: f64, x2: f64, y2: f64) -> Color {
+    let outside = |x: f64, y: f64| x * x + y * y >= LIMB_RADIUS_SQUARED;
+    let mid_x = f64::midpoint(x1, x2);
+    let mid_y = f64::midpoint(y1, y2);
+    if outside(x1, y1) || outside(x2, y2) || outside(mid_x, mid_y) {
+        palette.muted
+    } else {
+        palette.coast
+    }
+}
+
+fn draw_globe_coast(ctx: &mut Context<'_>, projection: &Orthographic, palette: MapPalette) {
     for line in coastline() {
         for pair in line.windows(2) {
             let Ok(Some((start, end))) = projection.clip_arc(pair[0], pair[1]) else {
@@ -262,7 +286,7 @@ fn draw_globe_coast(ctx: &mut Context<'_>, projection: &Orthographic, color: Col
                     y1: a.y,
                     x2: b.x,
                     y2: b.y,
-                    color,
+                    color: coast_color(palette, a.x, a.y, b.x, b.y),
                 });
             }
         }
@@ -356,11 +380,19 @@ struct StationCluster {
     point: sigy_service::domain::geo::MapPoint,
     count: usize,
     selected: bool,
+    playing: bool,
 }
 
 impl StationCluster {
+    #[cfg(test)]
     fn symbol(self) -> String {
-        if self.selected {
+        self.shown(false)
+    }
+
+    fn shown(self, lit: bool) -> String {
+        if self.playing && lit {
+            "\u{25cf}".into()
+        } else if self.selected {
             "@".into()
         } else if self.count == 1 {
             "*".into()
@@ -372,10 +404,20 @@ impl StationCluster {
     }
 }
 
+#[cfg(test)]
 fn station_clusters(
     rows: &[StationRow],
     selected: Option<&str>,
     view: MapView,
+) -> Vec<StationCluster> {
+    clustered(rows, selected, view, None)
+}
+
+fn clustered(
+    rows: &[StationRow],
+    selected: Option<&str>,
+    view: MapView,
+    playing: Option<&str>,
 ) -> Vec<StationCluster> {
     let mut cells = BTreeMap::<(u16, u16), StationCluster>::new();
     for row in rows {
@@ -386,15 +428,20 @@ fn station_clusters(
             continue;
         };
         let chosen = selected == Some(row.id.as_str());
+        let plays = playing == Some(row.id.as_str());
         let cluster = cells.entry(cell).or_insert(StationCluster {
             point,
             count: 0,
             selected: false,
+            playing: false,
         });
         cluster.count += 1;
         if chosen {
             cluster.selected = true;
             cluster.point = point;
+        }
+        if plays {
+            cluster.playing = true;
         }
     }
     cells.into_values().collect()
@@ -402,8 +449,12 @@ fn station_clusters(
 
 fn draw_stations(ctx: &mut Context<'_>, model: &Explorer, view: &MapView, palette: MapPalette) {
     let selected = model.selected().map(|row| row.id.as_str());
-    for cluster in station_clusters(model.rows(), selected, *view) {
-        let color = if cluster.selected {
+    let playing = model.playing_station();
+    let lit = model.marker_pulse_lit();
+    for cluster in clustered(model.rows(), selected, *view, playing) {
+        let color = if cluster.playing && lit {
+            palette.live
+        } else if cluster.selected {
             palette.selected
         } else {
             palette.station
@@ -411,10 +462,7 @@ fn draw_stations(ctx: &mut Context<'_>, model: &Explorer, view: &MapView, palett
         ctx.print(
             cluster.point.x,
             cluster.point.y,
-            ratatui::text::Span::styled(
-                cluster.symbol(),
-                ratatui::style::Style::default().fg(color),
-            ),
+            Span::styled(cluster.shown(lit), Style::default().fg(color)),
         );
     }
 }
@@ -720,6 +768,86 @@ mod tests {
                 write_render_measurement(&model, area)?;
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn limb_segments_use_the_muted_role() {
+        let palette = crate::style::map_palette(true);
+        assert_ne!(palette.muted, palette.coast);
+        assert_eq!(coast_color(palette, 0.0, 0.0, 0.2, 0.0), palette.coast);
+        assert_eq!(coast_color(palette, 0.9, 0.0, 0.95, 0.0), palette.muted);
+        let plain = crate::style::map_palette(false);
+        assert_eq!(plain.muted, plain.coast);
+        assert_eq!(coast_color(plain, 0.9, 0.0, 0.95, 0.0), plain.coast);
+    }
+
+    #[test]
+    fn flourish_wordmark_is_drawn_on_the_globe_canvas() {
+        let now = std::time::Instant::now();
+        let mut model = Explorer::new(
+            Modes {
+                reduced_motion: false,
+                linear: false,
+                monochrome: false,
+                emphasis: crate::explorer::state::Emphasis::Standard,
+            },
+            1_790_279_058_731,
+        );
+        model.configure_motion(true, false, now);
+        model.handle(Key::Char('7'));
+        model.note_globe_canvas(40, 16);
+        assert!(model.flourish_wordmark());
+        let area = Rect::new(0, 0, 40, 16);
+        let mut buffer = Buffer::empty(area);
+        GlobeWidget::new(&model, true).render(area, &mut buffer);
+        let text = buffer
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect::<String>();
+        assert!(text.contains("Sigy"), "{text}");
+    }
+
+    #[test]
+    fn playing_station_uses_the_live_marker_while_lit() -> Result<(), Box<dyn std::error::Error>> {
+        let mut model = Explorer::new(
+            Modes {
+                reduced_motion: true,
+                linear: false,
+                monochrome: false,
+                emphasis: crate::explorer::state::Emphasis::Standard,
+            },
+            1_790_279_058_731,
+        );
+        model.note_link(Link::LocalCatalog);
+        let Effect::Search(query) = model.handle(Key::Char('v')) else {
+            return Err("filter did not submit a query".into());
+        };
+        assert!(model.apply_search(
+            query.generation,
+            vec![row("selected", 0.0, 0.0)],
+            DirectoryView {
+                cached_stations: 1,
+                maximum_stations: 10_000,
+                favorite_stations: 1,
+                refresh: None,
+            },
+            None
+        ));
+        assert_eq!(model.handle(Key::Char('7')), Effect::None);
+        assert_eq!(model.handle(Key::Char('m')), Effect::None);
+        model.show_playing_station_for_test("selected");
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buffer = Buffer::empty(area);
+        GlobeWidget::new(&model, true).render(area, &mut buffer);
+        let text = buffer
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect::<String>();
+        assert!(text.contains('\u{25cf}'), "{text}");
+        assert!(!text.contains('@'), "{text}");
         Ok(())
     }
 

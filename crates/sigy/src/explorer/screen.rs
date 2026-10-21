@@ -93,6 +93,36 @@ pub(super) fn globe_visible(model: &Explorer, area: Rect) -> bool {
         })
 }
 
+/// Canvas size for the one-session flourish. `None` waits: an overlay or another workspace
+/// is up, or the terminal is still the recovery screen. A small canvas is still `Some`.
+pub(super) fn globe_flourish_canvas(model: &Explorer, area: Rect) -> Option<(u16, u16)> {
+    if model.workspace() != Workspace::Globe
+        || model.keys_open()
+        || model.context.is_some()
+        || model.search.picker.is_some()
+        || model.search.editing_filters()
+        || area.width < 20
+        || area.height < 8
+    {
+        return None;
+    }
+    let sections = if area.height < 16 || area.width < 60 {
+        compact_sections(model, area)
+    } else {
+        full_sections(model, area)
+    };
+    sections
+        .iter()
+        .zip(section_rects(area, &sections).iter())
+        .find_map(|(section, rect)| {
+            if !section.globe {
+                return None;
+            }
+            let canvas = globe_rects(*rect)[1];
+            Some((canvas.width, canvas.height))
+        })
+}
+
 fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], model: &Explorer) {
     let rects = section_rects(area, sections);
     for (section, rect) in sections.iter().zip(rects.iter()) {
@@ -415,9 +445,9 @@ fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
         Workspace::Recordings => vec!["select row", "r reload", "q quit"],
         Workspace::Monitors => vec!["inspect row", "r reload", "Esc back", "q quit"],
         Workspace::Findings => vec!["/ edit IDs", "Enter inspect", "o metadata", "q quit"],
-        Workspace::Globe if restart => vec!["g first page", "turn", "R fetch", "q quit"],
+        Workspace::Globe if restart => vec!["g first page", "Arrows turn", "R fetch", "q quit"],
         Workspace::Globe => vec![
-            "turn",
+            "Arrows turn",
             "m map",
             "e explore",
             "R fetch",
@@ -1030,8 +1060,9 @@ fn key_lines(model: &Explorer) -> Vec<Line<'static>> {
         plain(&format!("Keys: {}", model.workspace().label())),
         plain(""),
         plain("Move"),
-        plain("  1-7 workspace    Left/Right workspace    Tab focus"),
-        plain("  Up/Down move the selection"),
+        plain("  1-7 workspace    Tab focus"),
+        plain("  Globe results: arrows turn the view"),
+        plain("  Other views: Left/Right workspace, Up/Down select"),
         plain(""),
         plain("This workspace"),
     ];
@@ -1053,7 +1084,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             "  P then y plays    S stops",
         ],
         Workspace::Globe => &[
-            "  h/l/j/k turn    m map    c center    r spin",
+            "  arrows or h/l/j/k turn    m map    c center    r spin",
             "  e explore    R then y fetch    n/p page    g first page",
         ],
         Workspace::Live | Workspace::System => &["  r reload    Tab focus"],
@@ -1864,6 +1895,8 @@ mod tests {
         assert!(text.contains("1 of 1 stations on this page have directory coordinates"));
         assert!(braille(&text) > 200, "coastline and night were not drawn");
         assert!(text.contains('@'), "the selected station is not marked");
+        assert!(text.contains("turn"), "{text}");
+        assert!(!text.contains("rotate"), "{text}");
         assert!(!colored, "monochrome drew color");
     }
 

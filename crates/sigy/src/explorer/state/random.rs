@@ -77,7 +77,7 @@ impl Explorer {
         self.focus = Focus::Results;
         self.workspace = Workspace::Globe;
         if let Some(coordinates) = self.selected().and_then(|row| row.coordinates) {
-            self.globe.center = (coordinates.longitude, coordinates.latitude);
+            self.glide_toward(coordinates.longitude, coordinates.latitude);
             self.note_message("Random cached station. Directory coordinates are approximate. e picks again; g opens the first cached page; P requests play.");
         } else {
             self.note_message("No cached stations with coordinates match these filters. g opens the first cached page; R requests a directory page.");

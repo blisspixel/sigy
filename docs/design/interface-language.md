@@ -1,6 +1,6 @@
 # Interface language
 
-Updated: 2026-10-21. Status: selected contract for the interface issues under [tracker 23](https://github.com/blisspixel/sigy/issues/23). The words stay authoritative. Color only reinforces them. This file records the rules those issues implement. Issue 25 applies the vocabulary, shared counts, compact USD and the recording timeline text. Issue 24 applies the color roles, favorite and live markers, and high contrast. Issue 26 applies one next command, the readable doctor report, journey help, and the key overlay. Issue 27 applies the explorer layout, including a hint line that ends in `? more`. Motion and exit codes still belong to the later issues. Nothing here grants network, playback, capture or spending authority.
+Updated: 2026-10-21. Status: selected contract for the interface issues under [tracker 23](https://github.com/blisspixel/sigy/issues/23). The words stay authoritative. Color only reinforces them. This file records the rules those issues implement. Issue 25 applies the vocabulary, shared counts, compact USD and the recording timeline text. Issue 24 applies the color roles, favorite and live markers, and high contrast. Issue 26 applies one next command, the readable doctor report, journey help, and the key overlay. Issue 27 applies the explorer layout, including a hint line that ends in `? more`. Issue 28 applies globe motion. Exit codes still belong to later issues. Nothing here grants network, playback, capture or spending authority.
 
 Low floor: a curious newcomer can turn the globe, pick a station and press play in the first minute. High ceiling: an analyst can trace any line to a field, a revision and an exact interval, and script all of it. Character: a calm, modern instrument with retro roots. The feel comes from real geography, real timelines and crisp alignment, with a few quiet flourishes that explain what changed.
 
@@ -89,7 +89,7 @@ The hint line is `key action` pairs, two spaces apart, most useful first, ending
 
 CLI help wraps to the real width. CLI reports use one summary line, a fixed-width state column, grouped idle checks, and `Next:` last.
 
-Issue 27 applies that layout. Below 80 columns, the recording hint says `select row` and the monitor hint says `inspect row`, so `? more` still fits at 20 columns. The workspace body still says arrows select and Enter inspects. Issue 26 applies help wrapping and the `?` overlay. The overlay lists the keys this workspace uses now. Arrow keys still change workspace. Globe keys remain `h`, `l`, `j`, `k`, `c`, `m`, and `r`.
+Issue 27 applies that layout. Below 80 columns, the recording hint says `select row` and the monitor hint says `inspect row`, so `? more` still fits at 20 columns. The workspace body still says arrows select and Enter inspects. Issue 26 applies help wrapping and the `?` overlay. The overlay lists the keys this workspace uses now. On the Globe canvas, arrows turn. Elsewhere, Left and Right change workspace. `h`, `j`, `k` and `l` remain globe aliases.
 
 ## States
 
@@ -117,7 +117,7 @@ At most 15 frames per second. Zero redraw when idle. Nothing flashes more than 3
 
 On the Globe canvas, arrows turn the globe. Left and Right change longitude. Up and Down change latitude. Tab moves focus to the station list, where Up and Down select. Digits and Tab still switch workspaces. `h`, `j`, `k` and `l` stay aliases. No help line requires them. Header and help say `turn`.
 
-Issue 28 owns this motion. Until it lands, arrows can still switch workspaces on the Globe, and a turn can still be an instant jump.
+Issue 28 applies this motion. On the Globe canvas, arrows turn. A turn eases for 400 ms when motion is allowed, and it stays instant when motion is off.
 
 ## Accessibility
 

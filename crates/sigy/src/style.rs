@@ -51,6 +51,8 @@ pub struct MapPalette {
     pub rim: Color,
     pub station: Color,
     pub selected: Color,
+    pub muted: Color,
+    pub live: Color,
 }
 
 impl Ink {
@@ -152,6 +154,8 @@ pub const fn map_palette(color: bool) -> MapPalette {
             rim: Color::DarkGray,
             station: Color::Reset,
             selected: Color::Cyan,
+            muted: role_color(Tone::Muted),
+            live: role_color(Tone::Live),
         }
     } else {
         MapPalette {
@@ -160,6 +164,8 @@ pub const fn map_palette(color: bool) -> MapPalette {
             rim: Color::Reset,
             station: Color::Reset,
             selected: Color::Reset,
+            muted: Color::Reset,
+            live: Color::Reset,
         }
     }
 }

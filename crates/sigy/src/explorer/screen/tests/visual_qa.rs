@@ -18,10 +18,17 @@ fn spin_visibility_tracks_canvas_and_modal_ownership() {
     let mut model = sample();
     let area = Rect::new(0, 0, 80, 24);
     assert!(!super::super::globe_visible(&model, area));
+    assert!(super::super::globe_flourish_canvas(&model, area).is_none());
     model.handle(Key::Char('7'));
     assert!(super::super::globe_visible(&model, area));
+    let shown = super::super::globe_flourish_canvas(&model, area);
+    assert!(
+        shown.is_some_and(|(width, height)| width >= 20 && height >= 8),
+        "{shown:?}"
+    );
     model.handle(Key::Char('?'));
     assert!(!super::super::globe_visible(&model, area));
+    assert!(super::super::globe_flourish_canvas(&model, area).is_none());
     model.handle(Key::Escape);
     assert!(super::super::globe_visible(&model, area));
     for (width, height) in [(20, 8), (59, 24), (80, 15)] {
@@ -156,7 +163,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        77
+        78
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -192,6 +199,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
         "random-picked",
         "random-empty",
         "random-monochrome",
+        "globe-turn",
     ] {
         assert!(cases.iter().any(|(name, _, _)| *name == expected));
     }
@@ -504,11 +512,11 @@ fn visual_qa_gallery() -> Result<()> {
             manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome,"high_contrast":model.modes().emphasis.high()}));
         }
     }
-    assert!(manifest.len() <= 77);
+    assert!(manifest.len() <= 78);
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
-            &serde_json::json!({"format":1,"method":"production Ratatui TestBackend","synthetic":true,"source_hashes":{"renderer":sha256(include_bytes!("../../screen.rs")),"state":sha256(include_bytes!("../../state.rs")),"monitor":sha256(include_bytes!("../../monitor.rs")),"context":sha256(include_bytes!("../../context.rs")),"context_state":sha256(include_bytes!("../../state/context.rs")),"context_renderer":sha256(include_bytes!("../context.rs")),"gallery":sha256(include_bytes!("visual_qa.rs"))},"frames":manifest}),
+            &serde_json::json!({"format":1,"method":"production Ratatui TestBackend","synthetic":true,"source_hashes":{"renderer":sha256(include_bytes!("../../screen.rs")),"state":sha256(include_bytes!("../../state.rs")),"monitor":sha256(include_bytes!("../../monitor.rs")),"context":sha256(include_bytes!("../../context.rs")),"context_state":sha256(include_bytes!("../../state/context.rs")),"context_renderer":sha256(include_bytes!("../context.rs")),"globe":sha256(include_bytes!("../../globe.rs")),"spin":sha256(include_bytes!("../../state/spin.rs")),"gallery":sha256(include_bytes!("visual_qa.rs"))},"frames":manifest}),
         )?,
     )?;
     std::fs::write(directory.join("index.html"), html)?;
@@ -626,7 +634,27 @@ fn cases() -> Result<Vec<Case>> {
     keys.handle(Key::Char('?'));
     cases.push(("keys", keys, vec![(80, 24)]));
     cases.push(("layout", gallery_sample(), vec![(60, 20), (90, 30)]));
+    append_globe_turn(&mut cases);
     Ok(cases)
+}
+
+fn append_globe_turn(cases: &mut Vec<Case>) {
+    let mut turn = Explorer::new(
+        Modes {
+            reduced_motion: false,
+            linear: false,
+            monochrome: false,
+            emphasis: crate::explorer::state::Emphasis::Standard,
+        },
+        10_000,
+    );
+    turn.apply_desk(sample_desk());
+    let now = std::time::Instant::now();
+    turn.configure_motion(true, false, now);
+    turn.handle(Key::Char('7'));
+    turn.handle(Key::Char('l'));
+    turn.advance_spin(now + std::time::Duration::from_millis(200), true);
+    cases.push(("globe-turn", turn, vec![(80, 24)]));
 }
 
 fn append_random_cases(cases: &mut Vec<Case>) -> Result<()> {

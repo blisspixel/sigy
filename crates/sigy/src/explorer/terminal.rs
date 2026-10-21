@@ -21,7 +21,10 @@ pub fn drive(
     inspect: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     model.configure_motion(
-        io::stdin().is_terminal() && io::stdout().is_terminal(),
+        session_may_animate(
+            io::stdin().is_terminal() && io::stdout().is_terminal(),
+            std::env::var_os("CI").is_some(),
+        ),
         inspect.is_some(),
         std::time::Instant::now(),
     );
@@ -38,6 +41,7 @@ fn run_loop(
     model: &mut Explorer,
     inspect: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    note_canvas(session, model)?;
     let text = session.draw(model)?;
     if let Some(path) = inspect {
         write_inspect(path, session.size()?, model, &text)?;
@@ -54,6 +58,7 @@ fn run_loop(
         fetcher.poll(model);
         player.poll(model);
         metadata.poll(runtime, directory, model);
+        note_canvas(session, model)?;
         let visible = if model.spin_requested() {
             let (width, height) = session.size()?;
             super::screen::globe_visible(model, ratatui::layout::Rect::new(0, 0, width, height))
@@ -153,15 +158,14 @@ impl Session {
     fn open() -> io::Result<Self> {
         let mut output = PlatformTerminal::new()?;
         output.set_panic_hook(|handle| {
-            let leave = csi_mode(false, DecPrivateModeCode::ClearAndEnableAlternateScreen);
-            let unpaste = csi_mode(false, DecPrivateModeCode::BracketedPaste);
-            let _ = write!(handle, "{leave}{unpaste}");
+            let _ = write!(handle, "{}", restored_modes());
             let _ = handle.flush();
         });
         output.enter_raw_mode()?;
+        let unsync = csi_mode(false, DecPrivateModeCode::SynchronizedOutput);
         let enter = csi_mode(true, DecPrivateModeCode::ClearAndEnableAlternateScreen);
         let paste = csi_mode(true, DecPrivateModeCode::BracketedPaste);
-        write!(output, "{enter}{paste}")?;
+        write!(output, "{unsync}{enter}{paste}")?;
         output.flush()?;
         let reader = output.event_reader();
         let backend = TerminaBackend::new(output);
@@ -177,11 +181,21 @@ impl Session {
         let Some(terminal) = self.terminal.as_mut() else {
             return Err(io::Error::other("terminal already closed"));
         };
+        let begin = csi_mode(true, DecPrivateModeCode::SynchronizedOutput);
+        let end = csi_mode(false, DecPrivateModeCode::SynchronizedOutput);
+        write!(terminal.backend_mut(), "{begin}")?;
         let mut text = String::new();
-        terminal.draw(|frame| {
-            render(frame, model);
-            text = plain(frame);
-        })?;
+        let draw_error = terminal
+            .draw(|frame| {
+                render(frame, model);
+                text = plain(frame);
+            })
+            .err();
+        let end_error = write!(terminal.backend_mut(), "{end}").err();
+        let flush_error = terminal.backend_mut().flush().err();
+        if let Some(error) = draw_error.or(end_error).or(flush_error) {
+            return Err(error);
+        }
         Ok(text)
     }
 
@@ -207,9 +221,7 @@ impl Session {
         self.restored = true;
         if let Some(mut terminal) = self.terminal.take() {
             let backend = terminal.backend_mut();
-            let leave = csi_mode(false, DecPrivateModeCode::ClearAndEnableAlternateScreen);
-            let unpaste = csi_mode(false, DecPrivateModeCode::BracketedPaste);
-            write!(backend, "{leave}{unpaste}")?;
+            write!(backend, "{}", restored_modes())?;
             backend.flush()?;
         }
         Ok(())
@@ -274,6 +286,27 @@ fn map_key(code: KeyCode, modifiers: Modifiers) -> Option<Key> {
         KeyCode::Right => Key::Right,
         _ => return None,
     })
+}
+
+fn session_may_animate(interactive: bool, ci: bool) -> bool {
+    interactive && !ci
+}
+
+fn restored_modes() -> String {
+    let leave = csi_mode(false, DecPrivateModeCode::ClearAndEnableAlternateScreen);
+    let unpaste = csi_mode(false, DecPrivateModeCode::BracketedPaste);
+    let unsync = csi_mode(false, DecPrivateModeCode::SynchronizedOutput);
+    format!("{leave}{unpaste}{unsync}")
+}
+
+fn note_canvas(session: &mut Session, model: &mut Explorer) -> io::Result<()> {
+    let (width, height) = session.size()?;
+    if let Some((canvas_width, canvas_height)) =
+        super::screen::globe_flourish_canvas(model, ratatui::layout::Rect::new(0, 0, width, height))
+    {
+        model.note_globe_canvas(canvas_width, canvas_height);
+    }
+    Ok(())
 }
 
 fn csi_mode(enable: bool, code: DecPrivateModeCode) -> Csi {
@@ -341,5 +374,25 @@ mod tests {
         assert_eq!(*trace.borrow(), ["draw", "draw"]);
         assert!(model.status().contains("Disconnected"));
         Ok(())
+    }
+
+    #[test]
+    fn synchronized_output_is_private_mode_2026() {
+        let begin = csi_mode(true, DecPrivateModeCode::SynchronizedOutput).to_string();
+        let end = csi_mode(false, DecPrivateModeCode::SynchronizedOutput).to_string();
+        assert_eq!(begin, "\u{1b}[?2026h");
+        assert_eq!(end, "\u{1b}[?2026l");
+        let restored = restored_modes();
+        assert!(restored.contains("\u{1b}[?1049l"), "{restored}");
+        assert!(restored.contains("\u{1b}[?2004l"), "{restored}");
+        assert!(restored.contains("\u{1b}[?2026l"), "{restored}");
+    }
+
+    #[test]
+    fn continuous_integration_does_not_animate() {
+        assert!(session_may_animate(true, false));
+        assert!(!session_may_animate(true, true));
+        assert!(!session_may_animate(false, false));
+        assert!(!session_may_animate(false, true));
     }
 }
