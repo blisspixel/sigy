@@ -4,6 +4,12 @@ Updated: 2026-10-20. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-20 CI decoder download attempts
+
+Hosted verify of `0a6347a` is run https://github.com/blisspixel/sigy/actions/runs/39525993095. The Ubuntu job passed cargo check, warnings-denied Clippy, the doctor and settlement tests, the delegated Linux native test, and the apt FFmpeg 6.1.1 install. `scripts/ci-ffmpeg.sh` then failed on its first transfer with `curl: (6) Could not resolve host: ffmpeg.org`. The checksum and signature did not run. macOS build and lint succeeded. Windows `cargo verify` was still running when this note was written. The same script had passed on the Ubuntu job for `afd9fb7`.
+
+Each of the three pinned downloads now tries three times. A failed attempt deletes its partial file and waits five seconds, then ten. Curl's default retry does not cover a DNS failure. The SHA-256 `8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e` and the release-key signature still run once, after a complete download. This does not change the product decoder, schema, or IPC. Coverage was not re-run. External spend remains USD 0.
+
 ## 2026-10-20 click fixture socket bound
 
 The directory click fixture `explicit_click_is_one_request_and_discards_the_stream_url` now uses an eight-second socket read and write bound. That is the same finite document deadline the service uses for an acknowledgement. The previous two-second bound expired once while the host was saturated, before the client finished a request the service was still allowed to send. The fixture still requires one `/json/url/` request, discards the returned stream URL, and refuses a second click. An operating-system socket timeout does not follow a test clock. The focused service test passed in 2.55 seconds. Full `cargo verify` was not re-run for this test-only bound. Coverage was not re-run. Schema v51 and local IPC v53 are unchanged. External spend remains USD 0.
