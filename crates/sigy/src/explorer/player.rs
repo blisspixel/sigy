@@ -13,6 +13,24 @@ mod observation;
 
 use observation::{Lane, Update};
 
+pub(super) fn drain_pipe(
+    mut pipe: impl Read + Send + 'static,
+    diagnostic: Arc<Mutex<Vec<u8>>>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut buffer = [0_u8; 1024];
+        while let Ok(count) = pipe.read(&mut buffer) {
+            if count == 0 {
+                break;
+            }
+            if let Ok(mut output) = diagnostic.lock() {
+                let count = count.min(8192_usize.saturating_sub(output.len()));
+                output.extend_from_slice(&buffer[..count]);
+            }
+        }
+    })
+}
+
 #[derive(Default)]
 pub(super) struct Player {
     child: Option<Child>,
@@ -25,6 +43,8 @@ pub(super) struct Player {
     current: Option<String>,
     stopped: Option<String>,
     retry_inspection: bool,
+    /// An intentional stop or replacement. A non-zero exit is not a surprise failure.
+    released: bool,
 }
 
 impl Player {
@@ -61,23 +81,24 @@ impl Player {
             .spawn()?;
         self.input = child.stdin.take();
         self.diagnostic = Arc::default();
-        if let Some(mut stderr) = child.stderr.take() {
+        if let Some(stderr) = child.stderr.take() {
             let diagnostic = Arc::clone(&self.diagnostic);
-            self.diagnostic_task = Some(std::thread::spawn(move || {
-                let mut buffer = [0_u8; 1024];
-                while let Ok(count) = stderr.read(&mut buffer) {
-                    if count == 0 {
-                        break;
-                    }
-                    if let Ok(mut output) = diagnostic.lock() {
-                        let count = count.min(8192_usize.saturating_sub(output.len()));
-                        output.extend_from_slice(&buffer[..count]);
-                    }
-                }
-            }));
+            self.diagnostic_task = Some(drain_pipe(stderr, diagnostic));
         }
         self.child = Some(child);
+        self.released = false;
         Ok(())
+    }
+
+    /// The child has not exited, or its diagnostic drain is still running.
+    #[must_use]
+    pub(super) fn occupied(&mut self) -> bool {
+        self.reap_diagnostic();
+        let running = self
+            .child
+            .as_mut()
+            .is_some_and(|child| !matches!(child.try_wait(), Ok(Some(_))));
+        running || self.diagnostic_task.is_some()
     }
 
     pub(super) fn request_status(&mut self, runtime: &tokio::runtime::Runtime, directory: &Path) {
@@ -94,13 +115,14 @@ impl Player {
                 Ok(Some(status)) => {
                     self.child = None;
                     self.input = None;
-                    if !status.success() {
+                    if !status.success() && !self.released {
                         let detail = self.diagnostic.lock().map_or_else(
                             |_| "Listen client failed.".to_owned(),
                             |bytes| String::from_utf8_lossy(&bytes).into_owned(),
                         );
                         model.note_message(&detail);
                     }
+                    self.released = false;
                 }
                 Ok(None) => (),
                 Err(error) => model.note_message(&error.to_string()),
@@ -164,6 +186,7 @@ impl Player {
         directory: &Path,
         model: &mut Explorer,
     ) {
+        self.released = true;
         self.input = None;
         let Some(id) = self.current.clone() else {
             model.note_message("Listen client cancellation requested. Service identity is not yet observed; completion is unresolved. Recordings keep running.");

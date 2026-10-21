@@ -32,6 +32,12 @@ pub enum ListenCommand {
         /// Exact protected-reader request ID. Reuse inspects its receipt without replaying audio.
         #[arg(long, value_parser = retained::reader_id)]
         request: Option<String>,
+        /// Cancel playback if the launching process exits.
+        #[arg(long)]
+        parent_pid: Option<u32>,
+        /// Cancel playback when stdin closes. Absent, this command keeps its blocking path.
+        #[arg(long)]
+        cancel_on_stdin: bool,
     },
     /// Explicitly replay one exact stored finding range from current retained media.
     Finding {
@@ -45,6 +51,12 @@ pub enum ListenCommand {
         /// New protected-reader request ID. Exact reuse inspects history without playing audio.
         #[arg(long, value_parser = retained::reader_id)]
         request: String,
+        /// Cancel playback if the launching process exits.
+        #[arg(long)]
+        parent_pid: Option<u32>,
+        /// Cancel playback when stdin closes. Absent, this command keeps its blocking path.
+        #[arg(long)]
+        cancel_on_stdin: bool,
     },
     /// Listen to one direct audio revision. An episode enclosure has no live edge.
     Source {
@@ -132,14 +144,22 @@ pub async fn execute(
             seek_us,
             end_us,
             request,
+            parent_pid,
+            cancel_on_stdin,
         } => {
-            play_file(
+            play_retained(
                 directory,
-                id,
+                retained::Scope::File {
+                    recording: id,
+                    seek_us: *seek_us,
+                    end_us: *end_us,
+                },
                 destination,
-                *seek_us,
-                *end_us,
                 request.as_deref(),
+                CancelFence {
+                    on_stdin: *cancel_on_stdin,
+                    parent: *parent_pid,
+                },
                 json,
             )
             .await
@@ -149,15 +169,21 @@ pub async fn execute(
             finding,
             destination,
             request,
+            parent_pid,
+            cancel_on_stdin,
         } => {
-            let result = retained::play_scoped(
+            play_retained(
                 directory,
                 retained::Scope::Finding { monitor, finding },
-                PlaybackDestination::parse(destination)?,
+                destination,
                 Some(request),
+                CancelFence {
+                    on_stdin: *cancel_on_stdin,
+                    parent: *parent_pid,
+                },
+                json,
             )
-            .await?;
-            retained::write_play(json, &result, None, true)
+            .await
         }
         ListenCommand::Source {
             id,
@@ -228,27 +254,34 @@ async fn playback_control(
     };
     playback(directory, operation, json).await
 }
-async fn play_file(
+struct CancelFence {
+    on_stdin: bool,
+    parent: Option<u32>,
+}
+
+async fn retained_cancel(
+    fence: CancelFence,
+) -> Result<impl Future<Output = ()> + Send, Box<dyn std::error::Error>> {
+    if fence
+        .parent
+        .is_some_and(|pid| !crate::panel::is_process_alive(pid))
+    {
+        return Err(crate::panel::admit::PARENT_GONE.into());
+    }
+    crate::panel::setup_cancel(fence.on_stdin, fence.parent).await
+}
+
+async fn play_retained(
     directory: &Path,
-    id: &str,
+    scope: retained::Scope<'_>,
     destination: &str,
-    seek_us: u64,
-    end_us: Option<u64>,
     request: Option<&str>,
+    fence: CancelFence,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let destination = PlaybackDestination::parse(destination)?;
-    let result = retained::play_scoped(
-        directory,
-        retained::Scope::File {
-            recording: id,
-            seek_us,
-            end_us,
-        },
-        destination,
-        request,
-    )
-    .await?;
+    let mut cancel = Box::pin(retained_cancel(fence).await?);
+    let result = retained::play_scoped(directory, scope, destination, request, &mut cancel).await?;
     retained::write_play(json, &result, None, true)
 }
 

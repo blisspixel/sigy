@@ -55,12 +55,16 @@ pub struct ExcerptNullReport {
 /// Decode and count an explicit excerpt with a fixed silent 48 kHz stereo profile.
 /// # Errors
 /// Refuses unavailable containment, invalid ranges, incomplete samples or unproven closure.
-pub async fn decode_retained_excerpt_null(
+pub async fn decode_retained_excerpt_null<C>(
     executable: &str,
     directory: &Path,
     nonce: &str,
     spec: &RetainedReadSpec,
-) -> std::result::Result<(RetainedPlaybackReport, ExcerptNullReport), Box<ExcerptNullError>> {
+    cancel: &mut C,
+) -> std::result::Result<(RetainedPlaybackReport, ExcerptNullReport), Box<ExcerptNullError>>
+where
+    C: std::future::Future<Output = ()> + Unpin,
+{
     if spec.excerpt.is_none() || spec.file_duration_us > 1_800_000_000 {
         return Err(before_start(&Error::Acquisition(
             "explicit PCM excerpt required",
@@ -130,6 +134,7 @@ pub async fn decode_retained_excerpt_null(
             interrupted.map_err(Error::from)
                 .and_then(|()| Err(Error::Acquisition("silent excerpt interrupted")))
         }
+        () = &mut *cancel => Err(Error::Acquisition("silent excerpt interrupted")),
     };
     if result.is_err() {
         let _ = group.kill();

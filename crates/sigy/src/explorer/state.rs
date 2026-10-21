@@ -325,6 +325,22 @@ pub struct SearchQuery {
     pub after: Option<String>,
 }
 
+/// A confirmed play that is waiting for `y` or `n`. Selection itself is not this value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PendingPlay {
+    Station(String),
+    Recording(String),
+    Finding { monitor: String, finding: String },
+}
+
+/// One explicit retained listen. It is independent of the live session receipt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RetainedView {
+    request: String,
+    phase: String,
+    receipt_state: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     None,
@@ -332,7 +348,17 @@ pub enum Effect {
     Play {
         station: String,
     },
+    PlayRecording {
+        id: String,
+        request: String,
+    },
+    PlayFinding {
+        monitor: String,
+        finding: String,
+        request: String,
+    },
     StopListen,
+    StopRetained,
     LinkedContext {
         generation: u64,
         id: String,
@@ -383,7 +409,7 @@ pub struct Explorer {
     fetch_confirmation: Option<super::search::Scope>,
     keys: KeyList,
     explicit_directory: Option<String>,
-    play_confirmation: Option<String>,
+    play_confirmation: Option<PendingPlay>,
     pub(super) context: Option<super::context::StationContext>,
     context_generation: u64,
     focus: Focus,
@@ -411,6 +437,8 @@ pub struct Explorer {
     captures_active: u64,
     quota: Option<QuotaView>,
     playback: Option<PlaybackView>,
+    /// Explicit retained listen. Browsing does not replace it.
+    retained: Option<RetainedView>,
     /// Station whose play was confirmed. Cleared when that listen is not running.
     live_station: Option<String>,
     schema_version: u32,
@@ -491,6 +519,7 @@ impl Explorer {
             captures_active: 0,
             quota: None,
             playback: None,
+            retained: None,
             live_station: None,
             schema_version: 0,
             sqlite_version: String::new(),
@@ -1050,58 +1079,14 @@ impl Explorer {
         if self.fetch_confirmation.is_some() {
             return self.confirm_fetch(&key);
         }
-        if let Some(station) = self.play_confirmation.clone() {
-            return match key {
-                Key::Char('y' | 'Y') => {
-                    self.play_confirmation = None;
-                    self.live_station = Some(station.clone());
-                    self.note_message(
-                        "Starting the explicitly selected station. Browsing stays independent.",
-                    );
-                    Effect::Play { station }
-                }
-                Key::Char('n' | 'N') | Key::Escape => {
-                    self.play_confirmation = None;
-                    self.note_message("Playback request discarded. No source was contacted.");
-                    Effect::None
-                }
-                _ => Effect::None,
-            };
+        if self.play_confirmation.is_some() {
+            return self.confirm_play(&key);
         }
         if let Some(effect) = self.keys_key(&key) {
             return effect;
         }
-        if self.focus != Focus::Search {
-            if key == Key::Char('S')
-                && matches!(
-                    self.workspace,
-                    Workspace::Explore | Workspace::Globe | Workspace::Live
-                )
-            {
-                self.live_station = None;
-                return Effect::StopListen;
-            }
-            if key == Key::Char('P')
-                && matches!(
-                    self.workspace,
-                    Workspace::Explore | Workspace::Globe | Workspace::Live
-                )
-            {
-                let row = self
-                    .context
-                    .as_ref()
-                    .map(|context| &context.row)
-                    .or_else(|| self.selected());
-                if let Some(row) = row {
-                    let station = row.id.clone();
-                    let name = sanitize(&row.name, 32);
-                    self.play_confirmation = Some(station);
-                    self.note_message(&format!("Play {name}? y confirms; n/Esc cancels. Contacts the station; may register its first revision."));
-                } else {
-                    self.note_message("No selected station to play.");
-                }
-                return Effect::None;
-            }
+        if let Some(effect) = self.station_play_key(&key) {
+            return effect;
         }
         if self.context.is_some() {
             return self.context_key(&key);
@@ -1112,6 +1097,9 @@ impl Explorer {
                 if self.findings.query() != previous_query {
                     self.invalidate_reads();
                 }
+                return effect;
+            }
+            if let Some(effect) = self.finding_play_key(&key) {
                 return effect;
             }
         }
@@ -1129,10 +1117,193 @@ impl Explorer {
         {
             return effect;
         }
-        if self.workspace == Workspace::Recordings && self.recording_key(&key) {
-            return Effect::None;
+        if self.workspace == Workspace::Recordings {
+            if let Some(effect) = self.recording_play_key(&key) {
+                return effect;
+            }
+            if self.recording_key(&key) {
+                return Effect::None;
+            }
         }
         self.handle_browser(&key)
+    }
+
+    fn confirm_play(&mut self, key: &Key) -> Effect {
+        match key {
+            Key::Char('y' | 'Y') => self.accept_play(),
+            Key::Char('n' | 'N') | Key::Escape => {
+                self.play_confirmation = None;
+                self.note_message("Playback request discarded. No source was contacted.");
+                Effect::None
+            }
+            _ => Effect::None,
+        }
+    }
+
+    fn accept_play(&mut self) -> Effect {
+        let Some(pending) = self.play_confirmation.take() else {
+            return Effect::None;
+        };
+        match pending {
+            PendingPlay::Station(station) => {
+                self.live_station = Some(station.clone());
+                self.note_message(
+                    "Starting the explicitly selected station. Browsing stays independent.",
+                );
+                Effect::Play { station }
+            }
+            PendingPlay::Recording(id) => {
+                let Some(request) = self.allocate_retained() else {
+                    return Effect::None;
+                };
+                self.note_message(&format!(
+                    "Starting retained listen {request}. Browsing stays independent."
+                ));
+                Effect::PlayRecording { id, request }
+            }
+            PendingPlay::Finding { monitor, finding } => {
+                let Some(request) = self.allocate_retained() else {
+                    return Effect::None;
+                };
+                self.note_message(&format!(
+                    "Starting retained listen {request}. Browsing stays independent."
+                ));
+                Effect::PlayFinding {
+                    monitor,
+                    finding,
+                    request,
+                }
+            }
+        }
+    }
+
+    fn allocate_retained(&mut self) -> Option<String> {
+        if let Ok(request) = sigy_service::recordings::new_retained_request_id() {
+            Some(request)
+        } else {
+            self.note_message(
+                "Could not allocate a retained request id. No playback was requested.",
+            );
+            None
+        }
+    }
+
+    fn station_play_key(&mut self, key: &Key) -> Option<Effect> {
+        if self.focus == Focus::Search
+            || !matches!(
+                self.workspace,
+                Workspace::Explore | Workspace::Globe | Workspace::Live
+            )
+        {
+            return None;
+        }
+        match key {
+            Key::Char('S') => {
+                self.live_station = None;
+                Some(Effect::StopListen)
+            }
+            Key::Char('P') => {
+                let row = self
+                    .context
+                    .as_ref()
+                    .map(|context| &context.row)
+                    .or_else(|| self.selected());
+                if let Some(row) = row {
+                    let station = row.id.clone();
+                    let name = sanitize(&row.name, 32);
+                    self.play_confirmation = Some(PendingPlay::Station(station));
+                    self.note_message(&format!("Play {name}? y confirms; n/Esc cancels. Contacts the station; may register its first revision."));
+                } else {
+                    self.note_message("No selected station to play.");
+                }
+                Some(Effect::None)
+            }
+            _ => None,
+        }
+    }
+
+    fn finding_play_key(&mut self, key: &Key) -> Option<Effect> {
+        match key {
+            Key::Char('P') => Some(self.confirm_finding()),
+            Key::Char('S') => Some(Effect::StopRetained),
+            _ => None,
+        }
+    }
+
+    fn recording_play_key(&mut self, key: &Key) -> Option<Effect> {
+        match key {
+            Key::Char('P') => Some(self.confirm_recording()),
+            Key::Char('S') => Some(Effect::StopRetained),
+            _ => None,
+        }
+    }
+
+    fn confirm_recording(&mut self) -> Effect {
+        let Some(recording) = self.selected_recording() else {
+            self.note_message("No selected recording to play.");
+            return Effect::None;
+        };
+        if recording.storage_state != "retained" || recording.active() {
+            self.note_message("Only a retained recording that is not capturing can play. Selection does not start audio.");
+            return Effect::None;
+        }
+        let id = recording.id.clone();
+        self.play_confirmation = Some(PendingPlay::Recording(id.clone()));
+        self.note_message(&format!(
+            "Play retained recording {id}? y confirms; n/Esc cancels. Capture keeps running."
+        ));
+        Effect::None
+    }
+
+    fn confirm_finding(&mut self) -> Effect {
+        let Some((monitor, finding)) = self.findings.cited() else {
+            self.note_message("This finding has no cited interval. Playback was not requested.");
+            return Effect::None;
+        };
+        self.play_confirmation = Some(PendingPlay::Finding { monitor, finding });
+        self.note_message(
+            "Play this cited finding? y confirms; n/Esc cancels. Enter still only inspects.",
+        );
+        Effect::None
+    }
+
+    pub(super) fn begin_retained(&mut self, request: &str) {
+        let next = RetainedView {
+            request: request.to_owned(),
+            phase: "pending".into(),
+            receipt_state: None,
+        };
+        if self.retained.as_ref() != Some(&next) {
+            self.retained = Some(next);
+            self.draw = Draw::Needed;
+        }
+    }
+
+    pub(super) fn set_retained_phase(
+        &mut self,
+        request: &str,
+        phase: &str,
+        receipt_state: Option<&str>,
+    ) {
+        let matches = self.retained.as_ref().is_some_and(|view| {
+            view.request == request
+                && (view.phase != phase || view.receipt_state.as_deref() != receipt_state)
+        });
+        if !matches {
+            return;
+        }
+        if let Some(view) = &mut self.retained {
+            phase.clone_into(&mut view.phase);
+            view.receipt_state = receipt_state.map(str::to_owned);
+            self.draw = Draw::Needed;
+        }
+    }
+
+    #[must_use]
+    pub(super) fn retained_label(&self) -> Option<(&str, &str)> {
+        self.retained
+            .as_ref()
+            .map(|view| (view.phase.as_str(), view.request.as_str()))
     }
 
     fn confirm_fetch(&mut self, key: &Key) -> Effect {
@@ -1879,6 +2050,151 @@ mod tests {
         }
         assert_eq!(model.handle(Key::Char('q')), Effect::Detach);
         assert_eq!(model.captures_active(), 1);
+    }
+
+    fn kept_recording(id: &str, state: &str, storage: &str) -> RecordingLine {
+        RecordingLine {
+            id: id.into(),
+            state: state.into(),
+            storage_state: storage.into(),
+            format: None,
+            timeline: super::super::timeline::Timeline::default(),
+        }
+    }
+
+    fn finding_page(start: Option<u64>, end: Option<u64>) -> sigy_service::monitor::FindingPage {
+        sigy_service::monitor::FindingPage {
+            monitor_id: "world-news".into(),
+            id: "one".into(),
+            transcript_id: "original".into(),
+            transcript_revision: 1,
+            translation_revision: 1,
+            cue_ordinal: 0,
+            original: sigy_service::monitor::FindingOriginal::Retained,
+            recording_id: "recording-one".into(),
+            start_us: start,
+            end_us: end,
+            original_script: "hello".into(),
+            english: None,
+            untranslated_reason: Some("not requested".into()),
+            stale_transcript: None,
+            stale_translation: None,
+        }
+    }
+
+    #[test]
+    fn retained_recording_play_confirms_one_request_and_leaves_navigation() {
+        let mut model = loaded();
+        model
+            .recordings
+            .push(kept_recording("rec-kept", "completed", "retained"));
+        assert_eq!(model.handle(Key::Char('3')), Effect::None);
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert!(model.status().contains("not capturing"));
+        assert_eq!(model.handle(Key::Char('y')), Effect::None);
+        assert_eq!(model.handle(Key::Down), Effect::None);
+        assert_eq!(
+            model.selected_recording().map(|record| record.id.as_str()),
+            Some("rec-kept")
+        );
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert!(model.status().contains("y confirms"));
+        for key in [
+            Key::Down,
+            Key::Char('1'),
+            Key::Enter,
+            Key::Char('o'),
+            Key::Char('r'),
+            Key::Left,
+            Key::Right,
+        ] {
+            assert_eq!(model.handle(key), Effect::None);
+        }
+        assert_eq!(model.workspace(), Workspace::Recordings);
+        assert_eq!(
+            model.selected_recording().map(|record| record.id.as_str()),
+            Some("rec-kept")
+        );
+        assert_eq!(model.handle(Key::Char('n')), Effect::None);
+        assert!(model.status().contains("discarded"));
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        let effect = model.handle(Key::Char('y'));
+        let Effect::PlayRecording { id, request } = effect else {
+            panic!("expected retained recording play, got {effect:?}");
+        };
+        assert_eq!(id, "rec-kept");
+        assert!(request.starts_with("reader-"));
+        assert_eq!(request.len(), 39);
+        assert_eq!(model.handle(Key::Char('S')), Effect::StopRetained);
+        assert_eq!(model.handle(Key::Enter), Effect::None);
+        assert_eq!(model.handle(Key::Up), Effect::None);
+    }
+
+    #[test]
+    fn cited_finding_play_confirms_and_a_missing_interval_does_not() {
+        let mut model = loaded();
+        assert!(
+            model
+                .findings
+                .load("world-news", "one", &finding_page(Some(100), Some(900)))
+        );
+        assert_eq!(model.handle(Key::Char('5')), Effect::None);
+        assert!(!matches!(
+            model.handle(Key::Enter),
+            Effect::PlayFinding { .. }
+        ));
+        assert!(matches!(
+            model.handle(Key::Char('o')),
+            Effect::FindingOriginal { .. }
+        ));
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert!(model.status().contains("Enter still only inspects"));
+        let effect = model.handle(Key::Char('y'));
+        let Effect::PlayFinding {
+            monitor,
+            finding,
+            request,
+        } = effect
+        else {
+            panic!("expected cited finding play, got {effect:?}");
+        };
+        assert_eq!(monitor, "world-news");
+        assert_eq!(finding, "one");
+        assert!(request.starts_with("reader-"));
+        assert_eq!(request.len(), 39);
+        assert_eq!(model.handle(Key::Char('S')), Effect::StopRetained);
+
+        let mut missing = loaded();
+        assert!(
+            missing
+                .findings
+                .load("world-news", "one", &finding_page(None, Some(900)))
+        );
+        assert_eq!(missing.handle(Key::Char('5')), Effect::None);
+        assert_eq!(missing.handle(Key::Char('/')), Effect::None);
+        assert_eq!(missing.handle(Key::Char('P')), Effect::None);
+        assert_eq!(missing.findings.query(), "P");
+        missing.handle(Key::Escape);
+        assert_eq!(missing.handle(Key::Char('P')), Effect::None);
+        assert!(missing.status().contains("no cited interval"));
+        assert_eq!(missing.handle(Key::Char('y')), Effect::None);
+    }
+
+    #[test]
+    fn desk_reload_keeps_the_explicit_retained_request() {
+        let mut model = loaded();
+        model.begin_retained("reader-kept");
+        model.apply_desk(desk(
+            vec![row("station-a", "Alpha")],
+            vec![kept_recording("rec-kept", "completed", "retained")],
+        ));
+        assert_eq!(model.retained_label(), Some(("pending", "reader-kept")));
+        model.set_retained_phase("reader-other", "closed", None);
+        assert_eq!(model.retained_label(), Some(("pending", "reader-kept")));
+        model.set_retained_phase("reader-kept", "decoding", Some("running"));
+        assert_eq!(model.retained_label(), Some(("decoding", "reader-kept")));
+        model.set_retained_phase("reader-kept", "decoding", Some("running"));
+        assert_eq!(model.retained_label(), Some(("decoding", "reader-kept")));
     }
 
     #[test]

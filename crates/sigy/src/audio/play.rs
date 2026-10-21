@@ -60,12 +60,16 @@ impl<D> fmt::Display for OutputError<D> {
 
 impl<D: fmt::Debug> std::error::Error for OutputError<D> {}
 
-pub(crate) async fn retained(
+pub(crate) async fn retained<C>(
     executable: &str,
     directory: &Path,
     nonce: &str,
     spec: &RetainedReadSpec,
-) -> Result<Playback, OutputError> {
+    cancel: &mut C,
+) -> Result<Playback, OutputError>
+where
+    C: std::future::Future<Output = ()> + Unpin,
+{
     if spec.file_duration_us == 0
         || spec.file_duration_us > 1_800_000_000
         || spec.file_seek_us >= spec.file_duration_us
@@ -77,9 +81,21 @@ pub(crate) async fn retained(
     let group = NativeAudioGroup::new().map_err(|error| before_start(&error))?;
     let deadline =
         tokio::time::Instant::now() + Duration::from_secs(spec.file_duration_us / 1_000_000 + 30);
-    let input = recordings::audio::open_protected_pcm(directory, nonce)
-        .await
-        .map_err(|error| before_start(&error))?;
+    let input = tokio::select! {
+        biased;
+        () = &mut *cancel => {
+            return finish(
+                &group,
+                Err("playback interrupted".into()),
+                None,
+                None,
+            )
+            .await;
+        }
+        input = recordings::audio::open_protected_pcm(directory, nonce) => {
+            input.map_err(|error| before_start(&error))?
+        }
+    };
     let mut completion = None;
     let mut decoder_failure = None;
     let result = tokio::select! {
@@ -89,6 +105,7 @@ pub(crate) async fn retained(
             interrupted.map_err(|error| -> Failure { error.into() })
                 .and_then(|()| Err("playback interrupted".into()))
         }
+        () = &mut *cancel => Err("playback interrupted".into()),
     };
     finish(&group, result, completion, decoder_failure).await
 }

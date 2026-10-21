@@ -1,5 +1,6 @@
 //! List explorer. The client uses the existing catalog owner and leaves on quit.
 
+mod audio;
 mod client;
 pub(crate) mod context;
 mod country;
@@ -9,6 +10,7 @@ mod globe;
 mod metadata;
 mod monitor;
 mod player;
+mod retained;
 mod screen;
 mod search;
 mod state;

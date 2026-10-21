@@ -99,14 +99,18 @@ async fn transport_stream_is_retained_only_without_expanding_direct_formats() ->
         direct,
         crate::Error::Acquisition("unsupported playback format")
     ));
+    let mut stop = std::future::pending();
     let retained = super::play_range_reader(
         executable,
         tokio::io::empty(),
         "mpegts",
         false,
-        0,
-        1_000_000,
-        1,
+        super::PlaybackRange {
+            seek_us: 0,
+            end_us: 1_000_000,
+            maximum_bytes: 1,
+        },
+        &mut stop,
     )
     .await
     .err()
@@ -435,12 +439,14 @@ async fn progress_eof_does_not_leave_live_child_outside_deadline() -> TestResult
         Limits::exact(1, 512),
     );
     let start = tokio::time::Instant::now();
+    let mut stop = std::future::pending();
     let error = complete(
         &group,
         &mut child,
         progress,
         start + Duration::from_millis(100),
         false,
+        &mut stop,
     )
     .await
     .err()

@@ -1,7 +1,7 @@
 //! `FFmpeg` receives one bounded local byte stream and has no network protocol access.
 
 use crate::{Error, Result, recordings::audio::NativeAudioGroup};
-use std::{path::Path, process::Stdio, time::Duration};
+use std::{future::Future, path::Path, process::Stdio, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[cfg(target_os = "linux")]
@@ -179,12 +179,14 @@ pub(super) async fn play_file(
         .stdout
         .take()
         .ok_or(Error::Acquisition("decoder progress pipe unavailable"))?;
+    let mut stop = std::future::pending::<()>();
     let progress = complete(
         &group,
         &mut child,
         read_progress(stdout, progress_limits),
         deadline,
         system_audio,
+        &mut stop,
     )
     .await?;
     require_range_progress(&progress, remaining_us)?;
@@ -205,22 +207,31 @@ pub(super) async fn play_reader(
     format: &str,
     system_audio: bool,
 ) -> Result<PlaybackReport> {
-    play_stream(executable, input, format, system_audio, None).await
+    let mut stop = std::future::pending::<()>();
+    play_stream(executable, input, format, system_audio, None, &mut stop).await
 }
 
-pub(super) async fn play_range_reader(
+pub(super) struct PlaybackRange {
+    pub(super) seek_us: u64,
+    pub(super) end_us: u64,
+    pub(super) maximum_bytes: u64,
+}
+
+pub(super) async fn play_range_reader<C>(
     executable: &str,
     input: impl AsyncRead + Unpin,
     format: &str,
     system_audio: bool,
-    seek_us: u64,
-    end_us: u64,
-    maximum_bytes: u64,
-) -> Result<PlaybackReport> {
-    if seek_us >= end_us
-        || end_us > 30 * 60 * 1_000_000
-        || maximum_bytes == 0
-        || maximum_bytes > 512 * 1024 * 1024
+    range: PlaybackRange,
+    stop: &mut C,
+) -> Result<PlaybackReport>
+where
+    C: Future<Output = ()> + Unpin,
+{
+    if range.seek_us >= range.end_us
+        || range.end_us > 30 * 60 * 1_000_000
+        || range.maximum_bytes == 0
+        || range.maximum_bytes > 512 * 1024 * 1024
     {
         return Err(Error::Acquisition("invalid retained playback range"));
     }
@@ -229,18 +240,23 @@ pub(super) async fn play_range_reader(
         input,
         format,
         system_audio,
-        Some((seek_us, end_us, maximum_bytes)),
+        Some((range.seek_us, range.end_us, range.maximum_bytes)),
+        stop,
     )
     .await
 }
 
-async fn play_stream(
+async fn play_stream<C>(
     executable: &str,
     input: impl AsyncRead + Unpin,
     format: &str,
     system_audio: bool,
     range: Option<(u64, u64, u64)>,
-) -> Result<PlaybackReport> {
+    stop: &mut C,
+) -> Result<PlaybackReport>
+where
+    C: Future<Output = ()> + Unpin,
+{
     let supported = if range.is_some() {
         crate::storage::dvr::retained_format(format)
     } else {
@@ -296,7 +312,7 @@ async fn play_stream(
         let ((), progress) = tokio::try_join!(pump, read_progress(stdout, progress_limits))?;
         Ok(progress)
     };
-    let progress = complete(&group, &mut child, work, deadline, system_audio).await?;
+    let progress = complete(&group, &mut child, work, deadline, system_audio, stop).await?;
     if range.is_some() {
         require_range_progress(&progress, end_us - seek_us)?;
     }
@@ -351,30 +367,35 @@ async fn copy_range(
     }
 }
 
-async fn complete(
+async fn complete<C>(
     group: &NativeAudioGroup,
     child: &mut tokio::process::Child,
-    work: impl std::future::Future<Output = Result<Progress>>,
+    work: impl Future<Output = Result<Progress>>,
     deadline: tokio::time::Instant,
     system_audio: bool,
-) -> Result<Progress> {
-    let result = tokio::time::timeout_at(deadline, async {
-        let progress = work.await?;
-        let status = child.wait().await?;
-        if !status.success() {
-            return Err(Error::Acquisition(if system_audio {
-                "cannot open system audio"
-            } else {
-                "playback did not finish"
-            }));
-        }
-        if !progress.finished || progress.max_out_us == 0 {
-            return Err(Error::Acquisition("decoder produced no audio"));
-        }
-        Ok(progress)
-    })
-    .await
-    .unwrap_or(Err(Error::Acquisition("playback exceeded its deadline")));
+    stop: &mut C,
+) -> Result<Progress>
+where
+    C: Future<Output = ()> + Unpin,
+{
+    let result = tokio::select! {
+        result = tokio::time::timeout_at(deadline, async {
+            let progress = work.await?;
+            let status = child.wait().await?;
+            if !status.success() {
+                return Err(Error::Acquisition(if system_audio {
+                    "cannot open system audio"
+                } else {
+                    "playback did not finish"
+                }));
+            }
+            if !progress.finished || progress.max_out_us == 0 {
+                return Err(Error::Acquisition("decoder produced no audio"));
+            }
+            Ok(progress)
+        }) => result.unwrap_or(Err(Error::Acquisition("playback exceeded its deadline"))),
+        () = &mut *stop => Err(Error::Acquisition("playback interrupted")),
+    };
     if result.is_err() {
         let _ = child.start_kill();
         let _ = child.wait().await;

@@ -59,7 +59,10 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
         Effect::None
         | Effect::Detach
         | Effect::Play { .. }
+        | Effect::PlayRecording { .. }
+        | Effect::PlayFinding { .. }
         | Effect::StopListen
+        | Effect::StopRetained
         | Effect::Fetch(_) => Ok(()),
         Effect::LinkedContext {
             generation,
@@ -124,7 +127,10 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
         Effect::None
         | Effect::Detach
         | Effect::Play { .. }
+        | Effect::PlayRecording { .. }
+        | Effect::PlayFinding { .. }
         | Effect::StopListen
+        | Effect::StopRetained
         | Effect::Fetch(_) => Vec::new(),
         Effect::LinkedContext { id, catalog, .. } => vec![Operation::Radio {
             command: DirectoryOperation::Linked {
@@ -880,6 +886,20 @@ mod tests {
             Effect::FindingOriginal {
                 recording: "rec".into(),
             },
+            Effect::Play {
+                station: "station".into(),
+            },
+            Effect::PlayRecording {
+                id: "rec".into(),
+                request: "reader-1".into(),
+            },
+            Effect::PlayFinding {
+                monitor: "news".into(),
+                finding: "one".into(),
+                request: "reader-2".into(),
+            },
+            Effect::StopListen,
+            Effect::StopRetained,
             Effect::LinkedContext {
                 generation: 1,
                 id: "00000000-0000-0000-0000-000000000001".into(),

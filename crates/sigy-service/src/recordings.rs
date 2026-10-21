@@ -91,27 +91,38 @@ pub fn new_retained_request_id() -> Result<String> {
 /// Progress describes decoder output, not samples heard at an audio device.
 /// # Errors
 /// Refuses invalid bounds, unavailable pipes and incomplete decoder output.
-pub async fn play_retained_stream(
+pub async fn play_retained_stream<C>(
     executable: &str,
     directory: &Path,
     nonce: &str,
     spec: &crate::control::RetainedReadSpec,
     destination: PlaybackDestination,
-) -> Result<RetainedPlaybackReport> {
+    stop: &mut C,
+) -> Result<RetainedPlaybackReport>
+where
+    C: std::future::Future<Output = ()> + Unpin,
+{
     if spec.excerpt.is_some() {
         return Err(Error::Acquisition(
             "explicit excerpts require the checked PCM playback API",
         ));
     }
-    let input = pipe::connect_listen_pipe(directory, nonce).await?;
+    let input = tokio::select! {
+        biased;
+        () = &mut *stop => return Err(Error::Acquisition("playback interrupted")),
+        input = pipe::connect_listen_pipe(directory, nonce) => input?,
+    };
     let report = decoder::play_range_reader(
         executable,
         input,
         &spec.format,
         destination == PlaybackDestination::System,
-        spec.file_seek_us,
-        spec.file_duration_us,
-        spec.bytes,
+        decoder::PlaybackRange {
+            seek_us: spec.file_seek_us,
+            end_us: spec.file_duration_us,
+            maximum_bytes: spec.bytes,
+        },
+        stop,
     )
     .await?;
     Ok(RetainedPlaybackReport {

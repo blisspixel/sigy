@@ -239,6 +239,7 @@ fn excerpt_parser_preserves_end_and_requires_explicit_finding_request() -> TestR
     assert!(
         matches!(cli.command, crate::Command::Listen { command: super::super::ListenCommand::File {
         id, seek_us: 6_000_000, end_us: Some(7_000_000), request: Some(request), destination,
+        parent_pid: None, cancel_on_stdin: false,
     }} if id == "recording-1" && request == "excerpt-1" && destination == "null")
     );
     let cli = crate::Cli::try_parse_from([
@@ -254,7 +255,7 @@ fn excerpt_parser_preserves_end_and_requires_explicit_finding_request() -> TestR
     ])?;
     assert!(
         matches!(cli.command, crate::Command::Listen { command: super::super::ListenCommand::Finding {
-        monitor, finding, request, destination,
+        monitor, finding, request, destination, parent_pid: None, cancel_on_stdin: false,
     }} if monitor == "monitor-1" && finding == "finding-1" && request == "citation-1" && destination == "null")
     );
     for args in [
@@ -599,8 +600,33 @@ fn parser_preserves_exact_reader_requests_and_generation() -> TestResult {
         "null",
     ])?;
     assert!(matches!(cli.command, crate::Command::Listen {
-        command: super::super::ListenCommand::File { id, seek_us: 6_000_000, end_us: None, request: Some(request), destination }
+        command: super::super::ListenCommand::File {
+            id, seek_us: 6_000_000, end_us: None, request: Some(request), destination,
+            parent_pid: None, cancel_on_stdin: false,
+        }
     } if id == "recording-1" && request == "reader-1" && destination == "null"));
+    let fenced = crate::Cli::try_parse_from([
+        "sigy",
+        "listen",
+        "finding",
+        "monitor-1",
+        "finding-1",
+        "--request",
+        "citation-2",
+        "--cancel-on-stdin",
+        "--parent-pid",
+        "42",
+    ])?;
+    assert!(matches!(
+        fenced.command,
+        crate::Command::Listen {
+            command: super::super::ListenCommand::Finding {
+                parent_pid: Some(42),
+                cancel_on_stdin: true,
+                ..
+            }
+        }
+    ));
     let cli = crate::Cli::try_parse_from([
         "sigy",
         "listen",

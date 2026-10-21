@@ -32,8 +32,23 @@ pub fn drive(
         std::time::Instant::now(),
     );
     let mut session = Session::open()?;
-    let result = run_loop(&mut session, runtime, directory, model, inspect, &stop);
-    session.restore()?;
+    let mut playback_unresolved = false;
+    let result = run_loop(
+        &mut session,
+        runtime,
+        directory,
+        model,
+        inspect,
+        &stop,
+        &mut playback_unresolved,
+    );
+    let restored = session.restore();
+    if playback_unresolved {
+        eprintln!(
+            "Playback stop requested. Closure is unresolved until that client exits. Capture keeps running."
+        );
+    }
+    restored?;
     result
 }
 
@@ -44,6 +59,7 @@ fn run_loop(
     model: &mut Explorer,
     inspect: Option<&Path>,
     stop: &AtomicBool,
+    playback_unresolved: &mut bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if stopped(stop) {
         return Err(Interrupted.into());
@@ -61,15 +77,16 @@ fn run_loop(
         return Ok(());
     }
     let mut clock_tick = std::time::Instant::now();
-    let mut player = super::player::Player::default();
+    let mut audio = super::audio::Audio::default();
     let mut fetcher = super::fetch::Fetcher::default();
     let mut metadata = super::metadata::Reads::default();
     loop {
         if stopped(stop) {
+            *playback_unresolved = audio.quit(runtime, directory, model);
             return Err(Interrupted.into());
         }
         fetcher.poll(model);
-        player.poll(model);
+        audio.poll(directory, model);
         metadata.poll(runtime, directory, model);
         note_canvas(session, model)?;
         let visible = if model.spin_requested() {
@@ -81,7 +98,7 @@ fn run_loop(
         let timeout = model.advance_spin(std::time::Instant::now(), visible);
         if clock_tick.elapsed() >= Duration::from_secs(1) {
             model.tick_clock(super::now_ms()?);
-            player.request_status(runtime, directory);
+            audio.request_status(runtime, directory);
             clock_tick = std::time::Instant::now();
         }
         if model.take_dirty() {
@@ -94,16 +111,12 @@ fn run_loop(
             model.motion_input(std::time::Instant::now());
         }
         let effect = model.handle(key);
+        audio.apply(runtime, directory, model, &effect);
         if matches!(effect, Effect::Detach) {
+            *playback_unresolved = audio.quit(runtime, directory, model);
             return Ok(());
         }
-        if let Effect::Play { station } = &effect {
-            if let Err(error) = player.start(directory, station) {
-                model.note_message(&error.to_string());
-            }
-        } else if effect == Effect::StopListen {
-            player.stop(runtime, directory, model);
-        } else if let Effect::Fetch(query) = &effect {
+        if let Effect::Fetch(query) = &effect {
             fetcher.start(runtime, directory, model, query);
         }
         dispatch_metadata(model, &effect, &mut metadata, runtime, directory, |model| {

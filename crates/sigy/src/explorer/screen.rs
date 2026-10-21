@@ -326,6 +326,9 @@ fn compact_sections(model: &Explorer, area: Rect) -> Vec<Section> {
     if let Some(live) = live_strip(model, columns) {
         sections.push(one(live, model.focus() == Focus::Playback, model));
     }
+    if let Some(retained) = retained_strip(model, columns) {
+        sections.push(one(retained, false, model));
+    }
     sections.push(many(
         search_lines(model),
         model.focus() == Focus::Search,
@@ -376,6 +379,9 @@ fn chrome(model: &Explorer, width: usize) -> Vec<Section> {
     ];
     if let Some(live) = live_strip(model, width) {
         sections.push(one(live, model.focus() == Focus::Playback, model));
+    }
+    if let Some(retained) = retained_strip(model, width) {
+        sections.push(one(retained, false, model));
     }
     sections.push(one(
         plain(&hint_text(model, width)),
@@ -442,9 +448,18 @@ fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
             "q quit",
         ],
         Workspace::Live | Workspace::System => vec!["r reload", "Tab focus", "q quit"],
-        Workspace::Recordings => vec!["select row", "r reload", "q quit"],
+        Workspace::Recordings => vec!["select row", "r reload", "P play", "S stop", "q quit"],
         Workspace::Monitors => vec!["inspect row", "r reload", "Esc back", "q quit"],
-        Workspace::Findings => vec!["/ edit IDs", "Enter inspect", "o metadata", "q quit"],
+        Workspace::Findings => {
+            vec![
+                "/ edit IDs",
+                "Enter inspect",
+                "o metadata",
+                "P play",
+                "S stop",
+                "q quit",
+            ]
+        }
         Workspace::Globe if restart => vec!["g first page", "Arrows turn", "R fetch", "q quit"],
         Workspace::Globe => vec![
             "Arrows turn",
@@ -923,6 +938,12 @@ fn identity_primary(model: &Explorer) -> Line<'static> {
         .unwrap_or_else(|| plain("Selected station: none"))
 }
 
+fn retained_strip(model: &Explorer, width: usize) -> Option<Line<'static>> {
+    let (phase, request) = model.retained_label()?;
+    let text = format!("Retained: {phase} {}", sanitize(request, 64));
+    Some(plain(&clip(&text, width)))
+}
+
 fn live_strip(model: &Explorer, width: usize) -> Option<Line<'static>> {
     let full = live_spans(model, true);
     if full.is_empty() {
@@ -1088,13 +1109,17 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             "  e explore    R then y fetch    n/p page    g first page",
         ],
         Workspace::Live | Workspace::System => &["  r reload    Tab focus"],
-        Workspace::Recordings => &["  arrows select a recording    r reloads its metadata"],
+        Workspace::Recordings => &[
+            "  arrows select a recording    r reloads its metadata",
+            "  P then y plays a retained recording    S stops",
+        ],
         Workspace::Monitors => {
             &["  arrows select or scroll    Enter inspects    Esc back    r reload"]
         }
-        Workspace::Findings => {
-            &["  / edit IDs    Enter inspects    arrows scroll    o recording metadata"]
-        }
+        Workspace::Findings => &[
+            "  / edit IDs    Enter inspects    arrows scroll    o recording metadata",
+            "  P then y plays a cited interval    S stops",
+        ],
     }
 }
 
@@ -1530,7 +1555,7 @@ fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'s
         ];
     }
     let mut lines = vec![plain(
-        "Recordings: arrows select; r reloads. Metadata snapshot only.",
+        "Recordings: arrows select; r reloads. Metadata snapshot. P then y plays; S stops.",
     )];
     let limit = height.saturating_sub(6).clamp(1, 8);
     let start = model
@@ -1975,6 +2000,7 @@ mod tests {
             .find(|line| line.contains("Listen session:"))
             .unwrap_or("");
         assert!(!playback.contains("directory health"));
+        assert!(!text.contains("Retained:"), "{text}");
         let row = text
             .lines()
             .find(|line| line.starts_with("> KTNN"))
@@ -2216,6 +2242,19 @@ mod tests {
         model.apply_desk(desk);
         let (text, _) = frame(&model, 80, 24);
         assert!(text.contains("sigy listen file RECORDING"), "{text}");
+    }
+
+    #[test]
+    fn retained_row_appears_only_after_an_explicit_listen() {
+        let model = sample();
+        let (absent, _) = frame(&model, 80, 24);
+        assert!(!absent.contains("Retained:"), "{absent}");
+        assert!(absent.contains("Listen session:"), "{absent}");
+        let mut playing = sample();
+        playing.begin_retained("reader-0123456789abcdef0123456789abcdef");
+        let (text, _) = frame(&playing, 80, 24);
+        assert!(text.contains("Retained: pending reader-"), "{text}");
+        assert!(text.contains("Listen session:"), "{text}");
     }
 
     #[test]

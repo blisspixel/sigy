@@ -112,6 +112,16 @@ impl Browser {
         }
     }
 
+    /// Monitor and finding ids when the loaded page stores a non-empty interval.
+    pub(super) fn cited(&self) -> Option<(String, String)> {
+        let page = self.page.as_ref()?;
+        let (start, end) = page.start_us.zip(page.end_us)?;
+        if start >= end {
+            return None;
+        }
+        Some((page.monitor_id.clone(), page.id.clone()))
+    }
+
     pub fn load(&mut self, monitor: &str, finding: &str, page: &FindingPage) -> bool {
         if page.monitor_id != monitor || page.id != finding {
             return false;
@@ -250,6 +260,8 @@ impl Browser {
                     |(start, end)| format!("[{start}, {end})us")
                 )
             ),
+            "P then y plays this cited interval when one is stored. Enter and o do not play."
+                .into(),
             self.current_media
                 .clone()
                 .unwrap_or_else(|| "Current media unread. o reads recording metadata.".into()),

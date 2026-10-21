@@ -5,7 +5,7 @@ use sigy_service::{
     control::{self, Operation, RetainedOperation, RetainedPage, RetainedReadView},
     recordings::{self, PlaybackDestination, RetainedPlaybackReport},
 };
-use std::{io::Write, path::Path, time::Duration};
+use std::{future::Future, io::Write, path::Path, time::Duration};
 
 type Failure = Box<dyn std::error::Error>;
 
@@ -73,6 +73,7 @@ pub(super) async fn play(
     seek_us: u64,
     request: Option<&str>,
 ) -> Result<PlayResult, Failure> {
+    let mut cancel = std::future::pending::<()>();
     play_scoped(
         directory,
         Scope::File {
@@ -82,6 +83,7 @@ pub(super) async fn play(
         },
         destination,
         request,
+        &mut cancel,
     )
     .await
 }
@@ -183,26 +185,38 @@ impl Scope<'_> {
     }
 }
 
-pub(super) async fn play_scoped(
+pub(super) async fn play_scoped<C>(
     directory: &Path,
     scope: Scope<'_>,
     destination: PlaybackDestination,
     request: Option<&str>,
-) -> Result<PlayResult, Failure> {
+    cancel: &mut C,
+) -> Result<PlayResult, Failure>
+where
+    C: Future<Output = ()> + Unpin,
+{
     // Validate caller syntax before decoder configuration, including replay conflicts.
     scope.operation("scope-check".into())?;
     if let Some(replay) = existing_replay(directory, scope, destination, request).await? {
         return Ok(replay);
     }
-    let decoder = super::decoder_path(directory).await?;
+    let decoder = tokio::select! {
+        biased;
+        () = &mut *cancel => return Err("playback interrupted before admission".into()),
+        decoder = super::decoder_path(directory) => decoder?,
+    };
     let id = request
         .map(str::to_owned)
         .map_or_else(recordings::new_retained_request_id, Ok)?;
-    let snapshot = control::request(directory, Operation::Retained {
-        command: scope.operation(id.clone())?,
-    }).await.map_err(|error| {
-        format!("{}; admission outcome may be unresolved. Inspect `sigy listen reader show {id}` before retrying.", super::clean(&error.to_string()))
-    })?;
+    let snapshot = tokio::select! {
+        biased;
+        () = &mut *cancel => return Err(cancel_admission(directory, &id).await),
+        snapshot = control::request(directory, Operation::Retained {
+            command: scope.operation(id.clone())?,
+        }) => snapshot.map_err(|error| {
+            format!("{}; admission outcome may be unresolved. Inspect `sigy listen reader show {id}` before retrying.", super::clean(&error.to_string()))
+        })?,
+    };
     let admission = snapshot
         .retained
         .as_ref()
@@ -226,7 +240,17 @@ pub(super) async fn play_scoped(
         Ok(()) if page.newly_started != Some(true) || receipt.spec.generation != 1 => {
             Err("reader admission omitted or contradicted fresh generation".into())
         }
-        Ok(()) => Box::pin(decode(directory, &decoder, destination, *page, &receipt)).await,
+        Ok(()) => {
+            Box::pin(decode(
+                directory,
+                &decoder,
+                destination,
+                *page,
+                &receipt,
+                cancel,
+            ))
+            .await
+        }
     };
     let observed = match played {
         Ok((report, output)) => DecodeObservation {
@@ -421,20 +445,52 @@ fn validate_media(receipt: &RetainedReadView, seek_us: u64) -> Result<(), Failur
     Ok(())
 }
 
-async fn decode(
+async fn cancel_admission(directory: &Path, id: &str) -> Failure {
+    let _ = tokio::time::timeout(
+        Duration::from_secs(15),
+        control::request(
+            directory,
+            Operation::Retained {
+                command: RetainedOperation::Stop {
+                    id: id.into(),
+                    generation: 1,
+                },
+            },
+        ),
+    )
+    .await;
+    format!(
+        "playback interrupted before the decoder started; reader stop was requested. Inspect `sigy listen reader show {}`.",
+        super::clean(id)
+    )
+    .into()
+}
+
+async fn decode<C>(
     directory: &Path,
     executable: &str,
     destination: PlaybackDestination,
     page: RetainedPage,
     receipt: &RetainedReadView,
-) -> Result<(RetainedPlaybackReport, Option<serde_json::Value>), Failure> {
-    let nonce = ready_nonce(directory, page, receipt).await?;
+    cancel: &mut C,
+) -> Result<(RetainedPlaybackReport, Option<serde_json::Value>), Failure>
+where
+    C: Future<Output = ()> + Unpin,
+{
+    let nonce = tokio::select! {
+        biased;
+        () = &mut *cancel => {
+            return Err("playback interrupted; stopping protected reader".into());
+        }
+        nonce = ready_nonce(directory, page, receipt) => nonce?,
+    };
     if destination == PlaybackDestination::Null && receipt.spec.excerpt.is_some() {
         let (decoder, report) = Box::pin(recordings::audio::decode_retained_excerpt_null(
             executable,
             directory,
             &nonce,
             &receipt.spec,
+            cancel,
         ))
         .await
         .map_err(|error| -> Failure { error })?;
@@ -446,13 +502,9 @@ async fn decode(
     }
     #[cfg(windows)]
     if destination == PlaybackDestination::System {
-        let playback = Box::pin(crate::audio::play::retained(
-            executable,
-            directory,
-            &nonce,
-            &receipt.spec,
-        ))
-        .await?;
+        let playback =
+            crate::audio::play::retained(executable, directory, &nonce, &receipt.spec, cancel)
+                .await?;
         return Ok((
             playback.decoder,
             Some(serde_json::to_value(playback.output)?),
@@ -464,7 +516,7 @@ async fn decode(
         ))
         .ok_or("invalid retained decoder deadline")?;
     tokio::select! {
-        result = Box::pin(recordings::play_retained_stream(executable, directory, &nonce, &receipt.spec, destination)) => Ok((result?, None)),
+        result = Box::pin(recordings::play_retained_stream(executable, directory, &nonce, &receipt.spec, destination, cancel)) => Ok((result?, None)),
         () = tokio::time::sleep_until(deadline) => Err("retained decoder connection/execution deadline exceeded".into()),
         interrupted = tokio::signal::ctrl_c() => {
             interrupted?;

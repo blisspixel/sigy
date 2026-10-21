@@ -232,7 +232,10 @@ impl Reads {
             Effect::None
             | Effect::Detach
             | Effect::Play { .. }
+            | Effect::PlayRecording { .. }
+            | Effect::PlayFinding { .. }
             | Effect::StopListen
+            | Effect::StopRetained
             | Effect::Fetch(_) => {}
         }
     }

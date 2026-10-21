@@ -709,19 +709,50 @@ fn long_tone(seconds: u32) -> Vec<u8> {
     bytes
 }
 
+/// Pending and partial evidence are delivered results. Exit 5 carries that class.
+/// A completed outcome stays exit 0. This poll waits through pending.
 fn wait_task_evidence(
     directory: &Path,
     task: &str,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let deadline = Instant::now() + Duration::from_secs(120);
+    let arguments = ["task", "evidence", task];
     loop {
-        let page = success(directory, &["task", "evidence", task])?;
+        let output = invoke(directory, &arguments)?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let page: serde_json::Value = serde_json::from_str(&stdout).map_err(|error| {
+            format!(
+                "{arguments:?}: {error}; exit: {}; stdout: {stdout}; stderr: {stderr}",
+                output.status
+            )
+        })?;
         let evidence = page["task"]["evidence"].clone();
-        if evidence["outcome"] != "pending" {
-            return Ok(evidence);
+        let outcome = evidence["outcome"].as_str().unwrap_or("");
+        if outcome == "pending" || outcome == "partial" {
+            assert_eq!(
+                output.status.code(),
+                Some(5),
+                "{arguments:?}: {outcome} evidence must exit 5; stdout: {stdout}; stderr: {stderr}"
+            );
+            let error: serde_json::Value = serde_json::from_str(&stderr).map_err(|cause| {
+                format!("{arguments:?}: {cause}; stdout: {stdout}; stderr: {stderr}")
+            })?;
+            assert_eq!(error["code"], "partial");
+            assert_eq!(error["error"], "the result is partial");
+            if outcome != "pending" {
+                return Ok(evidence);
+            }
+            assert!(Instant::now() < deadline, "task evidence deadline: {page}");
+            thread::sleep(Duration::from_millis(250));
+            continue;
         }
-        assert!(Instant::now() < deadline, "task evidence deadline: {page}");
-        thread::sleep(Duration::from_millis(250));
+        assert!(
+            output.status.success(),
+            "{arguments:?}: {}; stdout: {stdout}; stderr: {stderr}",
+            output.status
+        );
+        return Ok(evidence);
     }
 }
 
