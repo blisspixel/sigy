@@ -20,7 +20,7 @@ hashes of the compiled renderer, state, monitor, context and gallery sources;
 each adjacent JSON file preserves every terminal cell's symbol, foreground,
 background, modifiers, display width and wide-character continuation flag.
 
-The bounded matrix contains 75 frames at 20 by 8, 80 by 24 and 132 by 40 cells.
+The bounded matrix contains 77 frames. The shared sizes are 20 by 8, 80 by 24 and 132 by 40 cells. A layout case also renders 60 by 20 and 90 by 30.
 It covers Explore, Live, Recordings, Monitors, Findings, System and Globe; the key overlay at 80 by 24; filter
 and country editors; frozen station context; linked pending, loaded and failed
 reads; empty and unobserved cache; disconnected state; pending search; changed

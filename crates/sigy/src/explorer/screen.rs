@@ -14,8 +14,10 @@ use crate::style::{Tone, tone_for_state};
 use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 
-pub const HELP_PRIMARY: &str =
-    "Help: / search F filters C country e explore R fetch f favorite n/p page q quit";
+#[cfg(test)]
+pub const HELP_PRIMARY: &str = "Help: / search  F filters  C country  e explore  R fetch  f favorite  n/p page  q quit  ? more";
+/// The boundary sentence belongs to a confirm prompt, not to every explorer frame.
+#[cfg(test)]
 pub const HELP_SELECTION: &str =
     "Enter inspects; P then y plays; S stops. Selection starts no work.";
 pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
@@ -50,11 +52,11 @@ pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
         return;
     }
     if area.height < 16 || area.width < 60 {
-        let sections = compact_sections(model, area.width);
+        let sections = compact_sections(model, area);
         render_sections(frame, area, &sections, model);
         return;
     }
-    let sections = full_sections(model);
+    let sections = full_sections(model, area);
     render_sections(frame, area, &sections, model);
 }
 
@@ -81,7 +83,7 @@ pub(super) fn globe_visible(model: &Explorer, area: Rect) -> bool {
     {
         return false;
     }
-    let sections = full_sections(model);
+    let sections = full_sections(model, area);
     sections
         .iter()
         .zip(section_rects(area, &sections).iter())
@@ -96,6 +98,10 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], mode
     for (section, rect) in sections.iter().zip(rects.iter()) {
         if section.globe {
             render_globe(frame, *rect, section, model);
+            continue;
+        }
+        if section.beside {
+            render_beside(frame, *rect, section, model);
             continue;
         }
         let mut lines = if model.workspace() == Workspace::Explore
@@ -189,12 +195,69 @@ fn render_globe(frame: &mut Frame<'_>, area: Rect, section: &Section, model: &Ex
     );
 }
 
+fn render_beside(frame: &mut Frame<'_>, area: Rect, section: &Section, model: &Explorer) {
+    let columns =
+        Layout::horizontal([Constraint::Percentage(64), Constraint::Percentage(36)]).split(area);
+    let mut lines = pane_lines(
+        model,
+        usize::from(columns[0].width),
+        usize::from(columns[0].height),
+    );
+    if section.linear_focus
+        && let Some(first) = lines.first_mut()
+    {
+        first.spans.insert(0, Span::raw(FOCUS_PREFIX));
+    }
+    if let Some(first) = lines.first_mut() {
+        let style = focus_style(
+            model,
+            model.focus() == Focus::Results && !model.modes().linear,
+        );
+        first.style = first.style.patch(style);
+    }
+    frame.render_widget(Paragraph::new(lines), columns[0]);
+    let mut identity = identity_lines(model);
+    if model.focus() == Focus::Detail && !model.modes().linear {
+        let style = focus_style(model, true);
+        if let Some(first) = identity.first_mut() {
+            first.style = first.style.patch(style);
+        }
+    }
+    frame.render_widget(Paragraph::new(identity), columns[1]);
+}
+
+fn pane_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static>> {
+    if !model.workspace().available() {
+        return unavailable_lines(model);
+    }
+    match model.workspace() {
+        Workspace::Explore => explore_lines(model, width, height),
+        Workspace::Live => live_lines(model),
+        Workspace::Recordings => recording_lines(model, width, height),
+        Workspace::System => system_lines(model),
+        Workspace::Globe => Vec::new(),
+        Workspace::Monitors => model
+            .monitors
+            .lines_at_width(height, width)
+            .into_iter()
+            .map(Line::from)
+            .collect(),
+        Workspace::Findings => model
+            .findings
+            .lines(height, width, 0)
+            .into_iter()
+            .map(Line::from)
+            .collect(),
+    }
+}
+
 struct Section {
     height: Height,
     lines: Vec<Line<'static>>,
     style: Style,
     linear_focus: bool,
     globe: bool,
+    beside: bool,
 }
 
 enum Height {
@@ -202,87 +265,207 @@ enum Height {
     Fill,
 }
 
-fn full_sections(model: &Explorer) -> Vec<Section> {
-    vec![
+fn full_sections(model: &Explorer, area: Rect) -> Vec<Section> {
+    let width = usize::from(area.width);
+    let mut sections = chrome(model, width);
+    sections.push(one(cache_line(model), false, model));
+    sections.push(many(
+        search_lines(model),
+        model.focus() == Focus::Search,
+        model,
+    ));
+    let mut body_section = fill(body(model, 12), model.focus() == Focus::Results, model);
+    if area.width >= 120 && area.height >= 40 && model.workspace() != Workspace::Globe {
+        body_section.beside = true;
+        sections.push(body_section);
+    } else {
+        sections.push(body_section);
+        sections.push(many(
+            identity_lines(model),
+            model.focus() == Focus::Detail,
+            model,
+        ));
+    }
+    push_status(&mut sections, model, width, 2);
+    sections
+}
+
+fn compact_sections(model: &Explorer, area: Rect) -> Vec<Section> {
+    let columns = usize::from(area.width);
+    let mut sections = vec![one(connection_line(model, true), false, model)];
+    if let Some(live) = live_strip(model, columns) {
+        sections.push(one(live, model.focus() == Focus::Playback, model));
+    }
+    sections.push(many(
+        search_lines(model),
+        model.focus() == Focus::Search,
+        model,
+    ));
+    sections.push(one(
+        identity_primary(model),
+        model.focus() == Focus::Detail,
+        model,
+    ));
+    sections.push(one(
+        plain(&hint_text(model, columns)),
+        model.focus() == Focus::Help,
+        model,
+    ));
+    // Two status rows are allowed only when four body rows remain. The narrow
+    // recording timeline needs those four rows for its axis, cells and legend.
+    let chrome = fixed_rows(&sections);
+    let remaining = area.height.saturating_sub(chrome);
+    let status_rows = if remaining >= 6 {
+        2
+    } else {
+        usize::from(remaining > 1)
+    };
+    push_status(&mut sections, model, columns, status_rows);
+    sections.push(fill(body(model, 4), model.focus() == Focus::Results, model));
+    sections
+}
+
+fn fixed_rows(sections: &[Section]) -> u16 {
+    sections
+        .iter()
+        .map(|section| match section.height {
+            Height::Fixed(lines) => lines,
+            Height::Fill => 0,
+        })
+        .sum()
+}
+
+fn chrome(model: &Explorer, width: usize) -> Vec<Section> {
+    let mut sections = vec![
         one(connection_line(model, false), false, model),
         one(
-            workspace_line(model),
+            workspace_line(model, width),
             model.focus() == Focus::Workspaces,
             model,
         ),
-        one(cache_line(model), false, model),
-        many(search_lines(model), model.focus() == Focus::Search, model),
-        fill(body(model, 8), model.focus() == Focus::Results, model),
-        many(identity_lines(model), model.focus() == Focus::Detail, model),
-        one(
-            playback_line(model),
-            model.focus() == Focus::Playback,
-            model,
-        ),
-        one(recording_line(model), false, model),
-        one(quota_line(model), false, model),
-        many(help_lines(model), model.focus() == Focus::Help, model),
-        one(plain(model.status()), false, model),
-    ]
+    ];
+    if let Some(live) = live_strip(model, width) {
+        sections.push(one(live, model.focus() == Focus::Playback, model));
+    }
+    sections.push(one(
+        plain(&hint_text(model, width)),
+        model.focus() == Focus::Help,
+        model,
+    ));
+    sections
 }
 
-fn compact_sections(model: &Explorer, width: u16) -> Vec<Section> {
-    vec![
-        one(connection_line(model, true), false, model),
-        many(search_lines(model), model.focus() == Focus::Search, model),
-        one(
-            identity_primary(model),
-            model.focus() == Focus::Detail,
-            model,
-        ),
-        one(
-            playback_line(model),
-            model.focus() == Focus::Playback,
-            model,
-        ),
-        one(
-            plain(compact_help(model, width)),
-            model.focus() == Focus::Help,
-            model,
-        ),
-        one(plain(model.status()), false, model),
-        fill(body(model, 4), model.focus() == Focus::Results, model),
-    ]
+fn push_status(sections: &mut Vec<Section>, model: &Explorer, width: usize, max_rows: usize) {
+    if max_rows == 0 || model.status().split_whitespace().next().is_none() {
+        return;
+    }
+    sections.push(many(
+        status_lines(model.status(), width, max_rows),
+        false,
+        model,
+    ));
 }
 
 fn one(line: Line<'static>, focused: bool, model: &Explorer) -> Section {
     section(Height::Fixed(1), vec![line], focused, model)
 }
 
-fn compact_help(model: &Explorer, width: u16) -> &'static str {
+#[cfg(test)]
+fn compact_help(model: &Explorer, width: u16) -> String {
+    hint_text(model, usize::from(width))
+}
+
+fn hint_text(model: &Explorer, width: usize) -> String {
+    fit_pairs(&hint_pairs(model), width)
+}
+
+fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
+    let restart = model.restart_required()
+        && matches!(model.workspace(), Workspace::Explore | Workspace::Globe);
     if editing(model) {
-        return if model.restart_required() {
-            "Esc, g first page"
+        return if restart {
+            vec!["g first page", "Esc ends edit", "Enter applies"]
         } else {
-            "Help: Esc ends edit"
-        };
-    }
-    if width < 40 {
-        return match model.workspace() {
-            Workspace::Findings => "q quit / IDs o media",
-            Workspace::Recordings | Workspace::Live | Workspace::System => "q quit r reload",
-            Workspace::Explore | Workspace::Globe if model.restart_required() => {
-                "q quit g first page"
-            }
-            Workspace::Monitors | Workspace::Explore | Workspace::Globe => "q quit Enter inspect",
+            vec!["Esc ends edit", "Enter applies"]
         };
     }
     match model.workspace() {
-        Workspace::Findings => "Help: q quit, / IDs, o metadata",
-        Workspace::Recordings => "Help: q quit, arrows select, r reload",
-        Workspace::Monitors => "Help: q quit, Enter inspect, r reload",
-        Workspace::Globe | Workspace::Explore if model.restart_required() => {
-            "q quit | g first page"
-        }
-        Workspace::Globe => "q quit Enter inspect | e explore | m map",
-        Workspace::Explore => "q quit Enter inspect | / search | n/p page",
-        Workspace::Live | Workspace::System => "Help: q quit, r reload, Tab focus",
+        Workspace::Explore if restart => vec![
+            "g first page",
+            "/ search",
+            "F filters",
+            "C country",
+            "e explore",
+            "R fetch",
+            "f favorite",
+            "n/p page",
+            "q quit",
+        ],
+        Workspace::Explore => vec![
+            "/ search",
+            "F filters",
+            "C country",
+            "e explore",
+            "R fetch",
+            "f favorite",
+            "n/p page",
+            "q quit",
+        ],
+        Workspace::Live | Workspace::System => vec!["r reload", "Tab focus", "q quit"],
+        Workspace::Recordings => vec!["select row", "r reload", "q quit"],
+        Workspace::Monitors => vec!["inspect row", "r reload", "Esc back", "q quit"],
+        Workspace::Findings => vec!["/ edit IDs", "Enter inspect", "o metadata", "q quit"],
+        Workspace::Globe if restart => vec!["g first page", "turn", "R fetch", "q quit"],
+        Workspace::Globe => vec![
+            "turn",
+            "m map",
+            "e explore",
+            "R fetch",
+            "n/p page",
+            "q quit",
+        ],
     }
+}
+
+/// Keep the first pair whole. End with `? more` when that tail fits.
+fn fit_pairs(pairs: &[&str], width: usize) -> String {
+    if width == 0 || pairs.is_empty() {
+        return String::new();
+    }
+    let mut kept = Vec::new();
+    for pair in pairs {
+        let mut trial = kept.clone();
+        trial.push(*pair);
+        if line_width(&help_line(&trial)) <= width {
+            kept.push(*pair);
+        } else {
+            break;
+        }
+    }
+    if !kept.is_empty() {
+        return help_line(&kept);
+    }
+    let first = pairs[0];
+    let bare = format!("{first}  ? more");
+    if line_width(&bare) <= width {
+        return bare;
+    }
+    let help_first = format!("Help: {first}");
+    if line_width(&help_first) <= width {
+        return help_first;
+    }
+    if line_width(first) <= width {
+        return first.to_owned();
+    }
+    if line_width("? more") <= width {
+        "? more".to_owned()
+    } else {
+        String::new()
+    }
+}
+
+fn help_line(pairs: &[&str]) -> String {
+    format!("Help: {}  ? more", pairs.join("  "))
 }
 
 fn editing(model: &Explorer) -> bool {
@@ -309,6 +492,7 @@ fn section(height: Height, lines: Vec<Line<'static>>, focused: bool, model: &Exp
         style: focus_style(model, focused && !linear_focus),
         linear_focus,
         globe: false,
+        beside: false,
     }
 }
 
@@ -436,9 +620,6 @@ fn connection_line(model: &Explorer, compact: bool) -> Line<'static> {
             Tone::Fail,
         ),
     };
-    let motion = on_off(model.modes().reduced_motion);
-    let linear = on_off(model.modes().linear);
-    let mono = on_off(model.modes().monochrome);
     let mut spans = vec![paint(model, Tone::Accent, "Sigy")];
     if compact {
         // The compact layout has no tab bar, so the title names the workspace.
@@ -452,30 +633,66 @@ fn connection_line(model: &Explorer, compact: bool) -> Line<'static> {
             ),
         ));
     }
-    let mut mode_line = format!(" | reduced motion {motion} | linear {linear} | mono {mono}");
-    if model.modes().emphasis.high() {
-        mode_line.push_str(" | high contrast on");
+    spans.extend([paint(model, Tone::Plain, " | "), paint(model, tone, link)]);
+    let suffix = mode_suffix(model);
+    if !suffix.is_empty() {
+        spans.push(paint(model, Tone::Muted, suffix));
     }
-    spans.extend([
-        paint(model, Tone::Plain, " | "),
-        paint(model, tone, link),
-        paint(model, Tone::Muted, mode_line),
-    ]);
+    if let Some(quota) = model.quota()
+        && quota_needs_attention(quota.quota, quota.available)
+    {
+        spans.push(paint(
+            model,
+            Tone::Attention,
+            format!(" | {} free", bytes_label(quota.available)),
+        ));
+    }
     Line::from(spans)
+}
+
+fn mode_suffix(model: &Explorer) -> String {
+    let mut parts = Vec::new();
+    if model.modes().reduced_motion {
+        parts.push("reduced motion on");
+    }
+    if model.modes().linear {
+        parts.push("linear on");
+    }
+    if model.modes().monochrome {
+        parts.push("mono on");
+    }
+    if model.modes().emphasis.high() {
+        parts.push("high contrast on");
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" | {}", parts.join(" | "))
+    }
+}
+
+fn quota_needs_attention(quota: u64, available: u64) -> bool {
+    quota == 0 || available.saturating_mul(5) <= quota
 }
 
 fn on_off(enabled: bool) -> &'static str {
     if enabled { "on" } else { "off" }
 }
 
-fn workspace_line(model: &Explorer) -> Line<'static> {
+fn workspace_line(model: &Explorer, width: usize) -> Line<'static> {
+    let short = width < 80;
     let mut spans = Vec::new();
     for (index, workspace) in Workspace::ALL.into_iter().enumerate() {
         if index > 0 {
             spans.push(paint(model, Tone::Plain, " "));
         }
         let current = workspace == model.workspace();
-        let label = format!("{} {}", workspace.digit(), workspace.label());
+        let name = if short {
+            short_tab(workspace)
+        } else {
+            workspace.label()
+        };
+        let label = format!("{} {name}", workspace.digit());
         let label = if current { format!("[{label}]") } else { label };
         let tone = if current {
             Tone::Accent
@@ -487,6 +704,18 @@ fn workspace_line(model: &Explorer) -> Line<'static> {
         spans.push(paint(model, tone, label));
     }
     Line::from(spans)
+}
+
+fn short_tab(workspace: Workspace) -> &'static str {
+    match workspace {
+        Workspace::Explore => "Exp",
+        Workspace::Live => "Live",
+        Workspace::Recordings => "Rec",
+        Workspace::Monitors => "Mon",
+        Workspace::Findings => "Find",
+        Workspace::System => "Sys",
+        Workspace::Globe => "Globe",
+    }
 }
 
 fn cache_line(model: &Explorer) -> Line<'static> {
@@ -587,7 +816,6 @@ fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
                     .map_or_else(|| "none".into(), |recording| sanitize(&recording.id, 64))
             )),
             plain("Published media, gaps and unpublished time remain separate."),
-            plain("Selection starts no playback, capture or processing."),
         ];
     }
     if model.workspace() == Workspace::Monitors {
@@ -663,6 +891,60 @@ fn identity_primary(model: &Explorer) -> Line<'static> {
         .into_iter()
         .next()
         .unwrap_or_else(|| plain("Selected station: none"))
+}
+
+fn live_strip(model: &Explorer, width: usize) -> Option<Line<'static>> {
+    let full = live_spans(model, true);
+    if full.is_empty() {
+        return None;
+    }
+    let line = Line::from(full);
+    if width == 0 || line.width() <= width {
+        return Some(line);
+    }
+    let short = live_spans(model, false);
+    if short.is_empty() {
+        None
+    } else {
+        Some(Line::from(short))
+    }
+}
+
+fn live_spans(model: &Explorer, session_id: bool) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    if let Some(session) = model.playback() {
+        let state = sanitize(&session.state, 16);
+        spans.push(paint(model, Tone::Plain, "Listen session: "));
+        if let Some(marker) = live_prefix(model, &state) {
+            spans.push(marker);
+        }
+        spans.push(paint(model, tone_for_state(&state), state));
+        if session_id {
+            spans.push(paint(
+                model,
+                Tone::Plain,
+                format!(" {}", sanitize(&session.id, 24)),
+            ));
+        }
+    }
+    if let Some(recording) = model
+        .recordings()
+        .iter()
+        .find(|recording| recording.active())
+    {
+        if !spans.is_empty() {
+            spans.push(paint(model, Tone::Plain, " | "));
+        }
+        let state = sanitize(&recording.state, 16);
+        spans.push(paint(model, Tone::Plain, "Recording: "));
+        spans.push(paint(model, Tone::Muted, sanitize(&recording.id, 24)));
+        spans.push(paint(model, Tone::Plain, " "));
+        spans.push(paint(model, tone_for_state(&state), state.clone()));
+        if let Some(marker) = record_suffix(model, &state) {
+            spans.push(marker);
+        }
+    }
+    spans
 }
 
 fn playback_line(model: &Explorer) -> Line<'static> {
@@ -783,39 +1065,6 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             &["  / edit IDs    Enter inspects    arrows scroll    o recording metadata"]
         }
     }
-}
-
-fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
-    let primary = if editing(model) {
-        if model.restart_required()
-            && matches!(model.workspace(), Workspace::Explore | Workspace::Globe)
-        {
-            "Help: Esc ends edit; Esc then g first page; Enter applies; Ctrl-C quits"
-        } else {
-            "Help: Esc ends edit; Enter inspects; Ctrl-C quits"
-        }
-    } else {
-        match model.workspace() {
-            Workspace::Explore => HELP_PRIMARY,
-            Workspace::Live | Workspace::System => "Help: r reload, Tab focus, q quit",
-            Workspace::Recordings => {
-                "Help: arrows select a recording, r reloads its metadata, q quit"
-            }
-            Workspace::Monitors => {
-                "Help: arrows select or scroll, Enter inspects, Esc back, r reload, q quit"
-            }
-            Workspace::Findings => {
-                "Help: / edit IDs, Enter inspects, arrows scroll, o recording metadata, q quit"
-            }
-            Workspace::Globe if model.spin_label().is_some() => {
-                "Help: h/l/j/k turn, r spin, m map, c center, R fetch, n/p page, q quit"
-            }
-            Workspace::Globe => {
-                "Help: h/l/j/k turn, m map, e explore, R fetch, n/p page, g first page, q quit"
-            }
-        }
-    };
-    vec![plain(primary), plain(HELP_SELECTION)]
 }
 
 fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
@@ -1053,6 +1302,120 @@ fn empty_explore(model: &Explorer) -> Vec<Line<'static>> {
     ]
 }
 
+fn line_width(text: &str) -> usize {
+    Line::raw(text).width()
+}
+
+fn status_lines(text: &str, width: usize, max_rows: usize) -> Vec<Line<'static>> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() || width == 0 || max_rows == 0 {
+        return vec![plain("")];
+    }
+    if line_width(text) <= width {
+        return vec![plain(text)];
+    }
+    if max_rows == 1 || words.iter().any(|word| line_width(word) > width) {
+        return vec![plain(&middle_ellipsis(text, width))];
+    }
+    let mut first = Vec::new();
+    let mut second = Vec::new();
+    let mut on_second = false;
+    for word in &words {
+        let row = if on_second { &second } else { &first };
+        if line_width(&join_words(row, word)) <= width {
+            if on_second {
+                second.push(*word);
+            } else {
+                first.push(*word);
+            }
+        } else if on_second {
+            return vec![plain(&middle_ellipsis(text, width))];
+        } else {
+            on_second = true;
+            second.push(*word);
+        }
+    }
+    let mut rows = Vec::new();
+    if !first.is_empty() {
+        rows.push(plain(&first.join(" ")));
+    }
+    if !second.is_empty() {
+        rows.push(plain(&second.join(" ")));
+    }
+    if rows.is_empty() {
+        vec![plain("")]
+    } else {
+        rows
+    }
+}
+
+fn join_words(words: &[&str], next: &str) -> String {
+    if words.is_empty() {
+        next.to_owned()
+    } else {
+        format!("{} {next}", words.join(" "))
+    }
+}
+
+/// Keep the first and last whole words and mark the omitted middle.
+fn middle_ellipsis(text: &str, width: usize) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mark = "...";
+    if width < mark.len() {
+        return ".".repeat(width);
+    }
+    let Some(last) = words.last().copied() else {
+        return String::new();
+    };
+    if line_width(last) + mark.len() >= width {
+        return tail_words(last, width);
+    }
+    let mut tail = vec![last];
+    let mut tail_used = line_width(last);
+    for word in words.iter().rev().skip(1) {
+        let extra = line_width(word) + 1;
+        if tail_used + extra + mark.len() + 1 >= width {
+            break;
+        }
+        tail_used += extra;
+        tail.push(*word);
+    }
+    tail.reverse();
+    let mut head = Vec::new();
+    let mut head_used = 0usize;
+    let room = width.saturating_sub(tail_used + mark.len() + 1);
+    for word in &words {
+        if tail.contains(word) && head.is_empty() && words.len() == tail.len() {
+            break;
+        }
+        let extra = line_width(word) + usize::from(!head.is_empty());
+        if head_used + extra > room {
+            break;
+        }
+        if tail.contains(word) {
+            break;
+        }
+        head.push(*word);
+        head_used += extra;
+    }
+    if head.is_empty() {
+        return tail.join(" ");
+    }
+    format!("{} {mark} {}", head.join(" "), tail.join(" "))
+}
+
+fn tail_words(word: &str, width: usize) -> String {
+    let mut kept = String::new();
+    for grapheme in word.chars().rev() {
+        let next = format!("{grapheme}{kept}");
+        if line_width(&next) > width {
+            break;
+        }
+        kept = next;
+    }
+    kept
+}
+
 /// Truncates by terminal cells, then pads to exactly `cells` so columns align.
 fn fit(text: &str, cells: usize) -> String {
     let clipped = clip(text, cells);
@@ -1095,7 +1458,7 @@ fn live_lines(model: &Explorer) -> Vec<Line<'static>> {
         plain(
             "The listen session is the receipt for a play, not directory health and not a recording.",
         ),
-        plain("P then y plays a selected station; S stops. Selection starts no work."),
+        plain("P then y plays a selected station; S stops."),
     ];
     if model.playback().is_none() {
         lines.push(plain("No listen receipt is loaded in this client."));
@@ -1232,6 +1595,14 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
             ),
             paint(model, paid_tone, paid),
         ]),
+        plain(&format!(
+            "Modes: reduced motion {} | linear {} | mono {} | high contrast {}",
+            on_off(model.modes().reduced_motion),
+            on_off(model.modes().linear),
+            on_off(model.modes().monochrome),
+            on_off(model.modes().emphasis.high())
+        )),
+        quota_line(model),
         Line::from(paint(
             model,
             Tone::Plain,
@@ -1543,18 +1914,15 @@ mod tests {
         assert!(text.contains("Directory languages: navajo"), "{text}");
         assert!(text.contains("Listen session:"), "{text}");
         assert!(text.contains("listen-1"), "{text}");
-        assert!(text.contains(HELP_PRIMARY), "{text}");
-        assert!(text.contains(HELP_SELECTION), "{text}");
+        assert!(text.contains("? more"), "{text}");
+        assert!(!text.contains(HELP_SELECTION), "{text}");
+        assert!(!text.contains("Quota:"), "{text}");
         assert!(text.contains("Cache: 1 of 10,000 stations"), "{text}");
         assert!(text.contains("Last fetch: completed"), "{text}");
         assert!(text.contains("refresh-demo"), "{text}");
         assert!(text.contains("observed 6s ago"), "{text}");
         assert!(text.contains("Favorites: 1"), "{text}");
         assert!(text.contains("Recording: rec-1 running"), "{text}");
-        assert!(
-            text.contains("Quota: 5 B charged, 5 B reserved, 45 B available of 50 B"),
-            "{text}"
-        );
         assert!(text.contains("service 42"), "{text}");
         assert!(text.contains("reduced motion on"), "{text}");
         assert!(
@@ -1600,11 +1968,11 @@ mod tests {
         assert!(text.contains("Focus Search:"), "{text}");
         let search = text.find("Search:").unwrap_or(usize::MAX);
         let identity = text.find("Selected station:").unwrap_or(0);
-        let playback = text.find("Listen session:").unwrap_or(0);
-        let help = text.find("Help:").unwrap_or(0);
-        assert!(search < identity);
-        assert!(identity < playback);
-        assert!(playback < help);
+        let playback = text.find("Listen session:").unwrap_or(usize::MAX);
+        let help = text.find("Help:").unwrap_or(usize::MAX);
+        assert!(help < search, "{text}");
+        assert!(playback < search, "{text}");
+        assert!(search < identity, "{text}");
         assert!(!colored);
         assert_eq!(linear.animation_frames(), 0);
         assert!(text.contains("> KTNN 東京 *\n"), "{text}");
@@ -1704,7 +2072,7 @@ mod tests {
                 .filter(|line| line.contains(" | succeeded"))
                 .count()
         };
-        assert_eq!(rows(&small), 10, "{small}");
+        assert_eq!(rows(&small), 13, "{small}");
         assert_eq!(rows(&large), 16, "{large}");
         assert_eq!(rows(&huge), 16, "{huge}");
         assert!(small.contains("Stations, page 1 (n more)"), "{small}");
@@ -1845,16 +2213,21 @@ mod tests {
                 .find(|line| line.starts_with("Help:"))
                 .unwrap_or("")
                 .to_owned();
-            assert!(help.ends_with("q quit"), "{workspace:?}: {help}");
+            assert!(help.ends_with("? more"), "{workspace:?}: {help}");
             assert!(ratatui::text::Line::raw(help.clone()).width() <= 80);
             seen.insert(help);
         }
         assert!(seen.len() >= 6, "{seen:?}");
-        assert!(seen.iter().any(|help| help.contains("h/l/j/k turn")));
+        assert!(seen.iter().any(|help| help.contains("turn")));
         let mut system = sample();
         system.handle(Key::Char('6'));
         let (text, _) = frame(&system, 80, 24);
         assert!(text.contains("Captures: 0 scheduled, 1 active"), "{text}");
+        assert!(
+            text.contains("Quota: 5 B charged, 5 B reserved, 45 B available of 50 B"),
+            "{text}"
+        );
+        assert!(text.contains("Modes: reduced motion on"), "{text}");
         assert!(
             text.contains("Budget global: limit $0.00, available $0.00"),
             "{text}"
@@ -2009,7 +2382,7 @@ mod tests {
             model.handle(Key::Char(workspace));
             for (width, height) in [(20, 8), (40, 10), (80, 24)] {
                 let (text, _) = frame(&model, width, height);
-                assert!(text.contains("q quit"), "{workspace}: {text}");
+                assert!(text.contains("? more"), "{workspace}: {text}");
             }
         }
         for workspace in ['1', '5'] {
@@ -2022,8 +2395,73 @@ mod tests {
                 assert!(!text.contains("q quit"), "{workspace}: {text}");
             }
             model.handle(Key::Escape);
-            assert!(frame(&model, 40, 10).0.contains("q quit"));
+            assert!(frame(&model, 40, 10).0.contains("? more"));
         }
+    }
+
+    #[test]
+    fn eighty_by_twenty_four_chrome_is_four_rows_and_wide_detail_sits_beside_the_list() {
+        let text = frame(&sample(), 80, 24).0;
+        let lines: Vec<&str> = text.lines().collect();
+        let content = lines
+            .iter()
+            .position(|line| line.contains("Cache:") || line.contains("Search:"))
+            .unwrap_or(usize::MAX);
+        assert!(content <= 4, "{text}");
+        assert!(text.contains("Search:"), "{text}");
+        assert!(text.contains("Selected station:"), "{text}");
+        let wide = frame(&sample(), 132, 40).0;
+        let wide_lines: Vec<&str> = wide.lines().collect();
+        let stations = wide_lines
+            .iter()
+            .position(|line| line.contains("Stations, page"))
+            .unwrap_or(usize::MAX);
+        let selected = wide_lines
+            .iter()
+            .position(|line| line.contains("Selected station:"))
+            .unwrap_or(0);
+        assert!(
+            stations.abs_diff(selected) <= 3,
+            "stations {stations} selected {selected}\n{wide}"
+        );
+    }
+
+    #[test]
+    fn sixty_columns_show_every_workspace_and_status_keeps_its_tail() {
+        let tabs = frame(&sample(), 60, 20).0;
+        assert!(
+            tabs.contains("[1 Exp] 2 Live 3 Rec 4 Mon 5 Find 6 Sys 7 Globe"),
+            "{tabs}"
+        );
+        let mut model = sample();
+        model.note_message(
+            "Disconnected. Capture was not stopped. Last snapshot kept. r reconnects. Cause: upstream closed the socket",
+        );
+        let (text, _) = frame(&model, 40, 16);
+        assert!(text.contains("upstream closed the socket"), "{text}");
+        let words: Vec<&str> = model.status().split_whitespace().collect();
+        for line in text.lines() {
+            if line.contains("Disconnected") || line.contains("socket") || line.contains("Cause") {
+                let trimmed = line.trim_end();
+                let last = trimmed.split_whitespace().next_back().unwrap_or("");
+                assert!(
+                    last == "..." || words.contains(&last),
+                    "status row ends mid-word: {trimmed}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn low_space_quota_appears_in_the_header() {
+        let mut model = sample();
+        let mut desk = sample_desk();
+        if let Some(quota) = desk.quota.as_mut() {
+            quota.available = 1;
+        }
+        model.apply_desk(desk);
+        let (text, _) = frame(&model, 80, 24);
+        assert!(text.contains("1 B free"), "{text}");
     }
 
     #[test]

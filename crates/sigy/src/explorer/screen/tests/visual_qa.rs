@@ -156,7 +156,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        75
+        77
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -343,8 +343,8 @@ fn essential_hints_fit_production_cells_at_minimum_and_normal_widths() {
         let mut model = sample();
         model.handle(Key::Char(workspace.digit()));
         let hint = super::super::compact_help(&model, 20);
-        assert!(ratatui::text::Line::raw(hint).width() <= 20);
-        assert!(frame(&model, 20, 8).0.contains(hint));
+        assert!(ratatui::text::Line::raw(hint.clone()).width() <= 20);
+        assert!(frame(&model, 20, 8).0.contains(&hint));
     }
     let mut globe = sample();
     globe.handle(Key::Char('7'));
@@ -353,7 +353,7 @@ fn essential_hints_fit_production_cells_at_minimum_and_normal_widths() {
         .lines()
         .find(|line| line.starts_with("Help:"))
         .unwrap_or("");
-    assert!(help.ends_with("q quit"));
+    assert!(help.ends_with("? more"));
     assert!(ratatui::text::Line::raw(help).width() <= 80);
     let mut context = catalog_sample();
     context.handle(Key::Enter);
@@ -504,7 +504,7 @@ fn visual_qa_gallery() -> Result<()> {
             manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome,"high_contrast":model.modes().emphasis.high()}));
         }
     }
-    assert!(manifest.len() <= 75);
+    assert!(manifest.len() <= 77);
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
@@ -625,6 +625,7 @@ fn cases() -> Result<Vec<Case>> {
     let mut keys = gallery_sample();
     keys.handle(Key::Char('?'));
     cases.push(("keys", keys, vec![(80, 24)]));
+    cases.push(("layout", gallery_sample(), vec![(60, 20), (90, 30)]));
     Ok(cases)
 }
 
