@@ -97,7 +97,11 @@ impl Endpoint {
 
     pub fn listen(&self, directory: &Path) -> Result<Listener> {
         let directory = control_directory(directory)?;
-        let options = ListenerOptions::new().name(socket_name(&self.nonce, &directory)?);
+        #[cfg(unix)]
+        let socket_directory = socket_directory(&directory, true)?;
+        #[cfg(not(unix))]
+        let socket_directory = directory.clone();
+        let options = ListenerOptions::new().name(socket_name(&self.nonce, &socket_directory)?);
         #[cfg(windows)]
         let options = {
             use interprocess::os::windows::{
@@ -113,7 +117,7 @@ impl Endpoint {
         #[cfg(unix)]
         let options = {
             use std::os::unix::fs::FileTypeExt;
-            let socket = directory.join("control.sock");
+            let socket = socket_directory.join("control.sock");
             match fs::symlink_metadata(&socket) {
                 Ok(metadata) if metadata.file_type().is_socket() => fs::remove_file(socket)?,
                 Ok(_) => return Err(Error::InvalidInput("control socket path")),
@@ -135,7 +139,7 @@ impl Endpoint {
             // Other users cannot traverse the verified 0700 library. Set the
             // socket mode before publishing or accepting any connection.
             fs::set_permissions(
-                directory.join("control.sock"),
+                socket_directory.join("control.sock"),
                 fs::Permissions::from_mode(0o600),
             )?;
         }
@@ -143,7 +147,12 @@ impl Endpoint {
     }
 
     pub async fn connect(&self, directory: &Path) -> Result<LocalStream> {
-        let stream = LocalStream::new(Stream::connect(socket_name(&self.nonce, directory)?).await?);
+        #[cfg(unix)]
+        let socket_directory = socket_directory(directory, false)?;
+        #[cfg(not(unix))]
+        let socket_directory = directory.to_path_buf();
+        let stream =
+            LocalStream::new(Stream::connect(socket_name(&self.nonce, &socket_directory)?).await?);
         #[cfg(windows)]
         if stream.get().peer_creds()?.pid() != Some(self.process_id) {
             return Err(Error::Protocol("service process identity mismatch"));
@@ -177,7 +186,25 @@ impl Drop for Publication {
     }
 }
 
-/// Windows uses a per-service named pipe; Unix uses one socket file in the library directory.
+#[cfg(unix)]
+fn socket_directory(library: &Path, create: bool) -> Result<PathBuf> {
+    let parent = crate::layout::socket_parent_for(library);
+    if parent == library || crate::layout::same_directory(&parent, library) {
+        return Ok(library.to_path_buf());
+    }
+    match fs::symlink_metadata(&parent) {
+        Ok(_) => control_directory(&parent),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && create => {
+            crate::layout::create_socket_directory(&parent)?;
+            control_directory(&parent)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Windows uses a per-service named pipe. Unix uses one socket file.
+/// The default Linux library uses `$XDG_RUNTIME_DIR/sigy` when that directory
+/// exists. Every other library keeps `control.sock` beside its catalog.
 #[cfg(windows)]
 fn socket_name(nonce: &str, _directory: &Path) -> Result<Name<'static>> {
     use interprocess::local_socket::GenericNamespaced;

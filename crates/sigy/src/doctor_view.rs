@@ -49,6 +49,27 @@ pub(crate) fn lines(view: &Snapshot, report: &DoctorReport, data_dir: Option<&st
     out
 }
 
+/// An existing Linux home library gets one attention check and a move command.
+/// An explicit `--data-dir` must not receive that command.
+pub(crate) fn note_legacy_library(directory: &std::path::Path, report: &mut DoctorReport) {
+    let Ok(home) = sigy_service::layout::home_dir() else {
+        return;
+    };
+    let places = sigy_service::layout::process_places(&home);
+    if !sigy_service::layout::is_legacy_default(directory, &places) {
+        return;
+    }
+    report.checks.insert(
+        0,
+        DoctorCheck {
+            name: "library location".into(),
+            state: DoctorState::Attention,
+            detail: "The library is still in the home directory.".into(),
+            command: Some("sigy init --move-xdg".into()),
+        },
+    );
+}
+
 pub(crate) fn failure_line(report: &DoctorReport, strict: bool, json: bool) -> Option<String> {
     let blocked = count(report, &DoctorState::Blocked);
     let attention = count(report, &DoctorState::Attention);
@@ -233,6 +254,7 @@ fn label(name: &str) -> String {
         "publisher_text" => "Publisher text",
         "captures" => "Captures",
         "recognition" => "Recognition",
+        "library location" => "Library",
         other => return other.replace('_', " "),
     }
     .to_owned()

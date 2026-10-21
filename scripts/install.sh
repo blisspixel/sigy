@@ -26,6 +26,43 @@ sigy_git() {
     fi
 }
 
+sigy_abs() {
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        *) printf '%s\n' "$2" ;;
+    esac
+}
+
+# Linux uses absolute XDG directories. An existing ~/.sigy/library keeps its
+# state and cache until `sigy init --move-xdg`. macOS stays in ~/.sigy.
+sigy_places() {
+    sigy_state_dir=$HOME/.sigy
+    sigy_cache_dir=$HOME/.sigy
+    if [ "$(uname -s)" != "Linux" ]; then
+        return
+    fi
+    data=$(sigy_abs "${XDG_DATA_HOME:-}" "$HOME/.local/share")
+    state=$(sigy_abs "${XDG_STATE_HOME:-}" "$HOME/.local/state")
+    cache=$(sigy_abs "${XDG_CACHE_HOME:-}" "$HOME/.cache")
+    xdg_library=0
+    if [ -d "$data/sigy/library" ] && [ ! -L "$data/sigy/library" ]; then
+        xdg_library=1
+    fi
+    if [ -d "$HOME/.sigy/library" ] && [ ! -L "$HOME/.sigy/library" ] && [ "$xdg_library" -eq 0 ]; then
+        return
+    fi
+    sigy_state_dir=$state/sigy
+    sigy_cache_dir=$cache/sigy
+    if [ -f "$HOME/.sigy/installed-commit" ] && [ ! -e "$sigy_state_dir/installed-commit" ]; then
+        sigy_state_dir=$HOME/.sigy
+    fi
+    if [ -d "$HOME/.sigy/src" ] && [ ! -L "$HOME/.sigy/src" ] && [ ! -e "$sigy_cache_dir/src" ]; then
+        sigy_cache_dir=$HOME/.sigy
+    fi
+}
+
+sigy_places
+
 sigy_check_managed_source() {
     origin=$(sigy_git -C "$root" config --local --get remote.origin.url) || {
         echo "Managed sigy source has no readable origin." >&2
@@ -57,7 +94,7 @@ else
         fi
     fi
     if [ -z "$root" ]; then
-        root=$HOME/.sigy/src
+        root=$sigy_cache_dir/src
         from_github=1
     else
         from_github=0
@@ -151,12 +188,12 @@ if [ -n "$commit" ]; then
 fi
 
 if [ -n "$commit" ]; then
-    mkdir -p "$HOME/.sigy"
-    printf '%s\n' "$commit" > "$HOME/.sigy/installed-commit"
+    mkdir -p "$sigy_state_dir"
+    printf '%s\n' "$commit" > "$sigy_state_dir/installed-commit"
     echo "Installed sigy at $commit."
 else
-    mkdir -p "$HOME/.sigy"
-    printf '\n' > "$HOME/.sigy/installed-commit"
+    mkdir -p "$sigy_state_dir"
+    printf '\n' > "$sigy_state_dir/installed-commit"
     echo "Installed sigy without a clean commit identity."
 fi
 echo "Check later with: sigy update --check"

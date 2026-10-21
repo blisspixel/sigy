@@ -9,7 +9,7 @@ Sigy is a development preview. The source installer has been exercised on Window
 - Enough free space for Rust dependencies and a source build. Recordings need additional space in a private library outside the checkout.
 - A trusted local FFmpeg executable for recording and playback. Sigy does not download FFmpeg. The current decoded-format evidence is one Windows run with FFmpeg 9.0.1, not a platform support matrix.
 
-Review the [PowerShell installer](../scripts/install.ps1) or [shell installer](../scripts/install.sh) before running a remote script. When run remotely, they obtain public `main` from [the repository](https://github.com/blisspixel/sigy). They build `crates/sigy` with `cargo install --locked --force` and record a clean checkout's commit under `~/.sigy/installed-commit`. They install a user-level command, not an operating-system service. A source build can take several minutes. The first shell may need to be reopened for Cargo's binary directory to appear on `PATH`.
+Review the [PowerShell installer](../scripts/install.ps1) or [shell installer](../scripts/install.sh) before running a remote script. When run remotely, they obtain public `main` from [the repository](https://github.com/blisspixel/sigy). They build `crates/sigy` with `cargo install --locked --force` and record a clean checkout's commit. Windows and macOS use `~/.sigy/installed-commit`. A new Linux install uses `$XDG_STATE_HOME/sigy/installed-commit` or `~/.local/state/sigy/installed-commit`. An existing `~/.sigy` install keeps its marker until `sigy init --move-xdg`. They install a user-level command, not an operating-system service. A source build can take several minutes. The first shell may need to be reopened for Cargo's binary directory to appear on `PATH`.
 
 ## Install from GitHub
 
@@ -54,7 +54,7 @@ sigy tui
 
 `init` creates the per-user library, starts the background service and prints the next steps. `--radio` explicitly requests one page of up to 100 stations from Radio Browser. It waits up to 15 seconds for the refresh; if it is still running, follow the printed status command before expecting stations in the explorer. A failed or interrupted refresh is reported as an error. Repeating setup preserves the library and reuses this first-use request without fetching twice. Seed a chosen page with `sigy init --radio --country Canada --tag jazz`. To request a fresh page later, use `sigy radio refresh --limit 100 --wait`; request IDs are automatic unless supplied explicitly.
 
-The default library is `%USERPROFILE%\.sigy\library` on Windows and `$HOME/.sigy/library` on macOS or Linux. You no longer need to repeat a path for this library. For a different location, pass `--data-dir` to each command:
+The default library is `%USERPROFILE%\.sigy\library` on Windows and `$HOME/.sigy/library` on macOS. A new Linux library is `$XDG_DATA_HOME/sigy/library` or `$HOME/.local/share/sigy/library`. An existing `$HOME/.sigy/library` on Linux stays until `sigy init --move-xdg`. You no longer need to repeat a path for this library. For a different location, pass `--data-dir` to each command:
 
 ```text
 sigy init --data-dir "PATH_TO_PRIVATE_LIBRARY" --radio

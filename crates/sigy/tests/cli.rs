@@ -60,6 +60,10 @@ fn update_help_needs_no_home_and_missing_default_guides_initialization() -> Test
         Command::new(env!("CARGO_BIN_EXE_sigy"))
             .env("USERPROFILE", &home)
             .env("HOME", &home)
+            .env_remove("XDG_DATA_HOME")
+            .env_remove("XDG_STATE_HOME")
+            .env_remove("XDG_CACHE_HOME")
+            .env_remove("XDG_RUNTIME_DIR")
             .current_dir(directory.path())
             .args(["library", "status"]),
     )?;
@@ -80,6 +84,10 @@ fn update_status_is_local_bounded_and_preserves_structured_data() -> TestResult 
             Command::new(env!("CARGO_BIN_EXE_sigy"))
                 .env("USERPROFILE", &home)
                 .env("HOME", &home)
+                .env_remove("XDG_DATA_HOME")
+                .env_remove("XDG_STATE_HOME")
+                .env_remove("XDG_CACHE_HOME")
+                .env_remove("XDG_RUNTIME_DIR")
                 .env("PATH", "")
                 .current_dir(directory.path())
                 .args(arguments),

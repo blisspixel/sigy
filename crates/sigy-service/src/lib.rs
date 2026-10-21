@@ -11,6 +11,7 @@ mod execution;
 mod fairness;
 pub mod guidance;
 pub mod languages;
+pub mod layout;
 pub mod library;
 mod local_stream;
 pub mod monitor;

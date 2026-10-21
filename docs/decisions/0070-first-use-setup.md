@@ -1,6 +1,6 @@
 # First-use setup
 
-Date: 2026-10-01. Status: implemented and locally verified; verification outcomes are recorded in [active work](../development/progress.md). Exact-commit hosted CI is required before source-only publication. Catalog schema and local IPC remain v43. This does not qualify a platform or exit a release stage.
+Date: 2026-10-01. Status: implemented and locally verified; verification outcomes are recorded in [active work](../development/progress.md). Exact-commit hosted CI is required before source-only publication. Catalog schema and local IPC remain v43. This does not qualify a platform or exit a release stage. The Linux default library in this decision is superseded by [Linux XDG library locations](0100-linux-xdg-libraries.md). Windows and macOS paths in this decision stay.
 
 ## Decision
 

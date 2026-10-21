@@ -54,7 +54,10 @@ Admin
   sigy provider  paid dispatch stays off
   sigy budget  the lifetime allowance
   sigy update  a newer source checkout
-Commands use ~/.sigy/library unless you pass --data-dir.
+A new Linux library uses the XDG data directory.
+Windows and macOS use ~/.sigy/library.
+An existing ~/.sigy/library on Linux stays.
+--data-dir selects another library.
 Guide:
   https://github.com/blisspixel/sigy/blob/main/docs/usage.md
 Exit codes
@@ -92,6 +95,9 @@ pub struct InitOptions {
     /// Prepare or inspect storage without starting a service or fetching a directory page.
     #[arg(long)]
     no_start: bool,
+    /// Move an existing Linux ~/.sigy/library into the XDG data directory.
+    #[arg(long, conflicts_with_all = ["radio", "no_start"])]
+    move_xdg: bool,
 }
 
 #[derive(Serialize)]
@@ -175,7 +181,7 @@ fn default_directory(home: Option<OsString>) -> Result<PathBuf> {
     let home = home.ok_or(
         "a nonempty absolute user home directory is required; supply --data-dir PATH explicitly",
     )?;
-    Ok(home.join(".sigy").join("library"))
+    Ok(sigy_service::layout::process_places(&home).library)
 }
 
 pub async fn execute(
@@ -184,6 +190,13 @@ pub async fn execute(
     json: bool,
     explicit: bool,
 ) -> Result<()> {
+    if options.move_xdg {
+        if explicit {
+            return Err("move the default library without --data-dir".into());
+        }
+        let library = sigy_service::layout::relocate_legacy_library()?;
+        return render_move(&mut io::stdout().lock(), &library, json);
+    }
     if options.radio {
         radio_request(options)?;
     }
@@ -311,6 +324,23 @@ async fn refresh_radio(directory: &Path, options: &InitOptions) -> Result<Snapsh
 }
 
 /// A canonical Windows path carries a verbatim prefix that people do not type.
+fn render_move(stdout: &mut impl Write, library: &Path, json: bool) -> Result<()> {
+    let shown = display_path(library);
+    if json {
+        serde_json::to_writer(
+            &mut *stdout,
+            &serde_json::json!({
+                "library": shown,
+                "moved": true,
+            }),
+        )?;
+        writeln!(stdout)?;
+        return Ok(());
+    }
+    writeln!(stdout, "Moved the library to {shown}.")?;
+    Ok(())
+}
+
 fn display_path(path: &Path) -> String {
     let text = path.display().to_string();
     if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
@@ -448,6 +478,7 @@ mod tests {
         library::Library,
         sources::NetworkScope,
     };
+    use std::path::Path;
     use std::{ffi::OsString, path::PathBuf, time::Duration};
 
     type Result = std::result::Result<(), Box<dyn std::error::Error>>;
@@ -475,6 +506,7 @@ mod tests {
         let mut options = InitOptions {
             radio: true,
             no_start: false,
+            move_xdg: false,
             country: "Canada".into(),
             tag: "jazz".into(),
         };
@@ -511,16 +543,30 @@ mod tests {
     fn user_home_keeps_unicode_and_spaces() -> Result {
         let temporary = tempfile::tempdir()?;
         let home = temporary.path().join("private home français");
+        std::fs::create_dir(&home)?;
         assert_eq!(
             default_directory(Some(home.as_os_str().to_owned()))?,
-            home.join(".sigy/library")
+            sigy_service::layout::process_places(&home).library
         );
+        let fresh = sigy_service::layout::places(&sigy_service::layout::Input {
+            home: &home,
+            data_home: None,
+            state_home: None,
+            cache_home: None,
+            legacy_library: false,
+            xdg_library: false,
+            linux: cfg!(target_os = "linux"),
+        });
+        assert!(fresh.library.starts_with(&home), "{:?}", fresh.library);
+        assert!(fresh.library.to_string_lossy().contains("français"));
         Ok(())
     }
 
     #[test]
     fn setup_flags_refuse_conflicts_and_allow_explicit_path_after_command() -> Result {
         assert!(Cli::try_parse_from(["sigy", "init", "--radio", "--no-start"]).is_err());
+        assert!(Cli::try_parse_from(["sigy", "init", "--move-xdg", "--radio"]).is_err());
+        assert!(Cli::try_parse_from(["sigy", "init", "--move-xdg", "--no-start"]).is_err());
         let mut cli = Cli::try_parse_from(["sigy", "init", "--data-dir", "chosen", "--no-start"])?;
         resolve_directory(&mut cli)?;
         assert_eq!(cli.data_dir, Some(PathBuf::from("chosen")));
@@ -528,6 +574,39 @@ mod tests {
             Cli::try_parse_from(["sigy", "--data-dir", "a", "init", "--data-dir", "b"])?;
         resolve_directory(&mut repeated)?;
         assert_eq!(repeated.data_dir, Some(PathBuf::from("b")));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn move_xdg_refuses_an_explicit_library() -> Result {
+        let options = InitOptions {
+            radio: false,
+            no_start: false,
+            move_xdg: true,
+            country: String::new(),
+            tag: String::new(),
+        };
+        let Err(error) = super::execute(Path::new("explicit"), &options, true, true).await else {
+            return Err("an explicit library is not moved".into());
+        };
+        assert!(error.to_string().contains("without --data-dir"), "{error}");
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[tokio::test]
+    async fn move_xdg_is_used_on_linux() -> Result {
+        let options = InitOptions {
+            radio: false,
+            no_start: false,
+            move_xdg: true,
+            country: String::new(),
+            tag: String::new(),
+        };
+        let Err(error) = super::execute(Path::new("unused"), &options, false, false).await else {
+            return Err("XDG move is Linux only".into());
+        };
+        assert!(error.to_string().contains("Linux"), "{error}");
         Ok(())
     }
 
@@ -610,6 +689,7 @@ mod tests {
             let options = InitOptions {
                 radio: true,
                 no_start: false,
+                move_xdg: false,
                 country: String::new(),
                 tag: String::new(),
             };
@@ -655,6 +735,7 @@ mod tests {
         let options = InitOptions {
             radio: true,
             no_start: false,
+            move_xdg: false,
             country: String::new(),
             tag: String::new(),
         };
@@ -703,6 +784,7 @@ mod tests {
                 &InitOptions {
                     radio: false,
                     no_start: true,
+                    move_xdg: false,
                     country: String::new(),
                     tag: String::new(),
                 },

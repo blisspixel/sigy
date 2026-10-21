@@ -19,9 +19,12 @@ pub(super) struct Receipt {
 }
 
 pub(super) fn path() -> Result<PathBuf, String> {
-    Ok(super::home_dir()
-        .map_err(str::to_owned)?
-        .join(".sigy/update-status.json"))
+    let home = sigy_service::layout::home_dir().map_err(str::to_owned)?;
+    Ok(sigy_service::layout::state_file(
+        &home,
+        &sigy_service::layout::process_places(&home),
+        "update-status.json",
+    ))
 }
 
 pub(super) fn write(receipt: &Receipt) -> Result<(), String> {

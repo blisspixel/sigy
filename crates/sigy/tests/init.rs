@@ -22,7 +22,11 @@ impl Sandbox {
         let root = tempfile::tempdir()?;
         let home = root.path().join("Home Québec 東京 with spaces");
         std::fs::create_dir(&home)?;
-        let library = home.join(".sigy").join("library");
+        let library = if cfg!(target_os = "linux") {
+            home.join(".local/share/sigy/library")
+        } else {
+            home.join(".sigy").join("library")
+        };
         Ok(Self {
             root,
             home,
@@ -37,6 +41,10 @@ impl Sandbox {
             .env("HOME", &self.home)
             .env_remove("HOMEDRIVE")
             .env_remove("HOMEPATH")
+            .env_remove("XDG_DATA_HOME")
+            .env_remove("XDG_STATE_HOME")
+            .env_remove("XDG_CACHE_HOME")
+            .env_remove("XDG_RUNTIME_DIR")
             .current_dir(self.root.path());
         command
     }
@@ -351,5 +359,53 @@ fn missing_backup_keeps_its_error_when_an_unused_library_is_supplied() -> TestRe
     assert!(!error.contains("sigy init"));
     assert!(!library.exists());
     assert!(!sandbox.home.join(".sigy").exists());
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn an_existing_home_library_stays_until_an_explicit_move() -> TestResult {
+    let mut sandbox = Sandbox::new()?;
+    let legacy = sandbox.home.join(".sigy/library");
+    std::fs::create_dir_all(&legacy)?;
+    std::fs::write(sandbox.home.join(".sigy/installed-commit"), b"abc\n")?;
+    sandbox.libraries[0] = legacy.clone();
+    let setup = sandbox.json(&["init", "--no-start"])?;
+    assert_eq!(
+        setup["library"],
+        legacy.canonicalize()?.to_string_lossy().as_ref()
+    );
+    let doctor = sandbox.json(&["doctor"])?;
+    let checks = doctor["doctor"]["checks"]
+        .as_array()
+        .ok_or("doctor checks")?;
+    let location = checks
+        .iter()
+        .find(|check| check["name"] == "library location")
+        .ok_or("legacy library note")?;
+    assert_eq!(location["state"], "attention");
+    assert_eq!(location["command"], "sigy init --move-xdg");
+    let moved = sandbox.json(&["init", "--move-xdg"])?;
+    assert_eq!(moved["moved"], true);
+    let destination = sandbox.home.join(".local/share/sigy/library");
+    assert_eq!(
+        moved["library"],
+        destination.canonicalize()?.to_string_lossy().as_ref()
+    );
+    assert!(!legacy.exists());
+    assert_eq!(
+        std::fs::read_to_string(sandbox.home.join(".local/state/sigy/installed-commit"))?,
+        "abc\n"
+    );
+    sandbox.libraries.push(destination);
+    let after = sandbox.json(&["doctor"])?;
+    let checks = after["doctor"]["checks"]
+        .as_array()
+        .ok_or("doctor checks")?;
+    assert!(
+        checks
+            .iter()
+            .all(|check| check["name"] != "library location")
+    );
     Ok(())
 }

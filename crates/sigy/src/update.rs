@@ -62,7 +62,11 @@ fn source_dir() -> Result<PathBuf, &'static str> {
     if let Some(path) = source_override(env::var_os("SIGY_SRC")) {
         return Ok(path);
     }
-    Ok(home_dir()?.join(".sigy").join("src"))
+    let home = sigy_service::layout::home_dir()?;
+    Ok(sigy_service::layout::source_checkout(
+        &home,
+        &sigy_service::layout::process_places(&home),
+    ))
 }
 
 fn source_override(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
@@ -70,7 +74,12 @@ fn source_override(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
 }
 
 fn record_path() -> Result<PathBuf, &'static str> {
-    Ok(home_dir()?.join(".sigy").join("installed-commit"))
+    let home = sigy_service::layout::home_dir()?;
+    Ok(sigy_service::layout::state_file(
+        &home,
+        &sigy_service::layout::process_places(&home),
+        "installed-commit",
+    ))
 }
 
 fn installed_commit() -> Option<String> {
@@ -417,7 +426,8 @@ pub(crate) fn run(
     if status_only {
         return receipt::status(json);
     }
-    let metadata = home_dir().map_err(str::to_owned)?.join(".sigy");
+    let home = sigy_service::layout::home_dir().map_err(str::to_owned)?;
+    let metadata = sigy_service::layout::process_places(&home).state_dir;
     fs::create_dir_all(&metadata)?;
     let _lock = lock::acquire(&metadata.join("install.lock"))?;
     let directory = source_dir().map_err(str::to_owned)?;

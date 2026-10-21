@@ -59,7 +59,7 @@ sigy play STATION_UUID
 
 Replace the placeholders with your decoder path and an ID from search. `sigy stop` stops the latest play. The explorer also offers `P`, confirmation with `y`, and `S` to stop; selection and Enter inspection remain passive. Delayed player status and metadata replies leave navigation, resize, stop and quit available. A late metadata reply cannot replace a newer view. Native key-to-frame timing remains unmeasured. Windows live output uses Sigy's bounded native helper; Linux needs a usable local FFmpeg output and delegated execution. Null decoding and a running receipt do not prove audible output.
 
-Sigy uses `~/.sigy/library` by default. Use `sigy init` for setup without a directory fetch, or `sigy init --no-start` to prepare storage without starting a service. See [first use](docs/install.md#first-use) for custom libraries and recording setup, and the [usage guide](docs/usage.md) for full commands.
+Windows and macOS use `~/.sigy/library` by default. A new Linux library uses the XDG data directory, and an existing `~/.sigy/library` stays until `sigy init --move-xdg`. Use `sigy init` for setup without a directory fetch, or `sigy init --no-start` to prepare storage without starting a service. See [first use](docs/install.md#first-use) for custom libraries and recording setup, and the [usage guide](docs/usage.md) for full commands.
 
 Your library and local processing stay on your machine by default. Paid processing: unavailable. The [progress record](docs/development/progress.md#tracked-intermittent-test-issues) keeps known faults and verification gaps visible.
 

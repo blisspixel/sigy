@@ -49,7 +49,9 @@ mod update;
     help_template = "{about}\n\n{before-help}\n\n{usage-heading} {usage}\n\n{options}"
 )]
 struct Cli {
-    /// Library directory. Defaults to ~/.sigy/library; MCP requires an explicit directory.
+    /// Library directory. Linux uses the XDG data directory for a new library.
+    /// An existing ~/.sigy/library stays. Windows and macOS use ~/.sigy/library.
+    /// MCP requires an explicit directory.
     #[arg(long, global = true, display_order = 900)]
     data_dir: Option<PathBuf>,
     #[arg(skip)]
@@ -406,9 +408,16 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     if matches!(cli.command, Command::Tui { .. }) {
         return Err("the list explorer starts before the service runtime".into());
     }
-    let Some(view) = Box::pin(execute(cli)).await? else {
+    let Some(mut view) = Box::pin(execute(cli)).await? else {
         return Ok(());
     };
+    if let Command::Doctor { .. } = &cli.command
+        && !cli.explicit_data_dir
+        && let Some(directory) = cli.data_dir.as_deref()
+        && let Some(report) = view.doctor.as_mut()
+    {
+        doctor_view::note_legacy_library(directory, report);
+    }
     let ink = presentation(cli);
     let mut stdout = io::stdout().lock();
     if write_document(&mut stdout, &view)? {
