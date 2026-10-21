@@ -24,6 +24,7 @@ use sigy_service::domain::geo::{
 };
 
 use super::state::{Coordinates, Explorer, StationRow};
+use crate::style::MapPalette;
 
 const COASTLINE: &str = include_str!("../../assets/ne_110m_coastline.txt");
 
@@ -44,37 +45,6 @@ fn coastline() -> &'static [Vec<LonLat>] {
             .filter(|line: &Vec<LonLat>| line.len() >= 2)
             .collect()
     })
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Palette {
-    coast: Color,
-    night: Color,
-    rim: Color,
-    station: Color,
-    selected: Color,
-}
-
-impl Palette {
-    const fn new(color: bool) -> Self {
-        if color {
-            Self {
-                coast: Color::Green,
-                night: Color::DarkGray,
-                rim: Color::Gray,
-                station: Color::Yellow,
-                selected: Color::Cyan,
-            }
-        } else {
-            Self {
-                coast: Color::Reset,
-                night: Color::Reset,
-                rim: Color::Reset,
-                station: Color::Reset,
-                selected: Color::Reset,
-            }
-        }
-    }
 }
 
 /// Counts shown in the header so a partial map is never mistaken for the world.
@@ -164,7 +134,7 @@ pub fn header_lines(model: &Explorer) -> Vec<Line<'static>> {
 /// assuming a terminal cell twice as tall as it is wide, as braille dots are 2 by 4.
 pub struct GlobeWidget<'a> {
     model: &'a Explorer,
-    palette: Palette,
+    palette: MapPalette,
 }
 
 impl<'a> GlobeWidget<'a> {
@@ -172,7 +142,7 @@ impl<'a> GlobeWidget<'a> {
     pub const fn new(model: &'a Explorer, color: bool) -> Self {
         Self {
             model,
-            palette: Palette::new(color),
+            palette: crate::style::map_palette(color),
         }
     }
 }
@@ -430,7 +400,7 @@ fn station_clusters(
     cells.into_values().collect()
 }
 
-fn draw_stations(ctx: &mut Context<'_>, model: &Explorer, view: &MapView, palette: Palette) {
+fn draw_stations(ctx: &mut Context<'_>, model: &Explorer, view: &MapView, palette: MapPalette) {
     let selected = model.selected().map(|row| row.id.as_str());
     for cluster in station_clusters(model.rows(), selected, *view) {
         let color = if cluster.selected {
@@ -453,6 +423,7 @@ fn draw_stations(ctx: &mut Context<'_>, model: &Explorer, view: &MapView, palett
 mod tests {
     use super::super::state::{DirectoryView, Effect, Health, Key, Link, Modes};
     use super::*;
+    use ratatui::style::Color;
 
     fn row(id: &str, longitude: f64, latitude: f64) -> StationRow {
         StationRow {
@@ -570,6 +541,7 @@ mod tests {
                 reduced_motion: true,
                 linear: false,
                 monochrome: true,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             0,
         );
@@ -636,6 +608,7 @@ mod tests {
                 reduced_motion: true,
                 linear: false,
                 monochrome: true,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             0,
         );
@@ -691,6 +664,7 @@ mod tests {
                 reduced_motion: true,
                 linear: false,
                 monochrome: true,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             1_790_279_058_731,
         );

@@ -21,7 +21,7 @@ pub(crate) use globe::utc_label;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{io::Write, path::Path};
 
-pub use state::Modes;
+pub use state::{Emphasis, Modes};
 
 use state::Explorer;
 

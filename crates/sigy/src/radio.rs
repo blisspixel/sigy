@@ -470,7 +470,7 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
             status.favorite_stations,
             ink.tint(
                 if status.stale_stations > 0 {
-                    Tone::Warn
+                    Tone::Attention
                 } else {
                     Tone::Plain
                 },
@@ -609,7 +609,7 @@ fn write_policies(
             "{}: every {hours} h | revision {} | {}",
             clean(&policy.id),
             policy.revision,
-            ink.tint(Tone::Warn, &next_due(policy.next_due_ms))
+            ink.tint(Tone::Attention, &next_due(policy.next_due_ms))
         )?;
         if let Some(refresh) = &policy.last_refresh {
             writeln!(
@@ -649,7 +649,7 @@ fn write_stations(
 ) -> io::Result<()> {
     for station in &page.entries {
         let favorite = if page.favorite_ids.contains(&station.id) {
-            ink.tint(Tone::Warn, " [favorite]")
+            ink.tint(Tone::Favorite, " [favorite]")
         } else {
             String::new()
         };

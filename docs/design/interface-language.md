@@ -1,6 +1,6 @@
 # Interface language
 
-Updated: 2026-10-21. Status: selected contract for the interface issues under [tracker 23](https://github.com/blisspixel/sigy/issues/23). The words stay authoritative. Color only reinforces them. This file records the rules those issues implement. Issue 25 applies the vocabulary, shared counts, compact USD and the recording timeline text. Color roles, layout, motion, the help overlay and exit codes still belong to the later issues. Nothing here grants network, playback, capture or spending authority.
+Updated: 2026-10-21. Status: selected contract for the interface issues under [tracker 23](https://github.com/blisspixel/sigy/issues/23). The words stay authoritative. Color only reinforces them. This file records the rules those issues implement. Issue 25 applies the vocabulary, shared counts, compact USD and the recording timeline text. Issue 24 applies the color roles, favorite and live markers, and high contrast. Layout, motion, the help overlay and exit codes still belong to the later issues. Nothing here grants network, playback, capture or spending authority.
 
 Low floor: a curious newcomer can turn the globe, pick a station and press play in the first minute. High ceiling: an analyst can trace any line to a field, a revision and an exact interval, and script all of it. Character: a calm, modern instrument with retro roots. The feel comes from real geography, real timelines and crisp alignment, with a few quiet flourishes that explain what changed.
 
@@ -53,7 +53,7 @@ Color the status word, dot or key letter, not the whole line. Bold marks the foc
 
 State mapping: `running`, `playing` and `recording` use `live`. `scheduled` and `queued` use `text`. `paused` and `stale` use `attention`. An unmeasured check says `not measured yet` and is not prefixed `ok`. The doctor JSON `state` enum stays as stored.
 
-These are the selected choices for issue 24: decision A option 1, decision B option 1, and decision T. Issue 24 implements the table. Until that lands, running work and favorites can still use the warning tone, and linear mode still forces monochrome.
+These are the selected choices for issue 24: decision A option 1, decision B option 1, and decision T. Issue 24 implements the table. Linear mode keeps these roles unless monochrome or `NO_COLOR` is also set. High contrast is the accessibility mode: failure and live keep their color, and other emphasis uses the terminal's default foreground.
 
 ## Glyphs
 

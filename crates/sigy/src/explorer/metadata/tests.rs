@@ -27,6 +27,7 @@ fn explorer() -> Explorer {
             reduced_motion: true,
             linear: true,
             monochrome: true,
+            emphasis: crate::explorer::state::Emphasis::Standard,
         },
         0,
     )

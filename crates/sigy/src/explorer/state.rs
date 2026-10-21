@@ -113,26 +113,68 @@ impl Focus {
     }
 }
 
+/// High contrast is an accessibility mode. It is not a second palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Emphasis {
+    Standard,
+    HighContrast,
+}
+
+impl Emphasis {
+    #[must_use]
+    pub const fn high(self) -> bool {
+        matches!(self, Self::HighContrast)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Modes {
     pub reduced_motion: bool,
     pub linear: bool,
     pub monochrome: bool,
+    pub emphasis: Emphasis,
 }
 
 impl Modes {
     #[must_use]
     pub fn resolve(reduced_motion: bool, linear: bool, monochrome: bool) -> Self {
+        Self::resolve_with(
+            reduced_motion,
+            linear,
+            monochrome,
+            Emphasis::Standard,
+            crate::style::ColorChoice::Auto,
+        )
+    }
+
+    #[must_use]
+    pub fn resolve_with(
+        reduced_motion: bool,
+        linear: bool,
+        monochrome: bool,
+        emphasis: Emphasis,
+        color: crate::style::ColorChoice,
+    ) -> Self {
+        let plain = match color {
+            crate::style::ColorChoice::Never => true,
+            crate::style::ColorChoice::Always => false,
+            crate::style::ColorChoice::Auto => crate::style::plain_requested(),
+        };
         Self {
             reduced_motion: reduced_motion || env_flag("SIGY_REDUCED_MOTION"),
             linear: linear || env_flag("SIGY_LINEAR"),
-            monochrome: monochrome || crate::style::plain_requested(),
+            monochrome: monochrome || env_flag("SIGY_MONOCHROME") || plain,
+            emphasis: if emphasis.high() || env_flag("SIGY_HIGH_CONTRAST") {
+                Emphasis::HighContrast
+            } else {
+                Emphasis::Standard
+            },
         }
     }
 }
 
 fn env_flag(name: &str) -> bool {
-    std::env::var(name).ok().as_deref() == Some("1")
+    crate::style::env_set(name)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1404,6 +1446,7 @@ mod tests {
             reduced_motion: true,
             linear: true,
             monochrome: true,
+            emphasis: crate::explorer::state::Emphasis::Standard,
         }
     }
 
@@ -1875,6 +1918,7 @@ mod tests {
                 reduced_motion: false,
                 linear: false,
                 monochrome: false,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             0,
         );

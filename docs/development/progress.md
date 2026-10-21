@@ -4,6 +4,14 @@ Updated: 2026-10-21. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-21 semantic color
+
+Issue 24 applies one role table to the CLI and the explorer. Live playback uses green. Failure stays red. The recording marker uses bright red. A favorite is a bright blue star, or an asterisk when linear or monochrome is on. Field labels use the default foreground. Accent marks the brand, the current workspace, the focused filter, and the selected map marker. High contrast is an accessibility mode: bold default foreground, failure and live color kept, and reversed focus. `--color=auto|always|never` follows `NO_COLOR`. Linear keeps color unless monochrome is also on. Any non-empty `SIGY_LINEAR`, `SIGY_MONOCHROME`, `SIGY_REDUCED_MOTION`, or `SIGY_HIGH_CONTRAST` selects that switch alone. Unmeasured doctor text says `not measured yet`. The JSON doctor state stays unchanged. The panel adds no color. The globe rim uses the muted slot, and the outline remains the braille circle. Schema v51 and local IPC v53 are unchanged.
+
+Official Catppuccin v1.8.0 Latte and Mocha hex values live in the gallery fixture. Reviewed contrast misses 4.5:1 for text and 3:1 for markers on Latte green (2.96), Latte yellow (2.31), and Mocha muted and rim (2.46). Locked ANSI slots stay. The gallery matrix is 74 frames, including linear-with-color and high contrast. The ignored gallery was not rendered, so its hashes were not regenerated.
+
+`cargo test -p sigy --bin sigy -- --test-threads=2` passed 317 ordinary tests and 6 ignored. `cargo test -p sigy --tests -- --test-threads=2` passed those binary tests again and 65 ordinary integration tests, with 20 ignored. `cargo clippy -p sigy --all-targets --locked -- -D warnings` passed. Full `cargo verify` was not re-run. Coverage was not re-run. `cargo verify-media` was not required. `cargo visual-qa` was not run. External spend remains USD 0. Hosted verify of this color change is not recorded yet.
+
 ## 2026-10-21 interface copy
 
 Issue 25 gives the CLI, explorer and panel one vocabulary and one cache count. Human budgets use compact exact USD without floating conversion. Recording timelines lead with `m:ss`, keep exact microseconds in the detail line, and use the same cell classification for block marks and the plain ASCII fallback. Command names stay. Globe key handling and live or favorite colors stay with issues 28 and 24. Schema v51 and local IPC v53 are unchanged.

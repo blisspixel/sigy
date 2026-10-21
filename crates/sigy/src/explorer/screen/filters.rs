@@ -54,7 +54,7 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
         } else {
             let room = usize::from(area.width).saturating_sub(30);
             lines.push(Line::from(super::paint(
-                super::color_on(model),
+                model,
                 if active { Tone::Accent } else { Tone::Plain },
                 format!("{label}[{}]", tail(&model.search.value(field), room)),
             )));

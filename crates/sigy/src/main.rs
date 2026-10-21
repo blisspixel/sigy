@@ -53,8 +53,45 @@ struct Cli {
     /// Emit a structured JSON response for automation.
     #[arg(long, global = true, display_order = 901)]
     json: bool,
+    /// When human output uses color: `auto`, `always`, or `never`.
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value_t = InkChoice::Auto,
+        display_order = 902
+    )]
+    color: InkChoice,
+    /// Bold emphasis. Failure and live roles keep their color when color is on.
+    #[arg(long, global = true, display_order = 903)]
+    high_contrast: bool,
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum InkChoice {
+    Auto,
+    Always,
+    Never,
+}
+
+impl From<InkChoice> for style::ColorChoice {
+    fn from(value: InkChoice) -> Self {
+        match value {
+            InkChoice::Auto => Self::Auto,
+            InkChoice::Always => Self::Always,
+            InkChoice::Never => Self::Never,
+        }
+    }
+}
+
+fn presentation(cli: &Cli) -> style::Ink {
+    if cli.color == InkChoice::Auto && !cli.high_contrast {
+        style::Ink::stdout(cli.json)
+    } else {
+        style::Ink::choose(cli.json, cli.color.into(), cli.high_contrast)
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -368,7 +405,7 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let Some(view) = Box::pin(execute(cli)).await? else {
         return Ok(());
     };
-    let ink = style::Ink::stdout(cli.json);
+    let ink = presentation(cli);
     let mut stdout = io::stdout().lock();
     if write_document(&mut stdout, &view)? {
         return Ok(());
@@ -530,7 +567,7 @@ fn render_doctor(
             "Service: process {} is {}.",
             service.process_id,
             if service.stopping {
-                ink.tint(style::Tone::Warn, "stopping")
+                ink.tint(style::Tone::Attention, "stopping")
             } else {
                 ink.tint(style::Tone::Ok, "running")
             }
@@ -538,15 +575,11 @@ fn render_doctor(
         None => writeln!(
             stdout,
             "Service: {}. Refresh, recording and processing need `sigy service start`{same}.",
-            ink.tint(style::Tone::Warn, "not running")
+            ink.tint(style::Tone::Attention, "not running")
         )?,
     }
     for check in &report.checks {
-        let (state, tone) = match check.state {
-            sigy_service::control::DoctorState::Ok => ("ok", style::Tone::Ok),
-            sigy_service::control::DoctorState::Attention => ("attention", style::Tone::Warn),
-            sigy_service::control::DoctorState::Blocked => ("blocked", style::Tone::Fail),
-        };
+        let (state, tone) = doctor_label(&check.state, &check.detail);
         writeln!(
             stdout,
             "{} {}: {}",
@@ -561,10 +594,24 @@ fn render_doctor(
     Ok(())
 }
 
+fn doctor_label(
+    state: &sigy_service::control::DoctorState,
+    detail: &str,
+) -> (&'static str, style::Tone) {
+    if detail.to_ascii_lowercase().contains("unmeasured") {
+        return ("not measured yet", style::Tone::Muted);
+    }
+    match state {
+        sigy_service::control::DoctorState::Ok => ("ok", style::Tone::Ok),
+        sigy_service::control::DoctorState::Attention => ("attention", style::Tone::Attention),
+        sigy_service::control::DoctorState::Blocked => ("blocked", style::Tone::Fail),
+    }
+}
+
 fn render_status(stdout: &mut impl Write, view: &Snapshot, ink: style::Ink) -> io::Result<()> {
     if let Some(service) = &view.service {
         let (state, tone) = if service.stopping {
-            ("stopping", style::Tone::Warn)
+            ("stopping", style::Tone::Attention)
         } else {
             ("running", style::Tone::Ok)
         };
@@ -605,13 +652,49 @@ fn render_status(stdout: &mut impl Write, view: &Snapshot, ink: style::Ink) -> i
             copy::compact_usd(&budget.reserved_usd),
             copy::compact_usd(&budget.available_usd),
             if budget.frozen {
-                ink.tint(style::Tone::Warn, " (frozen)")
+                ink.tint(style::Tone::Attention, " (frozen)")
             } else {
                 String::new()
             }
         )?;
     }
     Ok(())
+}
+
+fn open_explorer(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let Command::Tui {
+        query,
+        filters,
+        reduced_motion,
+        linear,
+        monochrome,
+        inspect,
+    } = &cli.command
+    else {
+        return Err("the list explorer starts before the service runtime".into());
+    };
+    let modes = if cli.high_contrast || cli.color != InkChoice::Auto {
+        let emphasis = if cli.high_contrast {
+            explorer::Emphasis::HighContrast
+        } else {
+            explorer::Emphasis::Standard
+        };
+        explorer::Modes::resolve_with(
+            *reduced_motion,
+            *linear,
+            *monochrome,
+            emphasis,
+            cli.color.into(),
+        )
+    } else {
+        explorer::Modes::resolve(*reduced_motion, *linear, *monochrome)
+    };
+    explorer::run(
+        library_dir(cli)?,
+        modes,
+        inspect.as_deref(),
+        filters.search_filter(query.as_deref())?,
+    )
 }
 
 fn main() -> ExitCode {
@@ -639,21 +722,8 @@ fn main() -> ExitCode {
         if matches!(cli.command, Command::Mcp) {
             return mcp::serve(library_dir(&cli)?);
         }
-        if let Command::Tui {
-            query,
-            filters,
-            reduced_motion,
-            linear,
-            monochrome,
-            inspect,
-        } = &cli.command
-        {
-            return explorer::run(
-                library_dir(&cli)?,
-                explorer::Modes::resolve(*reduced_motion, *linear, *monochrome),
-                inspect.as_deref(),
-                filters.search_filter(query.as_deref())?,
-            );
+        if matches!(cli.command, Command::Tui { .. }) {
+            return open_explorer(&cli);
         }
         #[cfg(unix)]
         service::detach_if_requested(&cli.command)?;
@@ -749,5 +819,27 @@ mod future_frame_tests {
             assert!(std::mem::size_of_val(&live) <= 16 * 1024);
         }
         Ok(())
+    }
+
+    #[test]
+    fn unmeasured_doctor_checks_are_not_prefixed_ok() {
+        let (label, tone) = super::doctor_label(
+            &sigy_service::control::DoctorState::Ok,
+            "Recognition pace is unmeasured.",
+        );
+        assert_eq!(label, "not measured yet");
+        assert_eq!(tone, crate::style::Tone::Muted);
+        let (ok, ok_tone) = super::doctor_label(
+            &sigy_service::control::DoctorState::Ok,
+            "The configured decoder is present.",
+        );
+        assert_eq!(ok, "ok");
+        assert_eq!(ok_tone, crate::style::Tone::Ok);
+        let (blocked, blocked_tone) = super::doctor_label(
+            &sigy_service::control::DoctorState::Blocked,
+            "Native containment is unavailable.",
+        );
+        assert_eq!(blocked, "blocked");
+        assert_eq!(blocked_tone, crate::style::Tone::Fail);
     }
 }

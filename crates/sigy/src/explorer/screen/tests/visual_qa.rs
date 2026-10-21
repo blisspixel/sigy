@@ -49,6 +49,7 @@ fn spin_render_measurement() -> Result<()> {
                 reduced_motion: false,
                 linear: false,
                 monochrome: false,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             10_000,
         );
@@ -151,7 +152,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        70
+        74
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -181,6 +182,8 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
         "search-pending",
         "catalog-stale",
         "linear",
+        "linear-color",
+        "high-contrast",
         "monochrome",
         "random-picked",
         "random-empty",
@@ -189,6 +192,145 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
         assert!(cases.iter().any(|(name, _, _)| *name == expected));
     }
     Ok(())
+}
+
+#[test]
+fn gallery_accent_stays_on_brand_workspace_and_focused_filters() -> Result<()> {
+    for (name, model, sizes) in cases()? {
+        if model.modes().monochrome || model.modes().emphasis.high() {
+            continue;
+        }
+        let Some(&(width, height)) = sizes
+            .iter()
+            .find(|(width, height)| *width >= 80 && *height >= 24)
+        else {
+            continue;
+        };
+        let mut terminal = Terminal::new(TestBackend::new(width, height))?;
+        terminal.draw(|ui| render(ui, &model))?;
+        let buffer = terminal.backend().buffer().clone();
+        for y in 0..height {
+            let mut text = String::new();
+            let mut accent = false;
+            for x in 0..width {
+                let cell = &buffer[(x, y)];
+                text.push_str(cell.symbol());
+                if cell.fg == Color::Cyan {
+                    accent = true;
+                }
+                assert!(
+                    !(matches!(cell.symbol(), "★" | "*") && cell.fg == Color::Yellow),
+                    "{name} paints a favorite with attention"
+                );
+            }
+            if !accent {
+                continue;
+            }
+            let workspace = text.contains("[1 ")
+                || text.contains("[2 ")
+                || text.contains("[3 ")
+                || text.contains("[4 ")
+                || text.contains("[5 ")
+                || text.contains("[6 ")
+                || text.contains("[7 ");
+            let focused_editor = name.starts_with("filters") || name == "countries";
+            // The globe selected marker uses the accent slot. It is the `@` on the map.
+            let selected_marker = text.contains('@');
+            assert!(
+                text.contains("Sigy") || workspace || focused_editor || selected_marker,
+                "{name} accent outside brand, workspace, focused filters, or the selected map marker: {text}"
+            );
+            assert!(
+                !text.contains("Help:"),
+                "{name} colors the help line: {text}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Official Catppuccin v1.8.0 hex, used only to review the locked ANSI slots.
+/// High contrast uses the theme default foreground. These ratios record the slots
+/// that miss 4.5:1 text contrast or 3:1 marker contrast on an example palette.
+#[test]
+fn example_palettes_keep_the_reviewed_contrast() {
+    let latte_base = "#eff1f5";
+    let mocha_base = "#1e1e2e";
+    let pairs = [
+        ("latte text", "#4c4f69", latte_base, 7.06, 4.5),
+        ("mocha text", "#cdd6f4", mocha_base, 11.34, 4.5),
+        ("latte fail", "#d20f39", latte_base, 4.80, 4.5),
+        ("mocha fail", "#f38ba8", mocha_base, 7.08, 4.5),
+        ("latte favorite", "#456eff", latte_base, 3.77, 3.0),
+        ("mocha favorite", "#74a8fc", mocha_base, 6.83, 3.0),
+        ("latte accent", "#179299", latte_base, 3.31, 3.0),
+        ("mocha accent", "#94e2d5", mocha_base, 11.01, 3.0),
+        ("latte record", "#de293e", latte_base, 4.13, 3.0),
+        ("mocha record", "#f37799", mocha_base, 6.18, 3.0),
+        ("mocha live", "#a6e3a1", mocha_base, 11.03, 4.5),
+        ("mocha attention", "#f9e2af", mocha_base, 12.91, 4.5),
+    ];
+    for (name, foreground, background, expected, floor) in pairs {
+        let ratio = contrast(foreground, background);
+        assert!(
+            (ratio - expected).abs() < 0.02,
+            "{name} measured {ratio:.2}, reviewed {expected:.2}"
+        );
+        assert!(ratio + 0.001 >= floor, "{name} {ratio:.2} is below {floor}");
+    }
+    let misses = [
+        ("latte live", "#40a02b", latte_base, 2.96),
+        ("latte attention", "#df8e1d", latte_base, 2.31),
+        ("mocha muted", "#585b70", mocha_base, 2.46),
+        ("mocha rim", "#585b70", mocha_base, 2.46),
+    ];
+    for (name, foreground, background, expected) in misses {
+        let ratio = contrast(foreground, background);
+        assert!(
+            (ratio - expected).abs() < 0.02,
+            "{name} measured {ratio:.2}, reviewed {expected:.2}"
+        );
+        assert!(
+            ratio < 3.0,
+            "{name} was expected to miss 3.0 and measured {ratio:.2}"
+        );
+    }
+}
+
+fn contrast(foreground: &str, background: &str) -> f64 {
+    let (lighter, darker) = {
+        let left = luminance(foreground);
+        let right = luminance(background);
+        if left >= right {
+            (left, right)
+        } else {
+            (right, left)
+        }
+    };
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+fn luminance(hex: &str) -> f64 {
+    let bytes = hex_channel(hex);
+    let channel = |value: u8| {
+        let scaled = f64::from(value) / 255.0;
+        if scaled <= 0.04045 {
+            scaled / 12.92
+        } else {
+            ((scaled + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(bytes[0]) + 0.7152 * channel(bytes[1]) + 0.0722 * channel(bytes[2])
+}
+
+fn hex_channel(hex: &str) -> [u8; 3] {
+    let hex = hex.trim_start_matches('#');
+    let value = u32::from_str_radix(hex, 16).unwrap_or(0);
+    [
+        u8::try_from((value >> 16) & 0xff).unwrap_or(0),
+        u8::try_from((value >> 8) & 0xff).unwrap_or(0),
+        u8::try_from(value & 0xff).unwrap_or(0),
+    ]
 }
 
 #[test]
@@ -355,10 +497,10 @@ fn visual_qa_gallery() -> Result<()> {
                 "<section><h2>{stem}</h2><a href=\"{stem}.json\">Cell JSON</a><br><img alt=\"{}\" src=\"{stem}.svg\"></section>",
                 escape(&stem)
             )?;
-            manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome}));
+            manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome,"high_contrast":model.modes().emphasis.high()}));
         }
     }
-    assert!(manifest.len() <= 70);
+    assert!(manifest.len() <= 74);
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
@@ -446,12 +588,35 @@ fn cases() -> Result<Vec<Case>> {
                 reduced_motion: true,
                 linear,
                 monochrome: true,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             10_000,
         );
         model.apply_desk(sample_desk());
         cases.push((name, model, vec![(80, 24), (132, 40)]));
     }
+    let mut linear_color = Explorer::new(
+        Modes {
+            reduced_motion: true,
+            linear: true,
+            monochrome: false,
+            emphasis: crate::explorer::state::Emphasis::Standard,
+        },
+        10_000,
+    );
+    linear_color.apply_desk(sample_desk());
+    cases.push(("linear-color", linear_color, vec![(80, 24), (132, 40)]));
+    let mut high_contrast = Explorer::new(
+        Modes {
+            reduced_motion: true,
+            linear: false,
+            monochrome: false,
+            emphasis: crate::explorer::state::Emphasis::HighContrast,
+        },
+        10_000,
+    );
+    high_contrast.apply_desk(sample_desk());
+    cases.push(("high-contrast", high_contrast, vec![(80, 24), (132, 40)]));
     append_random_cases(&mut cases)?;
     Ok(cases)
 }
@@ -473,6 +638,7 @@ fn append_random_cases(cases: &mut Vec<Case>) -> Result<()> {
                 reduced_motion: true,
                 linear: false,
                 monochrome,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             1000,
         );
@@ -568,6 +734,7 @@ fn gallery_sample() -> Explorer {
             reduced_motion: true,
             linear: false,
             monochrome: false,
+            emphasis: crate::explorer::state::Emphasis::Standard,
         },
         10_000,
     );

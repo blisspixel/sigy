@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use super::{color_on, connection_line, explore_lines, paint};
+use super::{connection_line, explore_lines, paint};
 use crate::{
     explorer::{state::Explorer, text::sanitize},
     style::Tone,
@@ -28,7 +28,7 @@ pub(super) fn render(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
     .split(area);
     let title = if narrow {
         ratatui::text::Line::from(paint(
-            color_on(model),
+            model,
             Tone::Accent,
             if model.restart_required() {
                 "Sigy | changed"
@@ -132,11 +132,7 @@ fn footer(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
         Paragraph::new(
             help.lines()
                 .map(|line| {
-                    ratatui::text::Line::from(paint(
-                        color_on(model),
-                        Tone::Accent,
-                        sanitize(line, 160),
-                    ))
+                    ratatui::text::Line::from(paint(model, Tone::Plain, sanitize(line, 160)))
                 })
                 .collect::<Vec<_>>(),
         ),

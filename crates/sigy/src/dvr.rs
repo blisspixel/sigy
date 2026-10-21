@@ -303,7 +303,7 @@ pub fn render_policy(writer: &mut impl Write, policy: &DvrStatus, ink: Ink) -> i
         } else {
             format!(
                 "{}. Set it with dvr configure --decoder ABSOLUTE_PATH_TO_FFMPEG",
-                ink.tint(Tone::Warn, "not configured")
+                ink.tint(Tone::Attention, "not configured")
             )
         }
     )
@@ -387,7 +387,7 @@ pub fn render_records(writer: &mut impl Write, page: &RecordingPage, ink: Ink) -
             writeln!(
                 writer,
                 "  {}",
-                ink.tint(Tone::Warn, "Open tail: visible, not readable.")
+                ink.tint(Tone::Attention, "Open tail: visible, not readable.")
             )?;
         }
     }

@@ -10,6 +10,7 @@ fn model(reduced_motion: bool) -> Explorer {
             reduced_motion,
             linear: false,
             monochrome: true,
+            emphasis: crate::explorer::state::Emphasis::Standard,
         },
         1000,
     );
@@ -108,6 +109,7 @@ fn random_jump_stops_enabled_spin_before_replacing_the_camera() -> TestResult {
             reduced_motion: false,
             monochrome: false,
             linear: false,
+            emphasis: crate::explorer::state::Emphasis::Standard,
         },
         1000,
     );

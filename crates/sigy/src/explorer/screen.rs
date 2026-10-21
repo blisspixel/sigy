@@ -2,7 +2,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 mod context;
@@ -311,7 +311,9 @@ fn focus_style(model: &Explorer, focused: bool) -> Style {
     if !focused || model.modes().linear {
         return Style::default();
     }
-    if model.modes().monochrome {
+    // High contrast uses reverse video for focus, the same signal as monochrome.
+    // Color modes use bold so a reversed yellow or green cell does not become a block.
+    if model.modes().monochrome || model.modes().emphasis.high() {
         Style::default().add_modifier(Modifier::REVERSED)
     } else {
         Style::default().add_modifier(Modifier::BOLD)
@@ -319,41 +321,102 @@ fn focus_style(model: &Explorer, focused: bool) -> Style {
 }
 
 fn color_on(model: &Explorer) -> bool {
-    !model.modes().monochrome && !model.modes().linear
+    !model.modes().monochrome
+}
+
+/// Unicode markers stay off in linear and monochrome modes.
+/// `NO_COLOR` and `TERM=dumb` select monochrome through `Modes::resolve_with`.
+fn marker_glyphs(model: &Explorer) -> bool {
+    !model.modes().linear && !model.modes().monochrome
 }
 
 fn plain(text: &str) -> Line<'static> {
     Line::from(text.to_owned())
 }
 
-fn paint(color: bool, tone: Tone, text: impl Into<String>) -> Span<'static> {
+fn paint(model: &Explorer, tone: Tone, text: impl Into<String>) -> Span<'static> {
     let text = text.into();
-    if !color || tone == Tone::Plain {
+    let color = color_on(model);
+    let high = model.modes().emphasis.high();
+    if (tone == Tone::Plain || !color) && !high {
         return Span::raw(text);
     }
-    let mut style = Style::default().fg(tone_color(tone));
-    if tone == Tone::Accent {
+    if high && !color {
+        return if matches!(tone, Tone::Plain | Tone::Muted) {
+            Span::raw(text)
+        } else {
+            Span::styled(text, Style::default().add_modifier(Modifier::BOLD))
+        };
+    }
+    if high {
+        return match tone {
+            Tone::Plain | Tone::Muted => Span::raw(text),
+            Tone::Fail | Tone::Live | Tone::Record => Span::styled(
+                text,
+                Style::default()
+                    .fg(crate::style::role_color(tone))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Tone::Accent | Tone::Attention | Tone::Ok | Tone::Favorite => {
+                Span::styled(text, Style::default().add_modifier(Modifier::BOLD))
+            }
+        };
+    }
+    let mut style = Style::default().fg(crate::style::role_color(tone));
+    if matches!(tone, Tone::Accent | Tone::Attention) {
         style = style.add_modifier(Modifier::BOLD);
     }
     Span::styled(text, style)
 }
 
-fn tone_color(tone: Tone) -> Color {
-    match tone {
-        Tone::Plain => Color::Reset,
-        Tone::Accent => Color::Cyan,
-        Tone::Ok => Color::Green,
-        Tone::Warn => Color::Yellow,
-        Tone::Fail => Color::Red,
-        Tone::Muted => Color::DarkGray,
+fn favorite_mark(model: &Explorer, favorite: bool) -> Span<'static> {
+    if !favorite {
+        return Span::raw(" ".repeat(9));
     }
+    let glyph = if marker_glyphs(model) { " ★" } else { " *" };
+    let width = Line::raw(glyph).width();
+    paint(
+        model,
+        Tone::Favorite,
+        format!("{glyph}{}", " ".repeat(9usize.saturating_sub(width))),
+    )
+}
+
+fn live_prefix(model: &Explorer, state: &str) -> Option<Span<'static>> {
+    if !is_live_state(state) {
+        return None;
+    }
+    let glyph = if marker_glyphs(model) {
+        "● "
+    } else {
+        "(live) "
+    };
+    Some(paint(model, Tone::Live, glyph))
+}
+
+fn record_suffix(model: &Explorer, state: &str) -> Option<Span<'static>> {
+    if !is_live_state(state) {
+        return None;
+    }
+    let glyph = if marker_glyphs(model) {
+        " ● REC"
+    } else {
+        " REC"
+    };
+    Some(paint(model, Tone::Record, glyph))
+}
+
+fn is_live_state(state: &str) -> bool {
+    matches!(
+        state.trim().to_ascii_lowercase().as_str(),
+        "running" | "playing" | "recording"
+    )
 }
 
 fn connection_line(model: &Explorer, compact: bool) -> Line<'static> {
-    let color = color_on(model);
     let (link, tone) = match model.link() {
         crate::explorer::state::Link::LocalCatalog => {
-            ("no service, local catalog".to_owned(), Tone::Warn)
+            ("no service, local catalog".to_owned(), Tone::Attention)
         }
         crate::explorer::state::Link::Service {
             process_id,
@@ -362,7 +425,7 @@ fn connection_line(model: &Explorer, compact: bool) -> Line<'static> {
         crate::explorer::state::Link::Service {
             process_id,
             stopping: true,
-        } => (format!("service {process_id} stopping"), Tone::Warn),
+        } => (format!("service {process_id} stopping"), Tone::Attention),
         crate::explorer::state::Link::Disconnected => (
             format!("disconnected, snapshot {}", model.snapshot_age()),
             Tone::Fail,
@@ -371,11 +434,11 @@ fn connection_line(model: &Explorer, compact: bool) -> Line<'static> {
     let motion = on_off(model.modes().reduced_motion);
     let linear = on_off(model.modes().linear);
     let mono = on_off(model.modes().monochrome);
-    let mut spans = vec![paint(color, Tone::Accent, "Sigy")];
+    let mut spans = vec![paint(model, Tone::Accent, "Sigy")];
     if compact {
         // The compact layout has no tab bar, so the title names the workspace.
         spans.push(paint(
-            color,
+            model,
             Tone::Accent,
             format!(
                 " [{} {}]",
@@ -384,14 +447,14 @@ fn connection_line(model: &Explorer, compact: bool) -> Line<'static> {
             ),
         ));
     }
+    let mut mode_line = format!(" | reduced motion {motion} | linear {linear} | mono {mono}");
+    if model.modes().emphasis.high() {
+        mode_line.push_str(" | high contrast on");
+    }
     spans.extend([
-        paint(color, Tone::Plain, " | "),
-        paint(color, tone, link),
-        paint(
-            color,
-            Tone::Muted,
-            format!(" | reduced motion {motion} | linear {linear} | mono {mono}"),
-        ),
+        paint(model, Tone::Plain, " | "),
+        paint(model, tone, link),
+        paint(model, Tone::Muted, mode_line),
     ]);
     Line::from(spans)
 }
@@ -401,11 +464,10 @@ fn on_off(enabled: bool) -> &'static str {
 }
 
 fn workspace_line(model: &Explorer) -> Line<'static> {
-    let color = color_on(model);
     let mut spans = Vec::new();
     for (index, workspace) in Workspace::ALL.into_iter().enumerate() {
         if index > 0 {
-            spans.push(paint(color, Tone::Plain, " "));
+            spans.push(paint(model, Tone::Plain, " "));
         }
         let current = workspace == model.workspace();
         let label = format!("{} {}", workspace.digit(), workspace.label());
@@ -417,13 +479,12 @@ fn workspace_line(model: &Explorer) -> Line<'static> {
         } else {
             Tone::Muted
         };
-        spans.push(paint(color, tone, label));
+        spans.push(paint(model, tone, label));
     }
     Line::from(spans)
 }
 
 fn cache_line(model: &Explorer) -> Line<'static> {
-    let color = color_on(model);
     let Some(directory) = model.directory() else {
         return plain("Cache: not read yet | Last fetch: none | Favorites: unknown");
     };
@@ -431,7 +492,7 @@ fn cache_line(model: &Explorer) -> Line<'static> {
         return plain("Cache statistics unobserved | r reload");
     }
     let mut spans = vec![paint(
-        color,
+        model,
         Tone::Plain,
         format!(
             "Cache: {} | ",
@@ -444,28 +505,19 @@ fn cache_line(model: &Explorer) -> Line<'static> {
     match directory.refresh.as_ref() {
         Some(refresh) => {
             let state = sanitize(&refresh.state, 16);
-            spans.push(paint(color, Tone::Plain, "Last fetch: "));
-            spans.push(paint(color, tone_for_state(&state), state));
+            spans.push(paint(model, Tone::Plain, "Last fetch: "));
+            spans.push(paint(model, tone_for_state(&state), state));
             spans.push(paint(
-                color,
+                model,
                 Tone::Muted,
                 format!(" {}", clip(&refresh.id, 24)),
             ));
         }
-        None => spans.push(paint(color, Tone::Plain, "Last fetch: none")),
+        None => spans.push(paint(model, Tone::Plain, "Last fetch: none")),
     }
     let favorites = directory.favorite_stations;
-    let favorite_tone = if favorites > 0 {
-        Tone::Warn
-    } else {
-        Tone::Plain
-    };
-    spans.push(paint(color, Tone::Plain, " | "));
-    spans.push(paint(
-        color,
-        favorite_tone,
-        format!("Favorites: {favorites}"),
-    ));
+    spans.push(paint(model, Tone::Plain, " | "));
+    spans.push(paint(model, Tone::Plain, format!("Favorites: {favorites}")));
     Line::from(spans)
 }
 
@@ -475,11 +527,10 @@ fn search_lines(model: &Explorer) -> Vec<Line<'static>> {
             "Findings: inspect one stored citation by name. Listing is not available yet.",
         )];
     }
-    let color = color_on(model);
     let mut spans = vec![
-        paint(color, Tone::Accent, "Search: ["),
+        paint(model, Tone::Plain, "Search: ["),
         paint(
-            color,
+            model,
             Tone::Plain,
             if model.focus() == Focus::Search {
                 model.query()
@@ -488,14 +539,14 @@ fn search_lines(model: &Explorer) -> Vec<Line<'static>> {
             }
             .to_owned(),
         ),
-        paint(color, Tone::Plain, "]"),
+        paint(model, Tone::Plain, "]"),
     ];
     if model.favorites_only() {
-        spans.push(paint(color, Tone::Warn, " favorites"));
+        spans.push(paint(model, Tone::Favorite, " favorites"));
     }
     if matches!(model.workspace(), Workspace::Explore | Workspace::Globe) {
         spans.push(paint(
-            color,
+            model,
             Tone::Muted,
             format!(
                 " | {} | {} | snapshot {}",
@@ -515,7 +566,6 @@ fn search_lines(model: &Explorer) -> Vec<Line<'static>> {
 }
 
 fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
-    let color = color_on(model);
     if model.workspace() == Workspace::Findings {
         return vec![
             plain("Stored citations: named lookup, / edits MONITOR FINDING."),
@@ -554,28 +604,28 @@ fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
     let Some(row) = model.selected() else {
         return vec![
             Line::from(vec![
-                paint(color, Tone::Accent, "Selected station: "),
-                paint(color, Tone::Plain, "none"),
+                paint(model, Tone::Plain, "Selected station: "),
+                paint(model, Tone::Plain, "none"),
             ]),
             Line::from(vec![
-                paint(color, Tone::Plain, "Directory health: "),
-                paint(color, tone_for_state("unknown"), "unknown"),
+                paint(model, Tone::Plain, "Directory health: "),
+                paint(model, tone_for_state("unknown"), "unknown"),
             ]),
             Line::from(vec![
-                paint(color, Tone::Plain, "Directory languages: "),
-                paint(color, Tone::Plain, "unknown"),
+                paint(model, Tone::Plain, "Directory languages: "),
+                paint(model, Tone::Plain, "unknown"),
             ]),
         ];
     };
     let mut health = vec![
-        paint(color, Tone::Plain, "Directory health: "),
+        paint(model, Tone::Plain, "Directory health: "),
         paint(
-            color,
+            model,
             tone_for_state(row.directory_health.label()),
             row.directory_health.label(),
         ),
         paint(
-            color,
+            model,
             Tone::Plain,
             match age_label(row.observed_ms, model.now_ms()).as_str() {
                 "unknown" => " | observed at an unknown time".to_owned(),
@@ -584,18 +634,18 @@ fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
         ),
     ];
     if row.hls {
-        health.push(paint(color, Tone::Plain, " | directory marks HLS"));
+        health.push(paint(model, Tone::Plain, " | directory marks HLS"));
     }
     vec![
         Line::from(vec![
-            paint(color, Tone::Accent, "Selected station: "),
-            paint(color, Tone::Plain, sanitize(&row.name, 60)),
+            paint(model, Tone::Plain, "Selected station: "),
+            paint(model, Tone::Plain, sanitize(&row.name, 60)),
         ]),
         Line::from(health),
         Line::from(vec![
-            paint(color, Tone::Plain, "Directory languages: "),
+            paint(model, Tone::Plain, "Directory languages: "),
             paint(
-                color,
+                model,
                 Tone::Plain,
                 known(&sanitize(&row.directory_languages, 60)).to_owned(),
             ),
@@ -611,26 +661,28 @@ fn identity_primary(model: &Explorer) -> Line<'static> {
 }
 
 fn playback_line(model: &Explorer) -> Line<'static> {
-    let color = color_on(model);
     let Some(session) = model.playback() else {
         return Line::from(vec![
-            paint(color, Tone::Accent, "Listen session: "),
-            paint(color, Tone::Plain, "none"),
+            paint(model, Tone::Plain, "Listen session: "),
+            paint(model, Tone::Plain, "none"),
         ]);
     };
     let format = session.format.as_deref().unwrap_or("unknown");
     let state = sanitize(&session.state, 16);
-    let mut spans = vec![
-        paint(color, Tone::Accent, "Listen session: "),
-        paint(color, tone_for_state(&state), state),
-        paint(color, Tone::Plain, format!(" format {format} ")),
-        paint(color, Tone::Muted, sanitize(&session.id, 24)),
-        paint(color, Tone::Plain, " revision "),
-        paint(color, Tone::Muted, sanitize(&session.source_revision, 24)),
-    ];
+    let mut spans = vec![paint(model, Tone::Plain, "Listen session: ")];
+    if let Some(marker) = live_prefix(model, &state) {
+        spans.push(marker);
+    }
+    spans.extend([
+        paint(model, tone_for_state(&state), state),
+        paint(model, Tone::Plain, format!(" format {format} ")),
+        paint(model, Tone::Muted, sanitize(&session.id, 24)),
+        paint(model, Tone::Plain, " revision "),
+        paint(model, Tone::Muted, sanitize(&session.source_revision, 24)),
+    ]);
     if let Some(detail) = session.failure.as_deref() {
         spans.push(paint(
-            color,
+            model,
             Tone::Fail,
             format!(" failure {}", sanitize(detail, 40)),
         ));
@@ -639,39 +691,41 @@ fn playback_line(model: &Explorer) -> Line<'static> {
 }
 
 fn recording_line(model: &Explorer) -> Line<'static> {
-    let color = color_on(model);
     let Some(recording) = model
         .recordings()
         .iter()
         .find(|recording| recording.active())
     else {
         return Line::from(vec![
-            paint(color, Tone::Accent, "Recording: "),
-            paint(color, Tone::Plain, "none"),
+            paint(model, Tone::Plain, "Recording: "),
+            paint(model, Tone::Plain, "none"),
         ]);
     };
     let state = sanitize(&recording.state, 16);
-    Line::from(vec![
-        paint(color, Tone::Accent, "Recording: "),
-        paint(color, Tone::Muted, sanitize(&recording.id, 24)),
-        paint(color, Tone::Plain, " "),
-        paint(color, tone_for_state(&state), state),
-        paint(color, Tone::Plain, " continues in the service"),
-    ])
+    let mut spans = vec![
+        paint(model, Tone::Plain, "Recording: "),
+        paint(model, Tone::Muted, sanitize(&recording.id, 24)),
+        paint(model, Tone::Plain, " "),
+        paint(model, tone_for_state(&state), state.clone()),
+    ];
+    if let Some(marker) = record_suffix(model, &state) {
+        spans.push(marker);
+    }
+    spans.push(paint(model, Tone::Plain, " continues in the service"));
+    Line::from(spans)
 }
 
 fn quota_line(model: &Explorer) -> Line<'static> {
-    let color = color_on(model);
     let Some(quota) = model.quota() else {
         return Line::from(vec![
-            paint(color, Tone::Accent, "Quota: "),
-            paint(color, Tone::Plain, "unknown"),
+            paint(model, Tone::Plain, "Quota: "),
+            paint(model, Tone::Plain, "unknown"),
         ]);
     };
     Line::from(vec![
-        paint(color, Tone::Accent, "Quota: "),
+        paint(model, Tone::Plain, "Quota: "),
         paint(
-            color,
+            model,
             Tone::Plain,
             format!(
                 "{} charged, {} reserved, {} available of {}",
@@ -746,7 +800,6 @@ fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
 }
 
 fn unavailable_lines(model: &Explorer) -> Vec<Line<'static>> {
-    let color = color_on(model);
     let text = match model.workspace() {
         Workspace::Findings => {
             "Stored findings: use sigy monitor finding MONITOR FINDING show. Listing is pending."
@@ -758,13 +811,12 @@ fn unavailable_lines(model: &Explorer) -> Vec<Line<'static>> {
         | Workspace::Globe
         | Workspace::System => "This workspace has no operation yet.",
     };
-    vec![Line::from(paint(color, Tone::Muted, text))]
+    vec![Line::from(paint(model, Tone::Muted, text))]
 }
 
 /// The station list fills its area. Columns align by terminal cell width, and the
 /// selected row is reversed while the list has focus, so selection never relies on color.
 fn explore_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static>> {
-    let color = color_on(model);
     if model.rows().is_empty() {
         return empty_explore(model);
     }
@@ -791,38 +843,34 @@ fn explore_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'sta
     if columns.id {
         header.push_str(" | station ID");
     }
-    let mut lines = vec![Line::from(paint(color, Tone::Muted, header))];
+    let mut lines = vec![Line::from(paint(model, Tone::Muted, header))];
     let window = height.saturating_sub(1).max(1);
     let start = visible_start(model.selection(), model.rows().len(), window);
     let focused = model.focus() == Focus::Results && !model.modes().linear;
     for (offset, row) in model.rows().iter().enumerate().skip(start).take(window) {
         let selected = offset == model.selection();
         let mut spans = vec![
-            paint(color, Tone::Accent, if selected { "> " } else { "  " }),
-            paint(color, Tone::Plain, fit(&row.name, columns.name)),
-            if row.favorite {
-                paint(color, Tone::Warn, " Favorite")
-            } else {
-                Span::raw("         ")
-            },
-            paint(color, Tone::Plain, " | "),
+            paint(model, Tone::Plain, if selected { "> " } else { "  " }),
+            paint(model, Tone::Plain, fit(&row.name, columns.name)),
+            favorite_mark(model, row.favorite),
+            paint(model, Tone::Plain, " | "),
             paint(
-                color,
+                model,
                 tone_for_state(row.directory_health.label()),
                 fit(row.directory_health.label(), 16),
             ),
         ];
         if columns.languages {
-            spans.push(paint(color, Tone::Plain, " | "));
+            spans.push(paint(model, Tone::Plain, " | "));
             spans.push(paint(
-                color,
+                model,
                 Tone::Plain,
                 fit(known(&row.directory_languages), 19),
             ));
         }
         if columns.id {
-            spans.push(paint(color, Tone::Plain, " | "));
-            spans.push(paint(color, Tone::Muted, sanitize(&row.id, 36)));
+            spans.push(paint(model, Tone::Plain, " | "));
+            spans.push(paint(model, Tone::Muted, sanitize(&row.id, 36)));
         }
         if selected && focused {
             // One uniform bar: reversing colored cells would turn tones into blocks.
@@ -841,7 +889,7 @@ fn explore_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'sta
             ""
         };
         if !footer.is_empty() {
-            lines.push(Line::from(paint(color, Tone::Muted, footer)));
+            lines.push(Line::from(paint(model, Tone::Muted, footer)));
         }
     }
     lines
@@ -859,21 +907,36 @@ fn linear_station_lines(
     let window = (height.saturating_sub(1) / 2).max(1);
     let start = visible_start(model.selection(), model.rows().len(), window);
     for (offset, row) in model.rows().iter().enumerate().skip(start).take(window) {
-        lines.push(plain(&format!(
-            "{} {}{}",
-            if offset == model.selection() {
-                ">"
-            } else {
-                " "
-            },
-            clip(&row.name, name_cells.saturating_add(36)),
-            if row.favorite { " Favorite" } else { "" },
-        )));
-        lines.push(plain(&format!(
-            "    Directory health: {} | Directory languages: {}",
-            row.directory_health.label(),
-            clip(known(&row.directory_languages), 30)
-        )));
+        let mut name = vec![paint(
+            model,
+            Tone::Plain,
+            format!(
+                "{} {}",
+                if offset == model.selection() {
+                    ">"
+                } else {
+                    " "
+                },
+                clip(&row.name, name_cells.saturating_add(36))
+            ),
+        )];
+        if row.favorite {
+            name.push(paint(model, Tone::Favorite, " *"));
+        }
+        lines.push(Line::from(name));
+        let health = row.directory_health.label();
+        lines.push(Line::from(vec![
+            paint(model, Tone::Plain, "    Directory health: "),
+            paint(model, tone_for_state(health), health),
+            paint(
+                model,
+                Tone::Plain,
+                format!(
+                    " | Directory languages: {}",
+                    clip(known(&row.directory_languages), 30)
+                ),
+            ),
+        ]));
     }
     lines
 }
@@ -996,7 +1059,6 @@ fn live_lines(model: &Explorer) -> Vec<Line<'static>> {
 }
 
 fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static>> {
-    let color = color_on(model);
     if model.recordings().is_empty() {
         return vec![
             plain("No recordings yet. This view never starts one."),
@@ -1046,20 +1108,20 @@ fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'s
                 let storage = sanitize(&recording.storage_state, 16);
                 Line::from(vec![
                     paint(
-                        color,
-                        Tone::Accent,
+                        model,
+                        Tone::Plain,
                         if index == model.recording_selection() {
                             "> "
                         } else {
                             "  "
                         },
                     ),
-                    paint(color, Tone::Muted, sanitize(&recording.id, 24)),
-                    paint(color, Tone::Plain, " "),
-                    paint(color, tone_for_state(&state), state),
-                    paint(color, Tone::Plain, " "),
-                    paint(color, tone_for_state(&storage), storage),
-                    paint(color, Tone::Plain, format!(" format {format}")),
+                    paint(model, Tone::Muted, sanitize(&recording.id, 24)),
+                    paint(model, Tone::Plain, " "),
+                    paint(model, tone_for_state(&state), state),
+                    paint(model, Tone::Plain, " "),
+                    paint(model, tone_for_state(&storage), storage),
+                    paint(model, Tone::Plain, format!(" format {format}")),
                 ])
             }),
     );
@@ -1099,7 +1161,6 @@ fn timeline_cells(
 }
 
 fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
-    let color = color_on(model);
     let paid = crate::copy::paid_processing(model.provider_dispatch_available());
     let paid_tone = tone_for_state(if model.provider_dispatch_available() {
         "available"
@@ -1114,7 +1175,7 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(vec![
             paint(
-                color,
+                model,
                 Tone::Plain,
                 format!(
                     "Schema {} | SQLite {} | ",
@@ -1122,10 +1183,10 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
                     model.sqlite_version()
                 ),
             ),
-            paint(color, paid_tone, paid),
+            paint(model, paid_tone, paid),
         ]),
         Line::from(paint(
-            color,
+            model,
             Tone::Plain,
             format!(
                 "Captures: {} scheduled, {} active, {} interrupted, {} finished",
@@ -1136,10 +1197,10 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
             ),
         )),
         Line::from(vec![
-            paint(color, Tone::Plain, "Recording dispatch: "),
-            paint(color, tone_for_state(dispatch), dispatch),
+            paint(model, Tone::Plain, "Recording dispatch: "),
+            paint(model, tone_for_state(dispatch), dispatch),
             paint(
-                color,
+                model,
                 Tone::Plain,
                 if model.dispatch_available() {
                     ""
@@ -1149,7 +1210,7 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
             ),
         ]),
     ];
-    lines.extend(budget_lines(model, color));
+    lines.extend(budget_lines(model));
     if let Some(refresh) = model
         .directory()
         .and_then(|directory| directory.refresh.as_ref())
@@ -1157,20 +1218,20 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
         let state = sanitize(&refresh.state, 16);
         let mut spans = vec![
             paint(
-                color,
+                model,
                 Tone::Plain,
                 format!("Fetch: {} ", sanitize(&refresh.id, 32)),
             ),
-            paint(color, tone_for_state(&state), state),
+            paint(model, tone_for_state(&state), state),
             paint(
-                color,
+                model,
                 Tone::Plain,
                 format!(" accepted {} skipped {}", refresh.accepted, refresh.skipped),
             ),
         ];
         if let Some(detail) = refresh.failure.as_deref() {
             spans.push(paint(
-                color,
+                model,
                 Tone::Fail,
                 format!(" reason {}", sanitize(detail, 80)),
             ));
@@ -1180,14 +1241,14 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
     lines
 }
 
-fn budget_lines(model: &Explorer, color: bool) -> Vec<Line<'static>> {
+fn budget_lines(model: &Explorer) -> Vec<Line<'static>> {
     if model.budgets().is_empty() {
         return vec![plain("Budgets: none loaded")];
     }
     let mut lines = Vec::new();
     for budget in model.budgets().iter().take(4) {
         let mut spans = vec![paint(
-            color,
+            model,
             Tone::Plain,
             format!(
                 "Budget {}: limit {}, available {}",
@@ -1197,7 +1258,7 @@ fn budget_lines(model: &Explorer, color: bool) -> Vec<Line<'static>> {
             ),
         )];
         if budget.frozen {
-            spans.push(paint(color, Tone::Warn, " frozen"));
+            spans.push(paint(model, Tone::Attention, " frozen"));
         }
         lines.push(Line::from(spans));
         lines.push(plain(&format!(
@@ -1228,6 +1289,7 @@ mod tests {
                 reduced_motion: true,
                 linear: false,
                 monochrome: true,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             10_000,
         );
@@ -1349,6 +1411,7 @@ mod tests {
                     reduced_motion: true,
                     linear: false,
                     monochrome: false,
+                    emphasis: crate::explorer::state::Emphasis::Standard,
                 },
                 10_000,
             );
@@ -1468,7 +1531,7 @@ mod tests {
             .find(|line| line.starts_with("> KTNN"))
             .unwrap_or("");
         assert!(
-            row.contains(" Favorite | succeeded") && row.ends_with("| navajo"),
+            row.contains(" *") && row.contains("| succeeded") && row.ends_with("| navajo"),
             "{row}"
         );
     }
@@ -1480,6 +1543,7 @@ mod tests {
                 reduced_motion: true,
                 linear: true,
                 monochrome: true,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             10_000,
         );
@@ -1496,7 +1560,7 @@ mod tests {
         assert!(playback < help);
         assert!(!colored);
         assert_eq!(linear.animation_frames(), 0);
-        assert!(text.contains("> KTNN 東京 Favorite\n"), "{text}");
+        assert!(text.contains("> KTNN 東京 *\n"), "{text}");
         assert!(
             text.contains("    Directory health: succeeded | Directory languages: navajo"),
             "{text}"
@@ -1537,6 +1601,7 @@ mod tests {
                 reduced_motion: true,
                 linear: false,
                 monochrome,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             10_000,
         );
@@ -1909,6 +1974,7 @@ mod tests {
                     reduced_motion: true,
                     linear,
                     monochrome: true,
+                    emphasis: crate::explorer::state::Emphasis::Standard,
                 },
                 10_000,
             );
@@ -2333,6 +2399,7 @@ mod tests {
                 reduced_motion: false,
                 linear: false,
                 monochrome: false,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             10_000,
         );
@@ -2341,10 +2408,7 @@ mod tests {
         let (text, colored) = frame(&model, 80, 24);
         assert!(colored, "{text}");
         assert_eq!(fg_of(&model, "succeeded"), Some(Color::Green));
-        assert_eq!(
-            fg_of_within(&model, "> KTNN", "Favorite"),
-            Some(Color::Yellow)
-        );
+        assert_eq!(fg_of_within(&model, "> KTNN", "★"), Some(Color::LightBlue));
         assert_eq!(fg_of(&model, "Sigy"), Some(Color::Cyan));
         assert_eq!(fg_of(&model, "Help:"), Some(Color::Reset));
         assert!(!text.contains('\u{1b}'));
@@ -2353,11 +2417,86 @@ mod tests {
                 reduced_motion: false,
                 linear: false,
                 monochrome: false,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             10_000,
         );
         assert_eq!(fg_of(&disconnected, "disconnected"), Some(Color::Red));
         assert_eq!(model.animation_frames(), 0);
+    }
+
+    #[test]
+    fn linear_keeps_status_color_until_monochrome() {
+        let mut model = Explorer::new(
+            Modes {
+                reduced_motion: true,
+                linear: true,
+                monochrome: false,
+                emphasis: crate::explorer::state::Emphasis::Standard,
+            },
+            10_000,
+        );
+        model.apply_desk(sample_desk());
+        let (text, colored) = frame(&model, 80, 24);
+        assert!(colored, "{text}");
+        assert_eq!(fg_of(&model, "succeeded"), Some(Color::Green));
+        assert!(text.contains("> KTNN 東京 *"), "{text}");
+        assert!(!text.contains('★'), "{text}");
+    }
+
+    #[test]
+    fn high_contrast_reverses_focus_and_keeps_failure_and_live_color() {
+        let mut model = Explorer::new(
+            Modes {
+                reduced_motion: true,
+                linear: false,
+                monochrome: false,
+                emphasis: crate::explorer::state::Emphasis::HighContrast,
+            },
+            10_000,
+        );
+        model.apply_desk(sample_desk());
+        model.handle(Key::Char('/'));
+        let (text, colored) = frame(&model, 80, 24);
+        assert!(colored, "{text}");
+        assert!(text.contains("high contrast on"), "{text}");
+        assert!(text.contains('★'), "{text}");
+        assert_eq!(fg_of(&model, "Sigy"), Some(Color::Reset));
+        assert_eq!(fg_of(&model, "succeeded"), Some(Color::Reset));
+        assert_eq!(
+            fg_of_within(&model, "Listen session:", "running"),
+            Some(Color::Green)
+        );
+        assert_eq!(
+            fg_of_within(&model, "Recording:", "REC"),
+            Some(Color::LightRed)
+        );
+        let search = line_cells(&model, "Search:");
+        assert!(
+            search
+                .iter()
+                .take(8)
+                .all(|cell| cell.modifier.contains(ratatui::style::Modifier::REVERSED)),
+            "focused search is reversed"
+        );
+    }
+
+    fn line_cells(model: &Explorer, needle: &str) -> Vec<ratatui::buffer::Cell> {
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).unwrap_or_else(|error| match error {});
+        if terminal.draw(|ui| render(ui, model)).is_err() {
+            return Vec::new();
+        }
+        let buffer = terminal.backend().buffer().clone();
+        for y in 0..24 {
+            let text: String = (0..80)
+                .map(|x| buffer[(x, y)].symbol().to_owned())
+                .collect();
+            if text.contains(needle) {
+                return (0..80).map(|x| buffer[(x, y)].clone()).collect();
+            }
+        }
+        Vec::new()
     }
 
     fn fg_of(model: &Explorer, word: &str) -> Option<Color> {

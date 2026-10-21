@@ -749,7 +749,7 @@ pub fn render(writer: &mut impl Write, page: &AnalysisPage, ink: Ink) -> io::Res
         "{} revision {} {}. No source URL is attached.",
         input.id,
         input.revision,
-        ink.tint(Tone::Warn, &input.state)
+        ink.tint(Tone::Attention, &input.state)
     )?;
     writeln!(
         writer,
@@ -796,7 +796,7 @@ pub fn render(writer: &mut impl Write, page: &AnalysisPage, ink: Ink) -> io::Res
                 cue.ordinal,
                 cue.start_us,
                 cue.end_us,
-                ink.tint(Tone::Warn, &cue.wording)
+                ink.tint(Tone::Attention, &cue.wording)
             )?;
             if cue.script.is_empty() {
                 writeln!(writer)?;

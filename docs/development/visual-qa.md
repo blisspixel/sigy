@@ -20,11 +20,11 @@ hashes of the compiled renderer, state, monitor, context and gallery sources;
 each adjacent JSON file preserves every terminal cell's symbol, foreground,
 background, modifiers, display width and wide-character continuation flag.
 
-The bounded matrix contains 70 frames at 20 by 8, 80 by 24 and 132 by 40 cells.
+The bounded matrix contains 74 frames at 20 by 8, 80 by 24 and 132 by 40 cells.
 It covers Explore, Live, Recordings, Monitors, Findings, System and Globe; filter
 and country editors; frozen station context; linked pending, loaded and failed
 reads; empty and unobserved cache; disconnected state; pending search; changed
-catalog; monochrome and linear presentation; and random selected, empty and monochrome results. Random views use immediate reduced-motion jumps and label approximate directory coordinates and eligible cache counts. Podcast and job controls remain
+catalog; monochrome, linear, linear-with-color, and high-contrast presentation; and random selected, empty and monochrome results. Random views use immediate reduced-motion jumps and label approximate directory coordinates and eligible cache counts. Podcast and job controls remain
 CLI operations and have no dedicated explorer workspace to screenshot.
 
 Review the actual user journey, not only whether a label exists. Check selected

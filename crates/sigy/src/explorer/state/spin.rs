@@ -124,6 +124,7 @@ mod tests {
                 reduced_motion: false,
                 linear: false,
                 monochrome: false,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             },
             0,
         );
@@ -222,6 +223,7 @@ mod tests {
                 reduced_motion,
                 linear,
                 monochrome,
+                emphasis: crate::explorer::state::Emphasis::Standard,
             };
             model.configure_motion(interactive, one_frame, now);
             let center = model.globe_center();
@@ -251,7 +253,10 @@ mod tests {
                 ])
                 .env_remove("SIGY_REDUCED_MOTION")
                 .env_remove("SIGY_LINEAR")
+                .env_remove("SIGY_MONOCHROME")
+                .env_remove("SIGY_HIGH_CONTRAST")
                 .env_remove("NO_COLOR")
+                .env_remove("FORCE_COLOR")
                 .env_remove("TERM")
                 .env("SIGY_TEST_MOTION_CHILD", "1")
                 .env(name, value)
@@ -264,6 +269,66 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn environment_color_flags_apply_in_isolated_children() -> Result<(), Box<dyn std::error::Error>>
+    {
+        for (name, value, expect) in [
+            ("SIGY_LINEAR", "anything", "1,0,0,0"),
+            ("SIGY_LINEAR", "", "0,0,0,0"),
+            ("SIGY_MONOCHROME", "yes", "0,1,0,0"),
+            ("SIGY_MONOCHROME", "", "0,0,0,0"),
+            ("SIGY_REDUCED_MOTION", "yes", "0,0,0,1"),
+            ("SIGY_REDUCED_MOTION", "", "0,0,0,0"),
+            ("SIGY_HIGH_CONTRAST", "on", "0,0,1,0"),
+            ("SIGY_HIGH_CONTRAST", "", "0,0,0,0"),
+            ("NO_COLOR", "1", "0,1,0,0"),
+            ("TERM", "dumb", "0,1,0,0"),
+        ] {
+            let output = std::process::Command::new(std::env::current_exe()?)
+                .args([
+                    "--exact",
+                    "explorer::state::spin::tests::color_environment_child",
+                    "--ignored",
+                ])
+                .env_remove("SIGY_REDUCED_MOTION")
+                .env_remove("SIGY_LINEAR")
+                .env_remove("SIGY_MONOCHROME")
+                .env_remove("SIGY_HIGH_CONTRAST")
+                .env_remove("NO_COLOR")
+                .env_remove("FORCE_COLOR")
+                .env_remove("TERM")
+                .env("SIGY_TEST_COLOR_CHILD", "1")
+                .env("SIGY_TEST_COLOR_EXPECT", expect)
+                .env(name, value)
+                .output()?;
+            assert!(
+                output.status.success(),
+                "{name}={value}: {} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "invoked by environment_color_flags_apply_in_isolated_children"]
+    fn color_environment_child() {
+        if std::env::var("SIGY_TEST_COLOR_CHILD").ok().as_deref() != Some("1") {
+            return;
+        }
+        let modes = Modes::resolve(false, false, false);
+        let got = format!(
+            "{},{},{},{}",
+            u8::from(modes.linear),
+            u8::from(modes.monochrome),
+            u8::from(modes.emphasis.high()),
+            u8::from(modes.reduced_motion)
+        );
+        let expect = std::env::var("SIGY_TEST_COLOR_EXPECT").unwrap_or_default();
+        assert_eq!(got, expect);
     }
 
     #[test]
