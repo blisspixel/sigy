@@ -574,6 +574,11 @@ fn oversized_directory_response_fails_without_cache_changes() -> TestResult {
     Ok(())
 }
 
+/// The service acknowledgement uses an eight-second document deadline.
+/// A two-second socket bound expired once while the host was saturated,
+/// before that client finished a request it was still allowed to send.
+const CLICK_SOCKET_TIMEOUT: Duration = Duration::from_secs(8);
+
 struct ClickServer {
     origin: String,
     paths: Arc<std::sync::Mutex<Vec<String>>>,
@@ -598,8 +603,8 @@ impl ClickServer {
                 match listener.accept() {
                     Ok((mut socket, _)) => {
                         socket.set_nonblocking(false)?;
-                        socket.set_read_timeout(Some(Duration::from_secs(2)))?;
-                        socket.set_write_timeout(Some(Duration::from_secs(2)))?;
+                        socket.set_read_timeout(Some(CLICK_SOCKET_TIMEOUT))?;
+                        socket.set_write_timeout(Some(CLICK_SOCKET_TIMEOUT))?;
                         let mut bytes = Vec::new();
                         while bytes.len() < 4096 && !bytes.ends_with(b"\r\n\r\n") {
                             let mut byte = [0];
