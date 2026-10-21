@@ -193,8 +193,17 @@ impl Fixture {
         child: &mut std::process::Child,
         phase: &str,
     ) -> Result<std::process::ExitStatus> {
+        self.wait_for(child, phase, std::time::Duration::from_secs(60))
+    }
+
+    fn wait_for(
+        &self,
+        child: &mut std::process::Child,
+        phase: &str,
+        limit: std::time::Duration,
+    ) -> Result<std::process::ExitStatus> {
         use std::io::{Read as _, Seek as _};
-        match wait_bounded(child) {
+        match wait_bounded_for(child, limit) {
             Ok(status) => Ok(status),
             Err(error) => {
                 let base = self.config.parent().ok_or("fixture base")?;
@@ -208,6 +217,7 @@ impl Fixture {
                     "validation-error.txt",
                     "gh-called",
                     "direct-called",
+                    "receipt-at-build.json",
                     "scope.json",
                     "status.json",
                     "home/.sigy/update-status.json",
@@ -249,9 +259,17 @@ fn write_traced_script(path: &Path, script: &str) -> Result<()> {
 }
 
 fn wait_bounded(child: &mut std::process::Child) -> Result<std::process::ExitStatus> {
-    // The helper waits 60 seconds for its parent. A traced install.ps1 on a
-    // slow Windows runner was still inside git archive when 15 seconds elapsed.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    // Helper fixtures share the helper's 60-second parent wait. The direct
+    // installer passes its own hang fence: a traced install.ps1 under workspace
+    // load can still be unwinding after publication when 60 seconds elapse.
+    wait_bounded_for(child, std::time::Duration::from_secs(60))
+}
+
+fn wait_bounded_for(
+    child: &mut std::process::Child,
+    limit: std::time::Duration,
+) -> Result<std::process::ExitStatus> {
+    let deadline = std::time::Instant::now() + limit;
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok(status);
@@ -259,7 +277,11 @@ fn wait_bounded(child: &mut std::process::Child) -> Result<std::process::ExitSta
         if std::time::Instant::now() >= deadline {
             child.kill()?;
             child.wait()?;
-            return Err("offline update fixture exceeded 60 seconds".into());
+            return Err(format!(
+                "offline update fixture exceeded {} seconds",
+                limit.as_secs()
+            )
+            .into());
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
@@ -423,6 +445,7 @@ fn direct_installer_command(fixture: &Fixture, metadata: &Path) -> Result<Comman
         .env("SIGY_FIXTURE_CALLED", base.join("direct-called"))
         .env("SIGY_FIXTURE_GH_CALLED", base.join("gh-called"))
         .env("SIGY_FIXTURE_STARTED", base.join("installer-started.txt"))
+        .env("SIGY_FIXTURE_RECEIPT", base.join("receipt-at-build.json"))
         .env("SIGY_FIXTURE_STAGE", base.join("direct-stage"))
         // Regular fixture files cannot fill a pipe while waiting for child exit.
         .stdout(fs::File::create(base.join("installer-stdout.txt"))?)
@@ -432,7 +455,11 @@ fn direct_installer_command(fixture: &Fixture, metadata: &Path) -> Result<Comman
 
 #[test]
 fn direct_installer_fences_a_real_helper_before_build() -> Result<()> {
-    let fixture = Fixture::new(&SUCCESS.replace("exit /b 0", "if defined SIGY_DIRECT_BINARY echo direct newer executable>\"%SIGY_DIRECT_BINARY%\"\nexit /b 0"))?;
+    // The Cargo stub copies the helper receipt before it writes a binary.
+    // That file is the witness that the fence happened before the build.
+    let fixture = Fixture::new(
+        "@echo off\nif defined SIGY_FIXTURE_RECEIPT copy /y \"%USERPROFILE%\\.sigy\\update-status.json\" \"%SIGY_FIXTURE_RECEIPT%\" >nul\necho called>\"%SIGY_FIXTURE_CALLED%\"\nif defined SIGY_DIRECT_BINARY echo direct newer executable>\"%SIGY_DIRECT_BINARY%\"\nexit /b 0\n",
+    )?;
     let (mut parent, newer, metadata) = prepare_supersession(&fixture)?;
     let mut helper = OwnedChild::from(
         fixture
@@ -443,7 +470,13 @@ fn direct_installer_fences_a_real_helper_before_build() -> Result<()> {
     );
     let mut direct = direct_installer_command(&fixture, &metadata)?;
     let mut installer_child = OwnedChild::from(direct.spawn()?);
-    let publication_status = fixture.wait(&mut installer_child, "direct installer")?;
+    // Hosted verify 39639992575 killed this traced installer at 60 seconds
+    // after it had already published. 180 seconds is the hang fence.
+    let publication_status = fixture.wait_for(
+        &mut installer_child,
+        "direct installer",
+        std::time::Duration::from_secs(180),
+    )?;
     parent.kill()?;
     parent.wait()?;
     let helper_status = fixture.wait(&mut helper, "superseded helper")?;
@@ -469,8 +502,19 @@ fn direct_installer_fences_a_real_helper_before_build() -> Result<()> {
         fs::read_to_string(metadata.join("installed-commit"))?.trim(),
         newer
     );
+    let receipt_at_build: serde_json::Value = serde_json::from_slice(&fs::read(
+        fixture
+            .config
+            .parent()
+            .ok_or("fixture base")?
+            .join("receipt-at-build.json"),
+    )?)?;
+    assert_eq!(receipt_at_build["state"], "failed");
+    assert_eq!(receipt_at_build["reason"], "installer-superseded");
+    assert_eq!(receipt_at_build["commit"], fixture.commit);
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(metadata.join("update-status.json"))?)?;
+    assert_eq!(receipt["state"], "failed");
     assert_eq!(receipt["reason"], "installer-superseded");
     assert_eq!(receipt["commit"], fixture.commit);
     Ok(())

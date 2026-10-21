@@ -62,13 +62,45 @@ if (Test-Path -LiteralPath $updateStatus) {
     }
 }
 
+function Find-SigyCommand {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    # Filesystem probe. App execution aliases are reparse points and can stall
+    # a missing-tool check, so those directories are skipped.
+    if ($Name -notmatch '^[A-Za-z0-9._-]+$') { return $null }
+    $extensions = @('.COM', '.EXE', '.BAT', '.CMD')
+    $pathExt = [Environment]::GetEnvironmentVariable('PATHEXT', 'Process')
+    if ($pathExt) {
+        $parsed = New-Object System.Collections.Generic.List[string]
+        foreach ($item in $pathExt.Split(';')) {
+            if ($item -match '^\.[A-Za-z0-9]+$') { [void]$parsed.Add($item) }
+        }
+        if ($parsed.Count -gt 0) { $extensions = $parsed }
+    }
+    $seen = 0
+    foreach ($entry in ($env:Path -split ';')) {
+        if ($seen -ge 256) { break }
+        $seen++
+        if (-not $entry) { continue }
+        $directory = $entry.Trim().Trim('"')
+        if (-not $directory) { continue }
+        if ($directory -like '*\WindowsApps' -or $directory -like '*/WindowsApps') { continue }
+        if (-not [IO.Directory]::Exists($directory)) { continue }
+        foreach ($extension in $extensions) {
+            $candidate = [IO.Path]::Combine($directory, $Name + $extension)
+            if ([IO.File]::Exists($candidate)) { return $candidate }
+        }
+    }
+    return $null
+}
+
 function Invoke-SigyGit {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$GitArgs)
     $useGh = $false
-    if (Get-Command gh -ErrorAction SilentlyContinue) {
+    $gh = Find-SigyCommand 'gh'
+    if ($gh) {
         $previous = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        & gh auth status *> $null
+        & $gh auth status *> $null
         if ($LASTEXITCODE -eq 0) {
             $useGh = $true
         }
@@ -116,8 +148,7 @@ if (-not $root) {
 $root = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine((Get-Location).ProviderPath, $root))
 
 if ($fromGitHub) {
-    $git = Get-Command git -ErrorAction SilentlyContinue
-    if (-not $git) {
+    if (-not (Find-SigyCommand 'git')) {
         throw "git is missing. Install Git to fetch $repo."
     }
     $parent = [System.IO.Path]::GetDirectoryName($root)
@@ -144,8 +175,7 @@ if (Test-Path -LiteralPath (Join-Path $cargoHome "cargo.exe")) {
     $env:Path = "$cargoHome;$env:Path"
 }
 
-$cargo = Get-Command cargo -ErrorAction SilentlyContinue
-if (-not $cargo) {
+if (-not (Find-SigyCommand 'cargo')) {
     Write-Host "Installing Rust 1.99.1 for the current user."
     $installer = Join-Path $env:TEMP "rustup-init.exe"
     Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $installer
@@ -225,8 +255,7 @@ Write-Host "Check later with: sigy update --check"
 Write-Host "Install a newer main commit with: sigy update"
 Write-Host "Start with: sigy init --radio"
 Write-Host "Open the explorer with: sigy tui"
-$ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
-if (-not $ffmpeg) {
+if (-not (Find-SigyCommand 'ffmpeg')) {
     Write-Host "Recording and playback need a trusted FFmpeg. This script does not download it."
 }
 
