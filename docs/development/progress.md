@@ -4,6 +4,10 @@ Updated: 2026-10-20. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-20 Unix empty assertions
+
+Hosted verify of `705a0d7` is run https://github.com/blisspixel/sigy/actions/runs/39531409382. Ubuntu and macOS failed `cargo clippy --workspace --all-targets --locked -- -D warnings` with `clippy::assert_is_empty`. The Windows host does not compile those items. The sites are the Linux cgroup membership check in `crates/sigy-service/tests/linux_native.rs`, the Unix symlink retained-read fixture, and the Unix partial JSON refusal in `crates/sigy/src/init.rs`. Each now compares with `assert_eq!`. No lint was allowed. The Windows `cargo verify` job of that run was still going when this note was written. This repair does not close issue 22, retag `v0.1.0-dev.20261020`, or change schema or IPC. Coverage was not re-run. External spend remains USD 0.
+
 ## 2026-10-20 Rust 1.99.1 pin
 
 The pinned toolchain is stable Rust 1.99.1. The workspace `rust-version` is 1.99. The verify workflow, installer, and research experiment manifests use that release. `spawn_with_attributes` remains nightly-only, so creation-time Job Object assignment stays the Decision 0099 limitation. Tokio stays 1.53.1. Schema v51 and local IPC v53 are unchanged.

@@ -664,7 +664,7 @@ mod tests {
             )
             .is_err()
         );
-        assert!(output.is_empty());
+        assert_eq!(output, [] as [u8; 0]);
         Ok(())
     }
 }

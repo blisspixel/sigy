@@ -351,6 +351,6 @@ async fn symlink_at_owned_object_boundary_sends_no_bytes() -> TestResult {
     )
     .await?;
     assert!(!receipt.successful());
-    assert!(observed.is_empty());
+    assert_eq!(observed, [] as [u8; 0]);
     Ok(())
 }

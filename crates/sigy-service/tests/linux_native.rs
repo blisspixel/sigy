@@ -72,10 +72,9 @@ fn delegated_native_contracts() -> TestResult {
         return owner_death();
     }
     let parent = sigy_service::native::delegated_parent()?;
-    assert!(
-        std::fs::read_to_string(parent.join("cgroup.procs"))?
-            .trim()
-            .is_empty()
+    assert_eq!(
+        std::fs::read_to_string(parent.join("cgroup.procs"))?.trim(),
+        ""
     );
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
