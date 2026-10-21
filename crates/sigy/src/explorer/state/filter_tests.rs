@@ -371,7 +371,7 @@ fn empty_state_command_preserves_filters_unicode_and_the_exact_library()
             language: "french".into(),
             healthy_only: true,
         },
-        std::path::Path::new("custom library's desk"),
+        Some("custom library's desk"),
     )?;
     let command = model.discovery_command();
     for expected in [
@@ -382,10 +382,11 @@ fn empty_state_command_preserves_filters_unicode_and_the_exact_library()
         "--tag 'jazz'",
         "--language 'french'",
         "--healthy",
-        "--order name --fetch",
+        "--fetch",
     ] {
         assert!(command.contains(expected), "{command}");
     }
+    assert!(!command.contains("--order"), "{command}");
     model.search.applied.favorites_only = true;
     assert!(model.discovery_command().contains("--favorites"));
     assert!(!model.discovery_command().contains("--fetch"));

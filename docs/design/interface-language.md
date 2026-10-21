@@ -1,6 +1,6 @@
 # Interface language
 
-Updated: 2026-10-21. Status: selected contract for the interface issues under [tracker 23](https://github.com/blisspixel/sigy/issues/23). The words stay authoritative. Color only reinforces them. This file records the rules those issues implement. Issue 25 applies the vocabulary, shared counts, compact USD and the recording timeline text. Issue 24 applies the color roles, favorite and live markers, and high contrast. Layout, motion, the help overlay and exit codes still belong to the later issues. Nothing here grants network, playback, capture or spending authority.
+Updated: 2026-10-21. Status: selected contract for the interface issues under [tracker 23](https://github.com/blisspixel/sigy/issues/23). The words stay authoritative. Color only reinforces them. This file records the rules those issues implement. Issue 25 applies the vocabulary, shared counts, compact USD and the recording timeline text. Issue 24 applies the color roles, favorite and live markers, and high contrast. Issue 26 applies one next command, the readable doctor report, journey help, and the key overlay. The hint line still ends with `q quit` until issue 27. Layout, motion, and exit codes still belong to the later issues. Nothing here grants network, playback, capture or spending authority.
 
 Low floor: a curious newcomer can turn the globe, pick a station and press play in the first minute. High ceiling: an analyst can trace any line to a field, a revision and an exact interval, and script all of it. Character: a calm, modern instrument with retro roots. The feel comes from real geography, real timelines and crisp alignment, with a few quiet flourishes that explain what changed.
 
@@ -28,7 +28,7 @@ Next steps read `Next: <full copyable command>`. The command starts with `sigy`,
 
 Errors use one line that says what failed, then `Next:`. Extra detail goes on a labelled `Detail:` line or in `--json`. Play and humor live only in optional exploration copy. Failures, money, evidence and JSON stay literal. No emoji, no em dashes, and no "successfully".
 
-Issue 25 owns the copy change. Issue 26 owns the shared next-step helper, the doctor report and journey-grouped help.
+Issue 25 owns the copy change. Issue 26 applies the shared next-step helper, the doctor report and journey-grouped help.
 
 ## Color
 
@@ -89,7 +89,7 @@ The hint line is `key action` pairs, two spaces apart, most useful first, ending
 
 CLI help wraps to the real width. CLI reports use one summary line, a fixed-width state column, grouped idle checks, and `Next:` last.
 
-Issue 27 owns the layout change. Issue 26 owns help wrapping and the `?` overlay.
+Issue 27 owns the layout change, including a hint line that ends in `? more`. Issue 26 applies help wrapping and the `?` overlay. The overlay lists the keys this workspace uses now. Arrow keys still change workspace. Globe keys remain `h`, `l`, `j`, `k`, `c`, `m`, and `r`.
 
 ## States
 
@@ -155,7 +155,7 @@ A failed, refused or partial run is never exit 0. A broken pipe while writing ou
 
 Configurable key bindings, with conflict validation and reset, remain proposed. The current keys are fixed. A searchable action palette remains proposed. The contextual footer and help are the current way to discover actions.
 
-Shell completions and typo suggestions stay decisions inside issue 26. This contract does not add a dependency for them.
+Shell completions are not added. A typo suggestion uses a hand-written edit distance of 1 or 2 over the command names clap already declares. Sigy prints `Next:` only when one name is uniquely that close, then clap's usage exits 2. No completion crate is added.
 
 ## Review checklist
 

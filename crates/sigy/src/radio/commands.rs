@@ -1,5 +1,4 @@
 use std::{
-    fmt::Write as _,
     path::Path,
     time::{Duration, SystemTime},
 };
@@ -113,15 +112,54 @@ pub(crate) fn write_next(
     if cli.json {
         return Ok(());
     }
-    let base = if cli.explicit_data_dir {
-        format!(
-            "sigy --data-dir {}",
-            quote(&crate::library_dir(cli)?.display().to_string())
-        )
-    } else {
-        "sigy".to_owned()
+    let directory = data_directory(cli)?;
+    let mut wrote = false;
+    if let Some(hint) = search_command(command, snapshot)? {
+        write_command(writer, &hint, directory.as_deref())?;
+        wrote = true;
+    }
+    if let Some(hint) = refresh_command(snapshot) {
+        write_command(writer, &hint, directory.as_deref())?;
+        wrote = true;
+    }
+    if !wrote && cache_needs_fetch(snapshot) {
+        write_command(
+            writer,
+            &sigy_service::guidance::DirectoryHint::empty_fetch().command(),
+            directory.as_deref(),
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn write_explore_next(
+    writer: &mut impl std::io::Write,
+    filters: &super::Filters,
+    favorites: bool,
+    snapshot: &Snapshot,
+    cli: &crate::Cli,
+) -> Result<()> {
+    if cli.json {
+        return Ok(());
+    }
+    let Some(result) = snapshot.random_station.as_deref() else {
+        return Ok(());
     };
-    if let RadioCommand::Search {
+    if result.station.is_some() {
+        return Ok(());
+    }
+    let hint = sigy_service::guidance::DirectoryHint {
+        filter: filters.search_filter(None)?,
+        favorites,
+        order: None,
+        limit: None,
+    };
+    let directory = data_directory(cli)?;
+    write_command(writer, &hint.command(), directory.as_deref())
+}
+
+fn search_command(command: &RadioCommand, snapshot: &Snapshot) -> Result<Option<String>> {
+    let RadioCommand::Search {
         filters,
         query,
         favorites,
@@ -129,84 +167,80 @@ pub(crate) fn write_next(
         order,
         ..
     } = command
-    {
-        let empty = snapshot
-            .station_page
+    else {
+        return Ok(None);
+    };
+    let empty = snapshot
+        .station_page
+        .as_ref()
+        .is_some_and(|page| page.entries.is_empty())
+        || snapshot
+            .ordered_station_page
             .as_ref()
-            .is_some_and(|page| page.entries.is_empty())
-            || snapshot
-                .ordered_station_page
-                .as_ref()
-                .is_some_and(|page| page.entries.is_empty());
-        if empty {
-            let filter = filters.search_filter(query.as_deref())?;
-            let suffix = filter_arguments(&filter);
-            if *favorites {
-                writeln!(
-                    writer,
-                    "Fetch a directory page for these filters: {base} radio refresh{suffix} --wait"
-                )?;
-            } else {
-                let order = match order {
-                    super::StationOrder::Id => "id",
-                    super::StationOrder::Name => "name",
-                };
-                writeln!(
-                    writer,
-                    "Fetch matches: {base} radio search{suffix} --limit {limit} --order {order} --fetch"
-                )?;
-            }
-        }
+            .is_some_and(|page| page.entries.is_empty());
+    if !empty {
+        return Ok(None);
     }
-    if let Some(refresh) = &snapshot.directory_refresh {
-        if refresh.state == "running" {
-            writeln!(
-                writer,
-                "Refresh continues in the service. Inspect: {base} radio refresh-status {}",
-                quote(&refresh.id)
-            )?;
-        } else if matches!(refresh.state.as_str(), "failed" | "interrupted") {
-            let request = &refresh.request;
-            let mut suffix = filter_arguments(&request.filter);
-            if let Some(mirror) = &request.mirror {
-                write!(suffix, " --mirror {}", quote(mirror))?;
-            }
-            if let NetworkScope::PinnedAddress { address } = request.network {
-                write!(suffix, " --pin-address {address}")?;
-            }
-            writeln!(
-                writer,
-                "Retry with a new automatic ID: {base} radio refresh{suffix} --limit {} --offset {} --wait",
-                request.limit, request.offset
-            )?;
-        }
+    let hint = sigy_service::guidance::DirectoryHint {
+        filter: filters.search_filter(query.as_deref())?,
+        favorites: *favorites,
+        order: matches!(order, super::StationOrder::Name)
+            .then_some(sigy_service::guidance::SearchOrder::Name),
+        limit: (*limit != 16).then_some(*limit),
+    };
+    Ok(Some(hint.command()))
+}
+
+fn refresh_command(snapshot: &Snapshot) -> Option<String> {
+    let refresh = snapshot.directory_refresh.as_ref()?;
+    if refresh.state == "running" {
+        return Some(sigy_service::guidance::refresh_status(&refresh.id));
     }
+    if !matches!(refresh.state.as_str(), "failed" | "interrupted") {
+        return None;
+    }
+    let request = &refresh.request;
+    let pin = if let NetworkScope::PinnedAddress { address } = &request.network {
+        Some(address.to_string())
+    } else {
+        None
+    };
+    Some(sigy_service::guidance::refresh_retry(
+        &request.filter,
+        request.limit,
+        request.offset,
+        request.mirror.as_deref(),
+        pin.as_deref(),
+    ))
+}
+
+fn cache_needs_fetch(snapshot: &Snapshot) -> bool {
+    snapshot
+        .directory
+        .as_ref()
+        .is_some_and(|status| status.cached_stations == 0 || status.stale_stations > 0)
+}
+
+fn data_directory(cli: &crate::Cli) -> Result<Option<String>> {
+    if !cli.explicit_data_dir {
+        return Ok(None);
+    }
+    Ok(Some(crate::library_dir(cli)?.display().to_string()))
+}
+
+fn write_command(
+    writer: &mut impl std::io::Write,
+    command: &str,
+    directory: Option<&str>,
+) -> Result<()> {
+    writeln!(
+        writer,
+        "Next: {}",
+        sigy_service::guidance::with_data_dir(command, directory)
+    )?;
     Ok(())
 }
 
-pub(crate) fn filter_arguments(filter: &sigy_service::discovery::StationFilter) -> String {
-    let mut arguments = String::new();
-    for (flag, value) in [
-        ("name", &filter.name),
-        ("country", &filter.country),
-        ("language", &filter.language),
-        ("tag", &filter.tag),
-    ] {
-        if !value.is_empty() {
-            let _ = write!(arguments, " --{flag} {}", quote(value));
-        }
-    }
-    if filter.healthy_only {
-        arguments.push_str(" --healthy");
-    }
-    arguments
-}
-
 pub(crate) fn quote(value: &str) -> String {
-    let value = crate::explorer::text::sanitize(value, 4096);
-    #[cfg(windows)]
-    let value = value.replace('\'', "''");
-    #[cfg(not(windows))]
-    let value = value.replace('\'', "'\"'\"'");
-    format!("'{value}'")
+    sigy_service::guidance::shell_quote(&crate::explorer::text::sanitize(value, 4096))
 }

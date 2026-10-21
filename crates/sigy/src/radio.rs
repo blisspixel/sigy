@@ -12,7 +12,7 @@ use std::{
 };
 
 mod commands;
-pub(crate) use commands::{execute, filter_arguments, quote, request_id, write_next};
+pub(crate) use commands::{execute, quote, request_id, write_explore_next, write_next};
 
 #[derive(Debug, Clone, Args)]
 pub struct Filters {
@@ -480,7 +480,7 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
         if status.cached_stations == 0 || status.stale_stations > 0 {
             writeln!(
                 writer,
-                "Cache needs a newer page. Favorites and unseen stations stay. Request one explicitly with sigy radio refresh --wait."
+                "Cache needs a newer page. Favorites and unseen stations stay."
             )?;
         } else if let Some(newest) = status.newest_observed_ms {
             writeln!(writer, "Newest directory observation: {}.", age(newest))?;
@@ -577,7 +577,7 @@ fn write_random_station(
     } else {
         writeln!(
             writer,
-            "No cached stations with coordinates match these filters. Fetch a directory page explicitly with radio search --fetch."
+            "No cached stations with coordinates match these filters."
         )?;
     }
     Ok(())

@@ -46,10 +46,7 @@ fn offline_mistakes_explain_what_happened_and_what_to_run() -> TestResult {
             &["source", "show", "news:v1"],
             "no registered source revision has ID news:v1",
         ),
-        (
-            &["radio", "refresh", "first"],
-            "`sigy service start` with the same --data-dir",
-        ),
+        (&["radio", "refresh", "first"], "`sigy --data-dir"),
         (
             &["radio", "show", "not-a-station"],
             "Station IDs are directory UUIDs",
@@ -80,22 +77,28 @@ fn offline_mistakes_explain_what_happened_and_what_to_run() -> TestResult {
         // This ordinary offline CLI child is not a delegated service owner.
         // Linux and macOS must report the unavailable native boundary.
         assert!(!healthy, "{doctor}");
-        assert!(doctor.contains("blocked decoder_containment"), "{doctor}");
+        assert!(doctor.contains("Native containment"), "{doctor}");
+        assert!(doctor.contains("blocked"), "{doctor}");
+        assert!(!doctor.contains("decoder_containment"), "{doctor}");
+        assert!(error.contains("blocked"), "{error}");
         assert!(
-            error.contains("doctor found a check that needs action"),
+            !error.contains("doctor found a check that needs action"),
             "{error}"
         );
     }
     assert!(doctor.contains("Service: not running."), "{doctor}");
+    for line in doctor.lines() {
+        assert!(line.chars().count() <= 100, "{line}");
+    }
+    // A long library path wraps the next command. The continuation indent is 16 spaces.
+    let commands = doctor.replace("\n                ", " ");
     assert!(
-        doctor
-            .contains("Next: sigy dvr configure --decoder PATH_TO_FFMPEG with the same --data-dir"),
+        commands.contains("dvr configure --decoder PATH_TO_FFMPEG"),
         "{doctor}"
     );
-    assert!(
-        doctor.contains("Next: sigy radio refresh NEW_ID --limit 100"),
-        "{doctor}"
-    );
+    assert!(commands.contains("radio search --fetch"), "{doctor}");
+    assert!(!doctor.contains("NEW_ID"), "{doctor}");
+    assert!(!doctor.contains("with the same --data-dir"), "{doctor}");
     let (initialized, setup, error) = run(&library, &["init", "--no-start"])?;
     assert!(initialized, "{error}");
     assert!(!setup.contains(r"\\?\"), "{setup}");

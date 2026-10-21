@@ -21,12 +21,12 @@ pub(crate) use globe::utc_label;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{io::Write, path::Path};
 
+pub(crate) use state::Explorer;
 pub use state::{Emphasis, Modes};
-
-use state::Explorer;
 
 pub fn run(
     data_dir: &Path,
+    explicit_data_dir: bool,
     presentation: Modes,
     inspect: Option<&Path>,
     filter: sigy_service::discovery::StationFilter,
@@ -38,7 +38,8 @@ pub fn run(
         .build()?;
     let now = now_ms()?;
     let mut model = Explorer::new(presentation, now);
-    model.initialize_search(filter, data_dir)?;
+    let explicit = explicit_data_dir.then(|| text::sanitize(&data_dir.display().to_string(), 4096));
+    model.initialize_search(filter, explicit.as_deref())?;
     let desk = runtime.block_on(client::load_desk(data_dir, &model.current_search(), now))?;
     model.apply_desk(desk);
     terminal::drive(&runtime, data_dir, &mut model, inspect)?;

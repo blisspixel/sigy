@@ -23,14 +23,40 @@ mod guidance;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-/// The first steps shown after the top-level command list.
-pub const GET_STARTED: &str = "Get started:
-  sigy init --radio  Create your library, start its service and load one station page
-  sigy tui           Open the explorer. Quitting leaves the service running
-  sigy doctor        Check local setup without using the network
-
-Commands use ~/.sigy/library unless you pass --data-dir PATH.
-Guide: https://github.com/blisspixel/sigy/blob/main/docs/usage.md";
+/// Journey headings shown before top-level options. Each line fits 60 columns.
+pub const GET_STARTED: &str = "Start
+  sigy init --radio  library, service, and one page
+  sigy tui  explorer; quitting leaves the service running
+  sigy doctor  local checks, no network
+Listen
+  sigy explore  one cached station
+  sigy play STATION  play, and register if needed
+  sigy stop  stop the latest listen
+  sigy listen  retained audio and sessions
+Keep
+  sigy record  keep one source
+  sigy schedule  civil recording times
+  sigy dvr  storage and retention
+Understand
+  sigy analysis  recognition and translation
+  sigy monitor  bounds, findings, and briefings
+  sigy task  finite evidence work
+Sources
+  sigy radio  cached stations and fetch
+  sigy podcast  feeds and episodes
+  sigy source  registered revisions
+Agents and desktop
+  sigy mcp  local tools for agents
+  sigy panel  desktop status
+Admin
+  sigy service  the background process
+  sigy library  this library
+  sigy provider  paid dispatch stays off
+  sigy budget  the lifetime allowance
+  sigy update  a newer source checkout
+Commands use ~/.sigy/library unless you pass --data-dir.
+Guide:
+  https://github.com/blisspixel/sigy/blob/main/docs/usage.md";
 const RADIO_REQUEST: &str = "sigy-init-radio-v1";
 const RADIO_WAIT: Duration = Duration::from_secs(15);
 
@@ -124,7 +150,12 @@ pub fn actionable_error(
             matches!(std::fs::symlink_metadata(directory), Err(error) if error.kind() == io::ErrorKind::NotFound)
         });
     if missing_catalog || missing_directory {
-        return "library has not been initialized; run `sigy init` with the same --data-dir if supplied".into();
+        let directory = cli
+            .explicit_data_dir
+            .then(|| cli.data_dir.as_ref().map(|path| path.display().to_string()))
+            .flatten();
+        let command = sigy_service::guidance::with_data_dir("sigy init", directory.as_deref());
+        return format!("library has not been initialized; run `{command}`").into();
     }
     guidance::explain(cli, error)
 }
@@ -179,14 +210,22 @@ pub async fn execute(
         snapshot,
     };
     render(&mut io::stdout().lock(), &report, options, json, explicit)?;
-    radio_result(&report)
+    radio_result(&report, explicit)
 }
 
-fn radio_result(report: &InitReport) -> Result<()> {
+fn radio_result(report: &InitReport, explicit: bool) -> Result<()> {
     if let Some(refresh) = &report.radio
         && matches!(refresh.state.as_str(), "failed" | "interrupted")
     {
-        return Err(format!("library is ready, but the directory refresh did not complete; inspect `sigy radio refresh-status {}` with the same --data-dir if supplied", refresh.id).into());
+        let directory = explicit.then(|| report.library.display().to_string());
+        let command = sigy_service::guidance::with_data_dir(
+            &sigy_service::guidance::refresh_status(&refresh.id),
+            directory.as_deref(),
+        );
+        return Err(format!(
+            "library is ready, but the directory refresh did not complete; inspect `{command}`"
+        )
+        .into());
     }
     Ok(())
 }
@@ -626,7 +665,7 @@ mod tests {
             assert!(text.contains(&format!("Directory refresh: {state}, 0 stations accepted.")));
             assert_eq!(text.contains("Check progress:"), state != "completed");
             assert_eq!(
-                radio_result(&report).is_err(),
+                radio_result(&report, true).is_err(),
                 matches!(state, "failed" | "interrupted")
             );
             let mut document = Vec::new();

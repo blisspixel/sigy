@@ -381,7 +381,8 @@ pub enum Key {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Explorer {
     fetch_confirmation: Option<super::search::Scope>,
-    command_prefix: String,
+    keys: KeyList,
+    explicit_directory: Option<String>,
     play_confirmation: Option<String>,
     pub(super) context: Option<super::context::StationContext>,
     context_generation: u64,
@@ -448,12 +449,20 @@ enum Draw {
     Clean,
 }
 
+/// Whether the focused-workspace key list is covering the explorer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyList {
+    Closed,
+    Open,
+}
+
 impl Explorer {
     #[must_use]
     pub fn new(modes: Modes, now_ms: i64) -> Self {
         Self {
             fetch_confirmation: None,
-            command_prefix: "sigy".into(),
+            keys: KeyList::Closed,
+            explicit_directory: None,
             play_confirmation: None,
             context: None,
             context_generation: 0,
@@ -553,6 +562,12 @@ impl Explorer {
     #[must_use]
     pub const fn workspace(&self) -> Workspace {
         self.workspace
+    }
+
+    /// The key overlay is open. It lists the focused workspace and starts no work.
+    #[must_use]
+    pub const fn keys_open(&self) -> bool {
+        matches!(self.keys, KeyList::Open)
     }
 
     #[must_use]
@@ -916,34 +931,51 @@ impl Explorer {
         )
     }
 
-    pub(super) fn initialize_search(
+    pub(crate) fn initialize_search(
         &mut self,
         filter: StationFilter,
-        directory: &std::path::Path,
+        explicit_directory: Option<&str>,
     ) -> sigy_service::Result<()> {
         filter.validate()?;
         self.search.applied.filter = filter;
         self.search.draft = self.search.applied.clone();
-        self.command_prefix = format!(
-            "sigy --data-dir {}",
-            crate::radio::quote(&directory.display().to_string())
-        );
+        self.explicit_directory = explicit_directory.map(str::to_owned);
         Ok(())
     }
 
-    pub(super) fn discovery_command(&self) -> String {
-        let suffix = crate::radio::filter_arguments(&self.search.applied.filter);
-        if self.favorites_only() {
-            format!(
-                "{} radio search{suffix} --favorites --order name",
-                self.command_prefix
-            )
-        } else {
-            format!(
-                "{} radio search{suffix} --order name --fetch",
-                self.command_prefix
-            )
+    pub(crate) fn discovery_command(&self) -> String {
+        let hint = sigy_service::guidance::DirectoryHint {
+            filter: self.search.applied.filter.clone(),
+            favorites: self.favorites_only(),
+            order: None,
+            limit: None,
+        };
+        sigy_service::guidance::with_data_dir(&hint.command(), self.explicit_directory.as_deref())
+    }
+
+    fn keys_key(&mut self, key: &Key) -> Option<Effect> {
+        if self.keys_open() {
+            return Some(match key {
+                Key::Escape | Key::Char('?') => {
+                    self.keys = KeyList::Closed;
+                    Effect::None
+                }
+                Key::Char('q') | Key::Quit => Effect::Detach,
+                _ => Effect::None,
+            });
         }
+        if !matches!(key, Key::Char('?')) || self.text_entry() {
+            return None;
+        }
+        self.keys = KeyList::Open;
+        Some(Effect::None)
+    }
+
+    fn text_entry(&self) -> bool {
+        self.focus == Focus::Search
+            || self.search.editing_filters()
+            || self.search.picker.is_some()
+            || self.findings.editing()
     }
 
     pub(super) fn search_is_current(&self, generation: u64) -> bool {
@@ -1016,6 +1048,9 @@ impl Explorer {
                 }
                 _ => Effect::None,
             };
+        }
+        if let Some(effect) = self.keys_key(&key) {
+            return effect;
         }
         if self.focus != Focus::Search {
             if key == Key::Char('S')

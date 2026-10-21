@@ -197,7 +197,7 @@ async fn empty_cache_uses_service_operation_without_network_or_mutations() -> Te
             tag: "talk".into(),
             healthy_only: true,
         },
-        directory.path(),
+        None,
     )?;
     model.search.applied.favorites_only = true;
     let query = query(&mut model);

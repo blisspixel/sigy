@@ -20,6 +20,10 @@ fn spin_visibility_tracks_canvas_and_modal_ownership() {
     assert!(!super::super::globe_visible(&model, area));
     model.handle(Key::Char('7'));
     assert!(super::super::globe_visible(&model, area));
+    model.handle(Key::Char('?'));
+    assert!(!super::super::globe_visible(&model, area));
+    model.handle(Key::Escape);
+    assert!(super::super::globe_visible(&model, area));
     for (width, height) in [(20, 8), (59, 24), (80, 15)] {
         assert!(!super::super::globe_visible(
             &model,
@@ -152,7 +156,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        74
+        75
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -500,7 +504,7 @@ fn visual_qa_gallery() -> Result<()> {
             manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome,"high_contrast":model.modes().emphasis.high()}));
         }
     }
-    assert!(manifest.len() <= 74);
+    assert!(manifest.len() <= 75);
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
@@ -618,6 +622,9 @@ fn cases() -> Result<Vec<Case>> {
     high_contrast.apply_desk(sample_desk());
     cases.push(("high-contrast", high_contrast, vec![(80, 24), (132, 40)]));
     append_random_cases(&mut cases)?;
+    let mut keys = gallery_sample();
+    keys.handle(Key::Char('?'));
+    cases.push(("keys", keys, vec![(80, 24)]));
     Ok(cases)
 }
 

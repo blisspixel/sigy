@@ -33,6 +33,10 @@ pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
         frame.render_widget(Paragraph::new(RECOVERY), area);
         return;
     }
+    if model.keys_open() {
+        frame.render_widget(Paragraph::new(key_lines(model)), area);
+        return;
+    }
     if model.context.is_some() {
         context::render(frame, area, model);
         return;
@@ -70,6 +74,7 @@ pub(super) fn globe_visible(model: &Explorer, area: Rect) -> bool {
     if area.width < 60
         || area.height < 16
         || model.workspace() != Workspace::Globe
+        || model.keys_open()
         || model.context.is_some()
         || model.search.picker.is_some()
         || model.search.editing_filters()
@@ -736,6 +741,48 @@ fn quota_line(model: &Explorer) -> Line<'static> {
             ),
         ),
     ])
+}
+
+fn key_lines(model: &Explorer) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        plain(&format!("Keys: {}", model.workspace().label())),
+        plain(""),
+        plain("Move"),
+        plain("  1-7 workspace    Left/Right workspace    Tab focus"),
+        plain("  Up/Down move the selection"),
+        plain(""),
+        plain("This workspace"),
+    ];
+    for line in workspace_keys(model.workspace()) {
+        lines.push(plain(line));
+    }
+    lines.push(plain(""));
+    lines.push(plain("Close"));
+    lines.push(plain("  ? or Esc closes this list    q quits this client"));
+    lines
+}
+
+fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
+    match workspace {
+        Workspace::Explore => &[
+            "  / search    F filters    C country    e explore",
+            "  g first page    n/p page    f favorite",
+            "  R then y fetch    Enter inspect",
+            "  P then y plays    S stops",
+        ],
+        Workspace::Globe => &[
+            "  h/l/j/k turn    m map    c center    r spin",
+            "  e explore    R then y fetch    n/p page    g first page",
+        ],
+        Workspace::Live | Workspace::System => &["  r reload    Tab focus"],
+        Workspace::Recordings => &["  arrows select a recording    r reloads its metadata"],
+        Workspace::Monitors => {
+            &["  arrows select or scroll    Enter inspects    Esc back    r reload"]
+        }
+        Workspace::Findings => {
+            &["  / edit IDs    Enter inspects    arrows scroll    o recording metadata"]
+        }
+    }
 }
 
 fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
@@ -1744,10 +1791,7 @@ mod tests {
         let (text, _) = frame(&model, 80, 24);
         assert!(text.contains("No stations are cached yet"), "{text}");
         assert!(text.contains("R then y"), "{text}");
-        assert!(
-            text.contains("sigy radio search --order name --fetch"),
-            "{text}"
-        );
+        assert!(text.contains("sigy radio search --fetch"), "{text}");
         model.handle(Key::Char('3'));
         let (text, _) = frame(&model, 80, 24);
         assert!(
@@ -1770,6 +1814,23 @@ mod tests {
         model.apply_desk(desk);
         let (text, _) = frame(&model, 80, 24);
         assert!(text.contains("sigy listen file RECORDING"), "{text}");
+    }
+
+    #[test]
+    fn question_mark_lists_workspace_keys_and_escape_closes() {
+        let mut model = sample();
+        model.handle(Key::Char('?'));
+        let (text, _) = frame(&model, 80, 24);
+        assert!(text.contains("Keys: Explore"), "{text}");
+        assert!(text.contains("R then y fetch"), "{text}");
+        model.handle(Key::Escape);
+        let (closed, _) = frame(&model, 80, 24);
+        assert!(!closed.contains("Keys: Explore"), "{closed}");
+        model.handle(Key::Char('7'));
+        model.handle(Key::Char('?'));
+        let (globe, _) = frame(&model, 80, 24);
+        assert!(globe.contains("Keys: Globe"), "{globe}");
+        assert!(globe.contains("turn"), "{globe}");
     }
 
     #[test]

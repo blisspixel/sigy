@@ -155,7 +155,7 @@ fn budgets(budgets: &[super::BudgetView]) -> DoctorCheck {
             "budget",
             DoctorState::Blocked,
             "the global budget is missing".into(),
-            Some("budget show".into()),
+            Some("sigy budget show".into()),
         );
     };
     if global.frozen {
@@ -163,7 +163,7 @@ fn budgets(budgets: &[super::BudgetView]) -> DoctorCheck {
             "budget",
             DoctorState::Attention,
             "the global budget is frozen".into(),
-            Some("budget show".into()),
+            Some("sigy budget show".into()),
         );
     }
     check(
@@ -180,7 +180,7 @@ fn decoder(path: Option<&String>) -> DoctorCheck {
             "decoder",
             DoctorState::Attention,
             "no FFmpeg decoder is configured. Recording and playback need one.".into(),
-            Some("dvr configure --decoder PATH_TO_FFMPEG".into()),
+            Some("sigy dvr configure --decoder PATH_TO_FFMPEG".into()),
         );
     };
     if decoder_is_file(path) {
@@ -195,7 +195,7 @@ fn decoder(path: Option<&String>) -> DoctorCheck {
             "decoder",
             DoctorState::Blocked,
             "the configured decoder is not a file".into(),
-            Some("dvr configure --decoder PATH_TO_FFMPEG".into()),
+            Some("sigy dvr configure --decoder PATH_TO_FFMPEG".into()),
         )
     }
 }
@@ -211,7 +211,10 @@ fn decoder_containment() -> DoctorCheck {
         Err(error) => check(
             "decoder_containment",
             DoctorState::Blocked,
-            format!("{error}. Listening, recording and native analysis are held. Linux needs a managed user unit with cpu, memory and pids delegation; run `service start` from a systemd user session. macOS whole-tree limits remain unsupported."),
+            format!(
+                "Listening, recording and analysis are held. {}",
+                containment_cause(&error)
+            ),
             None,
         ),
     }
@@ -226,7 +229,7 @@ fn quota(dvr: &DvrStatus) -> DoctorCheck {
                 "no quota remains. Retention is {} days. Kept and archived media stay.",
                 dvr.retention_days
             ),
-            Some("dvr status".into()),
+            Some("sigy dvr status".into()),
         )
     } else {
         check(
@@ -247,7 +250,7 @@ fn directory_cache(directory: &DirectoryStatus) -> DoctorCheck {
             "directory",
             DoctorState::Attention,
             "the station cache is empty. Favorites are kept when a refresh merges a page.".into(),
-            Some("radio refresh NEW_ID --limit 100".into()),
+            Some(directory_fetch()),
         );
     }
     if directory.stale_stations > 0 {
@@ -258,7 +261,7 @@ fn directory_cache(directory: &DirectoryStatus) -> DoctorCheck {
                 "{} of {} cached stations are older than 24 hours. They stay searchable. A refresh does not delete unseen stations or favorites.",
                 directory.stale_stations, directory.cached_stations
             ),
-            Some("radio refresh NEW_ID --limit 100".into()),
+            Some(directory_fetch()),
         );
     }
     check(
@@ -286,7 +289,7 @@ fn directory_refresh(directory: &DirectoryStatus) -> DoctorCheck {
             "directory_refresh",
             DoctorState::Attention,
             format!("refresh {} is already running", refresh.id),
-            Some(format!("radio refresh-status {}", refresh.id)),
+            Some(crate::guidance::refresh_status(&refresh.id)),
         ),
         "failed" | "interrupted" => check(
             "directory_refresh",
@@ -295,7 +298,7 @@ fn directory_refresh(directory: &DirectoryStatus) -> DoctorCheck {
                 "refresh {} is {}. The previous cache was kept.",
                 refresh.id, refresh.state
             ),
-            Some("radio refresh NEW_ID --limit 100".into()),
+            Some(directory_fetch()),
         ),
         "completed" => check(
             "directory_refresh",
@@ -333,7 +336,7 @@ fn podcasts(store: &Store) -> Result<DoctorCheck> {
                 "{} subscriptions, {} without a snapshot, {} snapshots older than 24 hours. A refresh does not download enclosures.",
                 health.subscriptions, health.missing_snapshots, health.stale_snapshots
             ),
-            Some("podcast refresh SUBSCRIPTION --id NEW_ID".into()),
+            Some("sigy podcast refresh SUBSCRIPTION".into()),
         ));
     }
     Ok(check(
@@ -398,8 +401,29 @@ fn captures(interrupted: u64) -> DoctorCheck {
             format!(
                 "{interrupted} interrupted captures keep their reservation until the attempt is deleted"
             ),
-            Some("record list".into()),
+            Some("sigy record list".into()),
         )
+    }
+}
+
+fn directory_fetch() -> String {
+    crate::guidance::DirectoryHint::empty_fetch().command()
+}
+
+fn containment_cause(error: &crate::Error) -> String {
+    let raw = std::error::Error::source(error)
+        .map(ToString::to_string)
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| error.to_string());
+    let text = raw
+        .replace("bounded native containment unavailable:", "")
+        .replace("inspect `sigy doctor`", "")
+        .replace(';', " ");
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        "the operating system refused the requested limits".into()
+    } else {
+        text
     }
 }
 
@@ -445,8 +469,21 @@ mod tests {
             .iter()
             .find(|check| check.name == "directory")
             .ok_or("directory")?;
-        if directory.command.as_deref() != Some("radio refresh NEW_ID --limit 100") {
-            return Err("empty cache did not suggest a refresh".into());
+        if directory.command.as_deref() != Some("sigy radio search --fetch") {
+            return Err(format!("empty cache hint drifted: {directory:?}").into());
+        }
+        if report.checks.iter().any(|check| {
+            check
+                .command
+                .as_deref()
+                .is_some_and(|command| command.contains("NEW_ID"))
+        }) || report.checks.iter().any(|check| {
+            check.detail.contains("inspect `sigy doctor`")
+                || check
+                    .detail
+                    .contains("bounded native containment unavailable")
+        }) {
+            return Err(format!("doctor detail still points at itself: {report:?}").into());
         }
         let recognition = report
             .checks

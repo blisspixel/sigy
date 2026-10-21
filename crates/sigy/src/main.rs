@@ -17,8 +17,10 @@ mod backup;
 mod copy;
 #[cfg(target_os = "linux")]
 mod delegation;
+mod doctor_view;
 mod dvr;
 mod explorer;
+mod hints;
 mod init;
 mod languages;
 mod listen;
@@ -41,8 +43,9 @@ mod update;
     name = "sigy",
     bin_name = "sigy",
     version,
-    about = "Local-first signals discovery and analysis",
-    after_help = init::GET_STARTED
+    about = "Practical signals intelligence for everyday people.",
+    before_help = init::GET_STARTED,
+    help_template = "{about}\n\n{before-help}\n\n{options}"
 )]
 struct Cli {
     /// Library directory. Defaults to ~/.sigy/library; MCP requires an explicit directory.
@@ -453,11 +456,23 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
+    if let Command::Explore { filters, favorites } = &cli.command {
+        radio::write_explore_next(&mut stdout, filters, *favorites, &view, cli)?;
+    }
     if let Command::Doctor { strict } = &cli.command {
-        let report = view.doctor.as_ref().ok_or("doctor report is missing")?;
-        if report.blocked() || (*strict && report.attention()) {
-            return Err("doctor found a check that needs action".into());
-        }
+        refuse_doctor(&view, *strict, cli.json)?;
+    }
+    Ok(())
+}
+
+fn refuse_doctor(
+    view: &Snapshot,
+    strict: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let report = view.doctor.as_ref().ok_or("doctor report is missing")?;
+    if let Some(line) = doctor_view::failure_line(report, strict, json) {
+        return Err(line.into());
     }
     Ok(())
 }
@@ -472,7 +487,8 @@ fn render_library_snapshot(
         serde_json::to_writer(&mut *stdout, view)?;
         writeln!(stdout)?;
     } else if let Some(report) = &view.doctor {
-        render_doctor(stdout, view, report, cli.explicit_data_dir, ink)?;
+        let directory = explicit_directory(cli)?;
+        doctor_view::render(stdout, view, report, directory.as_deref(), ink)?;
     } else if let Some(policy) = &view.dvr {
         dvr::render_policy(stdout, policy, ink)?;
     } else if let Some(page) = &view.recording_page {
@@ -535,63 +551,11 @@ fn write_document(
     Ok(false)
 }
 
-fn render_doctor(
-    stdout: &mut impl Write,
-    view: &Snapshot,
-    report: &sigy_service::control::DoctorReport,
-    explicit_data_dir: bool,
-    ink: style::Ink,
-) -> io::Result<()> {
-    let blocked = report
-        .checks
-        .iter()
-        .filter(|check| check.state == sigy_service::control::DoctorState::Blocked)
-        .count();
-    let attention = report
-        .checks
-        .iter()
-        .filter(|check| check.state == sigy_service::control::DoctorState::Attention)
-        .count();
-    writeln!(
-        stdout,
-        "Doctor: {attention} attention, {blocked} blocked. No network request was made."
-    )?;
-    let same = if explicit_data_dir {
-        " with the same --data-dir"
-    } else {
-        ""
-    };
-    match &view.service {
-        Some(service) => writeln!(
-            stdout,
-            "Service: process {} is {}.",
-            service.process_id,
-            if service.stopping {
-                ink.tint(style::Tone::Attention, "stopping")
-            } else {
-                ink.tint(style::Tone::Ok, "running")
-            }
-        )?,
-        None => writeln!(
-            stdout,
-            "Service: {}. Refresh, recording and processing need `sigy service start`{same}.",
-            ink.tint(style::Tone::Attention, "not running")
-        )?,
+fn explicit_directory(cli: &Cli) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    if !cli.explicit_data_dir {
+        return Ok(None);
     }
-    for check in &report.checks {
-        let (state, tone) = doctor_label(&check.state, &check.detail);
-        writeln!(
-            stdout,
-            "{} {}: {}",
-            ink.tint(tone, state),
-            check.name,
-            check.detail
-        )?;
-        if let Some(command) = &check.command {
-            writeln!(stdout, "  Next: sigy {command}{same}")?;
-        }
-    }
-    Ok(())
+    Ok(Some(library_dir(cli)?.display().to_string()))
 }
 
 fn doctor_label(
@@ -689,12 +653,27 @@ fn open_explorer(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         explorer::Modes::resolve(*reduced_motion, *linear, *monochrome)
     };
+    let directory = library_dir(cli)?;
     explorer::run(
-        library_dir(cli)?,
+        directory,
+        cli.explicit_data_dir,
         modes,
         inspect.as_deref(),
         filters.search_filter(query.as_deref())?,
     )
+}
+
+fn parse_cli() -> Cli {
+    match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            let args = std::env::args().skip(1).collect::<Vec<_>>();
+            if let Some(next) = hints::suggestion(&args) {
+                eprintln!("Next: {next}");
+            }
+            error.exit()
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -706,7 +685,7 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    let mut cli = Cli::parse();
+    let mut cli = parse_cli();
     #[cfg(target_os = "linux")]
     let mut managed_exit = None;
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
@@ -789,7 +768,7 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod future_frame_tests {
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
 
     #[test]
     fn command_routers_keep_large_playback_futures_off_the_poll_stack()
@@ -841,5 +820,51 @@ mod future_frame_tests {
         );
         assert_eq!(blocked, "blocked");
         assert_eq!(blocked_tone, crate::style::Tone::Fail);
+    }
+
+    #[test]
+    fn top_level_help_fits_sixty_columns() -> Result<(), Box<dyn std::error::Error>> {
+        for line in crate::init::GET_STARTED.lines() {
+            assert!(line.chars().count() <= 60, "{line}");
+        }
+        let mut command = super::Cli::command()
+            .color(clap::ColorChoice::Never)
+            .term_width(60);
+        let mut buffer = Vec::new();
+        command.write_help(&mut buffer)?;
+        let text = String::from_utf8(buffer)?;
+        assert!(text.contains("Practical signals intelligence for everyday people."));
+        assert!(text.contains("sigy init --radio"));
+        assert!(!text.contains("sigy radio search\n"));
+        for line in text.lines() {
+            assert!(visible_width(line) <= 60, "{line}");
+        }
+        let mut radio = super::Cli::command();
+        let radio = radio.find_subcommand_mut("radio").ok_or("radio help")?;
+        let mut radio_help = Vec::new();
+        radio.write_help(&mut radio_help)?;
+        let radio_text = String::from_utf8(radio_help)?;
+        assert!(radio_text.contains("search"), "{radio_text}");
+        Ok(())
+    }
+
+    fn visible_width(line: &str) -> usize {
+        let mut count = 0usize;
+        let mut chars = line.chars().peekable();
+        while let Some(character) = chars.next() {
+            if character == char::from(0x1b) {
+                if chars.peek() == Some(&'[') {
+                    chars.next();
+                    for next in chars.by_ref() {
+                        if next.is_ascii_alphabetic() {
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+            count += 1;
+        }
+        count
     }
 }

@@ -9,6 +9,7 @@ pub mod discovery;
 mod error;
 mod execution;
 mod fairness;
+pub mod guidance;
 pub mod languages;
 pub mod library;
 mod local_stream;

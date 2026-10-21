@@ -371,7 +371,7 @@ fn automatic_refresh_ids_wait_and_filter_preserving_hints_are_usable() -> TestRe
     )?;
     assert!(output.status.success());
     let text = String::from_utf8(output.stdout)?;
-    assert!(text.contains("radio search --name 'Québec' --country 'CA' --tag 'news' --healthy --limit 16 --order name --fetch"), "{text}");
+    assert!(text.contains("radio search --name 'Québec' --country 'CA' --tag 'news' --healthy --order name --fetch"), "{text}");
     let fixture = DirectoryServer::start(response(), Duration::from_millis(100))?;
     let mut service = RunningChild::start(directory.path())?;
     let refreshed = success(

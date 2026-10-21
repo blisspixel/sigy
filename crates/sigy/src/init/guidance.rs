@@ -27,26 +27,33 @@ pub fn explain(cli: &Cli, error: Failure) -> Failure {
     let Some(kind) = classify(error.as_ref(), &cli.command) else {
         return error;
     };
-    let same = if cli.explicit_data_dir {
-        " with the same --data-dir"
-    } else {
-        ""
-    };
     let message = match kind {
-        Kind::NotFound => missing(&cli.command, same),
-        Kind::NoService => no_service(&cli.command, same),
+        Kind::NotFound => missing(cli),
+        Kind::NoService => no_service(cli),
         Kind::ServiceRequired => format!(
-            "this command needs the background service, and it is not running. Start it with `sigy service start`{same}, then repeat the command"
+            "this command needs the background service, and it is not running. Start it with `{}`, then repeat the command",
+            pasted(cli, "sigy service start")
         ),
-        Kind::Busy => busy(&cli.command, same),
+        Kind::Busy => busy(cli),
         Kind::StationId => format!(
-            "that is not a station ID. Station IDs are directory UUIDs; `sigy radio search`{same} prints one at the start of each result"
+            "that is not a station ID. Station IDs are directory UUIDs; `{}` prints one at the start of each result",
+            pasted(cli, "sigy radio search")
         ),
         Kind::StationCursor => format!(
-            "the cached catalog or ordered search scope changed. Repeat `sigy radio search --order name`{same} with your filters and --limit, omitting --after to restart page 1. No directory refresh is needed"
+            "the cached catalog or ordered search scope changed. Repeat `{}` with your filters and --limit, omitting --after to restart page 1. No directory refresh is needed",
+            pasted(cli, "sigy radio search --order name")
         ),
     };
     message.into()
+}
+
+fn pasted(cli: &Cli, command: &str) -> String {
+    let directory = if cli.explicit_data_dir {
+        cli.data_dir.as_ref().map(|path| path.display().to_string())
+    } else {
+        None
+    };
+    sigy_service::guidance::with_data_dir(command, directory.as_deref())
 }
 
 fn classify(error: &(dyn Error + 'static), command: &Command) -> Option<Kind> {
@@ -85,38 +92,44 @@ fn classify(error: &(dyn Error + 'static), command: &Command) -> Option<Kind> {
     }
 }
 
-fn no_service(command: &Command, same: &str) -> String {
+fn no_service(cli: &Cli) -> String {
     if matches!(
-        command,
+        &cli.command,
         Command::Service {
             command: ServiceCommand::Stop
         }
     ) {
         return "no service is running for this library, so nothing was stopped".into();
     }
-    format!("no service is running for this library. Start it with `sigy service start`{same}")
+    format!(
+        "no service is running for this library. Start it with `{}`",
+        pasted(cli, "sigy service start")
+    )
 }
 
-fn busy(command: &Command, same: &str) -> String {
-    match command {
+fn busy(cli: &Cli) -> String {
+    match &cli.command {
         Command::Library {
             command: LibraryCommand::Init,
         } => format!(
-            "the background service owns this library, so it is already initialized. `sigy library status`{same} reads it through the service"
+            "the background service owns this library, so it is already initialized. `{}` reads it through the service",
+            pasted(cli, "sigy library status")
         ),
         Command::Service {
             command: ServiceCommand::Run { .. },
         } => format!(
-            "a service is already running for this library. `sigy service status`{same} shows it"
+            "a service is already running for this library. `{}` shows it",
+            pasted(cli, "sigy service status")
         ),
         _ => format!(
-            "the background service owns this library. Stop it with `sigy service stop`{same} before this command"
+            "the background service owns this library. Stop it with `{}` before this command",
+            pasted(cli, "sigy service stop")
         ),
     }
 }
 
-fn missing(command: &Command, same: &str) -> String {
-    let (what, list) = match command {
+fn missing(cli: &Cli) -> String {
+    let (what, list) = match &cli.command {
         Command::Radio { command } => radio_missing(command),
         Command::Record { command } => record_missing(command),
         Command::Listen { command } => listen_missing(command),
@@ -133,7 +146,10 @@ fn missing(command: &Command, same: &str) -> String {
     if list.is_empty() {
         return format!("{what}. Check the identifier");
     }
-    format!("{what}. `sigy {list}`{same} shows existing IDs")
+    format!(
+        "{what}. `{}` shows existing IDs",
+        pasted(cli, &format!("sigy {list}"))
+    )
 }
 
 fn named(kind: &str, id: &str) -> String {
@@ -317,7 +333,7 @@ mod tests {
             "{remote}"
         );
         assert!(
-            remote.contains("`sigy radio status` with the same --data-dir"),
+            remote.contains("`sigy --data-dir 'lib' radio status`"),
             "{remote}"
         );
         let source = message(
@@ -388,7 +404,7 @@ mod tests {
             missing(),
         )?;
         assert!(
-            explicit.ends_with("`sigy service start` with the same --data-dir"),
+            explicit.ends_with("`sigy --data-dir 'lib' service start`"),
             "{explicit}"
         );
         let other = message(&["sigy", "record", "list"], missing())?;
