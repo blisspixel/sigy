@@ -120,7 +120,7 @@ impl Browser {
             return rows.into_iter().skip(offset).take(limit).collect();
         }
         let mut lines =
-            vec!["Monitors: arrows select, Enter reads, r reloads. Classification off.".into()];
+            vec!["Monitors: arrows select, Enter inspects, r reloads. Classification off.".into()];
         if self.ids.is_empty() {
             lines.push("No monitors. Create one with sigy monitor create.".into());
         }

@@ -119,7 +119,7 @@ fn footer(frame: &mut Frame<'_>, area: Rect, model: &Explorer) {
         format!("Esc back q quit i links\nUp/Down {}", context.position())
     } else if model.restart_required() {
         format!(
-            "Esc back, then g restarts cached page 1 | q quit\nUp/Down scroll | {}",
+            "Esc back, then g opens the first cached page | q quit\nUp/Down scroll | {}",
             context.position()
         )
     } else {

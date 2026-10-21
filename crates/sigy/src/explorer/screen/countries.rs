@@ -95,15 +95,11 @@ fn page_status(picker: &Picker, compact: bool) -> String {
     picker.page.as_ref().map_or_else(
         || "Reference unavailable".to_owned(),
         |page| {
+            let count = u64::try_from(page.total_candidates).unwrap_or(u64::MAX);
             if compact {
                 return format!(
-                    "{} {} {} {}",
-                    page.total_candidates,
-                    if page.total_candidates == 1 {
-                        "choice"
-                    } else {
-                        "choices"
-                    },
+                    "{} {} {}",
+                    crate::copy::count_label(count, "choice", "choices"),
                     page.display_locale,
                     if page.next_after.is_some() {
                         "more"
@@ -113,13 +109,8 @@ fn page_status(picker: &Picker, compact: bool) -> String {
                 );
             }
             format!(
-                "{} {} | {} | {}",
-                page.total_candidates,
-                if page.total_candidates == 1 {
-                    "candidate"
-                } else {
-                    "candidates"
-                },
+                "{} | {} | {}",
+                crate::copy::count_label(count, "candidate", "candidates"),
                 page.display_locale,
                 if page.next_after.is_some() {
                     "more >"

@@ -1,4 +1,4 @@
-//! Explicit quick listening composes the existing directory and listen operations.
+//! Explicit play composes the existing directory and listen operations.
 
 use crate::panel::{
     admit,

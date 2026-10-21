@@ -30,15 +30,15 @@ These commands build `main` from source; [installation details](docs/install.md)
 - **Keep a useful record.** Capture streams in the background, schedule recordings across time zones, and retain selected intervals. Replay an explicit excerpt or exact stored finding through the CLI. Recording timelines distinguish audio, gaps and expired material.
 - **Read across languages.** Run experimental local recognition and English translation on retained audio, search originals and translations, and correct a transcript without erasing its history.
 - **Follow a topic with evidence.** Bound a monitor's sources and resources, inspect literal matches, and save cited findings and briefings. Finite tasks can collect, process, freeze their exact evidence and publish cited findings with coverage-aware partial results. [Explicit interest withdrawal](docs/decisions/0079-task-interest-withdrawal.md) preserves shared processing. A general task planner remains ahead. Selected operations are available through the [agent plugin](docs/decisions/0021-agent-plugin.md).
-- **Desktop status and quick playback.** Inspect ambient service status, directory freshness and active recordings with `sigy panel status`, emit Waybar-compatible JSON with `sigy panel bar`, or launch bounded favorite playback with `sigy panel play` for desktop shells such as Omarchy. Outputs truthfully report qualification boundaries.
+- **Desktop status and one-station play.** Inspect ambient service status, directory freshness and active recordings with `sigy panel status`, emit Waybar-compatible JSON with `sigy panel bar`, or launch bounded favorite play with `sigy panel play` for desktop shells such as Omarchy. Outputs truthfully report qualification boundaries.
 
 ![Sigy's globe view over retained station metadata](docs/images/globe.png)
 
-The globe uses offline geometry and cached station coordinates. This 2026-10-04 render shows directory observations, not a live coverage survey. Enter inspects a station; `i` reads its exact registrations and recording metadata. Escape restores your search and selection. See [terminal controls and listening](docs/usage.md#list-explorer) and [image provenance](docs/development/interface-images.md).
+The globe uses offline geometry and cached station coordinates. This 2026-10-04 render shows directory observations, not a live coverage survey. Enter inspects a station; `i` inspects its exact registrations and recording metadata. Escape restores your search and selection. See [terminal controls and listening](docs/usage.md#list-explorer) and [image provenance](docs/development/interface-images.md).
 
 ## Get started
 
-For discovery by chance, use `sigy explore --country Canada` or press `e` in the explorer. Each pick comes from all cached coordinate-bearing stations under the active filters. The globe jumps to its approximate directory position; playing still requires the explicit play action. `g` returns to ordered results.
+For discovery by chance, use `sigy explore --country Canada` or press `e` in the explorer. Each pick comes from all cached coordinate-bearing stations under the active filters. The globe jumps to its approximate directory position; playing still requires the explicit play action. `g` opens the first cached page.
 
 Create your local library, start the background service and load a first station page:
 
@@ -57,11 +57,11 @@ sigy doctor
 sigy play STATION_UUID
 ```
 
-Replace the placeholders with your decoder path and an ID from search. `sigy stop` stops the latest quick listen. The explorer also offers `P`, confirmation with `y`, and `S` to stop; selection and Enter inspection remain passive. Delayed player status and metadata replies leave navigation, resize, stop and quit available. A late metadata reply cannot replace a newer view. Native key-to-frame timing remains unmeasured. Windows live output uses Sigy's bounded native helper; Linux needs a usable local FFmpeg output and delegated execution. Null decoding and a running receipt do not prove audible output.
+Replace the placeholders with your decoder path and an ID from search. `sigy stop` stops the latest play. The explorer also offers `P`, confirmation with `y`, and `S` to stop; selection and Enter inspection remain passive. Delayed player status and metadata replies leave navigation, resize, stop and quit available. A late metadata reply cannot replace a newer view. Native key-to-frame timing remains unmeasured. Windows live output uses Sigy's bounded native helper; Linux needs a usable local FFmpeg output and delegated execution. Null decoding and a running receipt do not prove audible output.
 
 Sigy uses `~/.sigy/library` by default. Use `sigy init` for setup without a directory fetch, or `sigy init --no-start` to prepare storage without starting a service. See [first use](docs/install.md#first-use) for custom libraries and recording setup, and the [usage guide](docs/usage.md) for full commands.
 
-Your library and local processing stay on your machine by default. Paid model dispatch is not implemented. The [progress record](docs/development/progress.md#tracked-intermittent-test-issues) keeps known faults and verification gaps visible.
+Your library and local processing stay on your machine by default. Paid processing: unavailable. The [progress record](docs/development/progress.md#tracked-intermittent-test-issues) keeps known faults and verification gaps visible.
 
 The latest [analysis reliability repair](docs/decisions/0092-atomic-worker-responses.md) preserves exact translation history on replay and prevents a failed response read from leaving a committed claim or result. Automatic recovery of an unsettled worker result remains the next reliability increment.
 

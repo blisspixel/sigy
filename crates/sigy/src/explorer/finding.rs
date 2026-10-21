@@ -155,7 +155,9 @@ impl Browser {
         self.viewport_width.set(width.max(2));
         let mut lines = vec![self.query_line(width.saturating_sub(first_prefix))];
         if limit >= 3 {
-            lines.push("/ edits MONITOR FINDING; Enter reads; o opens recording metadata.".into());
+            lines.push(
+                "/ edits MONITOR FINDING; Enter inspects; o inspects recording metadata.".into(),
+            );
         }
         let detail = self.wrapped_detail();
         let offset = self.offset.min(detail.len().saturating_sub(1));

@@ -707,7 +707,7 @@ impl Explorer {
         if let Some(catalog) = &desk.catalog
             && !self.catalog_fresh(catalog, self.page_cursor.is_none())
         {
-            self.note_message("An older catalog reply was ignored. g restarts cached page 1.");
+            self.note_message("An older catalog reply was ignored. g opens the first cached page.");
             return;
         }
         let selected = self.selected().map(|row| row.id.clone());
@@ -818,8 +818,8 @@ impl Explorer {
             self.status = issue.message().into();
         } else {
             self.status = format!(
-                "Cached page read: {} stations. F edits filters; x resets.",
-                self.rows.len()
+                "Cached page read: {}. F edits filters; x resets.",
+                crate::copy::station_count(u64::try_from(self.rows.len()).unwrap_or(u64::MAX))
             );
         }
         self.draw = Draw::Needed;
@@ -1069,7 +1069,7 @@ impl Explorer {
             }
             Key::Char('R') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
                 if self.favorites_only() {
-                    self.note_message("Favorites are local choices. v shows all matches before R fetches; f saves a selected station.");
+                    self.note_message("Favorites are local choices. v shows all matches before R fetches; f favorites a selected station.");
                 } else if self.search.pending() {
                     self.note_message("A search is pending. Wait for its result before requesting a directory page.");
                 } else {
@@ -1218,7 +1218,7 @@ impl Explorer {
             Key::Enter => return Some(self.monitors.open()),
             Key::Char('r') => return Some(self.monitors.reload()),
             Key::Char('f' | 'v' | '/') => self.note_message(
-                "Monitor navigation is read-only. Enter reads coverage and passages.",
+                "Monitor navigation is read-only. Enter inspects coverage and passages.",
             ),
             _ => return None,
         }
@@ -1306,7 +1306,7 @@ impl Explorer {
         }
         if forward {
             if self.page_history.len() >= 625 {
-                self.note_message("Page history is full. g restarts cached page 1.");
+                self.note_message("Page history is full. g opens the first cached page.");
                 return Effect::None;
             }
             let Some(after) = self.next_after.clone() else {

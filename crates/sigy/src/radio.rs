@@ -394,16 +394,20 @@ fn write_countries(
 ) -> io::Result<()> {
     writeln!(
         writer,
-        "Countries and territories: {} | locale {}{} | {} candidates",
-        page.reference_version,
+        "Countries and territories: {} ({}).{}",
+        crate::copy::count_label(
+            u64::try_from(page.total_candidates).unwrap_or(u64::MAX),
+            "candidate",
+            "candidates"
+        ),
         page.display_locale,
         if page.locale_fallback {
-            " (requested locale unavailable; English fallback)"
+            " Requested locale unavailable; English fallback."
         } else {
             ""
-        },
-        page.total_candidates
+        }
     )?;
+    writeln!(writer, "Reference: {}.", page.reference_version)?;
     for entry in &page.entries {
         writeln!(
             writer,
@@ -458,9 +462,11 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
     if let Some(status) = &view.directory {
         writeln!(
             writer,
-            "Radio Browser cache: {} / {} stations | favorites: {} | stale: {}. Partial observations, not the complete world catalog.",
-            status.cached_stations,
-            status.maximum_stations,
+            "Cache: {} | Favorites: {} | Stale: {}. Partial observations, not the complete world catalog.",
+            crate::copy::cache_span(
+                u64::from(status.cached_stations),
+                u64::from(status.maximum_stations)
+            ),
             status.favorite_stations,
             ink.tint(
                 if status.stale_stations > 0 {
@@ -486,7 +492,7 @@ pub fn render(writer: &mut impl Write, view: &Snapshot, ink: Ink) -> io::Result<
         {
             writeln!(
                 writer,
-                "Refresh {}: {} | accepted {} | skipped {} | started {}",
+                "Fetch: {} | {} | accepted {} | skipped {} | started {}",
                 clean(&refresh.id),
                 ink.tint(tone_for_state(&refresh.state), &clean(&refresh.state)),
                 refresh.accepted,
@@ -540,8 +546,13 @@ fn write_random_station(
 ) -> io::Result<()> {
     writeln!(
         writer,
-        "Random pick from {} eligible cached stations | cache revision {}.",
-        result.eligible_count, result.catalog.revision
+        "Random pick from {}. Catalog revision {}.",
+        crate::copy::count_label(
+            u64::from(result.eligible_count),
+            "eligible cached station",
+            "eligible cached stations"
+        ),
+        result.catalog.revision
     )?;
     if let Some(station) = &result.station {
         write_stations(
@@ -644,8 +655,7 @@ fn write_stations(
         };
         writeln!(
             writer,
-            "{}: {}{favorite} | {} | {} | bitrate {} | directory languages: {}",
-            clean(&station.id),
+            "{}{favorite} | {} | {} | Bitrate: {} | Directory languages: {} | {}",
             clean(&station.name),
             known(&station.country),
             known(&station.codec),
@@ -654,7 +664,8 @@ fn write_stations(
             } else {
                 format!("{} kbps", station.bitrate_kbps)
             },
-            known(&station.languages.join(", "))
+            known(&station.languages.join(", ")),
+            ink.tint(Tone::Muted, &clean(&station.id))
         )?;
         writeln!(
             writer,
@@ -923,7 +934,8 @@ mod tests {
         assert!(text.contains("أخبار"));
         assert!(text.contains("français"));
         assert!(text.contains("Diné bizaad"));
-        assert!(text.contains("[favorite] | unknown | unknown | bitrate unknown"));
+        assert!(text.contains("[favorite] | unknown | unknown | Bitrate: unknown"));
+        assert!(text.contains("Directory languages:"));
         assert!(text.contains("record hls"));
         assert!(text.contains("--live"));
         assert!(text.contains("master variants require explicit acceptance"));

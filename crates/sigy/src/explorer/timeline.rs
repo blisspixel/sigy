@@ -83,23 +83,35 @@ impl Timeline {
         if self.truncated {
             return "Timeline unavailable: metadata result limit reached.".into();
         }
-        let extent = self.extent_us();
         format!(
-            "Clock: [0, {extent})us, {}; planned {}us, {}.",
-            duration_label(extent),
-            self.planned_us,
-            duration_label(self.planned_us)
+            "{} to {}  planned {}",
+            clock_label(0),
+            clock_label(self.extent_us()),
+            clock_label(self.planned_us)
         )
+    }
+
+    /// Exact media interval for the detail view. JSON keeps the same microseconds.
+    pub fn detail(&self) -> String {
+        if self.truncated {
+            return "Exact interval unavailable: metadata result limit reached.".into();
+        }
+        format!("[0, {})us; planned {}us", self.extent_us(), self.planned_us)
     }
 
     pub fn compact_axis(&self) -> String {
         if self.truncated {
             return "Timeline unavailable: metadata limit.".into();
         }
-        format!("0..{}us; plan {}us", self.extent_us(), self.planned_us)
+        format!("{} to {}", clock_label(0), clock_label(self.extent_us()))
     }
 
     pub fn cells(&self, requested_width: usize) -> String {
+        self.cells_marked(requested_width, false)
+    }
+
+    /// Unicode marks and the ASCII fallback classify every cell the same way.
+    pub fn cells_marked(&self, requested_width: usize, marks: bool) -> String {
         if self.truncated {
             return String::new();
         }
@@ -113,11 +125,11 @@ impl Timeline {
         }
         let boundary = |index| extent / width * index + extent % width * index / width;
         (0..width)
-            .map(|index| self.cell(boundary(index), boundary(index + 1)))
+            .map(|index| Self::glyph(self.mask_at(boundary(index), boundary(index + 1)), marks))
             .collect()
     }
 
-    fn cell(&self, start: u64, end: u64) -> char {
+    fn mask_at(&self, start: u64, end: u64) -> u8 {
         let mut mask = 0u8;
         let mut covered = 0u64;
         for interval in &self.intervals {
@@ -137,13 +149,75 @@ impl Timeline {
         if covered < end - start {
             mask |= 8;
         }
+        mask
+    }
+
+    fn glyph(mask: u8, marks: bool) -> char {
         match mask {
-            1 => '#',
-            2 => 'x',
-            4 => '!',
-            0 | 8 => '.',
+            1 => {
+                if marks {
+                    '█'
+                } else {
+                    '#'
+                }
+            }
+            2 => {
+                if marks {
+                    '░'
+                } else {
+                    'x'
+                }
+            }
+            4 => {
+                if marks {
+                    '╳'
+                } else {
+                    '!'
+                }
+            }
+            0 | 8 => {
+                if marks {
+                    '·'
+                } else {
+                    '.'
+                }
+            }
             _ => '+',
         }
+    }
+
+    pub fn legend(marks: bool) -> &'static str {
+        if marks {
+            "█ retained  ░ unavailable  ╳ gap  · not yet published  + mixed"
+        } else {
+            "# retained, x unavailable, ! gap, . not yet published, + mixed"
+        }
+    }
+
+    /// Narrow terminals keep every state name on one line. `open` is the unpublished tail.
+    pub fn legend_for(marks: bool, width: usize) -> &'static str {
+        let full = Self::legend(marks);
+        if width == 0 || full.chars().count() <= width {
+            return full;
+        }
+        if marks {
+            "█ retained ░ unavail ╳ gap · open +mix"
+        } else {
+            "# retained x unavail ! gap . open +mix"
+        }
+    }
+}
+
+/// `m:ss`, or `h:mm:ss` once the duration reaches an hour. Integer seconds, rounded down.
+fn clock_label(us: u64) -> String {
+    let seconds = us / 1_000_000;
+    let minutes = seconds / 60;
+    let secs = seconds % 60;
+    let hours = minutes / 60;
+    if hours > 0 {
+        format!("{hours}:{:02}:{:02}", minutes % 60, secs)
+    } else {
+        format!("{minutes}:{secs:02}")
     }
 }
 
@@ -151,37 +225,50 @@ fn overlap(start: u64, end: u64, other_start: u64, other_end: u64) -> u64 {
     end.min(other_end).saturating_sub(start.max(other_start))
 }
 
-/// Readable media duration beside the exact microseconds. Integer arithmetic, rounded down.
-fn duration_label(us: u64) -> String {
-    let seconds = us / 1_000_000;
-    if seconds < 60 {
-        let tenths = us / 100_000;
-        return format!("{}.{} s", tenths / 10, tenths % 10);
-    }
-    let minutes = seconds / 60;
-    if minutes < 60 {
-        return format!("{minutes} min {} s", seconds % 60);
-    }
-    format!("{} h {} min", minutes / 60, minutes % 60)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn durations_read_in_people_units_and_round_down() {
-        for (us, label) in [
-            (0, "0.0 s"),
-            (1_999_999, "1.9 s"),
-            (59_999_999, "59.9 s"),
-            (60_000_000, "1 min 0 s"),
-            (3_599_000_000, "59 min 59 s"),
-            (3_660_000_000, "1 h 1 min"),
-        ] {
-            assert_eq!(duration_label(us), label);
+    fn class_of(cell: char) -> u8 {
+        match cell {
+            '#' | '█' => 1,
+            'x' | '░' => 2,
+            '!' | '╳' => 4,
+            '.' | '·' => 8,
+            '+' => 16,
+            _ => 0,
         }
-        assert!(duration_label(u64::MAX).ends_with(" min"));
+    }
+
+    #[test]
+    fn narrow_legends_name_every_state_on_one_line() {
+        assert_eq!(Timeline::legend_for(false, 80), Timeline::legend(false));
+        assert_eq!(Timeline::legend_for(true, 0), Timeline::legend(true));
+        assert_eq!(
+            Timeline::legend_for(false, 40),
+            "# retained x unavail ! gap . open +mix"
+        );
+        assert_eq!(
+            Timeline::legend_for(true, 40),
+            "█ retained ░ unavail ╳ gap · open +mix"
+        );
+        assert!(Timeline::legend_for(false, 40).chars().count() <= 40);
+        assert!(Timeline::legend_for(true, 40).chars().count() <= 40);
+    }
+
+    #[test]
+    fn clock_labels_use_integer_seconds() {
+        for (us, label) in [
+            (0, "0:00"),
+            (1_999_999, "0:01"),
+            (59_999_999, "0:59"),
+            (60_000_000, "1:00"),
+            (3_599_000_000, "59:59"),
+            (3_660_000_000, "1:01:00"),
+        ] {
+            assert_eq!(clock_label(us), label);
+        }
+        assert!(clock_label(u64::MAX).contains(':'));
     }
 
     pub(crate) fn fixture() -> Timeline {
@@ -222,7 +309,17 @@ mod tests {
                 .summary()
                 .contains("1 available, 1 unavailable; gaps 2")
         );
-        assert!(timeline.axis().contains("[0, 10000000)us"));
+        assert_eq!(timeline.axis(), "0:00 to 0:10  planned 0:10");
+        assert_eq!(timeline.detail(), "[0, 10000000)us; planned 10000000us");
+        assert_eq!(timeline.cells_marked(10, true), "╳╳██░░╳╳··");
+        assert_eq!(
+            timeline.cells(10).chars().map(class_of).collect::<Vec<_>>(),
+            timeline
+                .cells_marked(10, true)
+                .chars()
+                .map(class_of)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -238,11 +335,8 @@ mod tests {
     fn published_media_can_extend_beyond_the_planned_duration() {
         let mut timeline = fixture();
         timeline.planned_us = 1_000_000;
-        assert!(
-            timeline
-                .axis()
-                .contains("[0, 8000000)us, 8.0 s; planned 1000000us, 1.0 s.")
-        );
+        assert_eq!(timeline.axis(), "0:00 to 0:08  planned 0:01");
+        assert!(timeline.detail().contains("[0, 8000000)us"));
         assert_eq!(timeline.cells(4), "!#x!");
     }
 

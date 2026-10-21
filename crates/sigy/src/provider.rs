@@ -211,7 +211,7 @@ pub fn render(writer: &mut impl Write, page: &ProviderPage) -> io::Result<()> {
     if let Some(created) = page.newly_created {
         writeln!(
             writer,
-            "{} Provider dispatch is not available.",
+            "{} Paid processing: unavailable.",
             if created { "Stored." } else { "Unchanged." }
         )?;
     }

@@ -104,7 +104,7 @@ fn footer(compact: bool, model: &Explorer) -> Vec<Line<'static>> {
         vec![
             Line::raw("Enter apply"),
             Line::raw(if model.restart_required() {
-                "Esc then g restart"
+                "Esc, g first page"
             } else {
                 "Esc cancel Tab field"
             }),
@@ -113,7 +113,7 @@ fn footer(compact: bool, model: &Explorer) -> Vec<Line<'static>> {
     } else {
         vec![
             Line::raw(if model.restart_required() {
-                "Esc then g restart cached page 1. Enter applies this draft."
+                "Esc then g first page. Enter applies this draft."
             } else {
                 "Enter applies; Esc cancels. Tab/Shift-Tab or arrows select fields."
             }),

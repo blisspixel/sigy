@@ -15,7 +15,7 @@ use crate::explorer::state::{Explorer, Focus, Workspace};
 use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 
 pub const HELP_PRIMARY: &str =
-    "Help: / search F filters C country e explore R fetch f save n/p page q quit";
+    "Help: / search F filters C country e explore R fetch f favorite n/p page q quit";
 pub const HELP_SELECTION: &str =
     "Enter inspects; P then y plays; S stops. Selection starts no work.";
 pub const RECOVERY: &str = "Too small\n^C quits\nService\nstays up";
@@ -252,7 +252,7 @@ fn one(line: Line<'static>, focused: bool, model: &Explorer) -> Section {
 fn compact_help(model: &Explorer, width: u16) -> &'static str {
     if editing(model) {
         return if model.restart_required() {
-            "Esc then g restart"
+            "Esc, g first page"
         } else {
             "Help: Esc ends edit"
         };
@@ -260,17 +260,20 @@ fn compact_help(model: &Explorer, width: u16) -> &'static str {
     if width < 40 {
         return match model.workspace() {
             Workspace::Findings => "q quit / IDs o media",
-            Workspace::Monitors => "q quit Enter read",
             Workspace::Recordings | Workspace::Live | Workspace::System => "q quit r reload",
-            Workspace::Explore | Workspace::Globe if model.restart_required() => "q quit g restart",
-            Workspace::Explore | Workspace::Globe => "q quit Enter inspect",
+            Workspace::Explore | Workspace::Globe if model.restart_required() => {
+                "q quit g first page"
+            }
+            Workspace::Monitors | Workspace::Explore | Workspace::Globe => "q quit Enter inspect",
         };
     }
     match model.workspace() {
         Workspace::Findings => "Help: q quit, / IDs, o metadata",
         Workspace::Recordings => "Help: q quit, arrows select, r reload",
-        Workspace::Monitors => "Help: q quit, Enter read, r reload",
-        Workspace::Globe | Workspace::Explore if model.restart_required() => "q quit | g restart",
+        Workspace::Monitors => "Help: q quit, Enter inspect, r reload",
+        Workspace::Globe | Workspace::Explore if model.restart_required() => {
+            "q quit | g first page"
+        }
         Workspace::Globe => "q quit Enter inspect | e explore | m map",
         Workspace::Explore => "q quit Enter inspect | / search | n/p page",
         Workspace::Live | Workspace::System => "Help: q quit, r reload, Tab focus",
@@ -422,7 +425,7 @@ fn workspace_line(model: &Explorer) -> Line<'static> {
 fn cache_line(model: &Explorer) -> Line<'static> {
     let color = color_on(model);
     let Some(directory) = model.directory() else {
-        return plain("Partial cache unknown | refresh none | favorites unknown");
+        return plain("Cache: not read yet | Last fetch: none | Favorites: unknown");
     };
     if directory.maximum_stations == 0 {
         return plain("Cache statistics unobserved | r reload");
@@ -431,21 +434,25 @@ fn cache_line(model: &Explorer) -> Line<'static> {
         color,
         Tone::Plain,
         format!(
-            "Partial cache {}/{} | ",
-            directory.cached_stations, directory.maximum_stations
+            "Cache: {} | ",
+            crate::copy::cache_span(
+                u64::from(directory.cached_stations),
+                u64::from(directory.maximum_stations),
+            )
         ),
     )];
     match directory.refresh.as_ref() {
         Some(refresh) => {
             let state = sanitize(&refresh.state, 16);
+            spans.push(paint(color, Tone::Plain, "Last fetch: "));
+            spans.push(paint(color, tone_for_state(&state), state));
             spans.push(paint(
                 color,
-                Tone::Plain,
-                format!("{} ", clip(&refresh.id, 24)),
+                Tone::Muted,
+                format!(" {}", clip(&refresh.id, 24)),
             ));
-            spans.push(paint(color, tone_for_state(&state), state));
         }
-        None => spans.push(paint(color, Tone::Plain, "refresh none")),
+        None => spans.push(paint(color, Tone::Plain, "Last fetch: none")),
     }
     let favorites = directory.favorite_stations;
     let favorite_tone = if favorites > 0 {
@@ -457,7 +464,7 @@ fn cache_line(model: &Explorer) -> Line<'static> {
     spans.push(paint(
         color,
         favorite_tone,
-        format!("favorites {favorites}"),
+        format!("Favorites: {favorites}"),
     ));
     Line::from(spans)
 }
@@ -465,7 +472,7 @@ fn cache_line(model: &Explorer) -> Line<'static> {
 fn search_lines(model: &Explorer) -> Vec<Line<'static>> {
     if model.workspace() == Workspace::Findings {
         return vec![plain(
-            "Findings: read one stored citation by name. Listing is not available yet.",
+            "Findings: inspect one stored citation by name. Listing is not available yet.",
         )];
     }
     let color = color_on(model);
@@ -512,7 +519,7 @@ fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
     if model.workspace() == Workspace::Findings {
         return vec![
             plain("Stored citations: named lookup, / edits MONITOR FINDING."),
-            plain("o reads original recording metadata. Arrows scroll."),
+            plain("o inspects original recording metadata. Arrows scroll."),
             plain("Classification off. Original script and uncertain English preserved."),
         ];
     }
@@ -551,17 +558,17 @@ fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
                 paint(color, Tone::Plain, "none"),
             ]),
             Line::from(vec![
-                paint(color, Tone::Plain, "directory health: "),
+                paint(color, Tone::Plain, "Directory health: "),
                 paint(color, tone_for_state("unknown"), "unknown"),
             ]),
             Line::from(vec![
-                paint(color, Tone::Plain, "directory languages: "),
+                paint(color, Tone::Plain, "Directory languages: "),
                 paint(color, Tone::Plain, "unknown"),
             ]),
         ];
     };
     let mut health = vec![
-        paint(color, Tone::Plain, "directory health: "),
+        paint(color, Tone::Plain, "Directory health: "),
         paint(
             color,
             tone_for_state(row.directory_health.label()),
@@ -586,7 +593,7 @@ fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
         ]),
         Line::from(health),
         Line::from(vec![
-            paint(color, Tone::Plain, "directory languages: "),
+            paint(color, Tone::Plain, "Directory languages: "),
             paint(
                 color,
                 Tone::Plain,
@@ -607,18 +614,18 @@ fn playback_line(model: &Explorer) -> Line<'static> {
     let color = color_on(model);
     let Some(session) = model.playback() else {
         return Line::from(vec![
-            paint(color, Tone::Accent, "Playback: "),
+            paint(color, Tone::Accent, "Listen session: "),
             paint(color, Tone::Plain, "none"),
         ]);
     };
     let format = session.format.as_deref().unwrap_or("unknown");
     let state = sanitize(&session.state, 16);
     let mut spans = vec![
-        paint(color, Tone::Accent, "Playback: listen "),
-        paint(color, Tone::Muted, sanitize(&session.id, 24)),
-        paint(color, Tone::Plain, " "),
+        paint(color, Tone::Accent, "Listen session: "),
         paint(color, tone_for_state(&state), state),
-        paint(color, Tone::Plain, format!(" format {format} revision ")),
+        paint(color, Tone::Plain, format!(" format {format} ")),
+        paint(color, Tone::Muted, sanitize(&session.id, 24)),
+        paint(color, Tone::Plain, " revision "),
         paint(color, Tone::Muted, sanitize(&session.source_revision, 24)),
     ];
     if let Some(detail) = session.failure.as_deref() {
@@ -682,9 +689,9 @@ fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
         if model.restart_required()
             && matches!(model.workspace(), Workspace::Explore | Workspace::Globe)
         {
-            "Help: Esc ends edit; Esc then g restart; Enter applies; Ctrl-C quits"
+            "Help: Esc ends edit; Esc then g first page; Enter applies; Ctrl-C quits"
         } else {
-            "Help: Esc ends edit; Enter reads; Ctrl-C quits"
+            "Help: Esc ends edit; Enter inspects; Ctrl-C quits"
         }
     } else {
         match model.workspace() {
@@ -694,16 +701,16 @@ fn help_lines(model: &Explorer) -> Vec<Line<'static>> {
                 "Help: arrows select a recording, r reloads its metadata, q quit"
             }
             Workspace::Monitors => {
-                "Help: arrows select or scroll, Enter reads, Esc back, r reload, q quit"
+                "Help: arrows select or scroll, Enter inspects, Esc back, r reload, q quit"
             }
             Workspace::Findings => {
-                "Help: / edit IDs, Enter reads, arrows scroll, o recording metadata, q quit"
+                "Help: / edit IDs, Enter inspects, arrows scroll, o recording metadata, q quit"
             }
             Workspace::Globe if model.spin_label().is_some() => {
                 "Help: h/l/j/k turn, r spin, m map, c center, R fetch, n/p page, q quit"
             }
             Workspace::Globe => {
-                "Help: h/l/j/k turn, m map, e explore, R fetch, n/p page, g first, q quit"
+                "Help: h/l/j/k turn, m map, e explore, R fetch, n/p page, g first page, q quit"
             }
         }
     };
@@ -744,7 +751,7 @@ fn unavailable_lines(model: &Explorer) -> Vec<Line<'static>> {
         Workspace::Findings => {
             "Stored findings: use sigy monitor finding MONITOR FINDING show. Listing is pending."
         }
-        Workspace::Monitors => "Monitors: Enter reads coverage and literal passages.",
+        Workspace::Monitors => "Monitors: Enter inspects coverage and literal passages.",
         Workspace::Explore
         | Workspace::Live
         | Workspace::Recordings
@@ -773,13 +780,13 @@ fn explore_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'sta
         return linear_station_lines(model, &title, columns.name, height);
     }
     let mut header = format!(
-        "  {} favorite | {}",
+        "  {} Favorite | {}",
         fit(&title, columns.name),
-        fit("directory health", 16)
+        fit("Directory health", 16)
     );
     if columns.languages {
         header.push_str(" | ");
-        header.push_str(&fit("directory languages", 19));
+        header.push_str(&fit("Directory languages", 19));
     }
     if columns.id {
         header.push_str(" | station ID");
@@ -794,7 +801,7 @@ fn explore_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'sta
             paint(color, Tone::Accent, if selected { "> " } else { "  " }),
             paint(color, Tone::Plain, fit(&row.name, columns.name)),
             if row.favorite {
-                paint(color, Tone::Warn, " favorite")
+                paint(color, Tone::Warn, " Favorite")
             } else {
                 Span::raw("         ")
             },
@@ -860,10 +867,10 @@ fn linear_station_lines(
                 " "
             },
             clip(&row.name, name_cells.saturating_add(36)),
-            if row.favorite { " favorite" } else { "" },
+            if row.favorite { " Favorite" } else { "" },
         )));
         lines.push(plain(&format!(
-            "    directory health {} | directory languages {}",
+            "    Directory health: {} | Directory languages: {}",
             row.directory_health.label(),
             clip(known(&row.directory_languages), 30)
         )));
@@ -909,7 +916,7 @@ fn empty_explore(model: &Explorer) -> Vec<Line<'static>> {
     {
         return vec![
             plain("Cached station coverage has not been observed."),
-            plain("r retries the local metadata read. No directory refresh is started."),
+            plain("r reloads the local metadata read. No directory fetch is started."),
         ];
     }
     let cached = model
@@ -975,7 +982,9 @@ fn visible_start(selection: usize, len: usize, window: usize) -> usize {
 
 fn live_lines(model: &Explorer) -> Vec<Line<'static>> {
     let mut lines = vec![
-        plain("Playback is the listen receipt, not directory health and not a recording."),
+        plain(
+            "The listen session is the receipt for a play, not directory health and not a recording.",
+        ),
         plain("P then y plays a selected station; S stops. Selection starts no work."),
     ];
     if model.playback().is_none() {
@@ -1004,14 +1013,17 @@ fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'s
                 plain(&recording.timeline.summary()),
             ];
         }
+        let marks = timeline_marks(model);
         return vec![
             plain(&format!(
                 "Recording {}: metadata",
                 sanitize(&recording.id, 16)
             )),
             plain(&recording.timeline.compact_axis()),
-            plain(&recording.timeline.cells(width)),
-            plain("#:audio x:gone !:gap .:open +:mixed"),
+            plain(&timeline_cells(&recording.timeline, width, marks)),
+            plain(crate::explorer::timeline::Timeline::legend_for(
+                marks, width,
+            )),
         ];
     }
     let mut lines = vec![plain(
@@ -1052,29 +1064,48 @@ fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'s
             }),
     );
     if let Some(recording) = model.selected_recording() {
+        let marks = timeline_marks(model);
         lines.push(plain(&recording.timeline.summary()));
         lines.push(plain(&recording.timeline.axis()));
         if recording.timeline.is_truncated() {
             return lines;
         }
-        lines.push(plain(&recording.timeline.cells(width)));
+        lines.push(plain(&recording.timeline.detail()));
+        lines.push(plain(&timeline_cells(&recording.timeline, width, marks)));
+        lines.push(plain(crate::explorer::timeline::Timeline::legend_for(
+            marks, width,
+        )));
         lines.push(plain(
-            "# available, x unavailable, ! gap, . unpublished, + mixed",
-        ));
-        lines.push(plain(
-            "No waveform or live samples. The open tail is unpublished; r reloads.",
+            "No waveform or live samples. The open tail is not yet published; r reloads.",
         ));
     }
     lines
 }
 
+fn timeline_marks(model: &Explorer) -> bool {
+    !model.modes().linear && !model.modes().monochrome
+}
+
+fn timeline_cells(
+    timeline: &crate::explorer::timeline::Timeline,
+    width: usize,
+    marks: bool,
+) -> String {
+    if marks {
+        timeline.cells_marked(width, true)
+    } else {
+        timeline.cells(width)
+    }
+}
+
 fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
     let color = color_on(model);
-    let provider = if model.provider_dispatch_available() {
+    let paid = crate::copy::paid_processing(model.provider_dispatch_available());
+    let paid_tone = tone_for_state(if model.provider_dispatch_available() {
         "available"
     } else {
         "unavailable"
-    };
+    });
     let dispatch = if model.dispatch_available() {
         "available"
     } else {
@@ -1086,12 +1117,12 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
                 color,
                 Tone::Plain,
                 format!(
-                    "Schema {} | SQLite {} | provider dispatch ",
+                    "Schema {} | SQLite {} | ",
                     model.schema_version(),
                     model.sqlite_version()
                 ),
             ),
-            paint(color, tone_for_state(provider), provider),
+            paint(color, paid_tone, paid),
         ]),
         Line::from(paint(
             color,
@@ -1118,29 +1149,7 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
             ),
         ]),
     ];
-    if model.budgets().is_empty() {
-        lines.push(plain("Budgets: none loaded"));
-    }
-    for budget in model.budgets().iter().take(4) {
-        let mut spans = vec![paint(
-            color,
-            Tone::Plain,
-            format!(
-                "Budget {}: limit ${}, available ${}",
-                sanitize(&budget.scope, 24),
-                budget.limit_usd,
-                budget.available_usd
-            ),
-        )];
-        if budget.frozen {
-            spans.push(paint(color, Tone::Warn, " frozen"));
-        }
-        lines.push(Line::from(spans));
-        lines.push(plain(&format!(
-            "  settled ${}, reserved ${}",
-            budget.settled_usd, budget.reserved_usd
-        )));
-    }
+    lines.extend(budget_lines(model, color));
     if let Some(refresh) = model
         .directory()
         .and_then(|directory| directory.refresh.as_ref())
@@ -1150,7 +1159,7 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
             paint(
                 color,
                 Tone::Plain,
-                format!("Refresh {} ", sanitize(&refresh.id, 32)),
+                format!("Fetch: {} ", sanitize(&refresh.id, 32)),
             ),
             paint(color, tone_for_state(&state), state),
             paint(
@@ -1167,6 +1176,35 @@ fn system_lines(model: &Explorer) -> Vec<Line<'static>> {
             ));
         }
         lines.push(Line::from(spans));
+    }
+    lines
+}
+
+fn budget_lines(model: &Explorer, color: bool) -> Vec<Line<'static>> {
+    if model.budgets().is_empty() {
+        return vec![plain("Budgets: none loaded")];
+    }
+    let mut lines = Vec::new();
+    for budget in model.budgets().iter().take(4) {
+        let mut spans = vec![paint(
+            color,
+            Tone::Plain,
+            format!(
+                "Budget {}: limit {}, available {}",
+                sanitize(&budget.scope, 24),
+                crate::copy::compact_usd(&budget.limit_usd),
+                crate::copy::compact_usd(&budget.available_usd)
+            ),
+        )];
+        if budget.frozen {
+            spans.push(paint(color, Tone::Warn, " frozen"));
+        }
+        lines.push(Line::from(spans));
+        lines.push(plain(&format!(
+            "  settled {}, reserved {}",
+            crate::copy::compact_usd(&budget.settled_usd),
+            crate::copy::compact_usd(&budget.reserved_usd)
+        )));
     }
     lines
 }
@@ -1391,15 +1429,17 @@ mod tests {
         let (text, colored) = frame(&model, 80, 24);
         assert!(text.contains("Search:"), "{text}");
         assert!(text.contains("Selected station:"), "{text}");
-        assert!(text.contains("directory health: succeeded"), "{text}");
-        assert!(text.contains("directory languages: navajo"), "{text}");
-        assert!(text.contains("Playback: listen listen-1"), "{text}");
+        assert!(text.contains("Directory health: succeeded"), "{text}");
+        assert!(text.contains("Directory languages: navajo"), "{text}");
+        assert!(text.contains("Listen session:"), "{text}");
+        assert!(text.contains("listen-1"), "{text}");
         assert!(text.contains(HELP_PRIMARY), "{text}");
         assert!(text.contains(HELP_SELECTION), "{text}");
-        assert!(text.contains("Partial cache 1/10000"), "{text}");
-        assert!(text.contains("refresh-demo completed"), "{text}");
+        assert!(text.contains("Cache: 1 of 10,000 stations"), "{text}");
+        assert!(text.contains("Last fetch: completed"), "{text}");
+        assert!(text.contains("refresh-demo"), "{text}");
         assert!(text.contains("observed 6s ago"), "{text}");
-        assert!(text.contains("favorites 1"), "{text}");
+        assert!(text.contains("Favorites: 1"), "{text}");
         assert!(text.contains("Recording: rec-1 running"), "{text}");
         assert!(
             text.contains("Quota: 5 B charged, 5 B reserved, 45 B available of 50 B"),
@@ -1412,7 +1452,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("Stations, page 1") && text.contains("| directory health"),
+            text.contains("Stations, page 1") && text.contains("| Directory health"),
             "{text}"
         );
         assert!(text.contains("> KTNN"), "{text}");
@@ -1420,7 +1460,7 @@ mod tests {
         assert!(!colored);
         let playback = text
             .lines()
-            .find(|line| line.contains("Playback:"))
+            .find(|line| line.contains("Listen session:"))
             .unwrap_or("");
         assert!(!playback.contains("directory health"));
         let row = text
@@ -1428,7 +1468,7 @@ mod tests {
             .find(|line| line.starts_with("> KTNN"))
             .unwrap_or("");
         assert!(
-            row.contains(" favorite | succeeded") && row.ends_with("| navajo"),
+            row.contains(" Favorite | succeeded") && row.ends_with("| navajo"),
             "{row}"
         );
     }
@@ -1449,16 +1489,16 @@ mod tests {
         assert!(text.contains("Focus Search:"), "{text}");
         let search = text.find("Search:").unwrap_or(usize::MAX);
         let identity = text.find("Selected station:").unwrap_or(0);
-        let playback = text.find("Playback:").unwrap_or(0);
+        let playback = text.find("Listen session:").unwrap_or(0);
         let help = text.find("Help:").unwrap_or(0);
         assert!(search < identity);
         assert!(identity < playback);
         assert!(playback < help);
         assert!(!colored);
         assert_eq!(linear.animation_frames(), 0);
-        assert!(text.contains("> KTNN 東京 favorite\n"), "{text}");
+        assert!(text.contains("> KTNN 東京 Favorite\n"), "{text}");
         assert!(
-            text.contains("    directory health succeeded | directory languages navajo"),
+            text.contains("    Directory health: succeeded | Directory languages: navajo"),
             "{text}"
         );
         assert!(text.contains("Stations, page 1"), "{text}");
@@ -1690,7 +1730,7 @@ mod tests {
         let (text, _) = frame(&system, 80, 24);
         assert!(text.contains("Captures: 0 scheduled, 1 active"), "{text}");
         assert!(
-            text.contains("Budget global: limit $0.000000, available $0.000000"),
+            text.contains("Budget global: limit $0.00, available $0.00"),
             "{text}"
         );
     }
@@ -1739,9 +1779,7 @@ mod tests {
         for (width, height) in [(20, 8), (40, 12), (80, 24), (132, 40), (160, 50)] {
             let (text, _) = frame(&model, width, height);
             assert!(
-                text.contains("g first")
-                    || text.contains("g restart")
-                    || text.contains("g restarts"),
+                text.contains("g first page") || text.contains("g opens the first cached page"),
                 "{width}x{height}: {text}"
             );
             requested_snapshot(
@@ -1754,9 +1792,7 @@ mod tests {
         model.handle(Key::Char('/'));
         for (width, height) in [(20, 8), (40, 12), (80, 24), (132, 40), (160, 50)] {
             assert!(
-                frame(&model, width, height)
-                    .0
-                    .contains("Esc then g restart"),
+                frame(&model, width, height).0.contains("first page"),
                 "{width}x{height}"
             );
             requested_snapshot(
@@ -2097,7 +2133,7 @@ mod tests {
         model.handle(crate::explorer::state::Key::Char('4'));
         assert_eq!(model.workspace(), Workspace::Monitors);
         let (text, _) = frame(&model, 80, 24);
-        assert!(text.contains("Monitors: arrows select, Enter reads"));
+        assert!(text.contains("Monitors: arrows select, Enter inspects"));
         let (small, _) = frame(&model, 10, 4);
         assert!(small.contains("Too small"), "{small}");
         assert!(small.contains("^C quits"), "{small}");
@@ -2228,12 +2264,16 @@ mod tests {
                 assert!(text.contains("Recordings: arrows select"));
             } else {
                 assert!(text.contains("Recording rec-1: metadata"));
-                assert!(text.contains("#:audio x:gone !:gap .:open +:mixed"));
+                assert!(text.contains("# retained x unavail ! gap . open +mix"));
                 assert!(text.contains("########xxxxxxxx!!!!!!!!"));
             }
             if width >= 80 {
                 assert!(text.contains("Published intervals: 1 available, 1 unavailable; gaps 2"));
-                assert!(text.contains("# available, x unavailable, ! gap, . unpublished, + mixed"));
+                assert!(
+                    text.contains("# retained, x unavailable, ! gap, . not yet published, + mixed")
+                );
+                assert!(text.contains("[0,"));
+                assert!(text.contains(")us"));
                 assert!(text.contains("Selected recording: rec-1"));
                 assert!(text.contains("Metadata snapshot"));
             }
@@ -2301,7 +2341,10 @@ mod tests {
         let (text, colored) = frame(&model, 80, 24);
         assert!(colored, "{text}");
         assert_eq!(fg_of(&model, "succeeded"), Some(Color::Green));
-        assert_eq!(fg_of(&model, "favorite"), Some(Color::Yellow));
+        assert_eq!(
+            fg_of_within(&model, "> KTNN", "Favorite"),
+            Some(Color::Yellow)
+        );
         assert_eq!(fg_of(&model, "Sigy"), Some(Color::Cyan));
         assert_eq!(fg_of(&model, "Help:"), Some(Color::Reset));
         assert!(!text.contains('\u{1b}'));
@@ -2318,6 +2361,10 @@ mod tests {
     }
 
     fn fg_of(model: &Explorer, word: &str) -> Option<Color> {
+        fg_of_within(model, "", word)
+    }
+
+    fn fg_of_within(model: &Explorer, line_has: &str, word: &str) -> Option<Color> {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap_or_else(|error| match error {});
         let drawn = terminal.draw(|ui| render(ui, model));
@@ -2333,6 +2380,9 @@ mod tests {
                 text.push_str(cell.symbol());
                 colors.push(cell.fg);
             }
+            if !line_has.is_empty() && !text.contains(line_has) {
+                continue;
+            }
             if text.contains(word) {
                 let mut acc = String::new();
                 for (index, color) in colors.into_iter().enumerate() {
@@ -2344,5 +2394,48 @@ mod tests {
             }
         }
         None
+    }
+
+    #[test]
+    fn help_and_docs_reject_retired_synonyms() {
+        const RETIRED: &[&str] = &[
+            "quick-play",
+            "quick listen",
+            "g restart",
+            "Enter reads",
+            "Enter read",
+            "f save",
+            "f saves",
+        ];
+        let mut blobs = vec![
+            HELP_PRIMARY.to_owned(),
+            HELP_SELECTION.to_owned(),
+            include_str!("../../../../README.md").to_owned(),
+            include_str!("../../../../docs/usage.md").to_owned(),
+        ];
+        let mut model = sample();
+        for workspace in Workspace::ALL {
+            model.handle(Key::Char(workspace.digit()));
+            blobs.push(frame(&model, 80, 24).0);
+            blobs.push(frame(&model, 40, 12).0);
+        }
+        model.note_cursor_changed();
+        blobs.push(frame(&model, 80, 24).0);
+        blobs.push(frame(&model, 30, 10).0);
+        model.handle(Key::Char('/'));
+        blobs.push(frame(&model, 80, 24).0);
+        for blob in &blobs {
+            for phrase in RETIRED {
+                if let Some(index) = blob.find(phrase) {
+                    let start = blob.floor_char_boundary(index.saturating_sub(48));
+                    let end = blob.ceil_char_boundary(
+                        index
+                            .saturating_add(phrase.len().saturating_add(48))
+                            .min(blob.len()),
+                    );
+                    panic!("retired synonym {phrase} near {}", &blob[start..end]);
+                }
+            }
+        }
     }
 }

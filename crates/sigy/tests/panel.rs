@@ -35,7 +35,8 @@ fn panel_status_and_bar_render_offline_state_and_safe_json() -> TestResult {
     assert!(status_text.contains("Directory: empty."));
     assert!(status_text.contains("Favorites: none shown."));
     assert!(status_text.contains("Recordings: 0 active. 0 visible rows."));
-    assert!(status_text.contains("Listen: none."));
+    assert!(status_text.contains("Listen session: none."));
+    assert!(status_text.contains("Cached 0 stations."));
     assert!(status_text.contains("Session hint: absent."));
     assert!(status_text.contains(
         "Recognition and translation are not part of this panel. No language is qualified."

@@ -14,6 +14,7 @@ use sigy_service::{
 mod analysis;
 mod audio;
 mod backup;
+mod copy;
 #[cfg(target_os = "linux")]
 mod delegation;
 mod dvr;
@@ -80,7 +81,7 @@ enum Command {
         #[arg(long)]
         cancel_on_stdin: bool,
     },
-    /// Stop the current quick-play or panel listen. Recordings keep running.
+    /// Stop the current play or panel listen. Recordings keep running.
     Stop,
     /// Prepare your private library and start its background service. No directory fetch by default.
     Init {
@@ -577,8 +578,9 @@ fn render_status(stdout: &mut impl Write, view: &Snapshot, ink: style::Ink) -> i
     }
     writeln!(
         stdout,
-        "Library ready. SQLite {}. Provider dispatch is not implemented.",
-        view.sqlite_version
+        "Library ready. SQLite {}. {}",
+        view.sqlite_version,
+        copy::paid_processing(view.provider_dispatch_available)
     )?;
     writeln!(
         stdout,
@@ -596,12 +598,12 @@ fn render_status(stdout: &mut impl Write, view: &Snapshot, ink: style::Ink) -> i
     for budget in &view.budgets {
         writeln!(
             stdout,
-            "{}: lifetime limit ${} (never resets), settled ${}, reserved ${}, available ${}{}",
+            "{}: lifetime limit {} (never resets), settled {}, reserved {}, available {}{}",
             budget.scope,
-            budget.limit_usd,
-            budget.settled_usd,
-            budget.reserved_usd,
-            budget.available_usd,
+            copy::compact_usd(&budget.limit_usd),
+            copy::compact_usd(&budget.settled_usd),
+            copy::compact_usd(&budget.reserved_usd),
+            copy::compact_usd(&budget.available_usd),
             if budget.frozen {
                 ink.tint(style::Tone::Warn, " (frozen)")
             } else {

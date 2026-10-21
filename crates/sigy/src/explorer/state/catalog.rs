@@ -51,7 +51,7 @@ impl Explorer {
 
     pub fn note_cursor_changed(&mut self) {
         self.restart_required = true;
-        self.note_message("g restarts cached page 1. Catalog changed; previous rows and filters kept. No network request.");
+        self.note_message("g opens the first cached page. Catalog changed; previous rows and filters kept. No network request.");
     }
 
     pub fn catalog_label(&self) -> String {
@@ -59,7 +59,7 @@ impl Explorer {
             || "catalog unknown".into(),
             |catalog| {
                 if self.restart_required {
-                    format!("g restart | cache r{}", catalog.revision)
+                    format!("g first page | cache r{}", catalog.revision)
                 } else {
                     format!(
                         "{} | cache r{}",
@@ -88,7 +88,7 @@ impl Explorer {
         }
         let first = matches!(self.pending_page, Some(PageMove::First) | None);
         if !self.catalog_fresh(catalog, first) {
-            let _ = self.fail_search(generation, "Catalog changed while this request was running. Previous rows kept; g restarts cached page 1.");
+            let _ = self.fail_search(generation, "Catalog changed while this request was running. Previous rows kept; g opens the first cached page.");
             self.restart_required = true;
             return false;
         }
@@ -114,14 +114,16 @@ impl Explorer {
         }
         if !self.catalog_fresh(catalog, false) {
             self.pending_favorite = None;
-            self.note_message("An older favorite reply was ignored. g rereads cached page 1.");
+            self.note_message(
+                "An older favorite reply was ignored. g opens the first cached page.",
+            );
             return false;
         }
         self.install_catalog(catalog);
         let accepted = self.apply_favorite(generation, id, favorite, directory);
         if accepted && self.restart_required {
             self.note_message(
-                "Favorite saved. Catalog changed; previous page kept. g restarts cached page 1.",
+                "Favorite saved. Catalog changed; previous page kept. g opens the first cached page.",
             );
         }
         accepted

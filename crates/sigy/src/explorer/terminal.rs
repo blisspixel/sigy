@@ -116,7 +116,7 @@ pub(super) fn dispatch_metadata(
 fn frame_has_labels(text: &str) -> bool {
     text.contains("Search:")
         && text.contains("Selected station:")
-        && text.contains("Playback:")
+        && text.contains("Listen session:")
         && text.contains("Help:")
 }
 
@@ -132,7 +132,7 @@ fn write_inspect(path: &Path, size: (u16, u16), model: &Explorer, text: &str) ->
         "animation_frames": model.animation_frames(),
         "has_search": text.contains("Search:"),
         "has_identity": text.contains("Selected station:"),
-        "has_playback": text.contains("Playback:"),
+        "has_playback": text.contains("Listen session:"),
         "has_help": text.contains("Help:"),
     });
     if let Some(parent) = path.parent()

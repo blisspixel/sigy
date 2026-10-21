@@ -115,9 +115,9 @@ pub(crate) fn text(view: &Projection) -> String {
         "World-radio panel. Read only. This is not a qualified installation.".into(),
         format!("Service: {}.", view.service.as_str()),
         format!(
-            "Directory: {}. Cached {}, favorites {}, stale {}{}.",
+            "Directory: {}. Cached {}. Favorites: {}. Stale: {}{}.",
             view.freshness.as_str(),
-            view.cached_stations,
+            crate::copy::station_count(u64::from(view.cached_stations)),
             view.favorite_stations,
             view.stale_stations,
             view.newest_age
@@ -164,15 +164,15 @@ pub(crate) fn text(view: &Projection) -> String {
     match &view.listen {
         Some(listen) => {
             lines.push(format!(
-                "Listen {}: {}.",
-                clean(&listen.id),
-                clean(&listen.state)
+                "Listen session: {}. {}.",
+                clean(&listen.state),
+                clean(&listen.id)
             ));
             if let Some(failure) = &listen.failure {
                 lines.push(format!("Reason: {}.", clean(failure)));
             }
         }
-        None => lines.push("Listen: none.".into()),
+        None => lines.push("Listen session: none.".into()),
     }
     lines.push(format!("Session hint: {}.", view.session_hint));
     lines.push(LANGUAGE.into());
@@ -336,5 +336,21 @@ mod tests {
         assert!(document.get("stream_origin").is_none());
         assert_eq!(document["language"], LANGUAGE);
         Ok(())
+    }
+
+    #[test]
+    fn cached_counts_use_one_plural() {
+        for (cached, sentence) in [
+            (0, "Cached 0 stations."),
+            (1, "Cached 1 station."),
+            (2, "Cached 2 stations."),
+        ] {
+            let mut projection = view();
+            projection.cached_stations = cached;
+            projection.favorites.clear();
+            let rendered = text(&projection);
+            assert!(rendered.contains(sentence), "{rendered}");
+            assert!(rendered.contains("Listen session: none."), "{rendered}");
+        }
     }
 }

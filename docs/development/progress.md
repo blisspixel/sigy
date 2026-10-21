@@ -1,8 +1,14 @@
 # Implementation progress
 
-Updated: 2026-10-20. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
+Updated: 2026-10-21. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
+
+## 2026-10-21 interface copy
+
+Issue 25 gives the CLI, explorer and panel one vocabulary and one cache count. Human budgets use compact exact USD without floating conversion. Recording timelines lead with `m:ss`, keep exact microseconds in the detail line, and use the same cell classification for block marks and the plain ASCII fallback. Command names stay. Globe key handling and live or favorite colors stay with issues 28 and 24. Schema v51 and local IPC v53 are unchanged.
+
+The `sigy` binary tests passed: 305 ordinary executions and 5 ignored. `cargo clippy -p sigy --all-targets --locked -- -D warnings` passed. The budget line, panel status and radio show integration tests passed. Full `cargo verify` was not re-run. Coverage was not re-run. External spend remains USD 0. Hosted verify of this copy is not recorded yet.
 
 ## 2026-10-21 interface language contract
 
@@ -10,7 +16,7 @@ This record holds current state only. The detailed narrative from 2026-09-20 to 
 
 ## 2026-10-20 Unix empty assertions
 
-Hosted verify of `705a0d7` is run https://github.com/blisspixel/sigy/actions/runs/39531409382. Ubuntu and macOS failed `cargo clippy --workspace --all-targets --locked -- -D warnings` with `clippy::assert_is_empty`. The Windows host does not compile those items. The sites are the Linux cgroup membership check in `crates/sigy-service/tests/linux_native.rs`, the Unix symlink retained-read fixture, and the Unix partial JSON refusal in `crates/sigy/src/init.rs`. Each now compares with `assert_eq!`. No lint was allowed. The Windows `cargo verify` job of that run was still going when this note was written. This repair does not close issue 22, retag `v0.1.0-dev.20261020`, or change schema or IPC. Coverage was not re-run. External spend remains USD 0.
+Hosted verify of `705a0d7` is run https://github.com/blisspixel/sigy/actions/runs/39531409382. Ubuntu and macOS failed `cargo clippy --workspace --all-targets --locked -- -D warnings` with `clippy::assert_is_empty`. The Windows host does not compile those items. The sites are the Linux cgroup membership check in `crates/sigy-service/tests/linux_native.rs`, the Unix symlink retained-read fixture, and the Unix partial JSON refusal in `crates/sigy/src/init.rs`. Each now compares with `assert_eq!`. No lint was allowed. The Windows `cargo verify` job of that run later succeeded. The run failed because the Ubuntu and macOS jobs had already failed this lint. This repair does not close issue 22, retag `v0.1.0-dev.20261020`, or change schema or IPC. Coverage was not re-run. External spend remains USD 0.
 
 ## 2026-10-20 Rust 1.99.1 pin
 

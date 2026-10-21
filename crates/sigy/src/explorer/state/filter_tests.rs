@@ -161,7 +161,7 @@ fn completed_reads_clear_pending_status_without_hiding_a_new_invalid_draft() {
     let mut model = loaded();
     let first = country(&mut model, "CA");
     assert!(apply(&mut model, &first, "a", None));
-    assert!(model.status().starts_with("Cached page read: 1 stations."));
+    assert!(model.status().starts_with("Cached page read: 1 station."));
     assert!(!model.search.pending());
     model.handle(Key::ClearInput);
     model.handle(Key::Paste("FR".into()));

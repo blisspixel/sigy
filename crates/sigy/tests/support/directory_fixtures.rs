@@ -247,7 +247,7 @@ fn directory_jobs_cache_unicode_and_register_without_tuning() -> TestResult {
     assert!(displayed.status.success());
     let displayed = String::from_utf8(displayed.stdout)?;
     assert!(displayed.contains("Radio Québec [favorite]"));
-    assert!(displayed.contains("favorites: 1"));
+    assert!(displayed.contains("Favorites: 1"));
     println!("{displayed}");
     let favorites = success(
         directory.path(),

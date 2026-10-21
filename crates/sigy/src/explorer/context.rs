@@ -222,7 +222,7 @@ fn metadata_lines(lines: &mut Vec<String>, station: &Station) {
             known(&sanitize(&station.state, 128))
         ),
         format!(
-            "Codec: {} | bitrate: {}",
+            "Codec: {} | Bitrate: {}",
             known(&sanitize(&station.codec, 32)),
             if station.bitrate_kbps == 0 {
                 "unknown".into()
@@ -263,7 +263,7 @@ fn metadata_lines(lines: &mut Vec<String>, station: &Station) {
         sanitize(&station.stream_origin, 2048)
     ));
     lines.push(format!(
-        "Cached refresh: {}",
+        "Last fetch: {}",
         sanitize(&station.refresh_id, 128)
     ));
 }
@@ -344,7 +344,7 @@ mod tests {
         let text = context.details(2000).join("\n");
         assert!(text.contains(&"n".repeat(180)));
         assert!(text.contains("Languages: unknown") && text.contains("Language codes: unknown"));
-        assert!(text.contains("Codec: unknown | bitrate: unknown"));
+        assert!(text.contains("Codec: unknown | Bitrate: unknown"));
         assert!(text.contains("HLS") && text.contains("Directory coordinates: unknown"));
         assert!(text.contains("unrelated-source") && text.contains("not linked to this station"));
         assert!(text.contains("Tags: tag-31"));

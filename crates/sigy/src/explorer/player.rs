@@ -33,7 +33,7 @@ impl Player {
             && child.try_wait()?.is_none()
         {
             return Err(std::io::Error::other(
-                "A quick listen is already active. S stops it before another play.",
+                "A play is already active. S stops it before another play.",
             ));
         }
         self.reap_diagnostic();

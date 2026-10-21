@@ -591,7 +591,7 @@ fn provider_commands_refuse_key_text_and_offer_no_send() -> TestResult {
     let budget = provider_invoke(&library, false, &["budget", "show"])?;
     let budget = String::from_utf8(budget.stdout)?;
     assert!(
-        budget.contains("global: lifetime limit $0.000000 (never resets)"),
+        budget.contains("global: lifetime limit $0.00 (never resets)"),
         "{budget}"
     );
     let help = provider_invoke(&library, false, &["provider", "--help"])?;

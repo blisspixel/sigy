@@ -9,7 +9,16 @@ impl Explorer {
     pub fn result_label(&self) -> String {
         self.random_count.map_or_else(
             || format!("page {}", self.page_number()),
-            |count| format!("random pick / {count} eligible"),
+            |count| {
+                format!(
+                    "random pick / {}",
+                    crate::copy::count_label(
+                        u64::from(count),
+                        "eligible station",
+                        "eligible stations"
+                    )
+                )
+            },
         )
     }
 
@@ -69,9 +78,9 @@ impl Explorer {
         self.workspace = Workspace::Globe;
         if let Some(coordinates) = self.selected().and_then(|row| row.coordinates) {
             self.globe.center = (coordinates.longitude, coordinates.latitude);
-            self.note_message("Random cached station. Directory coordinates are approximate. e picks again; g returns to ordered results; P requests play.");
+            self.note_message("Random cached station. Directory coordinates are approximate. e picks again; g opens the first cached page; P requests play.");
         } else {
-            self.note_message("No cached stations with coordinates match these filters. g returns to ordered results; R requests a directory page.");
+            self.note_message("No cached stations with coordinates match these filters. g opens the first cached page; R requests a directory page.");
         }
         true
     }
