@@ -912,3 +912,191 @@ fn color(color: Color, background: bool) -> String {
         levels[usize::from(i % 6)]
     )
 }
+
+const HERO_UNIX_MS: i64 = 1_792_598_400_000;
+
+fn hero_explorer() -> Explorer {
+    use crate::explorer::state::{Emphasis, PlaybackView};
+    use sigy_service::discovery::StationFilter;
+    use std::time::Instant;
+
+    let mut model = Explorer::new(
+        Modes {
+            reduced_motion: false,
+            linear: false,
+            monochrome: false,
+            emphasis: Emphasis::Standard,
+        },
+        HERO_UNIX_MS,
+    );
+    model.apply_desk(hero_desk());
+    if let Err(error) = model.initialize_search(
+        StationFilter {
+            name: "North".into(),
+            ..StationFilter::default()
+        },
+        None,
+    ) {
+        panic!("hero filter: {error}");
+    }
+    model.handle(Key::Char('7'));
+    model.show_playing_station_for_test("north-coast");
+    model.place_globe_for_test(-2.2, 48.2);
+    model.observe_playback(PlaybackView {
+        id: "play-1842".into(),
+        state: "playing".into(),
+        format: Some("mp3".into()),
+        source_revision: "north-coast-audio".into(),
+        failure: None,
+    });
+    model.configure_motion(true, false, Instant::now());
+    model.note_message("");
+    model
+}
+
+fn hero_desk() -> Desk {
+    Desk {
+        link: Link::Service {
+            process_id: 1842,
+            stopping: false,
+        },
+        observed_ms: HERO_UNIX_MS,
+        schema_version: sigy_service::storage::SCHEMA_VERSION,
+        sqlite_version: "3.53.4".into(),
+        provider_dispatch_available: false,
+        budgets: Vec::new(),
+        captures_active: 0,
+        captures_scheduled: 0,
+        captures_interrupted: 0,
+        captures_terminal: 0,
+        dispatch_available: true,
+        directory: Some(DirectoryView {
+            cached_stations: 3,
+            maximum_stations: 10_000,
+            favorite_stations: 1,
+            refresh: None,
+        }),
+        stations: vec![
+            hero_station(
+                "north-coast",
+                "North Coast",
+                true,
+                "english, french",
+                -2.2,
+                48.2,
+            ),
+            hero_station("ribeira", "Ribeira", false, "portuguese", -9.1, 38.7),
+            hero_station("kyst", "Kyst", false, "norwegian", 10.7, 59.9),
+        ],
+        next_after: None,
+        catalog: Some(sigy_service::control::DirectoryCatalog {
+            namespace: "a".repeat(32),
+            revision: 1,
+            comparison: sigy_service::discovery::ordered::COMPARISON.into(),
+        }),
+        quota: None,
+        recordings: Vec::new(),
+        playback: None,
+    }
+}
+
+fn hero_station(
+    id: &str,
+    name: &str,
+    favorite: bool,
+    languages: &str,
+    longitude: f64,
+    latitude: f64,
+) -> StationRow {
+    StationRow {
+        id: id.into(),
+        name: name.into(),
+        favorite,
+        directory_health: Health::Succeeded,
+        directory_languages: languages.into(),
+        observed_ms: HERO_UNIX_MS - 240_000,
+        hls: false,
+        coordinates: Some(Coordinates {
+            latitude,
+            longitude,
+        }),
+        metadata: None,
+    }
+}
+
+#[test]
+fn readme_hero_shows_a_connected_globe_without_fixture_ids() {
+    let model = hero_explorer();
+    let (text, colored) = super::frame(&model, 100, 32);
+    assert!(colored, "{text}");
+    assert!(text.contains("service 1842"), "{text}");
+    assert!(text.contains("Listen session:"), "{text}");
+    assert!(text.contains("playing"), "{text}");
+    assert!(text.contains("play-1842"), "{text}");
+    assert!(text.contains("North Coast"), "{text}");
+    assert!(text.contains("Globe centered 2W 48N"), "{text}");
+    assert!(
+        text.contains("geometric night at 2026-10-21 16:00 UTC"),
+        "{text}"
+    );
+    assert!(text.contains("3 of 3 stations"), "{text}");
+    assert!(text.contains("[7 Globe]"), "{text}");
+    assert!(text.contains("name order"), "{text}");
+    assert!(text.contains("arrows turn"), "{text}");
+    assert!(text.contains('●'), "{text}");
+    for absent in [
+        "no service, local catalog",
+        "refresh-demo",
+        "listen-1",
+        "rec-1",
+        "readme-france-page",
+        "rotate",
+        "reduced motion",
+    ] {
+        assert!(!text.contains(absent), "{absent} in {text}");
+    }
+    let mut terminal =
+        Terminal::new(TestBackend::new(100, 32)).unwrap_or_else(|error| panic!("{error}"));
+    terminal
+        .draw(|ui| render(ui, &model))
+        .unwrap_or_else(|error| panic!("{error}"));
+    let buffer = terminal.backend().buffer();
+    assert!(
+        buffer
+            .content
+            .iter()
+            .all(|cell| cell.fg != Color::Yellow && cell.fg != Color::LightYellow),
+        "hero uses a warning color"
+    );
+    let width = usize::from(buffer.area.width);
+    let digit = buffer
+        .content
+        .iter()
+        .take(width)
+        .find(|cell| cell.symbol() == "1");
+    assert!(digit.is_some_and(|cell| cell.fg == Color::Green));
+    let dark = super::raster::png_from_buffer(buffer, super::raster::Theme::Dark)
+        .unwrap_or_else(|error| panic!("{error}"));
+    let light = super::raster::png_from_buffer(buffer, super::raster::Theme::Light)
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_ne!(dark, light);
+    assert!(dark.starts_with(b"\x89PNG"));
+    assert!(dark.len() < 2 * 1024 * 1024);
+    assert!(light.len() < 2 * 1024 * 1024);
+}
+
+#[test]
+#[ignore = "explicit offline README hero raster"]
+fn readme_hero() -> Result<()> {
+    let model = hero_explorer();
+    let mut terminal = Terminal::new(TestBackend::new(100, 32))?;
+    terminal.draw(|ui| render(ui, &model))?;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/images");
+    super::raster::write_pair(
+        terminal.backend().buffer(),
+        &root.join("hero-dark.png"),
+        &root.join("hero-light.png"),
+    )?;
+    println!("README heroes: {}", root.display());
+    Ok(())
+}

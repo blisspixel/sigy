@@ -2680,6 +2680,7 @@ version = "0.1.0-dev"
 dependencies = [
  "clap",
  "cpal",
+ "flate2",
  "jsonschema",
  "ratatui",
  "rusqlite",

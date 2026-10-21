@@ -2,7 +2,7 @@
 
 Date: 2026-10-21
 
-Status: implemented. The path rules and the restore-on-failure move are tested on Windows. The Linux home-directory integration fixture is compiled only on Linux. This does not qualify a Linux install, a platform, or a release stage. Schema v51 and local IPC v53 are unchanged.
+Status: implemented. The path rules and the restore-on-failure move are tested on Windows. Hosted verify of `38f2bd8` executed the Linux home-directory fixture on Ubuntu: https://github.com/blisspixel/sigy/actions/runs/39581777031. This does not qualify a Linux install, a platform, or a release stage. Schema v51 and local IPC v53 are unchanged.
 
 ## Decision
 
@@ -22,4 +22,4 @@ This supersedes the Linux default path in [first-use setup](0070-first-use-setup
 
 ## Evidence
 
-Active work records the checks that ran. Hosted verify is the Linux execution of the move fixture. Full local `cargo verify` and coverage were not re-run for this slice.
+Active work records the checks that ran. Hosted verify of `38f2bd8` executed the Linux move fixture on Ubuntu: https://github.com/blisspixel/sigy/actions/runs/39581777031. The earlier run of `ee91046` compiled that fixture and did not execute it. Full local `cargo verify` and coverage were not re-run for this slice.

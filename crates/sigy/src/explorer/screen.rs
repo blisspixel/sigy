@@ -1722,6 +1722,7 @@ fn budget_lines(model: &Explorer) -> Vec<Line<'static>> {
 #[cfg(test)]
 mod tests {
     mod linked;
+    mod raster;
     mod visual_qa;
     use super::{HELP_PRIMARY, HELP_SELECTION, render};
     use crate::explorer::state::{

@@ -49,6 +49,14 @@ looks wrong, and retain a native-terminal check for actual backend qualification
 Blink timing and native font rendering are not simulated. The existing private
 cell raster can consume the JSON for separate PNG inspection.
 
+The README first screen has a separate command:
+
+```text
+cargo readme-hero
+```
+
+It draws one 100 by 32 globe frame and overwrites `docs/images/hero-dark.png` and `docs/images/hero-light.png`. The frame is synthetic: a connected service, a selected station, and a listen in progress. Light and dark are two ANSI palettes of the same cells. The rasterizer is in the test module and uses a public-domain 8 by 8 font plus procedural braille. It does not call the private cell rasterizer. [Image provenance](interface-images.md) records the station, clock, and palette. This command is not part of `cargo verify` and does not qualify native terminal fidelity.
+
 Optional globe motion has a separate bounded offline measurement:
 
 ```text
@@ -59,7 +67,7 @@ This writes twenty full color production-render timing samples and a final SVG
 at each of 80 by 24 and 200 by 60 cells, under a unique gallery's `spin/` directory.
 The clock is advanced explicitly by 100 ms per sample, keeping the image
 deterministic. Timing includes TestBackend drawing and diffing and excludes
-terminal I/O. The ordinary 64-frame gallery stays static.
+terminal I/O. The ordinary 78-frame gallery stays static.
 
 Ordinary terminal metadata reads still await each service response synchronously. Painting pending
 intent before that read improves feedback but does not make quit, resize or

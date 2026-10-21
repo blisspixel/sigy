@@ -1,12 +1,8 @@
 # Sigy
 
-**Practical signals intelligence for everyday people.** Sigy is a local-first listening and analysis toolkit. Explore internet radio and podcasts, keep recordings, read across languages and trace findings back to their sources. Its CLI and terminal explorer share a background service that keeps working when you close the terminal.
+**Practical signals intelligence for everyday people.** Explore internet radio and podcasts, keep recordings, read across languages, and trace findings back to their sources. The CLI and terminal explorer share a background service that keeps working when you close the terminal.
 
-**Development preview.** Local speech recognition and English translation run on retained audio, but language quality and broad platform support are not qualified. Windows live and retained listening use a bounded native output helper. An experimental Linux adapter requires a systemd 254+ user session with delegated CPU, memory and PID controllers; unavailable bounds and macOS native work refuse before contact or reservation. See [platform limits](docs/install.md#platform-limits), [current evidence](docs/development/progress.md) and [what comes next](ROADMAP.md#whats-next).
-
-![Sigy's radio explorer with an offline world map and selected station](docs/images/tui.png)
-
-The explorer rendered on 2026-10-04 with one retained real station page. Map positions come from directory metadata; selecting a station does not start playback or recording. [Explore the current controls](docs/usage.md#list-explorer).
+**Development preview.** Language quality and broad platform support are not qualified. See [platform limits](docs/install.md#platform-limits).
 
 ## Install
 
@@ -22,7 +18,15 @@ macOS or Linux:
 sh -c 's=$(curl --proto =https --tlsv1.2 -fsS https://raw.githubusercontent.com/blisspixel/sigy/main/scripts/install.sh) && sh -c "$s"'
 ```
 
-These commands build `main` from source; [installation details](docs/install.md) cover Git, the pinned Rust toolchain, FFmpeg and platform limits.
+These commands build `main` from source. [Installation details](docs/install.md) cover Git, the pinned Rust toolchain, FFmpeg and platform limits.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/hero-light.png">
+  <img alt="Sigy globe with a connected service, a selected station, and a listen in progress" src="docs/images/hero-dark.png">
+</picture>
+
+Offline production render at 100 by 32 cells. The service is connected, one synthetic station is selected on the globe, and a listen is in progress. This is not a live station, a coverage survey, or acoustic proof. [Explore the current controls](docs/usage.md#list-explorer).
 
 ## What you can do
 
@@ -62,8 +66,6 @@ Replace the placeholders with your decoder path and an ID from search. `sigy sto
 Windows and macOS use `~/.sigy/library` by default. A new Linux library uses the XDG data directory, and an existing `~/.sigy/library` stays until `sigy init --move-xdg`. Use `sigy init` for setup without a directory fetch, or `sigy init --no-start` to prepare storage without starting a service. See [first use](docs/install.md#first-use) for custom libraries and recording setup, and the [usage guide](docs/usage.md) for full commands.
 
 Your library and local processing stay on your machine by default. Paid processing: unavailable. The [progress record](docs/development/progress.md#tracked-intermittent-test-issues) keeps known faults and verification gaps visible.
-
-The latest [analysis reliability repair](docs/decisions/0092-atomic-worker-responses.md) preserves exact translation history on replay and prevents a failed response read from leaving a committed claim or result. Automatic recovery of an unsettled worker result remains the next reliability increment.
 
 ## Where it's going
 

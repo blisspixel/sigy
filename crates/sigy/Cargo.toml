@@ -30,6 +30,7 @@ cpal.workspace = true
 tempfile.workspace = true
 rusqlite.workspace = true
 jsonschema.workspace = true
+flate2.workspace = true
 
 [lints]
 workspace = true
