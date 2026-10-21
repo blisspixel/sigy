@@ -104,7 +104,7 @@ fn execute(
     request: &str,
     maximum: &str,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    Ok(success(
+    Ok(task_document(
         directory,
         &[
             "task",
@@ -123,7 +123,43 @@ fn execute(
 }
 
 fn execution(directory: &Path, id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    Ok(success(directory, &["task", "execution", id])?["task"]["run"].clone())
+    Ok(task_document(directory, &["task", "execution", id])?["task"]["run"].clone())
+}
+
+/// A partial execution is a delivered result. Exit 5 carries that class, and
+/// every other execution state remains exit 0.
+fn task_document(
+    directory: &Path,
+    arguments: &[&str],
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let output = invoke(directory, arguments)?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let document: serde_json::Value = serde_json::from_str(&stdout).map_err(|error| {
+        format!(
+            "{arguments:?}: {error}; exit: {}; stdout: {stdout}; stderr: {stderr}",
+            output.status
+        )
+    })?;
+    if document["task"]["run"]["state"] == "partial" {
+        assert_eq!(
+            output.status.code(),
+            Some(5),
+            "{arguments:?}: partial execution must exit 5; stdout: {stdout}; stderr: {stderr}"
+        );
+        let error: serde_json::Value = serde_json::from_str(&stderr).map_err(|cause| {
+            format!("{arguments:?}: {cause}; stdout: {stdout}; stderr: {stderr}")
+        })?;
+        assert_eq!(error["code"], "partial");
+        assert_eq!(error["error"], "the result is partial");
+        return Ok(document);
+    }
+    assert!(
+        output.status.success(),
+        "{arguments:?}: {}; stdout: {stdout}; stderr: {stderr}",
+        output.status
+    );
+    Ok(document)
 }
 
 fn unchanged(before: &serde_json::Value, after: &serde_json::Value) {
