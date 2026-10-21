@@ -391,6 +391,8 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             library_dir(cli)?,
             &panel::PanelCommand::Stop { id: None },
             cli.json,
+            explorer::Modes::resolve(false, false, false),
+            false,
         ))
         .await;
     }
@@ -403,7 +405,14 @@ async fn run_library(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         return Box::pin(listen::execute(library_dir(cli)?, command, cli.json)).await;
     }
     if let Command::Panel { command } = &cli.command {
-        return Box::pin(panel::execute(library_dir(cli)?, command, cli.json)).await;
+        return Box::pin(panel::execute(
+            library_dir(cli)?,
+            command,
+            cli.json,
+            desk_modes(cli, command),
+            cli.explicit_data_dir,
+        ))
+        .await;
     }
     if matches!(cli.command, Command::Tui { .. }) {
         return Err("the list explorer starts before the service runtime".into());
@@ -721,6 +730,9 @@ fn main() -> ExitCode {
         if let Some(refusal) = blocked_explorer(&cli)? {
             return Err(refusal.into());
         }
+        if let Some(refusal) = blocked_desk(&cli) {
+            return Err(refusal.into());
+        }
         init::resolve_directory(&mut cli)?;
         #[cfg(target_os = "linux")]
         if let Some(code) = delegation::enter(&cli)? {
@@ -768,6 +780,48 @@ fn main() -> ExitCode {
     }
 }
 
+fn desk_modes(cli: &Cli, command: &panel::PanelCommand) -> explorer::Modes {
+    let panel::PanelCommand::Desk {
+        reduced_motion,
+        linear,
+        monochrome,
+    } = command
+    else {
+        return explorer::Modes::resolve(false, false, false);
+    };
+    let emphasis = if cli.high_contrast {
+        explorer::Emphasis::HighContrast
+    } else {
+        explorer::Emphasis::Standard
+    };
+    explorer::Modes::resolve_with(
+        *reduced_motion,
+        *linear,
+        *monochrome,
+        emphasis,
+        cli.color.into(),
+    )
+}
+
+fn blocked_desk(cli: &Cli) -> Option<panel::DeskRefusal> {
+    let Command::Panel {
+        command: panel::PanelCommand::Desk { .. },
+    } = &cli.command
+    else {
+        return None;
+    };
+    let term_dumb = std::env::var_os("TERM").is_some_and(|value| value == "dumb");
+    if explorer::interactive_terminal(
+        io::stdin().is_terminal(),
+        io::stdout().is_terminal(),
+        term_dumb,
+    ) {
+        return None;
+    }
+    let directory = cli.data_dir.as_ref().map(|path| path.display().to_string());
+    Some(panel::DeskRefusal::new(directory.as_deref()))
+}
+
 fn blocked_explorer(cli: &Cli) -> Result<Option<explorer::Refusal>, Box<dyn std::error::Error>> {
     let Command::Tui { query, filters, .. } = &cli.command else {
         return Ok(None);
@@ -794,6 +848,9 @@ fn report_failure(cli: &Cli, error: Box<dyn std::error::Error>) -> ExitCode {
     }
     if let Some(refusal) = error.downcast_ref::<explorer::Refusal>() {
         return write_refusal(cli.json, refusal);
+    }
+    if let Some(refusal) = error.downcast_ref::<panel::DeskRefusal>() {
+        return write_desk_refusal(cli.json, refusal);
     }
     let class = exit::classify(error.as_ref(), &cli.command);
     let error = init::actionable_error(cli, error);
@@ -845,15 +902,33 @@ fn write_classified(
 }
 
 fn write_refusal(json: bool, refusal: &explorer::Refusal) -> ExitCode {
+    write_terminal_refusal(
+        json,
+        explorer::Refusal::MESSAGE,
+        refusal.next(),
+        &refusal.to_string(),
+    )
+}
+
+fn write_desk_refusal(json: bool, refusal: &panel::DeskRefusal) -> ExitCode {
+    write_terminal_refusal(
+        json,
+        panel::DeskRefusal::MESSAGE,
+        refusal.next(),
+        &refusal.to_string(),
+    )
+}
+
+fn write_terminal_refusal(json: bool, message: &str, next: &str, human: &str) -> ExitCode {
     let mut stderr = io::stderr().lock();
     let written = if json {
         writeln!(
             stderr,
             "{}",
-            exit::error_document(explorer::Refusal::MESSAGE, "failure", Some(refusal.next()))
+            exit::error_document(message, "failure", Some(next))
         )
     } else {
-        writeln!(stderr, "{refusal}")
+        writeln!(stderr, "{human}")
     };
     if written
         .as_ref()

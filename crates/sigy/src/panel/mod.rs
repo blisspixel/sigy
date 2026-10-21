@@ -16,8 +16,11 @@ use sigy_service::{
 };
 
 pub(crate) mod admit;
+pub(crate) mod desk;
 pub(crate) mod present;
 pub(crate) mod session;
+
+pub(crate) use desk::DeskRefusal;
 
 use present::{FavoriteRow, Freshness, ListenRow, Projection, RecordingRow, ServicePresence};
 use session::{PanelSession, SessionHint};
@@ -28,6 +31,18 @@ pub enum PanelCommand {
     Status,
     /// Emit a Waybar-compatible JSON object on stdout.
     Bar,
+    /// Open the read-only keyboard desk. Selection does not play.
+    Desk {
+        /// Keep the desk still. It does not animate either way.
+        #[arg(long)]
+        reduced_motion: bool,
+        /// Use one reading order. Selection keeps a text marker.
+        #[arg(long)]
+        linear: bool,
+        /// Draw without color. `NO_COLOR` also selects this.
+        #[arg(long)]
+        monochrome: bool,
+    },
     /// Play one favorite station. Refuses unless exactly one audio revision exists.
     Play {
         /// Cached favorite station ID.
@@ -59,10 +74,15 @@ pub async fn execute(
     directory: &Path,
     command: &PanelCommand,
     json: bool,
+    modes: crate::explorer::Modes,
+    explicit_data_dir: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
         PanelCommand::Status => execute_status(directory, json).await,
         PanelCommand::Bar => execute_bar(directory).await,
+        PanelCommand::Desk { .. } => {
+            Box::pin(desk::run(directory, explicit_data_dir, modes, json)).await
+        }
         PanelCommand::Play {
             station,
             id,
@@ -127,6 +147,10 @@ pub(crate) async fn project(directory: &Path) -> Projection {
                     id: l.id,
                     state: l.state,
                     failure: l.failure,
+                    source_revision: l.source_revision,
+                    // The receipt names a revision. It does not name a station, and the
+                    // session hint is not a catalog identity.
+                    station: None,
                 });
                 (presence, captures, listen)
             }

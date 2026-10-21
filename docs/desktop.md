@@ -35,6 +35,8 @@ Add these rules to your existing Waybar stylesheet and adapt colors to your them
 
 State priority is offline, failed, playing, recording, stale, idle. Hover text summarizes bounded favorites, recordings and qualification limits; directory text is escaped for Waybar markup. Polling neither starts a service nor refreshes the directory, plays audio or sends a directory click. See [Waybar's custom module contract](https://github.com/Alexays/Waybar/wiki/Module:-Custom).
 
+`sigy panel desk` is the read-only keyboard surface for the same projection. It does not play or stop. Open full Sigy prints `sigy tui` and does not spawn it. A launcher may run `sigy panel desk` instead of `sigy tui`; Sigy does not edit Waybar or any other desktop configuration. The sample click above stays on the full explorer. Qualification flags stay false. See [the quick panel](decisions/0101-desktop-quick-panel.md).
+
 ## Choose, play and stop
 
 Open the explorer, browse a cached station, press `P` and confirm with `y`. `S` requests a listen stop. A country/tag page can be requested explicitly with `sigy radio search --country CA --tag jazz --fetch`, then reloaded in the explorer. Opening the bar or selecting a row grants no stream contact.

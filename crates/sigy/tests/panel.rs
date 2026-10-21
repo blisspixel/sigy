@@ -152,3 +152,49 @@ fn panel_play_and_stop_enforce_service_and_session_checks() -> TestResult {
 
     Ok(())
 }
+
+#[test]
+fn panel_desk_refuses_a_pipe_before_library_contact() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let missing = directory.path().join("missing-library");
+    let refused = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--data-dir")
+            .arg(&missing)
+            .env("TERM", "dumb")
+            .args(["panel", "desk"]),
+    )?;
+    assert!(!refused.status.success());
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(!missing.exists());
+    let stderr = String::from_utf8(refused.stderr)?;
+    let stdout = String::from_utf8(refused.stdout)?;
+    assert!(
+        stderr.contains("The desk needs an interactive terminal."),
+        "{stderr}"
+    );
+    assert!(stderr.contains("panel status"), "{stderr}");
+    assert!(!stderr.contains('\u{1b}'), "{stderr}");
+    assert!(!stdout.contains('\u{1b}'), "{stdout}");
+    assert!(stdout.is_empty(), "{stdout}");
+
+    let json = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("--json")
+            .arg("--data-dir")
+            .arg(&missing)
+            .env("TERM", "dumb")
+            .args(["panel", "desk"]),
+    )?;
+    assert_eq!(json.status.code(), Some(1));
+    assert!(!missing.exists());
+    let document: serde_json::Value = serde_json::from_slice(&json.stderr)?;
+    assert_eq!(document["code"], "failure");
+    assert_eq!(document["error"], "The desk needs an interactive terminal.");
+    assert!(
+        document["next"]
+            .as_str()
+            .is_some_and(|next| next.contains("panel status") && !next.contains('\u{1b}'))
+    );
+    Ok(())
+}

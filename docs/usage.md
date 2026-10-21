@@ -570,10 +570,13 @@ For a ready-to-copy Waybar module and six-state CSS, see [desktop integration](d
 sigy --data-dir PATH_TO_LIBRARY panel status
 sigy --data-dir PATH_TO_LIBRARY panel status --json
 sigy --data-dir PATH_TO_LIBRARY panel bar
+sigy --data-dir PATH_TO_LIBRARY panel desk
 sigy --data-dir PATH_TO_LIBRARY panel play STATION_UUID
 sigy --data-dir PATH_TO_LIBRARY panel play STATION_UUID --cancel-on-stdin --parent-pid PID
 sigy --data-dir PATH_TO_LIBRARY panel stop
 ```
+
+`panel desk` opens a read-only keyboard surface on the same projection. Arrows or Tab move the selection. Enter on a favorite does not play. Enter on Open full Sigy prints `sigy tui` and does not start that process. `r` repeats the read and does not fetch the directory. A pipe or `TERM=dumb` exits 1 with `Next: sigy panel status` before opening the library. The listen station is `unknown` until a catalog lookup exists. See [the quick panel](decisions/0101-desktop-quick-panel.md).
 
 `panel status` and `panel bar` inspect ambient library and service presence for desktop widgets and status bars, such as Waybar on Omarchy (an agentic Arch Linux distribution using Hyprland) or other desktop environments. `panel status` emits human-readable or structured JSON summaries of service state, directory freshness, bounded favorites, and active recordings without starting a service or making network requests. `panel bar` outputs a single Waybar-compatible JSON object with `text`, `class`, and `tooltip` fields mapped to deterministic priority states: `offline`, `failed`, `playing`, `recording`, `stale`, or `idle`. Status outputs explicitly declare platform and language qualification limits (`"qualified_platform": false`, `"qualified_linux": false`, `"qualified_omarchy": false`).
 

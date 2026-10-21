@@ -312,7 +312,7 @@ pub(crate) fn interactive_terminal(stdin_tty: bool, stdout_tty: bool, term_dumb:
     stdin_tty && stdout_tty && !term_dumb
 }
 
-fn restored_modes() -> String {
+pub(crate) fn restored_modes() -> String {
     let show = csi_mode(true, DecPrivateModeCode::ShowCursor);
     let leave = csi_mode(false, DecPrivateModeCode::ClearAndEnableAlternateScreen);
     let unpaste = csi_mode(false, DecPrivateModeCode::BracketedPaste);
@@ -320,7 +320,7 @@ fn restored_modes() -> String {
     format!("{show}{leave}{unpaste}{unsync}")
 }
 
-fn enable_session_modes(
+pub(crate) fn enable_session_modes(
     terminal: &mut Terminal<TerminaBackend<PlatformTerminal>>,
 ) -> io::Result<()> {
     let unsync = csi_mode(false, DecPrivateModeCode::SynchronizedOutput);
@@ -337,7 +337,7 @@ fn clear_session_modes(
     terminal.backend_mut().flush()
 }
 
-fn require_window(cols: u16, rows: u16) -> io::Result<()> {
+pub(crate) fn require_window(cols: u16, rows: u16) -> io::Result<()> {
     if cols == 0 || rows == 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -367,7 +367,7 @@ fn arm_stop(runtime: &tokio::runtime::Runtime) -> Arc<AtomicBool> {
     stop
 }
 
-async fn await_stop() {
+pub(crate) async fn await_stop() {
     #[cfg(unix)]
     unix_stop().await;
     #[cfg(windows)]
@@ -432,6 +432,10 @@ fn note_canvas(session: &mut Session, model: &mut Explorer) -> io::Result<()> {
         model.note_globe_canvas(canvas_width, canvas_height);
     }
     Ok(())
+}
+
+pub(crate) fn synchronized_output(enable: bool) -> String {
+    csi_mode(enable, DecPrivateModeCode::SynchronizedOutput).to_string()
 }
 
 fn csi_mode(enable: bool, code: DecPrivateModeCode) -> Csi {

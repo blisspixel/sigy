@@ -23,7 +23,10 @@ use std::{io::Write, path::Path};
 
 pub(crate) use state::Explorer;
 pub use state::{Emphasis, Modes};
-pub(crate) use terminal::{Interrupted, interactive_terminal};
+pub(crate) use terminal::{
+    Interrupted, await_stop, enable_session_modes, interactive_terminal, require_window,
+    restored_modes, synchronized_output,
+};
 
 /// Plain refusal for a pipe, a redirect, or `TERM=dumb`.
 #[derive(Debug)]

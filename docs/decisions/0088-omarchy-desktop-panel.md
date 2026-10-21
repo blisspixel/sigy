@@ -1,6 +1,6 @@
 # 0088: Omarchy and desktop panel integration
 
-Date: 2026-10-10. Status: implemented increment; verification and limitations belong in [active work](../development/progress.md).
+Date: 2026-10-10. Status: implemented increment; verification and limitations belong in [active work](../development/progress.md). The read-only keyboard desk is [Decision 0101](0101-desktop-quick-panel.md). Play and stop in this decision are unchanged.
 
 ## Context and intent
 

@@ -32,7 +32,7 @@ Issue 25 owns the copy change. Issue 26 applies the shared next-step helper, the
 
 ## Color
 
-Each role means one thing, on every surface, in the user's terminal theme. The CLI, the explorer, the globe and the panel read one role table. Sigy ships no palette and no `--theme` flag. There is no `SIGY_THEME`. Light and dark mean the same ANSI slots read on the user's light or dark palette.
+Each role means one thing, on every surface, in the user's terminal theme. The CLI, the explorer, the globe and the panel read one role table. `sigy panel desk` uses those roles. `sigy panel status` text stays uncolored. Sigy ships no palette and no `--theme` flag. There is no `SIGY_THEME`. Light and dark mean the same ANSI slots read on the user's light or dark palette.
 
 Built only on the 16 ANSI colors plus the terminal's default foreground and background. No RGB, no 256-color indexes, and no magenta (ANSI 5 or 13). No background color except reverse video for selection. Never use ANSI 0 for text. Never use ANSI 7 or 15 for text or thin lines.
 

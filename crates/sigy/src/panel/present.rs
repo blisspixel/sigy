@@ -62,6 +62,10 @@ pub(crate) struct ListenRow {
     pub id: String,
     pub state: String,
     pub failure: Option<String>,
+    /// Catalog source revision on the listen receipt. Empty when the receipt has none.
+    pub source_revision: String,
+    /// Station id from a catalog link. `None` when that link was not read.
+    pub station: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,6 +175,11 @@ pub(crate) fn text(view: &Projection) -> String {
             if let Some(failure) = &listen.failure {
                 lines.push(format!("Reason: {}.", clean(failure)));
             }
+            lines.push(format!("Station: {}.", station_label(listen)));
+            lines.push(format!(
+                "Revision: {}.",
+                revision_label(&listen.source_revision)
+            ));
         }
         None => lines.push("Listen session: none.".into()),
     }
@@ -242,7 +251,29 @@ fn listen_json(listen: &ListenRow) -> Value {
         "id": clean(&listen.id),
         "state": clean(&listen.state),
         "failure": listen.failure.as_deref().map(clean),
+        "station": listen.station.as_deref().map(clean).filter(|value| !value.is_empty()),
+        "source_revision": revision_label(&listen.source_revision),
     })
+}
+
+#[must_use]
+pub(crate) fn station_label(listen: &ListenRow) -> String {
+    listen
+        .station
+        .as_deref()
+        .map(clean)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+#[must_use]
+pub(crate) fn revision_label(revision: &str) -> String {
+    let clean = clean(revision);
+    if clean.is_empty() {
+        "unknown".to_owned()
+    } else {
+        clean
+    }
 }
 
 fn clean(value: &str) -> String {
@@ -312,6 +343,8 @@ mod tests {
             id: "listen".into(),
             state: "running".into(),
             failure: None,
+            source_revision: "rev-1".into(),
+            station: None,
         });
         assert_eq!(bar_class(&projection), "playing");
         let listen = projection.listen.as_mut().ok_or("listen")?;
@@ -335,6 +368,10 @@ mod tests {
         assert_eq!(document["favorites"][0]["name"], "<b>News & music</b>");
         assert!(document.get("stream_origin").is_none());
         assert_eq!(document["language"], LANGUAGE);
+        assert_eq!(document["listen"]["station"], serde_json::Value::Null);
+        assert_eq!(document["listen"]["source_revision"], "rev-1");
+        assert!(text(&projection).contains("Station: unknown."));
+        assert!(text(&projection).contains("Revision: rev-1."));
         Ok(())
     }
 
