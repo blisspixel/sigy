@@ -605,3 +605,82 @@ fn provider_commands_refuse_key_text_and_offer_no_send() -> TestResult {
     }
     Ok(())
 }
+
+#[test]
+fn tui_refuses_a_pipe_and_a_dumb_terminal_without_escape_sequences() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let library = directory.path().join("missing-library");
+    let report = directory.path().join("frame.json");
+    let piped = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .env("TERM", "xterm-256color")
+            .arg("--data-dir")
+            .arg(&library)
+            .args([
+                "tui",
+                "jazz",
+                "--country",
+                "CA",
+                "--tag",
+                "news",
+                "--healthy",
+            ]),
+    )?;
+    assert_eq!(
+        piped.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&piped.stderr)
+    );
+    assert_eq!(piped.stdout, [] as [u8; 0]);
+    let text = String::from_utf8(piped.stderr)?;
+    assert_eq!(
+        text.lines().next(),
+        Some("The explorer needs an interactive terminal.")
+    );
+    let next = text.lines().nth(1).ok_or("next line")?;
+    assert!(next.starts_with("Next: sigy --data-dir "), "{next}");
+    assert!(next.contains(&library.display().to_string()), "{next}");
+    assert!(next.contains("--name 'jazz'"), "{next}");
+    assert!(next.contains("--country 'CA'"), "{next}");
+    assert!(next.contains("--tag 'news'"), "{next}");
+    assert!(next.contains("--healthy --fetch"), "{next}");
+    assert!(!text.contains('\u{1b}'), "{text}");
+    assert!(!text.contains("library has not been initialized"), "{text}");
+    assert!(!report.exists());
+
+    let dumb = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .env("TERM", "dumb")
+            .args(["tui"]),
+    )?;
+    assert_eq!(dumb.status.code(), Some(1));
+    assert_eq!(dumb.stdout, [] as [u8; 0]);
+    let dumb_text = String::from_utf8(dumb.stderr)?;
+    assert_eq!(
+        dumb_text,
+        "The explorer needs an interactive terminal.\nNext: sigy radio search --fetch\n"
+    );
+
+    let inspect = common::output(
+        Command::new(env!("CARGO_BIN_EXE_sigy"))
+            .arg("tui")
+            .arg("--inspect")
+            .arg(&report),
+    )?;
+    assert_eq!(inspect.status.code(), Some(1));
+    assert_eq!(inspect.stdout, [] as [u8; 0]);
+    assert!(!report.exists());
+    assert!(!String::from_utf8(inspect.stderr)?.contains('\u{1b}'));
+
+    let json = common::output(Command::new(env!("CARGO_BIN_EXE_sigy")).args(["--json", "tui"]))?;
+    assert_eq!(json.status.code(), Some(1));
+    assert_eq!(json.stdout, [] as [u8; 0]);
+    let value: serde_json::Value = serde_json::from_slice(&json.stderr)?;
+    assert_eq!(
+        value["error"],
+        "The explorer needs an interactive terminal."
+    );
+    assert_eq!(value["next"], "sigy radio search --fetch");
+    Ok(())
+}

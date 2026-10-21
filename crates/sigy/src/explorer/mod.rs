@@ -23,6 +23,48 @@ use std::{io::Write, path::Path};
 
 pub(crate) use state::Explorer;
 pub use state::{Emphasis, Modes};
+pub(crate) use terminal::{Interrupted, interactive_terminal};
+
+/// Plain refusal for a pipe, a redirect, or `TERM=dumb`.
+#[derive(Debug)]
+pub(crate) struct Refusal {
+    next: String,
+}
+
+impl Refusal {
+    pub(crate) const MESSAGE: &str = "The explorer needs an interactive terminal.";
+
+    pub(crate) fn from_search(
+        filter: &sigy_service::discovery::StationFilter,
+        explicit_directory: Option<&str>,
+    ) -> Self {
+        let hint = sigy_service::guidance::DirectoryHint {
+            filter: filter.clone(),
+            favorites: false,
+            order: None,
+            limit: None,
+        };
+        let directory = explicit_directory
+            .map(|value| text::sanitize(value, 4096))
+            .filter(|value| !value.is_empty());
+        Self {
+            next: sigy_service::guidance::with_data_dir(&hint.command(), directory.as_deref()),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn next(&self) -> &str {
+        &self.next
+    }
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}\nNext: {}", Self::MESSAGE, self.next)
+    }
+}
+
+impl std::error::Error for Refusal {}
 
 pub fn run(
     data_dir: &Path,
@@ -56,4 +98,34 @@ pub fn run(
 fn now_ms() -> Result<i64, Box<dyn std::error::Error>> {
     let millis = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
     i64::try_from(millis).map_err(|_| "clock is out of range".into())
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    use super::Refusal;
+
+    #[test]
+    fn refusal_keeps_filters_and_emits_no_escape() {
+        let filter = sigy_service::discovery::StationFilter {
+            name: "jazz".into(),
+            country: "CA".into(),
+            language: String::new(),
+            tag: "news".into(),
+            healthy_only: true,
+        };
+        let refusal = Refusal::from_search(&filter, Some("lib\u{1b}[31m"));
+        let text = refusal.to_string();
+        let expected = "The explorer needs an interactive terminal.\nNext: sigy --data-dir 'lib[31m' radio search --name 'jazz' --country 'CA' --tag 'news' --healthy --fetch";
+        assert_eq!(text, expected);
+        assert!(!text.contains('\u{1b}'), "{text}");
+        assert!(
+            text.chars()
+                .filter(|character| *character != '\n')
+                .all(|character| !character.is_control())
+        );
+        assert_eq!(
+            text.lines().nth(1),
+            Some(format!("Next: {}", refusal.next())).as_deref()
+        );
+    }
 }

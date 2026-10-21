@@ -57,7 +57,7 @@ These are the selected choices for issue 24: decision A option 1, decision B opt
 
 ## Glyphs
 
-ASCII first. Unicode is used where it carries data or a functional marker, each with an ASCII fallback under `TERM=dumb`, linear mode and monochrome. No emoji and no icon font. Every glyph has a legend or a word next to it. No ambiguous-width glyph sits in an aligned column.
+ASCII first. Unicode is used where it carries data or a functional marker, each with an ASCII fallback under linear mode and monochrome. `TERM=dumb` refuses the explorer before a frame. No emoji and no icon font. Every glyph has a legend or a word next to it. No ambiguous-width glyph sits in an aligned column.
 
 | Meaning | Marker | Fallback |
 | --- | --- | --- |
@@ -113,7 +113,7 @@ Motion explains what changed, then stops. Rotation is off by default. A key step
 
 A startup flourish, if shown, is the `Sigy` wordmark and the globe turning to the last viewed position. It settles within about 800 ms, plays at most once per session, never delays input, and any key skips it while that key is still delivered. A setting turns it off. The playing station may show `●` with a pulse of at most 1 Hz and at most 2 frames per second, frozen when reduced motion is on.
 
-At most 15 frames per second. Zero redraw when idle. Nothing flashes more than 3 times a second. Never animate on a pipe, under `NO_COLOR`, `TERM=dumb` or `CI`, in linear mode, or with reduced motion. No spinner is ever the only signal. Each frame is wrapped in synchronized output where the terminal supports it. Terminals without that mode render as they do today. Terminal modes are restored on normal exit, recoverable failure and panic. A hard kill can skip that restore.
+At most 15 frames per second. Zero redraw when idle. Nothing flashes more than 3 times a second. Never animate under `NO_COLOR` or `CI`, in linear mode, or with reduced motion. No spinner is ever the only signal. Each frame is wrapped in synchronized output where the terminal supports it. Terminals without that mode render as they do today. A pipe, a missing terminal, or `TERM=dumb` refuses `sigy tui` before any mode change. Normal quit, recoverable failure, panic, and an external stop restore the cursor, terminal modes, and main screen. A hard kill can skip that restore. An external stop exits 130. The pipe and `TERM=dumb` refusal exits 1.
 
 On the Globe canvas, arrows turn the globe. Left and Right change longitude. Up and Down change latitude. Tab moves focus to the station list, where Up and Down select. Digits and Tab still switch workspaces. `h`, `j`, `k` and `l` stay aliases. No help line requires them. Header and help say `turn`.
 
@@ -127,7 +127,7 @@ Linear, monochrome, reduced motion and high contrast are independent switches. E
 
 High contrast renders every role in the default foreground, with bold for emphasis and reverse video for selection and focus. `fail` and `live` keep their ANSI slot, made bold, and always sit next to their word or glyph. High contrast is an accessibility mode, not a Sigy palette.
 
-Focus is reverse video plus `>`, never color alone. Test every visual change under `NO_COLOR=1`, `TERM=dumb`, a pipe, 60x20, 80x24 and 132x40, one light palette and one dark palette, linear mode read top to bottom, and CJK and RTL names. The gallery may compute contrast from fixture hex values. Those hex values stay in the gallery. Product code does not store a theme.
+Focus is reverse video plus `>`, never color alone. Test drawn frames under `NO_COLOR=1`, 60x20, 80x24 and 132x40, one light palette and one dark palette, linear mode read top to bottom, and CJK and RTL names. A pipe and `TERM=dumb` are refusal checks: one plain line, `Next:`, and no escape sequence. The gallery may compute contrast from fixture hex values. Those hex values stay in the gallery. Product code does not store a theme.
 
 Without a terminal on stdin and stdout, `sigy tui` prints one line saying the explorer needs an interactive terminal, plus `Next:` with a non-interactive command, exits non-zero, and emits no escape sequence. Under `TERM=dumb`, `sigy tui` refuses the same way. That is the selected choice for issue 31, decision H option 1. A failed terminal setup leaves the terminal as it was found.
 

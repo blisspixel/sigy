@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -689,6 +689,9 @@ fn main() -> ExitCode {
     #[cfg(target_os = "linux")]
     let mut managed_exit = None;
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(refusal) = blocked_explorer(&cli)? {
+            return Err(refusal.into());
+        }
         init::resolve_directory(&mut cli)?;
         #[cfg(target_os = "linux")]
         if let Some(code) = delegation::enter(&cli)? {
@@ -732,38 +735,92 @@ fn main() -> ExitCode {
             #[cfg(not(target_os = "linux"))]
             ExitCode::SUCCESS
         }
-        Err(error) => {
-            let error = init::actionable_error(&cli, error);
-            if error
-                .downcast_ref::<io::Error>()
-                .is_some_and(|e| e.kind() == io::ErrorKind::BrokenPipe)
-                || error
-                    .downcast_ref::<serde_json::Error>()
-                    .is_some_and(|e| e.io_error_kind() == Some(io::ErrorKind::BrokenPipe))
-            {
-                return ExitCode::SUCCESS;
-            }
-            let mut stderr = io::stderr().lock();
-            let written = if cli.json {
-                writeln!(
-                    stderr,
-                    "{}",
-                    serde_json::json!({ "error": error.to_string() })
-                )
-            } else {
-                writeln!(
-                    stderr,
-                    "{} {}",
-                    style::Ink::stderr().tint(style::Tone::Fail, "sigy:"),
-                    explorer::text::sanitize(&error.to_string(), 4096)
-                )
-            };
-            if written.is_err() {
-                return ExitCode::FAILURE;
-            }
-            ExitCode::FAILURE
-        }
+        Err(error) => report_failure(&cli, error),
     }
+}
+
+fn blocked_explorer(cli: &Cli) -> Result<Option<explorer::Refusal>, Box<dyn std::error::Error>> {
+    let Command::Tui { query, filters, .. } = &cli.command else {
+        return Ok(None);
+    };
+    let term_dumb = std::env::var_os("TERM").is_some_and(|value| value == "dumb");
+    if explorer::interactive_terminal(
+        io::stdin().is_terminal(),
+        io::stdout().is_terminal(),
+        term_dumb,
+    ) {
+        return Ok(None);
+    }
+    let filter = filters.search_filter(query.as_deref())?;
+    let directory = cli.data_dir.as_ref().map(|path| path.display().to_string());
+    Ok(Some(explorer::Refusal::from_search(
+        &filter,
+        directory.as_deref(),
+    )))
+}
+
+fn report_failure(cli: &Cli, error: Box<dyn std::error::Error>) -> ExitCode {
+    if error.is::<explorer::Interrupted>() {
+        return ExitCode::from(130);
+    }
+    if let Some(refusal) = error.downcast_ref::<explorer::Refusal>() {
+        return write_refusal(cli.json, refusal);
+    }
+    let error = init::actionable_error(cli, error);
+    if error
+        .downcast_ref::<io::Error>()
+        .is_some_and(|e| e.kind() == io::ErrorKind::BrokenPipe)
+        || error
+            .downcast_ref::<serde_json::Error>()
+            .is_some_and(|e| e.io_error_kind() == Some(io::ErrorKind::BrokenPipe))
+    {
+        return ExitCode::SUCCESS;
+    }
+    let mut stderr = io::stderr().lock();
+    let written = if cli.json {
+        writeln!(
+            stderr,
+            "{}",
+            serde_json::json!({ "error": error.to_string() })
+        )
+    } else {
+        writeln!(
+            stderr,
+            "{} {}",
+            style::Ink::stderr().tint(style::Tone::Fail, "sigy:"),
+            explorer::text::sanitize(&error.to_string(), 4096)
+        )
+    };
+    if written.is_err() {
+        return ExitCode::FAILURE;
+    }
+    ExitCode::FAILURE
+}
+
+fn write_refusal(json: bool, refusal: &explorer::Refusal) -> ExitCode {
+    let mut stderr = io::stderr().lock();
+    let written = if json {
+        writeln!(
+            stderr,
+            "{}",
+            serde_json::json!({
+                "error": explorer::Refusal::MESSAGE,
+                "next": refusal.next(),
+            })
+        )
+    } else {
+        writeln!(stderr, "{refusal}")
+    };
+    if written
+        .as_ref()
+        .is_err_and(|error| error.kind() == io::ErrorKind::BrokenPipe)
+    {
+        return ExitCode::SUCCESS;
+    }
+    if written.is_err() {
+        return ExitCode::FAILURE;
+    }
+    ExitCode::FAILURE
 }
 
 #[cfg(test)]

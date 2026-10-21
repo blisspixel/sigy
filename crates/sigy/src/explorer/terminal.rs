@@ -2,6 +2,8 @@
 
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use ratatui::Terminal;
@@ -20,6 +22,7 @@ pub fn drive(
     model: &mut Explorer,
     inspect: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let stop = arm_stop(runtime);
     model.configure_motion(
         session_may_animate(
             io::stdin().is_terminal() && io::stdout().is_terminal(),
@@ -29,7 +32,7 @@ pub fn drive(
         std::time::Instant::now(),
     );
     let mut session = Session::open()?;
-    let result = run_loop(&mut session, runtime, directory, model, inspect);
+    let result = run_loop(&mut session, runtime, directory, model, inspect, &stop);
     session.restore()?;
     result
 }
@@ -40,13 +43,20 @@ fn run_loop(
     directory: &Path,
     model: &mut Explorer,
     inspect: Option<&Path>,
+    stop: &AtomicBool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if stopped(stop) {
+        return Err(Interrupted.into());
+    }
     note_canvas(session, model)?;
     let text = session.draw(model)?;
     if let Some(path) = inspect {
         write_inspect(path, session.size()?, model, &text)?;
         if session.size()?.0 >= 80 && session.size()?.1 >= 24 && !frame_has_labels(&text) {
             return Err("list frame is missing search, identity, playback, or help".into());
+        }
+        if stopped(stop) {
+            return Err(Interrupted.into());
         }
         return Ok(());
     }
@@ -55,6 +65,9 @@ fn run_loop(
     let mut fetcher = super::fetch::Fetcher::default();
     let mut metadata = super::metadata::Reads::default();
     loop {
+        if stopped(stop) {
+            return Err(Interrupted.into());
+        }
         fetcher.poll(model);
         player.poll(model);
         metadata.poll(runtime, directory, model);
@@ -74,7 +87,7 @@ fn run_loop(
         if model.take_dirty() {
             session.draw(model)?;
         }
-        let Some(key) = session.poll(timeout)? else {
+        let Some(key) = session.poll(poll_wait(timeout))? else {
             continue;
         };
         if !matches!(key, Key::Redraw) {
@@ -157,19 +170,20 @@ struct Session {
 impl Session {
     fn open() -> io::Result<Self> {
         let mut output = PlatformTerminal::new()?;
+        let size = output.get_dimensions()?;
+        require_window(size.cols, size.rows)?;
         output.set_panic_hook(|handle| {
             let _ = write!(handle, "{}", restored_modes());
             let _ = handle.flush();
         });
         output.enter_raw_mode()?;
-        let unsync = csi_mode(false, DecPrivateModeCode::SynchronizedOutput);
-        let enter = csi_mode(true, DecPrivateModeCode::ClearAndEnableAlternateScreen);
-        let paste = csi_mode(true, DecPrivateModeCode::BracketedPaste);
-        write!(output, "{unsync}{enter}{paste}")?;
-        output.flush()?;
         let reader = output.event_reader();
         let backend = TerminaBackend::new(output);
-        let terminal = Terminal::new(backend)?;
+        let mut terminal = Terminal::new(backend)?;
+        if let Err(error) = enable_session_modes(&mut terminal) {
+            let _ = clear_session_modes(&mut terminal);
+            return Err(error);
+        }
         Ok(Self {
             terminal: Some(terminal),
             reader,
@@ -292,12 +306,123 @@ fn session_may_animate(interactive: bool, ci: bool) -> bool {
     interactive && !ci
 }
 
+/// Both streams must be terminals, and `TERM=dumb` never draws.
+#[must_use]
+pub(crate) fn interactive_terminal(stdin_tty: bool, stdout_tty: bool, term_dumb: bool) -> bool {
+    stdin_tty && stdout_tty && !term_dumb
+}
+
 fn restored_modes() -> String {
+    let show = csi_mode(true, DecPrivateModeCode::ShowCursor);
     let leave = csi_mode(false, DecPrivateModeCode::ClearAndEnableAlternateScreen);
     let unpaste = csi_mode(false, DecPrivateModeCode::BracketedPaste);
     let unsync = csi_mode(false, DecPrivateModeCode::SynchronizedOutput);
-    format!("{leave}{unpaste}{unsync}")
+    format!("{show}{leave}{unpaste}{unsync}")
 }
+
+fn enable_session_modes(
+    terminal: &mut Terminal<TerminaBackend<PlatformTerminal>>,
+) -> io::Result<()> {
+    let unsync = csi_mode(false, DecPrivateModeCode::SynchronizedOutput);
+    let enter = csi_mode(true, DecPrivateModeCode::ClearAndEnableAlternateScreen);
+    let paste = csi_mode(true, DecPrivateModeCode::BracketedPaste);
+    write!(terminal.backend_mut(), "{unsync}{enter}{paste}")?;
+    terminal.backend_mut().flush()
+}
+
+fn clear_session_modes(
+    terminal: &mut Terminal<TerminaBackend<PlatformTerminal>>,
+) -> io::Result<()> {
+    write!(terminal.backend_mut(), "{}", restored_modes())?;
+    terminal.backend_mut().flush()
+}
+
+fn require_window(cols: u16, rows: u16) -> io::Result<()> {
+    if cols == 0 || rows == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "terminal size is zero",
+        ));
+    }
+    Ok(())
+}
+
+const STOP_POLL: Duration = Duration::from_millis(250);
+
+fn poll_wait(animation: Duration) -> Duration {
+    animation.min(STOP_POLL)
+}
+
+fn stopped(stop: &AtomicBool) -> bool {
+    stop.load(Ordering::SeqCst)
+}
+
+fn arm_stop(runtime: &tokio::runtime::Runtime) -> Arc<AtomicBool> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    runtime.spawn(async move {
+        await_stop().await;
+        flag.store(true, Ordering::SeqCst);
+    });
+    stop
+}
+
+async fn await_stop() {
+    #[cfg(unix)]
+    unix_stop().await;
+    #[cfg(windows)]
+    windows_stop().await;
+}
+
+#[cfg(unix)]
+async fn unix_stop() {
+    let Ok(mut terminate) =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+    else {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+        return;
+    };
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            if result.is_err() {
+                terminate.recv().await;
+            }
+        }
+        _ = terminate.recv() => {}
+    }
+}
+
+#[cfg(windows)]
+async fn windows_stop() {
+    let Ok(mut close) = tokio::signal::windows::ctrl_close() else {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+        return;
+    };
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            if result.is_err() {
+                close.recv().await;
+            }
+        }
+        _ = close.recv() => {}
+    }
+}
+
+/// External stop. The session restores modes before the process exits 130.
+#[derive(Debug)]
+pub(crate) struct Interrupted;
+
+impl std::fmt::Display for Interrupted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("interrupted")
+    }
+}
+
+impl std::error::Error for Interrupted {}
 
 fn note_canvas(session: &mut Session, model: &mut Explorer) -> io::Result<()> {
     let (width, height) = session.size()?;
@@ -383,9 +508,49 @@ mod tests {
         assert_eq!(begin, "\u{1b}[?2026h");
         assert_eq!(end, "\u{1b}[?2026l");
         let restored = restored_modes();
+        assert!(restored.contains("\u{1b}[?25h"), "{restored}");
         assert!(restored.contains("\u{1b}[?1049l"), "{restored}");
         assert!(restored.contains("\u{1b}[?2004l"), "{restored}");
         assert!(restored.contains("\u{1b}[?2026l"), "{restored}");
+    }
+
+    #[test]
+    fn a_pipe_or_dumb_terminal_does_not_open_the_explorer() {
+        assert!(interactive_terminal(true, true, false));
+        assert!(!interactive_terminal(false, true, false));
+        assert!(!interactive_terminal(true, false, false));
+        assert!(!interactive_terminal(false, false, false));
+        assert!(!interactive_terminal(true, true, true));
+    }
+
+    #[test]
+    fn stop_poll_stays_inside_the_animation_and_idle_bounds() {
+        assert_eq!(
+            poll_wait(Duration::from_millis(100)),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            poll_wait(Duration::from_millis(250)),
+            Duration::from_millis(250)
+        );
+        assert_eq!(
+            poll_wait(Duration::from_secs(300)),
+            Duration::from_millis(250)
+        );
+    }
+
+    #[test]
+    fn a_zero_window_is_refused_before_modes_change() {
+        assert!(require_window(0, 24).is_err());
+        assert!(require_window(80, 0).is_err());
+        assert!(require_window(80, 24).is_ok());
+    }
+
+    #[test]
+    fn an_external_stop_is_a_distinct_error() {
+        let error: Box<dyn std::error::Error> = Box::new(Interrupted);
+        assert!(error.is::<Interrupted>());
+        assert_eq!(error.to_string(), "interrupted");
     }
 
     #[test]
