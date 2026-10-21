@@ -466,7 +466,42 @@ async fn cancel_admission(directory: &Path, id: &str) -> Failure {
     .into()
 }
 
+fn write_timeline(time: u64) -> std::io::Result<()> {
+    if time == 0 || time > recordings::DECODER_TIMELINE_MAX_US {
+        return Ok(());
+    }
+    writeln!(std::io::stderr(), "decoder-timeline-us {time}")
+}
+
 async fn decode<C>(
+    directory: &Path,
+    executable: &str,
+    destination: PlaybackDestination,
+    page: RetainedPage,
+    receipt: &RetainedReadView,
+    cancel: &mut C,
+) -> Result<(RetainedPlaybackReport, Option<serde_json::Value>), Failure>
+where
+    C: Future<Output = ()> + Unpin,
+{
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(16);
+    let writer = tokio::spawn(async move {
+        while let Some(time) = receiver.recv().await {
+            if write_timeline(time).is_err() {
+                break;
+            }
+        }
+    });
+    let played = recordings::with_decoder_timeline(
+        sender,
+        decode_inner(directory, executable, destination, page, receipt, cancel),
+    )
+    .await;
+    let _ = writer.await;
+    played
+}
+
+async fn decode_inner<C>(
     directory: &Path,
     executable: &str,
     destination: PlaybackDestination,

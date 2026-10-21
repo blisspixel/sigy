@@ -15,6 +15,14 @@ pub(super) use pcm::decode_pcm;
 
 use progress::{Limits as ProgressLimits, Progress, read_progress};
 
+#[must_use = "decoder timeline samples are dropped when the future is not awaited inside the scope"]
+pub(super) async fn with_timeline<F: Future>(
+    sender: tokio::sync::mpsc::Sender<u64>,
+    future: F,
+) -> F::Output {
+    progress::with_timeline(sender, future).await
+}
+
 /// Provisional profile ceiling, not measured sample accuracy. Preserve raw progress.
 pub(super) const PROGRESS_TOLERANCE_US: u64 = 100_000;
 

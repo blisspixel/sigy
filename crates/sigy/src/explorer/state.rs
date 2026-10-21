@@ -339,6 +339,7 @@ struct RetainedView {
     request: String,
     phase: String,
     receipt_state: Option<String>,
+    decoder_output_us: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1272,6 +1273,7 @@ impl Explorer {
             request: request.to_owned(),
             phase: "pending".into(),
             receipt_state: None,
+            decoder_output_us: None,
         };
         if self.retained.as_ref() != Some(&next) {
             self.retained = Some(next);
@@ -1304,6 +1306,28 @@ impl Explorer {
         self.retained
             .as_ref()
             .map(|view| (view.phase.as_str(), view.request.as_str()))
+    }
+
+    #[must_use]
+    pub(super) fn decoder_output_us(&self) -> Option<u64> {
+        self.retained
+            .as_ref()
+            .and_then(|view| view.decoder_output_us)
+    }
+
+    pub(super) fn set_decoder_output(&mut self, request: &str, time: u64) -> bool {
+        let changed = self
+            .retained
+            .as_ref()
+            .is_some_and(|view| view.request == request && view.decoder_output_us != Some(time));
+        if !changed {
+            return false;
+        }
+        if let Some(view) = &mut self.retained {
+            view.decoder_output_us = Some(time);
+            self.draw = Draw::Needed;
+        }
+        true
     }
 
     fn confirm_fetch(&mut self, key: &Key) -> Effect {
@@ -2195,6 +2219,14 @@ mod tests {
         assert_eq!(model.retained_label(), Some(("decoding", "reader-kept")));
         model.set_retained_phase("reader-kept", "decoding", Some("running"));
         assert_eq!(model.retained_label(), Some(("decoding", "reader-kept")));
+        assert!(model.decoder_output_us().is_none());
+        assert!(!model.set_decoder_output("reader-other", 1_000_000));
+        assert!(model.decoder_output_us().is_none());
+        assert!(model.set_decoder_output("reader-kept", 1_000_000));
+        assert_eq!(model.decoder_output_us(), Some(1_000_000));
+        assert!(!model.set_decoder_output("reader-kept", 1_000_000));
+        model.set_retained_phase("reader-kept", "closed", Some("completed"));
+        assert_eq!(model.decoder_output_us(), Some(1_000_000));
     }
 
     #[test]

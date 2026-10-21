@@ -940,7 +940,13 @@ fn identity_primary(model: &Explorer) -> Line<'static> {
 
 fn retained_strip(model: &Explorer, width: usize) -> Option<Line<'static>> {
     let (phase, request) = model.retained_label()?;
-    let text = format!("Retained: {phase} {}", sanitize(request, 64));
+    let text = match model.decoder_output_us() {
+        Some(time) => format!(
+            "Retained: {phase} decoder {time} us {}",
+            sanitize(request, 64)
+        ),
+        None => format!("Retained: {phase} {}", sanitize(request, 64)),
+    };
     Some(plain(&clip(&text, width)))
 }
 
@@ -2254,7 +2260,15 @@ mod tests {
         playing.begin_retained("reader-0123456789abcdef0123456789abcdef");
         let (text, _) = frame(&playing, 80, 24);
         assert!(text.contains("Retained: pending reader-"), "{text}");
+        assert!(!text.contains("decoder "), "{text}");
         assert!(text.contains("Listen session:"), "{text}");
+        assert!(playing.set_decoder_output("reader-0123456789abcdef0123456789abcdef", 1_500_000));
+        let (timed, _) = frame(&playing, 100, 24);
+        assert!(
+            timed.contains("Retained: pending decoder 1500000 us reader-"),
+            "{timed}"
+        );
+        assert!(!timed.contains("heard"), "{timed}");
     }
 
     #[test]

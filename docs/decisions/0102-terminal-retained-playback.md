@@ -2,7 +2,7 @@
 
 Date: 2026-10-21
 
-Status: implemented terminal action for one whole retained recording and one cited finding. Pause, seek, a range editor, segment handoff, acoustic output, and a stage exit are not claimed. Schema v51 and local IPC v53 are unchanged.
+Status: implemented terminal action for one whole retained recording and one cited finding. [Decision 0103](0103-decoder-timeline.md) reports decoder output time during that listen. Pause, seek, a range editor, segment handoff, acoustic output, and a stage exit are not claimed. Schema v51 and local IPC v53 are unchanged.
 
 ## Decision
 
@@ -24,4 +24,4 @@ The desktop desk does not gain Play or Stop. No MCP mutation is added. Linux sys
 
 `cargo verify-media` then passed 20 ignored service fixtures in 115.31 seconds and the direct live PCM sample check. It used `ffmpeg` on `PATH` at `N-113513-gaa3cfd4b5a-20240202`. The command completed in 167.81 seconds. The first media run failed `contained_recognition_publishes_bounded_text_and_fails_closed_on_faults` because a pending `task evidence` result exits 5. The fixture now accepts that class while it waits, and requires exit 0 once the outcome is complete. The rerun passed.
 
-Coverage was not run. `cargo visual-qa` was not re-run. No acoustic, Omarchy, language, or platform qualification is claimed. External spend remains USD 0.
+Coverage was not run. `cargo visual-qa` was not re-run. No acoustic, Omarchy, language, or platform qualification is claimed. External spend remains USD 0. Hosted verify of `bd2a679` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/39629841546. A clean detached worktree install wrote `installed-commit` `bd2a679f5d60ccab4eca87b1ac22787e455d37ae`.

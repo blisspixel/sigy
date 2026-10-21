@@ -1,9 +1,13 @@
 //! One retained-listen child. Service reader receipts stay separate from process exit.
 
 use std::{
+    io::Read,
     path::Path,
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use sigy_service::control::{self, Operation, RetainedOperation, Snapshot};
@@ -106,6 +110,7 @@ impl Lane {
 struct Notices {
     failure: bool,
     show: bool,
+    timeline: bool,
 }
 
 #[derive(Default)]
@@ -125,6 +130,7 @@ pub(super) struct Client {
     fence: u64,
     show: Lane,
     stop_lane: Lane,
+    timeline: Arc<AtomicU64>,
 }
 
 impl Client {
@@ -212,6 +218,7 @@ impl Client {
 
     pub(super) fn poll(&mut self, model: &mut Explorer) {
         self.observe_exit(model);
+        self.observe_timeline(model);
         self.reap_drains();
         if let Some((fence, result)) = self.show.poll() {
             self.adopt(model, fence, result, false);
@@ -273,6 +280,8 @@ impl Client {
             .spawn()?;
         let input = child.stdin.take();
         let diagnostic = Arc::<Mutex<Vec<u8>>>::default();
+        self.timeline = Arc::new(AtomicU64::new(0));
+        let timeline = Arc::clone(&self.timeline);
         let stdout_task = child
             .stdout
             .take()
@@ -280,7 +289,7 @@ impl Client {
         let stderr_task = child
             .stderr
             .take()
-            .map(|pipe| drain_pipe(pipe, Arc::clone(&diagnostic)));
+            .map(|pipe| drain_stderr(pipe, Arc::clone(&diagnostic), Arc::clone(&timeline)));
         self.child = Some(child);
         self.input = input;
         self.diagnostic = diagnostic;
@@ -294,6 +303,23 @@ impl Client {
         self.released = false;
         self.notices = Notices::default();
         Ok(())
+    }
+
+    fn observe_timeline(&mut self, model: &mut Explorer) {
+        let time = self.timeline.load(Ordering::Relaxed);
+        if time == 0 {
+            return;
+        }
+        let Some(request) = self.request.clone() else {
+            return;
+        };
+        let first = model.decoder_output_us().is_none();
+        if model.set_decoder_output(&request, time) && first && !self.notices.timeline {
+            self.notices.timeline = true;
+            model.note_message(
+                "Decoder output is measured from the admitted start. This does not prove audible output.",
+            );
+        }
     }
 
     fn observe_exit(&mut self, model: &mut Explorer) {
@@ -384,6 +410,90 @@ impl Client {
     }
 }
 
+fn drain_stderr(
+    mut pipe: impl Read + Send + 'static,
+    diagnostic: Arc<Mutex<Vec<u8>>>,
+    timeline: Arc<AtomicU64>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut buffer = [0_u8; 1024];
+        let mut lines = StderrLines::default();
+        while let Ok(count) = pipe.read(&mut buffer) {
+            if count == 0 {
+                if let Ok(mut stored) = diagnostic.lock() {
+                    lines.finish(&mut stored, &timeline);
+                }
+                break;
+            }
+            if let Ok(mut stored) = diagnostic.lock() {
+                lines.push(&buffer[..count], &mut stored, &timeline);
+            }
+        }
+    })
+}
+
+#[derive(Default)]
+struct StderrLines {
+    line: Vec<u8>,
+    tainted: bool,
+}
+
+impl StderrLines {
+    fn push(&mut self, bytes: &[u8], diagnostic: &mut Vec<u8>, timeline: &AtomicU64) {
+        for &byte in bytes {
+            if byte == b'\n' {
+                if !self.tainted
+                    && let Some(time) = decoder_timeline_us(&self.line)
+                {
+                    timeline.fetch_max(time, Ordering::Relaxed);
+                } else {
+                    store_diagnostic(diagnostic, &self.line);
+                    store_diagnostic(diagnostic, b"\n");
+                }
+                self.line.clear();
+                self.tainted = false;
+            } else if self.line.len() == 80 {
+                store_diagnostic(diagnostic, &self.line);
+                self.line.clear();
+                self.tainted = true;
+                self.line.push(byte);
+            } else {
+                self.line.push(byte);
+            }
+        }
+    }
+
+    fn finish(&mut self, diagnostic: &mut Vec<u8>, timeline: &AtomicU64) {
+        if self.line.is_empty() {
+            return;
+        }
+        self.push(b"\n", diagnostic, timeline);
+    }
+}
+
+fn store_diagnostic(diagnostic: &mut Vec<u8>, bytes: &[u8]) {
+    let room = 8192_usize.saturating_sub(diagnostic.len());
+    let count = bytes.len().min(room);
+    diagnostic.extend_from_slice(&bytes[..count]);
+}
+
+pub(super) fn decoder_timeline_us(line: &[u8]) -> Option<u64> {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let digits = line.strip_prefix(b"decoder-timeline-us ")?;
+    if digits.is_empty() || digits.len() > 10 || digits.starts_with(b"0") {
+        return None;
+    }
+    if !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let time = std::str::from_utf8(digits).ok()?.parse::<u64>().ok()?;
+    if time == 0 || time > sigy_service::recordings::DECODER_TIMELINE_MAX_US {
+        None
+    } else {
+        Some(time)
+    }
+}
+
 fn reap(task: &mut Option<std::thread::JoinHandle<()>>) {
     if task
         .as_ref()
@@ -465,7 +575,9 @@ impl Drop for Client {
 
 #[cfg(test)]
 mod tests {
-    use super::phase;
+    use std::sync::atomic::AtomicU64;
+
+    use super::{StderrLines, decoder_timeline_us, phase};
 
     #[test]
     fn phase_follows_the_receipt_and_the_client() {
@@ -481,5 +593,42 @@ mod tests {
         assert_eq!(phase(Some("failed"), true, false), "closed");
         assert_eq!(phase(Some("recovery_held"), false, false), "unresolved");
         assert_eq!(phase(Some("starting"), false, true), "unresolved");
+    }
+
+    #[test]
+    fn decoder_timeline_lines_keep_the_latest_sample_and_the_other_text() {
+        assert_eq!(
+            decoder_timeline_us(b"decoder-timeline-us 1500000"),
+            Some(1_500_000)
+        );
+        assert_eq!(
+            decoder_timeline_us(b"decoder-timeline-us 1500000\r"),
+            Some(1_500_000)
+        );
+        assert_eq!(decoder_timeline_us(b"decoder-timeline-us 0"), None);
+        assert_eq!(decoder_timeline_us(b"decoder-timeline-us 01"), None);
+        assert_eq!(decoder_timeline_us(b"decoder-timeline-us 1800100001"), None);
+        assert_eq!(decoder_timeline_us(b"decoder output 1"), None);
+        let timeline = AtomicU64::new(0);
+        let mut lines = StderrLines::default();
+        let mut diagnostic = Vec::new();
+        lines.push(
+            b"decoder-timeline-us 100000\nhelper failed\ndecoder-timeline-us 1500000\n",
+            &mut diagnostic,
+            &timeline,
+        );
+        assert_eq!(
+            timeline.load(std::sync::atomic::Ordering::Relaxed),
+            1_500_000
+        );
+        assert_eq!(diagnostic, b"helper failed\n");
+        lines.push(b"decoder-timeline-us 100000\n", &mut diagnostic, &timeline);
+        assert_eq!(
+            timeline.load(std::sync::atomic::Ordering::Relaxed),
+            1_500_000
+        );
+        lines.push(b"trailing failure", &mut diagnostic, &timeline);
+        lines.finish(&mut diagnostic, &timeline);
+        assert_eq!(diagnostic, b"helper failed\ntrailing failure\n");
     }
 }

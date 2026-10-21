@@ -16,7 +16,7 @@ The first complete release includes radio and podcasts, recordings and DVR, live
 | --- | --- |
 | Responsive player controls (EX-02C) | Bounded independent status/stop and fenced metadata reads are implemented; native key-to-frame measurement remains |
 | Recoverable completion settlement (S-03B followup) | [Atomic claim/completion responses and exact successful translation replay](docs/decisions/0092-atomic-worker-responses.md) are implemented. [Decision0098](docs/decisions/0098-completed-settlement-slots.md) preserves a live completed outcome through classified transient failure, bounded retry and finite shutdown. Process exit still drops an uncommitted completion |
-| Retained listening in the terminal (DV-01B/C and DV-02) | Deliberate playback of one whole retained recording or one cited finding is [Decision 0102](docs/decisions/0102-terminal-retained-playback.md). Pause, seek, and segment handoff remain |
+| Retained listening in the terminal (DV-01B/C and DV-02) | Deliberate playback of one whole retained recording or one cited finding is [Decision 0102](docs/decisions/0102-terminal-retained-playback.md). [Decision 0103](docs/decisions/0103-decoder-timeline.md) shows decoder output time on that row. Pause, seek, and segment handoff remain |
 | Measured mixed-workload reliability (S-06/S-07) | Small capture/playback/query/processing profile, pressure/fairness and byte-verified restore; aggregate admission before higher concurrency |
 | Useful multilingual understanding (S-05) | Target-safe history/migration plus independent directed-pair references and critical-error controls; no language is qualified by the current calibration |
 

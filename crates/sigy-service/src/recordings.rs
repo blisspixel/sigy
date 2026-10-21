@@ -70,6 +70,21 @@ pub struct PlaybackReport {
     pub progress_advanced: bool,
 }
 
+/// Largest decoder `out_time_us` a retained listen may report.
+///
+/// Thirty minutes plus the 100 ms progress tolerance. This is decoder output
+/// from the admitted start, not a recording playhead or a heard sample.
+pub const DECODER_TIMELINE_MAX_US: u64 = 30 * 60 * 1_000_000 + 100_000;
+
+/// Run `future` where retained decoding may publish decoder output times.
+#[must_use]
+pub async fn with_decoder_timeline<F: std::future::Future>(
+    sender: tokio::sync::mpsc::Sender<u64>,
+    future: F,
+) -> F::Output {
+    decoder::with_timeline(sender, future).await
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct RetainedPlaybackReport {
     pub file_playhead_us: u64,
