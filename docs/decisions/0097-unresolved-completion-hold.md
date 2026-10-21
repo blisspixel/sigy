@@ -1,6 +1,6 @@
 # 0097: Unresolved completion hold
 
-Date: 2026-10-20. Status: selected representation. Completed slots, classified retry and the shutdown driver are not implemented here. Catalog v51 and local IPC v53 stay unchanged. No dependency and no migration are introduced.
+Date: 2026-10-20. Status: selected representation. This decision does not implement the slot. [Decision0098](0098-completed-settlement-slots.md) implements completed slots, classified retry and the shutdown driver. Catalog v51 and local IPC v53 stay unchanged. No dependency and no migration are introduced.
 
 ## Problem
 
@@ -18,7 +18,7 @@ The durable record is the job row that is already `running` or `cancelling`, wit
 
 If the process exits with a completed slot still occupied, the in-memory outcome is gone. The job row is left unchanged. The next start uses the existing recovery policy. It does not gain a new requeue path, and it does not replay bytes that were never stored. `job_attempts` continues to mean only an attempt that restart ended. Schema v51 needs no populated migration.
 
-Retry attempt count, lock wait and monotonic deadline remain unselected. Classified retry, exhaustion and the shutdown driver are implemented together in a later change, after those numbers are chosen. This decision does not enable retry in callbacks or not-started outcomes. It does not close S-03B or establish a roadmap stage exit.
+Retry attempt count, lock wait and monotonic deadline are unselected in this decision. [Decision0098](0098-completed-settlement-slots.md) selects three slot-local tries, the existing five-second catalog lock wait and a 15 second monotonic deadline, and implements classified retry, exhaustion and the shutdown driver. This decision does not enable those behaviors itself. It does not close S-03B or establish a roadmap stage exit.
 
 ## Alternatives
 
@@ -32,4 +32,4 @@ The inspected contracts are `Pool::running`, `Pool::is_empty` and `PoolCaps::def
 
 ## Limits
 
-No retry numbers are selected. Until the slot and shutdown driver exist, process exit still drops an uncommitted completion. Language, platform and acoustic qualification are unchanged. External spend is USD 0.
+This decision selects no retry numbers. Decision0098 selects them and implements the live slot. Process exit still drops an uncommitted completion. Language, platform and acoustic qualification are unchanged. External spend is USD 0.

@@ -17,7 +17,11 @@ use crate::{
         schedules::ScheduleLaunch,
     },
 };
-use std::{collections::HashMap, thread, time::Instant};
+use std::{
+    collections::HashMap,
+    thread,
+    time::{Duration, Instant},
+};
 use tokio::sync::{mpsc, oneshot, watch};
 
 mod analysis;
@@ -147,6 +151,14 @@ struct Actor {
     task_cursor: Option<String>,
     /// Bounded task processing pass position and interval, not execution authority.
     task_processing: task::ProcessingPass,
+    /// Monotonic clock for completed-slot deadlines. Production does not advance it.
+    settlement_clock: analysis::settlement::SettlementClock,
+    /// Replaces the next finish call in tests. Production always uses the catalog.
+    #[cfg(test)]
+    settlement_override: Option<analysis::settlement::SettlementOverride>,
+    /// Finish calls served by `settlement_override`, not real catalog commits.
+    #[cfg(test)]
+    settlement_attempts: u32,
 }
 
 impl Actor {
@@ -897,6 +909,11 @@ pub(super) fn spawn(
         next_monitor_pass_ms: 0,
         task_cursor: None,
         task_processing: task::ProcessingPass::default(),
+        settlement_clock: analysis::settlement::SettlementClock::system(),
+        #[cfg(test)]
+        settlement_override: None,
+        #[cfg(test)]
+        settlement_attempts: 0,
     };
     let thread = thread::Builder::new()
         .name("sigy-catalog".into())
@@ -913,19 +930,14 @@ pub(super) fn spawn(
                 actor.stop();
                 let _ = stopping.send_replace(true);
             }
-            while let Some(message) = receiver.blocking_recv() {
-                dispatch(
-                    &mut actor,
-                    message,
-                    &stopping,
-                    &mut stopped,
-                    &mut shutdown,
-                    started,
-                );
-                if shutdown && actor.idle() {
-                    break;
-                }
-            }
+            while poll_catalog(
+                &mut actor,
+                &mut receiver,
+                &stopping,
+                &mut stopped,
+                &mut shutdown,
+                started,
+            ) {}
         })?;
     Ok((sender, thread))
 }
@@ -1035,6 +1047,94 @@ fn dispatch(
         Message::Request { operation, reply } => {
             answer(actor, operation, reply, stopping, stopped, started);
         }
+    }
+}
+
+struct Arrival {
+    message: Option<Message>,
+    closed: bool,
+}
+
+/// One catalog turn. A completed slot keeps the thread awake until it commits, exhausts,
+/// or its deadline passes. Shutdown does not assume another schedule tick will arrive.
+fn poll_catalog(
+    actor: &mut Actor,
+    receiver: &mut mpsc::Receiver<Message>,
+    stopping: &watch::Sender<bool>,
+    stopped: &mut bool,
+    shutdown: &mut bool,
+    started: Instant,
+) -> bool {
+    let runtime = actor.runtime.clone();
+    let wait = actor.pool.settlement_wait(actor.settlement_clock.now());
+    let arrival = wait_message(&runtime, receiver, wait);
+    if let Some(message) = arrival.message {
+        dispatch(actor, message, stopping, stopped, shutdown, started);
+    } else if arrival.closed {
+        if !actor.pool.has_settlement() {
+            return false;
+        }
+        if !actor.pool.settlement_due(actor.settlement_clock.now()) {
+            thread::sleep(actor.pool.hold_pause(actor.settlement_clock.now()));
+        }
+    }
+    if actor.pool.has_settlement() {
+        let failed = actor.drive_settlement().is_err();
+        mark_failed(actor, stopping, stopped, failed);
+    }
+    if *shutdown && actor.idle() {
+        return false;
+    }
+    if arrival.closed && !actor.pool.has_settlement() {
+        return false;
+    }
+    true
+}
+
+fn wait_message(
+    runtime: &tokio::runtime::Handle,
+    receiver: &mut mpsc::Receiver<Message>,
+    wait: Option<Duration>,
+) -> Arrival {
+    match wait {
+        None => match receiver.blocking_recv() {
+            Some(message) => Arrival {
+                message: Some(message),
+                closed: false,
+            },
+            None => Arrival {
+                message: None,
+                closed: true,
+            },
+        },
+        Some(duration) if duration.is_zero() => match receiver.try_recv() {
+            Ok(message) => Arrival {
+                message: Some(message),
+                closed: false,
+            },
+            Err(mpsc::error::TryRecvError::Empty) => Arrival {
+                message: None,
+                closed: false,
+            },
+            Err(mpsc::error::TryRecvError::Disconnected) => Arrival {
+                message: None,
+                closed: true,
+            },
+        },
+        Some(duration) => match runtime.block_on(tokio::time::timeout(duration, receiver.recv())) {
+            Ok(Some(message)) => Arrival {
+                message: Some(message),
+                closed: false,
+            },
+            Ok(None) => Arrival {
+                message: None,
+                closed: true,
+            },
+            Err(_elapsed) => Arrival {
+                message: None,
+                closed: false,
+            },
+        },
     }
 }
 

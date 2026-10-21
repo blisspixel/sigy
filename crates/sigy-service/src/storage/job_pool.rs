@@ -160,6 +160,52 @@ pub(super) fn committed_claim(
     Ok(connection.query_row(sql, [id], |row| Ok((row.get(0)?, row.get(1)?)))?)
 }
 
+/// The committed state and claim of one job, read before another settlement attempt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct JobMembership {
+    pub state: String,
+    pub generation: u32,
+    pub attempt: u32,
+    pub owner: Option<String>,
+}
+
+pub(super) fn job_membership(
+    connection: &Connection,
+    family: Family,
+    id: &str,
+) -> Result<Option<JobMembership>> {
+    let sql = match family {
+        Family::Analysis => {
+            "SELECT state, generation, attempt, lease_owner FROM analysis_jobs WHERE id = ?1"
+        }
+        Family::Translation => {
+            "SELECT state, generation, attempt, lease_owner FROM translation_jobs WHERE id = ?1"
+        }
+    };
+    match connection.query_row(sql, [id], |row| {
+        Ok(JobMembership {
+            state: row.get(0)?,
+            generation: row.get(1)?,
+            attempt: row.get(2)?,
+            owner: row.get(3)?,
+        })
+    }) {
+        Ok(member) => Ok(Some(member)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+impl super::Store {
+    pub(crate) fn analysis_job_membership(&self, id: &str) -> Result<Option<JobMembership>> {
+        job_membership(&self.connection, Family::Analysis, id)
+    }
+
+    pub(crate) fn translation_job_membership(&self, id: &str) -> Result<Option<JobMembership>> {
+        job_membership(&self.connection, Family::Translation, id)
+    }
+}
+
 /// End a queued job that can no longer run, without a worker.
 pub(super) fn end_queued(
     connection: &Connection,

@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- Recognition and translation finish tokens carry the lease owner stored by their committed claim. Finish refuses a token whose attempt or owner differs from that row and publishes nothing. The actor still drops an in-memory completion before settlement. Completed slots, classified retry, exhaustion and shutdown remain unimplemented. No retry count, lock wait or deadline is selected. Schema v51 and local IPC v53 are unchanged.
-- The unresolved completion hold is selected as an in-memory slot plus the existing running or cancelling lease. No outcome payload is stored, and recovery is unchanged. The slot itself remains unimplemented.
+- Recognition and translation finish tokens carry the lease owner stored by their committed claim. Finish refuses a token whose attempt or owner differs from that row and publishes nothing. A drained outcome waits in a completed slot. Busy and locked settlement is retried at most three times within 15 seconds, using the existing five-second catalog lock wait. Uncertain I/O is not published again while that claim is still running. Exhaustion drops the slot and leaves the running or cancelling row. Process exit still loses the in-memory outcome. Schema v51 and local IPC v53 are unchanged.
+- The unresolved completion hold is the in-memory slot plus the existing running or cancelling lease. No outcome payload is stored, and recovery is unchanged. Decision 0098 implements the live slot. S-03B remains open.
 
 ## 0.1.0-dev.20261020 (development prerelease, source only)
 

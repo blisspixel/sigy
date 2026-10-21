@@ -102,7 +102,7 @@ The first 2026-09-30 [offline translation validation](experiments/local-mt/offli
 
 ## Near-future review cadence
 
-The [completion settlement and shutdown audit](49-completion-settlement-and-shutdown.md) distinguishes finished worker evidence, transactional publication, post-commit reads, bounded retry and shutdown. [Atomic worker responses and exact translation replay](../docs/decisions/0092-atomic-worker-responses.md) implement its first settlement foundation. [The unresolved hold](../docs/decisions/0097-unresolved-completion-hold.md) is selected as an in-memory slot plus the existing running lease. Bounded actor retry, exhaustion/shutdown and restart-proof reconstruction remain open.
+The [completion settlement and shutdown audit](49-completion-settlement-and-shutdown.md) distinguishes finished worker evidence, transactional publication, post-commit reads, bounded retry and shutdown. [Atomic worker responses and exact translation replay](../docs/decisions/0092-atomic-worker-responses.md) implement its first settlement foundation. [The unresolved hold](../docs/decisions/0097-unresolved-completion-hold.md) is selected as an in-memory slot plus the existing running lease. [Completed settlement slots](../docs/decisions/0098-completed-settlement-slots.md) implement bounded retry, exhaustion and shutdown for the live process. Restart-proof reconstruction remains open.
 
 The [delegated desktop execution review](47-delegated-desktop-execution.md) records the selected ProcessKit patch, systemd user-unit lifecycle, separate process/thread caps and live Windows PCM output. Executed platform and acoustic evidence remains in active work.
 

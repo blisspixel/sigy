@@ -462,6 +462,9 @@ async fn a_receipt_fault_rolls_back_its_job_and_a_restart_admits_the_rest_once()
         next_monitor_pass_ms: 0,
         task_cursor: None,
         task_processing: super::super::super::task::ProcessingPass::default(),
+        settlement_clock: super::super::settlement::SettlementClock::system(),
+        settlement_override: None,
+        settlement_attempts: 0,
     };
     restarted.reconcile_tasks()?;
     // The first job failed without runtime assets, so its translation is refused once.

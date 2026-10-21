@@ -27,6 +27,8 @@ mod monitor_admission_tests;
 mod retained_tests;
 #[path = "tests/schedule_launch_tests.rs"]
 mod schedule_launch_tests;
+#[path = "tests/settlement_tests.rs"]
+mod settlement_tests;
 #[path = "tests/task_processing_tests.rs"]
 mod task_processing_tests;
 #[path = "tests/task_tests.rs"]
@@ -98,6 +100,9 @@ fn actor(root: &Path, sender: &mpsc::Sender<Message>) -> Result<Actor> {
         next_monitor_pass_ms: 0,
         task_cursor: None,
         task_processing: super::super::task::ProcessingPass::default(),
+        settlement_clock: super::settlement::SettlementClock::system(),
+        settlement_override: None,
+        settlement_attempts: 0,
     })
 }
 

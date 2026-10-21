@@ -9,6 +9,8 @@
 
 use std::collections::HashMap;
 
+pub(super) mod settlement;
+
 use super::{Actor, Message, Worker};
 use crate::{
     Error, Result, execution,
@@ -83,6 +85,10 @@ pub(super) struct Pool {
     pub verification: HashMap<String, VerificationWorker>,
     pub recognition: HashMap<String, RecognitionWorker>,
     pub translation: HashMap<String, TranslationWorker>,
+    /// Drained recognition outcomes waiting for a committed finish. Not live workers.
+    recognition_slots: HashMap<String, settlement::ParkedRecognition>,
+    /// Drained translation outcomes waiting for a committed finish. Not live workers.
+    translation_slots: HashMap<String, settlement::ParkedTranslation>,
 }
 
 impl Pool {
@@ -95,21 +101,19 @@ impl Pool {
             verification: HashMap::new(),
             recognition: HashMap::new(),
             translation: HashMap::new(),
-        }
-    }
-
-    fn running(&self, kind: JobKind) -> usize {
-        match kind {
-            JobKind::Verification => self.verification.len(),
-            JobKind::Recognition => self.recognition.len(),
-            JobKind::Translation => self.translation.len(),
+            recognition_slots: HashMap::new(),
+            translation_slots: HashMap::new(),
         }
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.verification.is_empty() && self.recognition.is_empty() && self.translation.is_empty()
+        self.verification.is_empty()
+            && self.recognition.is_empty()
+            && self.translation.is_empty()
+            && !self.has_settlement()
     }
 
+    /// Signal live workers only. A completed slot has no process to stop.
     pub(super) fn stop(&mut self) {
         self.accepting = false;
         let workers = self
@@ -172,7 +176,7 @@ impl Actor {
             }
             let mut claims = 0;
             while self.pool.accepting
-                && self.pool.running(kind) < self.pool.caps.cap(kind)
+                && self.pool.occupied(kind) < self.pool.caps.cap(kind)
                 && claims < MAX_CLAIMS_PER_PASS
             {
                 if kind == JobKind::Recognition && self.decoder().is_err() {
@@ -512,12 +516,13 @@ impl Actor {
                 );
                 Ok(true)
             }
-            Err(error) => {
+            Err(_spawn_error) => {
+                // The claim is already committed. Settle the existing not-started refusal in
+                // the completed slot. A committed refusal must not stop the service only
+                // because the worker process never started. An integrity fault still does.
                 let reaped = recognizer::not_started(&work.job)?;
-                self.library
-                    .store_mut()
-                    .finish_local_asr(&work, &reaped, now_ms()?)?;
-                Err(error)
+                self.park_recognition(work, reaped)?;
+                Ok(false)
             }
         }
     }
@@ -541,23 +546,13 @@ impl Actor {
         let Some(active) = self.pool.recognition.remove(id) else {
             return Ok(());
         };
-        let work = active.work;
+        // An unproven drain keeps the lease and stops the service. It does not mint a slot.
         let reaped = result?;
-        let now = now_ms()?;
-        let job = self
-            .library
-            .store_mut()
-            .finish_local_asr(&work, &reaped, now)?;
-        if job.state == "succeeded" && !reaped.languages().is_empty() {
-            // Best effort after the transcript commit: missing evidence stays visibly absent
-            // and never rewrites or fails the published transcript.
-            let evidence = recognizer::language_evidence(&job, reaped.languages());
-            let _ = self
-                .library
-                .store_mut()
-                .publish_language_evidence(evidence, now);
+        if self.park_recognition(active.work, reaped)? == settlement::Step::Committed {
+            self.schedule()
+        } else {
+            Ok(())
         }
-        self.schedule()
     }
 }
 
@@ -668,17 +663,15 @@ impl Actor {
                 );
                 Ok(true)
             }
-            Err(error) => {
+            Err(_spawn_error) => {
                 let envelope = execution::refuse_translation(
                     &work.job.request.id,
                     work.job.generation,
                     "worker-start-failed",
                 );
                 let outcome = TranslationOutcome::from_envelope(&work.job, envelope, None)?;
-                self.library
-                    .store_mut()
-                    .finish_translation(&work, &outcome, now_ms()?)?;
-                Err(error)
+                self.park_translation(work, outcome)?;
+                Ok(false)
             }
         }
     }
@@ -713,10 +706,11 @@ impl Actor {
             return Ok(());
         };
         let outcome = result?;
-        self.library
-            .store_mut()
-            .finish_translation(&active.work, &outcome, now_ms()?)?;
-        self.schedule()
+        if self.park_translation(active.work, outcome)? == settlement::Step::Committed {
+            self.schedule()
+        } else {
+            Ok(())
+        }
     }
 }
 
