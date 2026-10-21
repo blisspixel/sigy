@@ -4,13 +4,26 @@ Updated: 2026-10-21. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-21 repository instructions
+
+Issue 37 layers [AGENTS.md](../../AGENTS.md) so purpose, the current phase, change routing, the read-next table, boundaries, ownership, and verification come before dated history. The old product chronicle is not copied forward. Each former block has a home:
+
+- Purpose, toolchain, schema v51, IPC v53, reinspect-before-edit, and the ban on unfinished-gate claims stay in the opening sections.
+- The read-next table, boundaries, closeout note, USD 20 ceiling, and attribution rules stay, with the same obligations.
+- Crate ownership, the library lock, monetary exactness, capture journal, acquisition, redirects, the single click sender, favorites, recording and playback seams, MCP limits, and vendor SQLite stay under Ownership and seams.
+- `cargo verify`, `cargo verify-media`, `cargo verify-coverage`, doctor sentences, lint, hosted platform split, and publication policy are separate verification sections. The gallery count now says 78 frames, matching [visual QA](visual-qa.md). `cargo readme-hero` is named and is not part of ordinary verify.
+- Language pipeline constraints, settlement slots, creation-time Job Object assignment, Linux XDG paths, task and capture caps, storage placement, HackRF receive-only limits, and interface contracts stay under Still-binding limits, each with its decision or design owner.
+- Increment narratives remain in [docs/decisions](../decisions) and this progress record. September detail remains in [progress history](progress-history-2026-09.md). An older schema number in a decision is not the current catalog.
+
+A metadata change routes to `sigy-service` storage, one journal transaction, and `cargo verify`. A native or provider change routes to the acquisition, decoder, and containment seams, plus `cargo verify-media` when recording, playback, or HTTP changes. This issue is documentation only: links, status, and writing rules. It does not change schema, IPC, runtime behavior, or the support claim. S-03B stays open. Relative links in `AGENTS.md`, `CHANGELOG.md`, and this section resolved. `git diff --check` passed. `cargo fmt`, Clippy, `cargo verify`, and coverage were not run. External spend remains USD 0. Hosted verify of this instruction change has not been run.
+
 ## 2026-10-21 README first screen
 
 Issue 29 places a connected globe on the README first screen, after the install commands. `cargo readme-hero` draws one 100 by 32 production frame and writes light and dark PNGs. Service process 1842 is connected. North Coast is selected, and listen `play-1842` is playing. The stations, clock, and listen are synthetic. The image is not a live station, a coverage survey, or acoustic proof. The 2026-10-04 retained page remains `globe.png`. `tui.png` is no longer the first screen. The analysis reliability note that was on the README now sits in the changelog's Unreleased section. The PNG writer is test-only and uses the existing `flate2` crate as a `sigy` dev-dependency. Schema v51 and local IPC v53 are unchanged.
 
 The Decision 0100 status line now records that hosted verify of `38f2bd8` executed the Linux move fixture on Ubuntu: https://github.com/blisspixel/sigy/actions/runs/39581777031.
 
-`cargo fmt --all` completed. `git diff --check` passed. `cargo clippy -p sigy --all-targets --locked -- -D warnings` passed. `cargo test -p sigy --bin sigy -- --test-threads=2 explorer::screen::tests` passed 53 tests and left 3 ignored, in 13.51 seconds. The ordinary hero test is included. The ignored `readme_hero` writer ran after the live-marker radius change and wrote both PNGs. Full `cargo verify` was not re-run locally. Coverage was not re-run. `cargo visual-qa` was not required. External spend remains USD 0. Hosted verify of this change has not been run.
+`cargo fmt --all` completed. `git diff --check` passed. `cargo clippy -p sigy --all-targets --locked -- -D warnings` passed. `cargo test -p sigy --bin sigy -- --test-threads=2 explorer::screen::tests` passed 53 tests and left 3 ignored, in 13.51 seconds. The ordinary hero test is included. The ignored `readme_hero` writer ran after the live-marker radius change and wrote both PNGs. Full `cargo verify` was not re-run locally. Coverage was not re-run. `cargo visual-qa` was not required. External spend remains USD 0. Hosted verify of `f7cfcb9` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/39590356568. The Windows job runs `cargo verify`. Ubuntu and macOS run build and lint. The Ubuntu job also ran the Linux default-library step. A clean detached worktree install wrote `installed-commit` `f7cfcb95065386508e83b0c504d2d23dafde05c9`. `sigy --version` prints `sigy 0.1.0-dev`.
 
 ## 2026-10-21 Linux XDG libraries
 

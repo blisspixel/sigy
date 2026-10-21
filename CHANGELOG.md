@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Repository instructions lead with purpose, routing, ownership, invariants, and verification. Dated increment history stays in the decisions and in active work. The visual QA gallery count in those instructions is 78 frames. Schema v51 and local IPC v53 are unchanged.
 - The README first screen shows a connected globe, a selected station, and a listen in progress, with light and dark PNGs. Install commands come before that image. `cargo readme-hero` regenerates both files from the production renderer. The frame is synthetic. It is not a live station, a coverage survey, or acoustic proof. Schema v51 and local IPC v53 are unchanged.
 - The [analysis reliability repair](docs/decisions/0092-atomic-worker-responses.md) preserves exact translation history on replay and prevents a failed response read from leaving a committed claim or result. Automatic recovery of an unsettled worker result remains the next reliability increment.
 - A new Linux library uses the XDG data directory, `$XDG_DATA_HOME/sigy/library` or `~/.local/share/sigy/library`. The default library's socket uses `$XDG_RUNTIME_DIR/sigy` when that directory exists. Update state and the source checkout use the XDG state and cache directories. An existing `~/.sigy/library` stays until `sigy init --move-xdg`, and `sigy doctor` names that command. Decision 0100 records the contract. Windows and macOS keep `~/.sigy/library`. Schema v51 and local IPC v53 are unchanged.
