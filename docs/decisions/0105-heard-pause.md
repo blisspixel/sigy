@@ -14,7 +14,7 @@ No sample, an addition that overflows, or a position at or past the cited end do
 
 The service still refuses a seek inside a recording gap or the open tail, and that refusal writes no reader. The terminal does not invent a gap from the decoder sample alone. Capture is not paused. Quit still leaves the recording running. The desktop desk does not gain Play or Stop. No MCP mutation is added. `listen pause` and `listen seek` remain the metadata playhead.
 
-On Windows, a finding resume can use the existing system excerpt path. Other platforms still refuse a system excerpt, so a finding resume there fails closed the same way. A whole-file resume stays on the ordinary `listen file` path. Neither result is an acoustic or platform qualification.
+On Windows, a finding resume can use the existing system excerpt path. Other platforms still refuse a system excerpt, so a finding resume there fails closed the same way. A whole-file resume stays on the ordinary `listen file` path. Neither result is an acoustic or platform qualification. [Decision 0106](0106-heard-seek.md) moves this same admitted listen by ten seconds. This decision does not.
 
 ## Evidence
 

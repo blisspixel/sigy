@@ -370,6 +370,10 @@ pub enum Effect {
     },
     /// Stop the retained decoder at its latest sample, or resume that position.
     HoldRetained,
+    /// Move one retained listen by ten seconds inside its admitted range.
+    SeekRetained {
+        forward: bool,
+    },
     StopListen,
     StopRetained,
     LinkedContext {
@@ -1099,7 +1103,7 @@ impl Explorer {
             return effect;
         }
         if !self.text_entry()
-            && let Some(effect) = Self::hold_key(&key)
+            && let Some(effect) = Self::transport_key(&key)
         {
             return effect;
         }
@@ -1146,9 +1150,11 @@ impl Explorer {
         self.handle_browser(&key)
     }
 
-    fn hold_key(key: &Key) -> Option<Effect> {
+    fn transport_key(key: &Key) -> Option<Effect> {
         match key {
             Key::Char('H') => Some(Effect::HoldRetained),
+            Key::Char('[') => Some(Effect::SeekRetained { forward: false }),
+            Key::Char(']') => Some(Effect::SeekRetained { forward: true }),
             _ => None,
         }
     }
@@ -2342,6 +2348,38 @@ mod tests {
         assert_eq!(model.handle(Key::Char('P')), Effect::None);
         assert!(model.status().contains("y confirms"));
         assert_eq!(model.handle(Key::Char('H')), Effect::None);
+        assert!(model.playback().is_none());
+        assert_eq!(model.captures_active(), captures);
+    }
+
+    #[test]
+    fn heard_seek_keys_do_not_touch_capture_or_confirm_playback() {
+        let mut model = loaded();
+        let captures = model.captures_active();
+        let recordings = model.recordings().len();
+        assert_eq!(
+            model.handle(Key::Char('[')),
+            Effect::SeekRetained { forward: false }
+        );
+        assert_eq!(
+            model.handle(Key::Char(']')),
+            Effect::SeekRetained { forward: true }
+        );
+        assert_eq!(model.captures_active(), captures);
+        assert_eq!(model.recordings().len(), recordings);
+        assert!(model.playback().is_none());
+        assert_eq!(model.handle(Key::Char('/')), Effect::None);
+        assert_eq!(model.handle(Key::Char('[')), Effect::None);
+        assert_eq!(model.query(), "[");
+        assert_eq!(model.handle(Key::Escape), Effect::None);
+        model
+            .recordings
+            .push(kept_recording("rec-kept", "completed", "retained"));
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Down), Effect::None);
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert!(model.status().contains("y confirms"));
+        assert_eq!(model.handle(Key::Char(']')), Effect::None);
         assert!(model.playback().is_none());
         assert_eq!(model.captures_active(), captures);
     }

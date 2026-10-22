@@ -455,6 +455,7 @@ fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
                 "P play",
                 "S stop",
                 "H pause",
+                "[/] 10s",
                 "q quit",
             ]
         }
@@ -467,6 +468,7 @@ fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
                 "P play",
                 "S stop",
                 "H pause",
+                "[/] 10s",
                 "q quit",
             ]
         }
@@ -1136,6 +1138,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             "  arrows select a recording    r reloads its metadata",
             "  P then y plays a retained recording    S stops",
             "  H pauses at the decoder time and the next H resumes",
+            "  [ and ] seek 10 s inside this admitted listen",
         ],
         Workspace::Monitors => {
             &["  arrows select or scroll    Enter inspects    Esc back    r reload"]
@@ -1144,6 +1147,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             "  / edit IDs    Enter inspects    arrows scroll    o recording metadata",
             "  P then y plays a cited interval    S stops",
             "  H pauses at the decoder time and the next H resumes",
+            "  [ and ] seek 10 s inside this admitted listen",
         ],
     }
 }
@@ -2317,11 +2321,13 @@ mod tests {
         model.handle(Key::Char('?'));
         let (recordings, _) = frame(&model, 80, 40);
         assert!(recordings.contains("next H resumes"), "{recordings}");
+        assert!(recordings.contains("seek 10 s"), "{recordings}");
         model.handle(Key::Escape);
         model.handle(Key::Char('5'));
         model.handle(Key::Char('?'));
         let (findings, _) = frame(&model, 80, 40);
         assert!(findings.contains("next H resumes"), "{findings}");
+        assert!(findings.contains("seek 10 s"), "{findings}");
     }
 
     #[test]

@@ -38,7 +38,13 @@ enum HoldPhase {
 
 struct Hold {
     at_us: u64,
+    pending_us: Option<u64>,
     phase: HoldPhase,
+}
+
+struct SeekAttempt {
+    fallback_us: u64,
+    request: String,
 }
 
 impl Start {
@@ -61,13 +67,15 @@ pub(super) struct Audio {
     queued: Option<Start>,
     admission: Option<Admission>,
     hold: Option<Hold>,
+    seek_attempt: Option<SeekAttempt>,
 }
 
 impl Audio {
     pub(super) fn poll(&mut self, directory: &Path, model: &mut Explorer) {
         self.live.poll(model);
         self.retained.poll(model);
-        self.settle_hold(model);
+        self.settle_hold(directory, model);
+        self.recover_seek(model);
         self.pump(directory, model);
     }
 
@@ -126,6 +134,7 @@ impl Audio {
                 );
             }
             Effect::HoldRetained => self.heard(runtime, directory, model),
+            Effect::SeekRetained { forward } => self.nudge(runtime, directory, model, *forward),
             Effect::StopListen => self.stop(true, runtime, directory, model),
             Effect::StopRetained => self.stop(false, runtime, directory, model),
             Effect::None
@@ -301,6 +310,7 @@ impl Audio {
     fn end_hold(&mut self, model: &mut Explorer) {
         self.hold = None;
         self.admission = None;
+        self.seek_attempt = None;
         model.release_pause();
     }
 
@@ -349,8 +359,10 @@ impl Audio {
         self.discard_queued(model);
         self.hold = Some(Hold {
             at_us,
+            pending_us: None,
             phase: HoldPhase::Stopping,
         });
+        self.seek_attempt = None;
         if self.retained.occupied() || self.retained.has_request() {
             self.retained.stop(runtime, directory, model);
         }
@@ -359,7 +371,7 @@ impl Audio {
         ));
     }
 
-    fn settle_hold(&mut self, model: &mut Explorer) {
+    fn settle_hold(&mut self, directory: &Path, model: &mut Explorer) {
         if self
             .hold
             .as_ref()
@@ -371,11 +383,16 @@ impl Audio {
         let Some(at_us) = self.hold.as_ref().map(|hold| hold.at_us) else {
             return;
         };
+        if let Some(target_us) = self.hold.as_ref().and_then(|hold| hold.pending_us) {
+            self.finish_seek(directory, model, at_us, target_us);
+            return;
+        }
         let Some(request) = self.admission.as_ref().map(|item| item.request.clone()) else {
             return;
         };
         self.hold = Some(Hold {
             at_us,
+            pending_us: None,
             phase: HoldPhase::Paused,
         });
         if model.show_paused(&request, at_us) {
@@ -392,12 +409,189 @@ impl Audio {
         };
         self.hold = Some(Hold {
             at_us,
+            pending_us: None,
             phase: HoldPhase::Paused,
         });
+        self.seek_attempt = None;
         model.show_paused(&request, at_us);
         model.note_message(&format!(
             "The client already exited. That is not a pause. Position kept at {at_us} us. Press H to listen there. Capture keeps running."
         ));
+    }
+
+    fn nudge(&mut self, runtime: &Runtime, directory: &Path, model: &mut Explorer, forward: bool) {
+        let decision = super::seek::decide(&self.pause_input(model), forward);
+        match decision {
+            super::seek::Decision::Jump {
+                fallback_us,
+                target_us,
+            } => self.begin_jump(runtime, directory, model, fallback_us, target_us),
+            super::seek::Decision::Move { at_us } => self.remember_seek(model, at_us, false),
+            super::seek::Decision::Remember { at_us } => self.remember_seek(model, at_us, true),
+            other => {
+                if let Some(message) = super::seek::refusal(&other) {
+                    model.note_message(message);
+                }
+            }
+        }
+    }
+
+    fn begin_jump(
+        &mut self,
+        runtime: &Runtime,
+        directory: &Path,
+        model: &mut Explorer,
+        fallback_us: u64,
+        target_us: u64,
+    ) {
+        self.discard_queued(model);
+        self.seek_attempt = None;
+        self.hold = Some(Hold {
+            at_us: fallback_us,
+            pending_us: Some(target_us),
+            phase: HoldPhase::Stopping,
+        });
+        if self.retained.occupied() || self.retained.has_request() {
+            self.retained.stop(runtime, directory, model);
+        }
+        model.note_message(&format!(
+            "Seeking to {target_us} us. Waiting for this client to exit. This does not prove silence. Capture keeps running."
+        ));
+    }
+
+    fn finish_seek(
+        &mut self,
+        directory: &Path,
+        model: &mut Explorer,
+        fallback_us: u64,
+        target_us: u64,
+    ) {
+        if self.live.occupied() || self.retained.occupied() {
+            self.park(
+                model,
+                fallback_us,
+                &format!(
+                    "A listen is still running. Position kept at {fallback_us} us. Press H to listen there. Capture keeps running."
+                ),
+            );
+            return;
+        }
+        let Some(admission) = self.admission.as_ref() else {
+            self.park(
+                model,
+                fallback_us,
+                "This decoder has no stored admission. Seek was not requested. Capture keeps running.",
+            );
+            return;
+        };
+        let recording = admission.recording.clone();
+        let end_us = admission.end_us;
+        let Some(request) = model.allocate_retained() else {
+            self.park(
+                model,
+                fallback_us,
+                &format!(
+                    "The seek wrote no reader. Position kept at {fallback_us} us. Press H to listen there. Capture keeps running."
+                ),
+            );
+            return;
+        };
+        match self
+            .retained
+            .start_file(directory, &recording, &request, target_us, end_us)
+        {
+            Ok(()) => {
+                self.hold = None;
+                self.admission = Some(Admission {
+                    recording,
+                    origin_us: target_us,
+                    end_us,
+                    request: request.clone(),
+                });
+                self.seek_attempt = Some(SeekAttempt {
+                    fallback_us,
+                    request: request.clone(),
+                });
+                model.begin_retained(&request);
+                model.note_message(&format!(
+                    "Starting one retained listen at {target_us} us. Request {request}. Capture keeps running."
+                ));
+            }
+            Err(_) => self.park(
+                model,
+                fallback_us,
+                &format!(
+                    "The seek wrote no reader. Position kept at {fallback_us} us. Press H to listen there. Capture keeps running."
+                ),
+            ),
+        }
+    }
+
+    fn recover_seek(&mut self, model: &mut Explorer) {
+        let Some(attempt) = self.seek_attempt.as_ref() else {
+            return;
+        };
+        let request = attempt.request.clone();
+        let fallback_us = attempt.fallback_us;
+        let visible = model.retained_label().map(|(_, request)| request);
+        let recovery = super::seek::recover(
+            visible,
+            &request,
+            model.decoder_output_us().is_some(),
+            self.retained.occupied(),
+        );
+        match recovery {
+            super::seek::Recovery::Wait => {}
+            super::seek::Recovery::Commit | super::seek::Recovery::Forget => {
+                self.seek_attempt = None;
+            }
+            super::seek::Recovery::Restore => self.park(
+                model,
+                fallback_us,
+                &format!(
+                    "The seek wrote no reader. Position kept at {fallback_us} us. Press H to listen there. Capture keeps running."
+                ),
+            ),
+        }
+    }
+
+    fn remember_seek(&mut self, model: &mut Explorer, at_us: u64, exited: bool) {
+        let Some(request) = self.admission.as_ref().map(|item| item.request.clone()) else {
+            model.note_message(
+                "This decoder has no stored admission. Seek was not requested. Capture keeps running.",
+            );
+            return;
+        };
+        self.seek_attempt = None;
+        self.hold = Some(Hold {
+            at_us,
+            pending_us: None,
+            phase: HoldPhase::Paused,
+        });
+        model.show_paused(&request, at_us);
+        if exited {
+            model.note_message(&format!(
+                "The client already exited. That is not a seek. Position kept at {at_us} us. Press H to listen there. Capture keeps running."
+            ));
+        } else {
+            model.note_message(&format!(
+                "Paused at {at_us} us. Press H to start one listen there. Capture keeps running."
+            ));
+        }
+    }
+
+    fn park(&mut self, model: &mut Explorer, at_us: u64, message: &str) {
+        let request = self.admission.as_ref().map(|item| item.request.clone());
+        self.seek_attempt = None;
+        self.hold = Some(Hold {
+            at_us,
+            pending_us: None,
+            phase: HoldPhase::Paused,
+        });
+        if let Some(request) = request.as_deref() {
+            model.show_paused(request, at_us);
+        }
+        model.note_message(message);
     }
 
     fn resume(
@@ -440,6 +634,7 @@ impl Audio {
 
     fn remember_spawn(&mut self, start: &Start) {
         self.hold = None;
+        self.seek_attempt = None;
         self.admission = match start {
             Start::Station(_) => None,
             Start::Recording { id, request } => Some(Admission {

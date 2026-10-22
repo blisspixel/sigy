@@ -14,6 +14,7 @@ mod player;
 mod retained;
 mod screen;
 mod search;
+mod seek;
 mod state;
 mod terminal;
 pub(crate) mod text;
