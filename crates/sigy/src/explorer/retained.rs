@@ -156,22 +156,12 @@ impl Client {
         directory: &Path,
         recording: &str,
         request: &str,
+        seek_us: u64,
+        end_us: Option<u64>,
     ) -> std::io::Result<()> {
-        self.launch(
-            directory,
-            request,
-            &[
-                "listen",
-                "file",
-                recording,
-                "--request",
-                request,
-                "--destination",
-                "system",
-                "--cancel-on-stdin",
-                "--parent-pid",
-            ],
-        )
+        let args = super::pause::file_listen_args(recording, request, seek_us, end_us);
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.launch(directory, request, &borrowed)
     }
 
     pub(super) fn start_finding(

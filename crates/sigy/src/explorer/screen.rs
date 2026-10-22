@@ -448,7 +448,16 @@ fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
             "q quit",
         ],
         Workspace::Live | Workspace::System => vec!["r reload", "Tab focus", "q quit"],
-        Workspace::Recordings => vec!["select row", "r reload", "P play", "S stop", "q quit"],
+        Workspace::Recordings => {
+            vec![
+                "select row",
+                "r reload",
+                "P play",
+                "S stop",
+                "H pause",
+                "q quit",
+            ]
+        }
         Workspace::Monitors => vec!["inspect row", "r reload", "Esc back", "q quit"],
         Workspace::Findings => {
             vec![
@@ -457,6 +466,7 @@ fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
                 "o metadata",
                 "P play",
                 "S stop",
+                "H pause",
                 "q quit",
             ]
         }
@@ -940,12 +950,19 @@ fn identity_primary(model: &Explorer) -> Line<'static> {
 
 fn retained_strip(model: &Explorer, width: usize) -> Option<Line<'static>> {
     let (phase, request) = model.retained_label()?;
-    let text = match model.decoder_output_us() {
-        Some(time) => format!(
-            "Retained: {phase} decoder {time} us {}",
-            sanitize(request, 64)
-        ),
-        None => format!("Retained: {phase} {}", sanitize(request, 64)),
+    let text = if phase == "paused" {
+        match model.paused_at_us() {
+            Some(time) => format!("Retained: paused at {time} us {}", sanitize(request, 64)),
+            None => format!("Retained: paused {}", sanitize(request, 64)),
+        }
+    } else {
+        match model.decoder_output_us() {
+            Some(time) => format!(
+                "Retained: {phase} decoder {time} us {}",
+                sanitize(request, 64)
+            ),
+            None => format!("Retained: {phase} {}", sanitize(request, 64)),
+        }
     };
     Some(plain(&clip(&text, width)))
 }
@@ -1118,6 +1135,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
         Workspace::Recordings => &[
             "  arrows select a recording    r reloads its metadata",
             "  P then y plays a retained recording    S stops",
+            "  H pauses at the decoder time and the next H resumes",
         ],
         Workspace::Monitors => {
             &["  arrows select or scroll    Enter inspects    Esc back    r reload"]
@@ -1125,6 +1143,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
         Workspace::Findings => &[
             "  / edit IDs    Enter inspects    arrows scroll    o recording metadata",
             "  P then y plays a cited interval    S stops",
+            "  H pauses at the decoder time and the next H resumes",
         ],
     }
 }
@@ -2269,6 +2288,13 @@ mod tests {
             "{timed}"
         );
         assert!(!timed.contains("heard"), "{timed}");
+        assert!(playing.show_paused("reader-0123456789abcdef0123456789abcdef", 1_500_000));
+        let (paused, _) = frame(&playing, 100, 24);
+        assert!(
+            paused.contains("Retained: paused at 1500000 us reader-"),
+            "{paused}"
+        );
+        assert!(!paused.contains("decoder "), "{paused}");
     }
 
     #[test]
@@ -2286,6 +2312,16 @@ mod tests {
         let (globe, _) = frame(&model, 80, 24);
         assert!(globe.contains("Keys: Globe"), "{globe}");
         assert!(globe.contains("turn"), "{globe}");
+        model.handle(Key::Escape);
+        model.handle(Key::Char('3'));
+        model.handle(Key::Char('?'));
+        let (recordings, _) = frame(&model, 80, 40);
+        assert!(recordings.contains("next H resumes"), "{recordings}");
+        model.handle(Key::Escape);
+        model.handle(Key::Char('5'));
+        model.handle(Key::Char('?'));
+        let (findings, _) = frame(&model, 80, 40);
+        assert!(findings.contains("next H resumes"), "{findings}");
     }
 
     #[test]

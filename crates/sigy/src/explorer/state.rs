@@ -330,7 +330,13 @@ pub struct SearchQuery {
 enum PendingPlay {
     Station(String),
     Recording(String),
-    Finding { monitor: String, finding: String },
+    Finding {
+        monitor: String,
+        finding: String,
+        recording: String,
+        start_us: u64,
+        end_us: u64,
+    },
 }
 
 /// One explicit retained listen. It is independent of the live session receipt.
@@ -340,6 +346,7 @@ struct RetainedView {
     phase: String,
     receipt_state: Option<String>,
     decoder_output_us: Option<u64>,
+    paused_at_us: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -357,7 +364,12 @@ pub enum Effect {
         monitor: String,
         finding: String,
         request: String,
+        recording: String,
+        start_us: u64,
+        end_us: u64,
     },
+    /// Stop the retained decoder at its latest sample, or resume that position.
+    HoldRetained,
     StopListen,
     StopRetained,
     LinkedContext {
@@ -1086,6 +1098,11 @@ impl Explorer {
         if let Some(effect) = self.keys_key(&key) {
             return effect;
         }
+        if !self.text_entry()
+            && let Some(effect) = Self::hold_key(&key)
+        {
+            return effect;
+        }
         if let Some(effect) = self.station_play_key(&key) {
             return effect;
         }
@@ -1129,6 +1146,13 @@ impl Explorer {
         self.handle_browser(&key)
     }
 
+    fn hold_key(key: &Key) -> Option<Effect> {
+        match key {
+            Key::Char('H') => Some(Effect::HoldRetained),
+            _ => None,
+        }
+    }
+
     fn confirm_play(&mut self, key: &Key) -> Effect {
         match key {
             Key::Char('y' | 'Y') => self.accept_play(),
@@ -1162,7 +1186,13 @@ impl Explorer {
                 ));
                 Effect::PlayRecording { id, request }
             }
-            PendingPlay::Finding { monitor, finding } => {
+            PendingPlay::Finding {
+                monitor,
+                finding,
+                recording,
+                start_us,
+                end_us,
+            } => {
                 let Some(request) = self.allocate_retained() else {
                     return Effect::None;
                 };
@@ -1173,12 +1203,15 @@ impl Explorer {
                     monitor,
                     finding,
                     request,
+                    recording,
+                    start_us,
+                    end_us,
                 }
             }
         }
     }
 
-    fn allocate_retained(&mut self) -> Option<String> {
+    pub(super) fn allocate_retained(&mut self) -> Option<String> {
         if let Ok(request) = sigy_service::recordings::new_retained_request_id() {
             Some(request)
         } else {
@@ -1257,11 +1290,17 @@ impl Explorer {
     }
 
     fn confirm_finding(&mut self) -> Effect {
-        let Some((monitor, finding)) = self.findings.cited() else {
+        let Some(span) = self.findings.cited_span() else {
             self.note_message("This finding has no cited interval. Playback was not requested.");
             return Effect::None;
         };
-        self.play_confirmation = Some(PendingPlay::Finding { monitor, finding });
+        self.play_confirmation = Some(PendingPlay::Finding {
+            monitor: span.monitor,
+            finding: span.finding,
+            recording: span.recording,
+            start_us: span.start_us,
+            end_us: span.end_us,
+        });
         self.note_message(
             "Play this cited finding? y confirms; n/Esc cancels. Enter still only inspects.",
         );
@@ -1274,6 +1313,7 @@ impl Explorer {
             phase: "pending".into(),
             receipt_state: None,
             decoder_output_us: None,
+            paused_at_us: None,
         };
         if self.retained.as_ref() != Some(&next) {
             self.retained = Some(next);
@@ -1287,18 +1327,60 @@ impl Explorer {
         phase: &str,
         receipt_state: Option<&str>,
     ) {
-        let matches = self.retained.as_ref().is_some_and(|view| {
-            view.request == request
-                && (view.phase != phase || view.receipt_state.as_deref() != receipt_state)
-        });
-        if !matches {
+        let Some(view) = &mut self.retained else {
+            return;
+        };
+        if view.request != request {
             return;
         }
-        if let Some(view) = &mut self.retained {
-            phase.clone_into(&mut view.phase);
-            view.receipt_state = receipt_state.map(str::to_owned);
-            self.draw = Draw::Needed;
+        let next_receipt = receipt_state.map(str::to_owned);
+        if view.phase == "paused" {
+            if view.receipt_state != next_receipt {
+                view.receipt_state = next_receipt;
+                self.draw = Draw::Needed;
+            }
+            return;
         }
+        if view.phase == phase && view.receipt_state == next_receipt {
+            return;
+        }
+        phase.clone_into(&mut view.phase);
+        view.receipt_state = next_receipt;
+        self.draw = Draw::Needed;
+    }
+
+    /// Show the frozen recording-timeline position. A later receipt cannot erase it.
+    pub(super) fn show_paused(&mut self, request: &str, at_us: u64) -> bool {
+        let Some(view) = &mut self.retained else {
+            return false;
+        };
+        if view.request != request {
+            return false;
+        }
+        if view.phase == "paused" && view.paused_at_us == Some(at_us) {
+            return false;
+        }
+        view.phase = "paused".into();
+        view.paused_at_us = Some(at_us);
+        self.draw = Draw::Needed;
+        true
+    }
+
+    pub(super) fn release_pause(&mut self) {
+        let Some(view) = &mut self.retained else {
+            return;
+        };
+        if view.phase != "paused" {
+            return;
+        }
+        view.phase = "closed".into();
+        view.paused_at_us = None;
+        self.draw = Draw::Needed;
+    }
+
+    #[must_use]
+    pub(super) fn paused_at_us(&self) -> Option<u64> {
+        self.retained.as_ref().and_then(|view| view.paused_at_us)
     }
 
     #[must_use]
@@ -2178,12 +2260,18 @@ mod tests {
             monitor,
             finding,
             request,
+            recording,
+            start_us,
+            end_us,
         } = effect
         else {
             panic!("expected cited finding play, got {effect:?}");
         };
         assert_eq!(monitor, "world-news");
         assert_eq!(finding, "one");
+        assert_eq!(recording, "recording-one");
+        assert_eq!(start_us, 100);
+        assert_eq!(end_us, 900);
         assert!(request.starts_with("reader-"));
         assert_eq!(request.len(), 39);
         assert_eq!(model.handle(Key::Char('S')), Effect::StopRetained);
@@ -2227,6 +2315,55 @@ mod tests {
         assert!(!model.set_decoder_output("reader-kept", 1_000_000));
         model.set_retained_phase("reader-kept", "closed", Some("completed"));
         assert_eq!(model.decoder_output_us(), Some(1_000_000));
+    }
+
+    #[test]
+    fn heard_pause_key_does_not_touch_capture_and_lowercase_h_stays_on_the_globe() {
+        let mut model = loaded();
+        let captures = model.captures_active();
+        let recordings = model.recordings().len();
+        assert_eq!(model.handle(Key::Char('H')), Effect::HoldRetained);
+        assert_eq!(model.captures_active(), captures);
+        assert_eq!(model.recordings().len(), recordings);
+        assert!(model.playback().is_none());
+        assert_eq!(model.handle(Key::Char('/')), Effect::None);
+        assert_eq!(model.handle(Key::Char('H')), Effect::None);
+        assert_eq!(model.query(), "H");
+        assert_eq!(model.handle(Key::Escape), Effect::None);
+        model.handle(Key::Char('7'));
+        assert_eq!(model.handle(Key::Char('h')), Effect::None);
+        assert_eq!(model.handle(Key::Char('H')), Effect::HoldRetained);
+        assert_eq!(model.captures_active(), captures);
+        model
+            .recordings
+            .push(kept_recording("rec-kept", "completed", "retained"));
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Down), Effect::None);
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert!(model.status().contains("y confirms"));
+        assert_eq!(model.handle(Key::Char('H')), Effect::None);
+        assert!(model.playback().is_none());
+        assert_eq!(model.captures_active(), captures);
+    }
+
+    #[test]
+    fn paused_row_keeps_its_time_when_a_later_receipt_arrives() {
+        let mut model = loaded();
+        model.begin_retained("reader-kept");
+        assert!(model.set_decoder_output("reader-kept", 1_500_000));
+        assert!(model.show_paused("reader-kept", 1_500_000));
+        assert!(!model.show_paused("reader-kept", 1_500_000));
+        model.set_retained_phase("reader-kept", "closed", Some("completed"));
+        assert_eq!(model.retained_label(), Some(("paused", "reader-kept")));
+        assert_eq!(model.paused_at_us(), Some(1_500_000));
+        assert_eq!(model.decoder_output_us(), Some(1_500_000));
+        assert!(!model.show_paused("reader-other", 1));
+        assert_eq!(model.retained_label(), Some(("paused", "reader-kept")));
+        model.release_pause();
+        assert_eq!(model.retained_label(), Some(("closed", "reader-kept")));
+        assert_eq!(model.paused_at_us(), None);
+        model.set_retained_phase("reader-kept", "closed", Some("completed"));
+        assert_eq!(model.retained_label(), Some(("closed", "reader-kept")));
     }
 
     #[test]

@@ -61,6 +61,7 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
         | Effect::Play { .. }
         | Effect::PlayRecording { .. }
         | Effect::PlayFinding { .. }
+        | Effect::HoldRetained
         | Effect::StopListen
         | Effect::StopRetained
         | Effect::Fetch(_) => Ok(()),
@@ -129,6 +130,7 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
         | Effect::Play { .. }
         | Effect::PlayRecording { .. }
         | Effect::PlayFinding { .. }
+        | Effect::HoldRetained
         | Effect::StopListen
         | Effect::StopRetained
         | Effect::Fetch(_) => Vec::new(),
@@ -898,7 +900,11 @@ mod tests {
                 monitor: "news".into(),
                 finding: "one".into(),
                 request: "reader-2".into(),
+                recording: "rec".into(),
+                start_us: 100,
+                end_us: 900,
             },
+            Effect::HoldRetained,
             Effect::StopListen,
             Effect::StopRetained,
             Effect::LinkedContext {

@@ -11,6 +11,16 @@ use super::{
     text::sanitize,
 };
 
+/// One stored finding interval, copied when playback is confirmed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CitedSpan {
+    pub monitor: String,
+    pub finding: String,
+    pub recording: String,
+    pub start_us: u64,
+    pub end_us: u64,
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Browser {
     query: String,
@@ -112,14 +122,21 @@ impl Browser {
         }
     }
 
-    /// Monitor and finding ids when the loaded page stores a non-empty interval.
-    pub(super) fn cited(&self) -> Option<(String, String)> {
+    /// Recording and cited bounds for one confirmed listen. Playback copies these
+    /// at confirmation, so a later page load cannot move that interval.
+    pub(super) fn cited_span(&self) -> Option<CitedSpan> {
         let page = self.page.as_ref()?;
-        let (start, end) = page.start_us.zip(page.end_us)?;
-        if start >= end {
+        let (start_us, end_us) = page.start_us.zip(page.end_us)?;
+        if start_us >= end_us || page.recording_id.is_empty() {
             return None;
         }
-        Some((page.monitor_id.clone(), page.id.clone()))
+        Some(CitedSpan {
+            monitor: page.monitor_id.clone(),
+            finding: page.id.clone(),
+            recording: page.recording_id.clone(),
+            start_us,
+            end_us,
+        })
     }
 
     pub fn load(&mut self, monitor: &str, finding: &str, page: &FindingPage) -> bool {

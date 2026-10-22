@@ -9,6 +9,7 @@ mod finding;
 mod globe;
 mod metadata;
 mod monitor;
+mod pause;
 mod player;
 mod retained;
 mod screen;
