@@ -38,4 +38,4 @@ Focused settlement tests inject catalog faults and a monotonic clock. They cover
 
 ## Limits
 
-Process exit still drops an uncommitted completion. S-03B stays open. Language, platform, and acoustic qualification are unchanged. External spend is USD 0.
+Process exit still drops an uncommitted completion. S-03B stays open. [Decision 0108](0108-durable-completion-hold.md) later stores a bounded publication body before finish. Death before that commit still drops the outcome. Language, platform, and acoustic qualification are unchanged. External spend is USD 0.

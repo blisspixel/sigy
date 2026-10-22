@@ -14,6 +14,15 @@ pub(super) fn validate_success(
     let TranslationResult::Succeeded(cues) = outcome.result() else {
         return Err(Error::IdempotencyConflict);
     };
+    validate_succeeded_cues(connection, work, cues, job)
+}
+
+pub(super) fn validate_succeeded_cues(
+    connection: &Connection,
+    work: &TranslationWork,
+    cues: &[TranslatedCue],
+    job: &TranslationJob,
+) -> Result<()> {
     if !cues_valid(work, cues) {
         return Err(Error::IdempotencyConflict);
     }

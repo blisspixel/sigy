@@ -1,7 +1,9 @@
 //! In-memory completed slots for recognition and translation settlement.
 //!
 //! A slot keeps one drained outcome while its job row stays `running` or `cancelling`.
-//! It is not a live worker. The attempt counter is local to the slot: it does not change
+//! Before the first finish, the publication body is committed as a completion hold.
+//! The hold is not an executor envelope. Process exit before that commit still drops
+//! the outcome. The attempt counter is local to the slot: it does not change
 //! `job.attempt`, write `job_attempts`, start a recognizer or translator, or add a charge.
 
 use std::time::{Duration, Instant};
@@ -11,8 +13,11 @@ use rusqlite::ffi;
 use super::super::Actor;
 use crate::{
     Error, Result,
-    recognition::{LocalAsrJob, LocalAsrWork, ReapedLocalAsr},
-    storage::job_pool::{JobKind, JobMembership},
+    recognition::{ChunkLanguage, LocalAsrJob, LocalAsrWork, ReapedLocalAsr},
+    storage::{
+        completion_hold::{HeldRecognition, HeldTranslation, HoldPayload, HoldSight, StoredHold},
+        job_pool::{JobKind, JobMembership},
+    },
     translation::{TranslationJob, TranslationOutcome, TranslationWork},
 };
 
@@ -115,21 +120,39 @@ impl SettlementClock {
     }
 }
 
+enum RecognitionEvidence {
+    Reaped(ReapedLocalAsr),
+    Held(HeldRecognition),
+}
+
+enum TranslationEvidence {
+    Drained(TranslationOutcome),
+    Held(HeldTranslation),
+}
+
 pub(super) struct ParkedRecognition {
     work: LocalAsrWork,
-    reaped: ReapedLocalAsr,
+    evidence: RecognitionEvidence,
     taken: Instant,
     tries: u32,
     /// An uncertain commit was observed. Do not call finish again.
     hold: bool,
+    /// The publication body is in `completion_holds` for this claim.
+    stored: bool,
 }
 
 pub(super) struct ParkedTranslation {
     work: TranslationWork,
-    outcome: TranslationOutcome,
+    evidence: TranslationEvidence,
     taken: Instant,
     tries: u32,
     hold: bool,
+    stored: bool,
+}
+
+enum Remember {
+    Ready,
+    Stopped(Step),
 }
 
 /// Classify one settlement error.
@@ -303,10 +326,11 @@ impl Actor {
         let id = work.job.request.id.clone();
         let mut parked = ParkedRecognition {
             work,
-            reaped,
+            evidence: RecognitionEvidence::Reaped(reaped),
             taken: self.settlement_clock.now(),
             tries: 0,
             hold: false,
+            stored: false,
         };
         match self.advance_recognition(&mut parked)? {
             Step::Pending => {
@@ -325,10 +349,11 @@ impl Actor {
         let id = work.job.request.id.clone();
         let mut parked = ParkedTranslation {
             work,
-            outcome,
+            evidence: TranslationEvidence::Drained(outcome),
             taken: self.settlement_clock.now(),
             tries: 0,
             hold: false,
+            stored: false,
         };
         match self.advance_translation(&mut parked)? {
             Step::Pending => {
@@ -391,25 +416,35 @@ impl Actor {
 
     fn advance_recognition(&mut self, parked: &mut ParkedRecognition) -> Result<Step> {
         let now = self.settlement_clock.now();
-        match pace(parked.tries, parked.hold, parked.taken, now) {
-            Pace::Wait => Ok(Step::Pending),
-            Pace::Exhaust => Ok(Step::Exhausted),
-            Pace::Attempt => {
-                parked.tries = parked.tries.saturating_add(1);
-                self.finish_parked_recognition(parked)
+        match self.remember_recognition(parked, now)? {
+            Remember::Stopped(Step::Committed) => {
+                self.note_parked_recognition(parked);
+                Ok(Step::Committed)
             }
+            Remember::Stopped(step) => Ok(step),
+            Remember::Ready => match pace(parked.tries, parked.hold, parked.taken, now) {
+                Pace::Wait => Ok(Step::Pending),
+                Pace::Exhaust => Ok(Step::Exhausted),
+                Pace::Attempt => {
+                    parked.tries = parked.tries.saturating_add(1);
+                    self.finish_parked_recognition(parked)
+                }
+            },
         }
     }
 
     fn advance_translation(&mut self, parked: &mut ParkedTranslation) -> Result<Step> {
         let now = self.settlement_clock.now();
-        match pace(parked.tries, parked.hold, parked.taken, now) {
-            Pace::Wait => Ok(Step::Pending),
-            Pace::Exhaust => Ok(Step::Exhausted),
-            Pace::Attempt => {
-                parked.tries = parked.tries.saturating_add(1);
-                self.finish_parked_translation(parked)
-            }
+        match self.remember_translation(parked, now)? {
+            Remember::Stopped(step) => Ok(step),
+            Remember::Ready => match pace(parked.tries, parked.hold, parked.taken, now) {
+                Pace::Wait => Ok(Step::Pending),
+                Pace::Exhaust => Ok(Step::Exhausted),
+                Pace::Attempt => {
+                    parked.tries = parked.tries.saturating_add(1);
+                    self.finish_parked_translation(parked)
+                }
+            },
         }
     }
 
@@ -417,11 +452,17 @@ impl Actor {
         let now = self.settlement_clock.now();
         match self.observed_recognition(parked) {
             Ok(job) => {
-                note_recognition_evidence(self, &job, &parked.reaped);
+                let languages = recognition_languages(parked).to_vec();
+                note_recognition_evidence(self, &job, &languages);
                 Ok(Step::Committed)
             }
             Err(error) => match classify(&error) {
-                SettlementClass::Refuse => Err(error),
+                SettlementClass::Refuse => {
+                    if parked.stored {
+                        self.discard_recognition_hold(parked)?;
+                    }
+                    Err(error)
+                }
                 class => self.recover_recognition(parked, class, now),
             },
         }
@@ -432,7 +473,12 @@ impl Actor {
         match self.observed_translation(parked) {
             Ok(_) => Ok(Step::Committed),
             Err(error) => match classify(&error) {
-                SettlementClass::Refuse => Err(error),
+                SettlementClass::Refuse => {
+                    if parked.stored {
+                        self.discard_translation_hold(parked)?;
+                    }
+                    Err(error)
+                }
                 class => self.recover_translation(parked, class, now),
             },
         }
@@ -444,9 +490,18 @@ impl Actor {
             return Err(error);
         }
         let now = crate::storage::now_ms()?;
-        self.library
-            .store_mut()
-            .finish_local_asr(&parked.work, &parked.reaped, now)
+        match &parked.evidence {
+            RecognitionEvidence::Reaped(reaped) => {
+                self.library
+                    .store_mut()
+                    .finish_local_asr(&parked.work, reaped, now)
+            }
+            RecognitionEvidence::Held(held) => {
+                self.library
+                    .store_mut()
+                    .finish_held_recognition(&parked.work, held, now)
+            }
+        }
     }
 
     fn observed_translation(&mut self, parked: &ParkedTranslation) -> Result<TranslationJob> {
@@ -455,9 +510,18 @@ impl Actor {
             return Err(error);
         }
         let now = crate::storage::now_ms()?;
-        self.library
-            .store_mut()
-            .finish_translation(&parked.work, &parked.outcome, now)
+        match &parked.evidence {
+            TranslationEvidence::Drained(outcome) => {
+                self.library
+                    .store_mut()
+                    .finish_translation(&parked.work, outcome, now)
+            }
+            TranslationEvidence::Held(held) => {
+                self.library
+                    .store_mut()
+                    .finish_held_translation(&parked.work, held, now)
+            }
+        }
     }
 
     /// The override stays until the test clears it, so several tries can share one fault.
@@ -484,10 +548,7 @@ impl Actor {
             now,
         )?;
         if matches!(step, Step::Committed) {
-            let id = parked.work.job.request.id.clone();
-            if let Ok(job) = self.library.store().local_asr_job(&id) {
-                note_recognition_evidence(self, &job, &parked.reaped);
-            }
+            self.note_parked_recognition(parked);
         }
         Ok(step)
     }
@@ -534,14 +595,381 @@ impl Actor {
             Err(error) => read_failure(error),
         }
     }
+
+    /// Load every completion hold into a fresh slot before the scheduler runs.
+    ///
+    /// A readable hold publishes through the existing finish checks. It does not
+    /// start a recognizer or translator. An unreadable body fails that claim.
+    /// # Errors
+    /// Returns catalog failures. A claim that disagrees with its hold stops startup.
+    pub(crate) fn restore_completion_holds(&mut self) -> Result<()> {
+        let holds = self.library.store().list_completion_holds()?;
+        for hold in holds {
+            self.restore_one_hold(hold)?;
+        }
+        Ok(())
+    }
+
+    fn restore_one_hold(&mut self, hold: StoredHold) -> Result<()> {
+        let now = crate::storage::now_ms()?;
+        let StoredHold {
+            family,
+            job_id,
+            generation,
+            attempt,
+            owner,
+            payload,
+        } = hold;
+        match payload {
+            HoldPayload::Recognition(publication) => {
+                self.restore_recognition(job_id, generation, attempt, &owner, publication, now)
+            }
+            HoldPayload::Translation(publication) => {
+                self.restore_translation(job_id, generation, attempt, &owner, publication, now)
+            }
+            HoldPayload::Unreadable => self
+                .library
+                .store_mut()
+                .release_unreadable_hold(&family, &job_id, generation, attempt, &owner, now),
+        }
+    }
+
+    fn restore_recognition(
+        &mut self,
+        id: String,
+        generation: u32,
+        attempt: u32,
+        owner: &str,
+        publication: HeldRecognition,
+        now: i64,
+    ) -> Result<()> {
+        match self.library.store().resume_local_asr(&id)? {
+            Some(work) => {
+                if work.job.generation != generation
+                    || work.job.attempt != attempt
+                    || work.claim_owner != owner
+                {
+                    return Err(Error::StorageIntegrity);
+                }
+                self.pool.recognition_slots.insert(
+                    id,
+                    ParkedRecognition {
+                        work,
+                        evidence: RecognitionEvidence::Held(publication),
+                        taken: self.settlement_clock.now(),
+                        tries: 0,
+                        hold: false,
+                        stored: true,
+                    },
+                );
+                Ok(())
+            }
+            None => self
+                .library
+                .store_mut()
+                .release_unreadable_hold("analysis", &id, generation, attempt, owner, now),
+        }
+    }
+
+    fn restore_translation(
+        &mut self,
+        id: String,
+        generation: u32,
+        attempt: u32,
+        owner: &str,
+        publication: HeldTranslation,
+        now: i64,
+    ) -> Result<()> {
+        match self.library.store().resume_translation(&id)? {
+            Some(work) => {
+                if work.job.generation != generation
+                    || work.job.attempt != attempt
+                    || work.claim_owner != owner
+                {
+                    return Err(Error::StorageIntegrity);
+                }
+                self.pool.translation_slots.insert(
+                    id,
+                    ParkedTranslation {
+                        work,
+                        evidence: TranslationEvidence::Held(publication),
+                        taken: self.settlement_clock.now(),
+                        tries: 0,
+                        hold: false,
+                        stored: true,
+                    },
+                );
+                Ok(())
+            }
+            None => self.library.store_mut().release_unreadable_hold(
+                "translation",
+                &id,
+                generation,
+                attempt,
+                owner,
+                now,
+            ),
+        }
+    }
+
+    fn remember_recognition(
+        &mut self,
+        parked: &mut ParkedRecognition,
+        now: Instant,
+    ) -> Result<Remember> {
+        if parked.stored || matches!(parked.evidence, RecognitionEvidence::Held(_)) {
+            parked.stored = true;
+            return Ok(Remember::Ready);
+        }
+        let written = if let RecognitionEvidence::Reaped(reaped) = &parked.evidence {
+            self.library
+                .store_mut()
+                .put_recognition_hold(&parked.work, reaped)
+        } else {
+            return Ok(Remember::Ready);
+        };
+        match written {
+            Ok(()) => {
+                parked.stored = true;
+                Ok(Remember::Ready)
+            }
+            Err(error) => match classify(&error) {
+                SettlementClass::Refuse => Err(error),
+                SettlementClass::Retry => self.defer_recognition(parked, now),
+                SettlementClass::Uncertain => self.confirm_recognition_hold(parked, now),
+            },
+        }
+    }
+
+    fn remember_translation(
+        &mut self,
+        parked: &mut ParkedTranslation,
+        now: Instant,
+    ) -> Result<Remember> {
+        if parked.stored || matches!(parked.evidence, TranslationEvidence::Held(_)) {
+            parked.stored = true;
+            return Ok(Remember::Ready);
+        }
+        let written = if let TranslationEvidence::Drained(outcome) = &parked.evidence {
+            self.library
+                .store_mut()
+                .put_translation_hold(&parked.work, outcome)
+        } else {
+            return Ok(Remember::Ready);
+        };
+        match written {
+            Ok(()) => {
+                parked.stored = true;
+                Ok(Remember::Ready)
+            }
+            Err(error) => match classify(&error) {
+                SettlementClass::Refuse => Err(error),
+                SettlementClass::Retry => self.defer_translation(parked, now),
+                SettlementClass::Uncertain => self.confirm_translation_hold(parked, now),
+            },
+        }
+    }
+
+    fn confirm_recognition_hold(
+        &mut self,
+        parked: &mut ParkedRecognition,
+        now: Instant,
+    ) -> Result<Remember> {
+        let sight = if let RecognitionEvidence::Reaped(reaped) = &parked.evidence {
+            self.library
+                .store()
+                .recognition_hold_sight(&parked.work, reaped)
+        } else {
+            return Err(Error::StorageIntegrity);
+        };
+        match sight {
+            Ok(HoldSight::Same) => {
+                parked.stored = true;
+                Ok(Remember::Ready)
+            }
+            Ok(HoldSight::Different) => Err(Error::StorageIntegrity),
+            Ok(HoldSight::Absent) => self.wait_for_recognition_hold(parked, now),
+            Err(error) => {
+                uncertain_reread(error, parked.tries, parked.taken, &mut parked.hold, now)
+            }
+        }
+    }
+
+    fn confirm_translation_hold(
+        &mut self,
+        parked: &mut ParkedTranslation,
+        now: Instant,
+    ) -> Result<Remember> {
+        let sight = if let TranslationEvidence::Drained(outcome) = &parked.evidence {
+            self.library
+                .store()
+                .translation_hold_sight(&parked.work, outcome)
+        } else {
+            return Err(Error::StorageIntegrity);
+        };
+        match sight {
+            Ok(HoldSight::Same) => {
+                parked.stored = true;
+                Ok(Remember::Ready)
+            }
+            Ok(HoldSight::Different) => Err(Error::StorageIntegrity),
+            Ok(HoldSight::Absent) => self.wait_for_translation_hold(parked, now),
+            Err(error) => {
+                uncertain_reread(error, parked.tries, parked.taken, &mut parked.hold, now)
+            }
+        }
+    }
+
+    fn wait_for_recognition_hold(
+        &mut self,
+        parked: &mut ParkedRecognition,
+        now: Instant,
+    ) -> Result<Remember> {
+        let membership = self.recognition_membership(parked)?;
+        wait_for_absent_hold(
+            membership,
+            parked.tries,
+            parked.taken,
+            &mut parked.hold,
+            now,
+        )
+    }
+
+    fn wait_for_translation_hold(
+        &mut self,
+        parked: &mut ParkedTranslation,
+        now: Instant,
+    ) -> Result<Remember> {
+        let membership = self.translation_membership(parked)?;
+        wait_for_absent_hold(
+            membership,
+            parked.tries,
+            parked.taken,
+            &mut parked.hold,
+            now,
+        )
+    }
+
+    fn defer_recognition(
+        &mut self,
+        parked: &mut ParkedRecognition,
+        now: Instant,
+    ) -> Result<Remember> {
+        parked.tries = parked.tries.saturating_add(1);
+        let membership = self.recognition_membership(parked)?;
+        let step = apply_failure(
+            SettlementClass::Retry,
+            membership,
+            &mut parked.hold,
+            parked.tries,
+            parked.taken,
+            now,
+        )?;
+        Ok(Remember::Stopped(step))
+    }
+
+    fn defer_translation(
+        &mut self,
+        parked: &mut ParkedTranslation,
+        now: Instant,
+    ) -> Result<Remember> {
+        parked.tries = parked.tries.saturating_add(1);
+        let membership = self.translation_membership(parked)?;
+        let step = apply_failure(
+            SettlementClass::Retry,
+            membership,
+            &mut parked.hold,
+            parked.tries,
+            parked.taken,
+            now,
+        )?;
+        Ok(Remember::Stopped(step))
+    }
+
+    fn discard_recognition_hold(&mut self, parked: &ParkedRecognition) -> Result<()> {
+        self.library.store_mut().delete_completion_hold(
+            "analysis",
+            &parked.work.job.request.id,
+            parked.work.job.generation,
+            parked.work.job.attempt,
+            &parked.work.claim_owner,
+        )
+    }
+
+    fn discard_translation_hold(&mut self, parked: &ParkedTranslation) -> Result<()> {
+        self.library.store_mut().delete_completion_hold(
+            "translation",
+            &parked.work.job.request.id,
+            parked.work.job.generation,
+            parked.work.job.attempt,
+            &parked.work.claim_owner,
+        )
+    }
+
+    fn note_parked_recognition(&mut self, parked: &ParkedRecognition) {
+        let id = parked.work.job.request.id.clone();
+        let languages = recognition_languages(parked).to_vec();
+        if let Ok(job) = self.library.store().local_asr_job(&id) {
+            note_recognition_evidence(self, &job, &languages);
+        }
+    }
 }
 
-fn note_recognition_evidence(actor: &mut Actor, job: &LocalAsrJob, reaped: &ReapedLocalAsr) {
+fn uncertain_reread(
+    error: Error,
+    tries: u32,
+    taken: Instant,
+    hold: &mut bool,
+    now: Instant,
+) -> Result<Remember> {
+    match classify(&error) {
+        SettlementClass::Refuse => Err(error),
+        SettlementClass::Retry | SettlementClass::Uncertain => {
+            *hold = true;
+            Ok(Remember::Stopped(wait_step(tries, taken, now)))
+        }
+    }
+}
+
+fn wait_for_absent_hold(
+    membership: Membership,
+    tries: u32,
+    taken: Instant,
+    hold: &mut bool,
+    now: Instant,
+) -> Result<Remember> {
+    if matches!(membership, Membership::Changed) {
+        return Err(Error::Analysis("stale-worker"));
+    }
+    if matches!(membership, Membership::Terminal) {
+        return Ok(Remember::Stopped(Step::Committed));
+    }
+    *hold = true;
+    Ok(Remember::Stopped(wait_step(tries, taken, now)))
+}
+
+fn wait_step(tries: u32, taken: Instant, now: Instant) -> Step {
+    let expired = now.saturating_duration_since(taken) >= SETTLEMENT_DEADLINE;
+    if expired || tries >= SETTLEMENT_ATTEMPTS {
+        Step::Exhausted
+    } else {
+        Step::Pending
+    }
+}
+
+fn recognition_languages(parked: &ParkedRecognition) -> &[ChunkLanguage] {
+    match &parked.evidence {
+        RecognitionEvidence::Reaped(reaped) => reaped.languages(),
+        RecognitionEvidence::Held(held) => &held.languages,
+    }
+}
+
+fn note_recognition_evidence(actor: &mut Actor, job: &LocalAsrJob, languages: &[ChunkLanguage]) {
     if job.state == "succeeded"
-        && !reaped.languages().is_empty()
+        && !languages.is_empty()
         && let Some(now) = job.finished_ms
     {
-        let evidence = crate::recognizer::language_evidence(job, reaped.languages());
+        let evidence = crate::recognizer::language_evidence(job, languages);
         let _ = actor
             .library
             .store_mut()

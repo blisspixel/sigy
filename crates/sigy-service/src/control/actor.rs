@@ -921,7 +921,8 @@ pub(super) fn spawn(
             let started = Instant::now();
             let mut stopped = false;
             let mut shutdown = false;
-            if actor.reconcile_schedules().is_err()
+            if actor.restore_completion_holds().is_err()
+                || actor.reconcile_schedules().is_err()
                 || actor.reconcile_directory().is_err()
                 || actor.schedule().is_err()
                 || actor.reconcile_tasks().is_err()

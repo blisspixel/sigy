@@ -74,6 +74,37 @@ impl Store {
         }))
     }
 
+    /// Read the committed claim without starting another attempt.
+    ///
+    /// `None` means the job is not running or its input can no longer be built.
+    /// This is not a new claim and not a worker envelope.
+    /// # Errors
+    /// Returns catalog failures.
+    pub(crate) fn resume_local_asr(&self, id: &str) -> Result<Option<LocalAsrWork>> {
+        let job = self.local_asr_job(id)?;
+        if !matches!(job.state.as_str(), "running" | "cancelling") {
+            return Ok(None);
+        }
+        let input = match self.local_asr_input(&job.request) {
+            Ok(input) => input,
+            Err(error) if super::super::analysis_jobs::input_moved_on(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if manifest(&input)? != job.manifest_sha256 {
+            return Ok(None);
+        }
+        let (attempt, owner) = job_pool::committed_claim(&self.connection, Family::Analysis, id)?;
+        if attempt != job.attempt {
+            return Err(Error::StorageIntegrity);
+        }
+        let claim_owner = owner.ok_or(Error::StorageIntegrity)?;
+        Ok(Some(LocalAsrWork {
+            job,
+            input,
+            claim_owner,
+        }))
+    }
+
     /// Start one queued recognition under this owner. The input and transcript parent are
     /// checked again; a job whose input or parent moved on fails without a worker.
     /// Only a committed claim returns a work token.

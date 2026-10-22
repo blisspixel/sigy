@@ -4,7 +4,9 @@ use super::{
     Connection, Error, LocalAsrJob, LocalAsrWork, Result, Store, current_input, find_job, manifest,
     params, reads, sql_integer, validation,
 };
+use crate::execution::GroupAccount;
 use crate::recognition::{LocalAsrOutcome, ReapedLocalAsr, RecognitionOutput};
+use crate::storage::completion_hold::HeldRecognition;
 
 impl Store {
     /// Atomically finalize a drained worker's validated result and zero USD decision.
@@ -20,6 +22,33 @@ impl Store {
         if !completion.matches(work) {
             return Err(Error::Analysis("stale-worker"));
         }
+        self.finish_recognition_publication(
+            work,
+            completion.outcome(),
+            completion.observations(),
+            now,
+        )
+    }
+
+    /// Publish a stored hold. The hold is not a worker envelope.
+    /// # Errors
+    /// Refuses a stale claim, a conflicting replay, or a failed transaction.
+    pub(crate) fn finish_held_recognition(
+        &mut self,
+        work: &LocalAsrWork,
+        held: &HeldRecognition,
+        now: i64,
+    ) -> Result<LocalAsrJob> {
+        self.finish_recognition_publication(work, &held.outcome, &held.observations, now)
+    }
+
+    fn finish_recognition_publication(
+        &mut self,
+        work: &LocalAsrWork,
+        outcome: &LocalAsrOutcome,
+        observations: &[GroupAccount],
+        now: i64,
+    ) -> Result<LocalAsrJob> {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -39,13 +68,13 @@ impl Store {
         if !matches!(job.state.as_str(), "running" | "cancelling") {
             if job.state == "succeeded" {
                 let stored = reads::output(&tx, &job)?;
-                if completion.outcome() != &LocalAsrOutcome::Succeeded(stored) {
+                if outcome != &LocalAsrOutcome::Succeeded(stored) {
                     return Err(Error::IdempotencyConflict);
                 }
             }
             return Ok(job);
         }
-        let (state, reason) = terminal_outcome(&tx, work, &job, completion.outcome())?;
+        let (state, reason) = terminal_outcome(&tx, work, &job, outcome)?;
         let finished = super::super::withdrawals::complete(
             &tx,
             "recognition",
@@ -54,17 +83,12 @@ impl Store {
             now,
         )?;
         if state == "succeeded" {
-            let LocalAsrOutcome::Succeeded(output) = completion.outcome() else {
+            let LocalAsrOutcome::Succeeded(output) = outcome else {
                 return Err(Error::StorageIntegrity);
             };
             insert_result(&tx, work, output, finished)?;
         }
-        super::cost::insert(
-            &tx,
-            &job.request.id,
-            job.generation,
-            completion.observations(),
-        )?;
+        super::cost::insert(&tx, &job.request.id, job.generation, observations)?;
         let changed = tx.execute(
             "UPDATE analysis_jobs SET state = ?3, reason = ?4, finished_ms = ?5 WHERE id = ?1 AND generation = ?2 AND state IN ('running', 'cancelling')",
             params![job.request.id, job.generation, state, reason, finished],
@@ -72,6 +96,14 @@ impl Store {
         if changed != 1 {
             return Err(Error::StorageIntegrity);
         }
+        super::super::completion_hold::delete_matching(
+            &tx,
+            "analysis",
+            &job.request.id,
+            job.generation,
+            work.job.attempt,
+            &work.claim_owner,
+        )?;
         // Read the response before commit: a read failure must roll publication back,
         // rather than report an error after its durable effects have succeeded.
         let finished_job = find_job(&tx, &job.request.id)?.ok_or(Error::StorageIntegrity)?;

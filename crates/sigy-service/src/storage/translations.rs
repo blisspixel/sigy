@@ -19,6 +19,12 @@ use crate::{
 const PROFILE_COLUMNS: &str = "id, engine, template, runtime_dir, executable, runtime_sha256, runtime_files, runtime_bytes, model_path, model_sha256, model_bytes, languages, threads, memory_bytes, cue_deadline_ms, profile_sha256";
 const MAX_ENGLISH_BYTES: usize = 4096;
 
+enum TranslationBody<'a> {
+    Succeeded(&'a [TranslatedCue]),
+    Failed(&'a str),
+    Cancelled,
+}
+
 mod replay;
 
 fn sql(value: u64) -> Result<i64> {
@@ -200,6 +206,48 @@ impl Store {
         Ok((self.translation_job(&request.id)?, created))
     }
 
+    /// Read the committed translation claim without starting another attempt.
+    ///
+    /// `None` means the job is not running or its source cues can no longer be read.
+    /// This is not a new claim and not a worker envelope.
+    /// # Errors
+    /// Returns catalog failures.
+    pub(crate) fn resume_translation(&self, id: &str) -> Result<Option<TranslationWork>> {
+        let job = self.translation_job(id)?;
+        if !matches!(job.state.as_str(), "running" | "cancelling") {
+            return Ok(None);
+        }
+        if !has_text(&self.connection, &job.request)? {
+            return Ok(None);
+        }
+        let cues = source_cues(&self.connection, &job.request)?;
+        if cues.is_empty() || cues.len() > 256 {
+            return Err(Error::StorageIntegrity);
+        }
+        let language: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT json_extract(payload_json, '$.spans[0].languages[0].tag') FROM language_evidence WHERE transcript_id = ?1 AND transcript_revision = ?2 AND json_extract(payload_json, '$.method.origin') = 'recognizer' AND json_extract(payload_json, '$.outcome') = 'succeeded' AND json_extract(payload_json, '$.spans[0].observation') = 'identified' ORDER BY created_ms, id LIMIT 1",
+                params![job.request.transcript_id, job.request.transcript_revision],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let (attempt, owner) =
+            job_pool::committed_claim(&self.connection, Family::Translation, id)?;
+        if attempt != job.attempt {
+            return Err(Error::StorageIntegrity);
+        }
+        let claim_owner = owner.ok_or(Error::StorageIntegrity)?;
+        let language = language.and_then(|tag| tag.split('-').next().map(str::to_ascii_lowercase));
+        Ok(Some(TranslationWork {
+            job,
+            cues,
+            language,
+            claim_owner,
+        }))
+    }
+
     /// Start one queued translation under this owner, reading its cues and the stored
     /// block language label. Only a committed claim returns a work token.
     /// # Errors
@@ -326,6 +374,52 @@ impl Store {
         self.translation_job(id)
     }
 
+    /// Publish a stored hold. The hold is not a worker envelope.
+    /// # Errors
+    /// Refuses a stale claim, a conflicting replay, or a failed transaction.
+    pub(crate) fn finish_held_translation(
+        &mut self,
+        work: &TranslationWork,
+        held: &super::completion_hold::HeldTranslation,
+        now: i64,
+    ) -> Result<TranslationJob> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let job = find_job(&tx, &work.job.request.id)?;
+        if job.generation != work.job.generation || job.request != work.job.request {
+            return Err(Error::Analysis("stale-worker"));
+        }
+        let (attempt, owner) =
+            job_pool::committed_claim(&tx, Family::Translation, &job.request.id)?;
+        if attempt != work.job.attempt || owner.as_deref() != Some(work.claim_owner.as_str()) {
+            return Err(Error::Analysis("stale-worker"));
+        }
+        if !matches!(job.state.as_str(), "running" | "cancelling") {
+            if job.state == "succeeded" {
+                if let super::completion_hold::HeldTranslation::Succeeded(cues) = held {
+                    replay::validate_succeeded_cues(&tx, work, cues, &job)?;
+                } else {
+                    return Err(Error::IdempotencyConflict);
+                }
+            }
+            return Ok(job);
+        }
+        let body = match held {
+            super::completion_hold::HeldTranslation::Succeeded(cues) => {
+                TranslationBody::Succeeded(cues)
+            }
+            super::completion_hold::HeldTranslation::Failed(reason) => {
+                TranslationBody::Failed(reason)
+            }
+            super::completion_hold::HeldTranslation::Cancelled => TranslationBody::Cancelled,
+        };
+        publish_translation(&tx, work, &job, &body, now)?;
+        let finished_job = find_job(&tx, &job.request.id)?;
+        tx.commit()?;
+        Ok(finished_job)
+    }
+
     /// Finalize a drained worker's result in one transaction with a zero-USD decision.
     /// Cancellation wins over a queued result.
     /// # Errors
@@ -357,27 +451,12 @@ impl Store {
             }
             return Ok(job);
         }
-        let finished =
-            super::withdrawals::complete(&tx, "translation", &job.request.id, job.generation, now)?;
-        let (state, reason) = match outcome.result() {
-            _ if job.state == "cancelling" => ("cancelled", Some("cancelled")),
-            TranslationResult::Cancelled => ("cancelled", Some("cancelled")),
-            TranslationResult::Failed(reason) => ("failed", Some(*reason)),
-            TranslationResult::Succeeded(cues) if !cues_valid(work, cues) => {
-                ("failed", Some("invalid-worker-output"))
-            }
-            TranslationResult::Succeeded(cues) => {
-                insert_translation(&tx, &job, cues, finished)?;
-                ("succeeded", None)
-            }
+        let body = match outcome.result() {
+            TranslationResult::Succeeded(cues) => TranslationBody::Succeeded(cues),
+            TranslationResult::Failed(reason) => TranslationBody::Failed(reason),
+            TranslationResult::Cancelled => TranslationBody::Cancelled,
         };
-        let changed = tx.execute(
-            "UPDATE translation_jobs SET state = ?3, reason = ?4, finished_ms = ?5 WHERE id = ?1 AND generation = ?2 AND state IN ('running', 'cancelling')",
-            params![job.request.id, job.generation, state, reason, finished],
-        )?;
-        if changed != 1 {
-            return Err(Error::StorageIntegrity);
-        }
+        publish_translation(&tx, work, &job, &body, now)?;
         let finished_job = find_job(&tx, &job.request.id)?;
         tx.commit()?;
         Ok(finished_job)
@@ -581,6 +660,45 @@ fn cues_valid(work: &TranslationWork, cues: &[TranslatedCue]) -> bool {
                     _ => false,
                 }
         })
+}
+
+fn publish_translation(
+    tx: &Connection,
+    work: &TranslationWork,
+    job: &TranslationJob,
+    body: &TranslationBody<'_>,
+    now: i64,
+) -> Result<()> {
+    let finished =
+        super::withdrawals::complete(tx, "translation", &job.request.id, job.generation, now)?;
+    let (state, reason) = match body {
+        _ if job.state == "cancelling" => ("cancelled", Some("cancelled")),
+        TranslationBody::Cancelled => ("cancelled", Some("cancelled")),
+        TranslationBody::Failed(reason) => ("failed", Some(*reason)),
+        TranslationBody::Succeeded(cues) if !cues_valid(work, cues) => {
+            ("failed", Some("invalid-worker-output"))
+        }
+        TranslationBody::Succeeded(cues) => {
+            insert_translation(tx, job, cues, finished)?;
+            ("succeeded", None)
+        }
+    };
+    let changed = tx.execute(
+        "UPDATE translation_jobs SET state = ?3, reason = ?4, finished_ms = ?5 WHERE id = ?1 AND generation = ?2 AND state IN ('running', 'cancelling')",
+        params![job.request.id, job.generation, state, reason, finished],
+    )?;
+    if changed != 1 {
+        return Err(Error::StorageIntegrity);
+    }
+    super::completion_hold::delete_matching(
+        tx,
+        "translation",
+        &job.request.id,
+        job.generation,
+        work.job.attempt,
+        &work.claim_owner,
+    )?;
+    Ok(())
 }
 
 fn insert_translation(

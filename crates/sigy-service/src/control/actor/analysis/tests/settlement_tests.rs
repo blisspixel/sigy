@@ -198,6 +198,7 @@ async fn a_busy_refusal_stays_in_the_slot_until_a_later_finish_commits() -> Test
     assert!(actor.pool.recognition.is_empty());
     assert_eq!(actor.pool.occupied(JobKind::Recognition), 1);
     assert_eq!(actor.pool.recognition_tries("asr"), Some(1));
+    assert_eq!(actor.library.store().completion_hold_count()?, 1);
     assert_eq!(actor.settlement_attempts, 1);
     assert!(!actor.idle());
     let running = actor.library.store().local_asr_job("asr")?;
@@ -215,6 +216,7 @@ async fn a_busy_refusal_stays_in_the_slot_until_a_later_finish_commits() -> Test
     assert_eq!(job.attempt, 1);
     assert_eq!(attempts(&actor)?, []);
     assert!(actor.pool.recognition_slots.is_empty());
+    assert_eq!(actor.library.store().completion_hold_count()?, 0);
     assert_eq!(actor.settlement_attempts, 1);
     Ok(())
 }
@@ -237,6 +239,7 @@ async fn three_busy_attempts_drop_the_slot_and_leave_the_running_row() -> TestRe
     assert_eq!(job.state, "running");
     assert_eq!(job.attempt, 1);
     assert_eq!(attempts(&actor)?, []);
+    assert_eq!(actor.library.store().completion_hold_count()?, 1);
     Ok(())
 }
 
@@ -254,6 +257,7 @@ async fn a_deadline_drops_the_slot_without_another_finish() -> TestResult {
     assert!(actor.pool.recognition_slots.is_empty());
     assert_eq!(actor.settlement_attempts, 1);
     assert_eq!(actor.library.store().local_asr_job("asr")?.state, "running");
+    assert_eq!(actor.library.store().completion_hold_count()?, 1);
     Ok(())
 }
 
@@ -289,6 +293,7 @@ async fn a_constraint_fault_drops_the_slot_and_stops() -> TestResult {
     assert!(actor.pool.recognition_slots.is_empty());
     assert_eq!(actor.settlement_attempts, 1);
     assert_eq!(actor.library.store().local_asr_job("asr")?.state, "running");
+    assert_eq!(actor.library.store().completion_hold_count()?, 0);
     Ok(())
 }
 
@@ -312,6 +317,7 @@ async fn a_changed_claim_refuses_without_a_second_publication() -> TestResult {
     assert_eq!(job.state, "running");
     assert_eq!(job.attempt, 1);
     assert_eq!(attempts(&actor)?, []);
+    assert_eq!(actor.library.store().completion_hold_count()?, 1);
     Ok(())
 }
 
@@ -459,6 +465,268 @@ async fn a_busy_translation_stays_in_the_slot_until_a_later_finish_commits() -> 
     assert_eq!(job.attempt, 1);
     assert_eq!(translation_attempts(&actor)?, []);
     assert!(actor.pool.translation_slots.is_empty());
+    assert_eq!(actor.library.store().completion_hold_count()?, 0);
     assert_eq!(actor.settlement_attempts, 1);
+    Ok(())
+}
+
+fn succeeded(work: &crate::recognition::LocalAsrWork) -> Result<ReapedLocalAsr> {
+    let chunk = work
+        .input
+        .chunks
+        .first()
+        .ok_or(Error::StorageIntegrity)?
+        .clone();
+    let duration = chunk.end_us.saturating_sub(chunk.start_us);
+    let output = RecognitionOutput {
+        profile_sha256: work.job.request.profile_sha256.clone(),
+        manifest_sha256: work.job.manifest_sha256.clone(),
+        coverages: vec![RecognitionCoverage {
+            ordinal: 0,
+            interval_ordinal: chunk.interval_ordinal,
+            start_us: chunk.start_us,
+            end_us: chunk.end_us,
+            source_sha256: chunk.source_sha256.clone(),
+            decoded_sha256: "c".repeat(64),
+            sample_rate: 16_000,
+            sample_count: duration.saturating_mul(16_000) / 1_000_000,
+        }],
+        cues: vec![RecognitionCue {
+            ordinal: 0,
+            start_us: chunk.start_us,
+            end_us: chunk.end_us,
+            script: "eau".into(),
+        }],
+    };
+    Ok(ReapedLocalAsr::synthetic_fixture(
+        work,
+        LocalAsrOutcome::Succeeded(output),
+    ))
+}
+
+fn restarted_state(native_requeue: bool) -> &'static str {
+    if native_requeue {
+        "queued"
+    } else {
+        "interrupted"
+    }
+}
+
+fn insert_hold(
+    actor: &Actor,
+    work: &crate::recognition::LocalAsrWork,
+    attempt: u32,
+    body: &[u8],
+    digest: &str,
+) -> Result<()> {
+    actor.library.store().insert_completion_hold_for_tests(
+        &crate::storage::completion_hold::RawHold {
+            family: "analysis",
+            job_id: &work.job.request.id,
+            generation: work.job.generation,
+            attempt,
+            owner: &work.claim_owner,
+            body,
+            digest,
+        },
+    )
+}
+
+#[tokio::test]
+async fn a_stored_recognition_hold_publishes_after_restart() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(4);
+    let mut actor = actor(root.path(), &sender)?;
+    let work = claimed(&mut actor)?;
+    let reaped = succeeded(&work)?;
+    actor
+        .library
+        .store_mut()
+        .put_recognition_hold(&work, &reaped)?;
+    actor.library.store_mut().recover_analysis_jobs()?;
+    let running = actor.library.store().local_asr_job("asr")?;
+    assert_eq!(running.state, "running");
+    assert_eq!(running.attempt, 1);
+    assert_eq!(attempts(&actor)?, []);
+    assert_eq!(actor.library.store().completion_hold_count()?, 1);
+    actor.restore_completion_holds()?;
+    assert_eq!(actor.pool.recognition_slots.len(), 1);
+    assert_eq!(actor.drive_settlement()?, ());
+    let job = actor.library.store().local_asr_job("asr")?;
+    assert_eq!(job.state, "succeeded");
+    assert_eq!(job.attempt, 1);
+    assert_eq!(
+        actor.library.store().published_original_scripts("pin")?,
+        vec!["eau".to_owned()]
+    );
+    assert_eq!(actor.library.store().completion_hold_count()?, 0);
+    assert_eq!(attempts(&actor)?, []);
+    actor.library.store_mut().recover_analysis_jobs()?;
+    assert_eq!(
+        actor.library.store().local_asr_job("asr")?.state,
+        "succeeded"
+    );
+    assert_eq!(attempts(&actor)?, []);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_running_recognition_without_a_hold_uses_existing_recovery() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(4);
+    let mut actor = actor(root.path(), &sender)?;
+    let _work = claimed(&mut actor)?;
+    actor.library.store_mut().recover_analysis_jobs()?;
+    let job = actor.library.store().local_asr_job("asr")?;
+    assert_eq!(
+        job.state,
+        restarted_state(crate::storage::job_pool::NATIVE_REQUEUE)
+    );
+    assert_eq!(attempts(&actor)?.len(), 1);
+    assert_eq!(actor.library.store().completion_hold_count()?, 0);
+    assert_eq!(
+        actor.library.store().published_original_scripts("pin")?,
+        Vec::<String>::new()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_hold_for_a_different_attempt_is_deleted_and_not_published() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(4);
+    let mut actor = actor(root.path(), &sender)?;
+    let work = claimed(&mut actor)?;
+    let body = br#"{"version":1,"family":"analysis","outcome":"cancelled"}"#;
+    let digest = crate::recognition::sha256_hex(body);
+    insert_hold(&actor, &work, 2, body, &digest)?;
+    actor.library.store_mut().recover_analysis_jobs()?;
+    let job = actor.library.store().local_asr_job("asr")?;
+    assert_eq!(
+        job.state,
+        restarted_state(crate::storage::job_pool::NATIVE_REQUEUE)
+    );
+    assert_eq!(attempts(&actor)?.len(), 1);
+    assert_eq!(actor.library.store().completion_hold_count()?, 0);
+    assert_eq!(
+        actor.library.store().published_original_scripts("pin")?,
+        Vec::<String>::new()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_different_hold_body_is_refused() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(4);
+    let mut actor = actor(root.path(), &sender)?;
+    let work = claimed(&mut actor)?;
+    let reaped = succeeded(&work)?;
+    actor
+        .library
+        .store_mut()
+        .put_recognition_hold(&work, &reaped)?;
+    let other = recognizer::not_started(&work.job)?;
+    assert!(matches!(
+        actor
+            .library
+            .store_mut()
+            .put_recognition_hold(&work, &other),
+        Err(Error::StorageIntegrity)
+    ));
+    assert_eq!(actor.library.store().completion_hold_count()?, 1);
+    assert_eq!(actor.library.store().local_asr_job("asr")?.state, "running");
+    assert_eq!(
+        actor.library.store().published_original_scripts("pin")?,
+        Vec::<String>::new()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_corrupt_hold_fails_the_audit() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(4);
+    let mut actor = actor(root.path(), &sender)?;
+    let work = claimed(&mut actor)?;
+    let body = br#"{"version":1,"family":"analysis","outcome":"cancelled","extra":1}"#;
+    let digest = "ab".repeat(32);
+    insert_hold(&actor, &work, work.job.attempt, body, &digest)?;
+    assert!(matches!(
+        actor.library.store().audit_completion_holds(),
+        Err(Error::StorageIntegrity)
+    ));
+    assert_eq!(
+        actor.library.store().published_original_scripts("pin")?,
+        Vec::<String>::new()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_unreadable_hold_fails_the_job_without_a_cue() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(4);
+    let mut actor = actor(root.path(), &sender)?;
+    let work = claimed(&mut actor)?;
+    let body =
+        br#"{"version":1,"family":"analysis","outcome":"failed","failure":"not-a-worker-failure"}"#;
+    let digest = crate::recognition::sha256_hex(body);
+    insert_hold(&actor, &work, work.job.attempt, body, &digest)?;
+    assert_eq!(actor.library.store().audit_completion_holds()?, ());
+    actor.restore_completion_holds()?;
+    let job = actor.library.store().local_asr_job("asr")?;
+    assert_eq!(job.state, "failed");
+    assert_eq!(job.reason.as_deref(), Some("held-completion-unreadable"));
+    assert!(actor.pool.recognition_slots.is_empty());
+    assert_eq!(actor.library.store().completion_hold_count()?, 0);
+    assert_eq!(
+        actor.library.store().published_original_scripts("pin")?,
+        Vec::<String>::new()
+    );
+    assert_eq!(attempts(&actor)?, []);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stored_translation_hold_publishes_after_restart() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(4);
+    let mut actor = actor(root.path(), &sender)?;
+    let work = claimed_translation(&mut actor)?;
+    let outcome = refused_translation(&work)?;
+    actor
+        .library
+        .store_mut()
+        .put_translation_hold(&work, &outcome)?;
+    actor.library.store_mut().recover_translation_jobs()?;
+    assert_eq!(
+        actor.library.store().translation_job("mt")?.state,
+        "running"
+    );
+    assert_eq!(translation_attempts(&actor)?, []);
+    assert_eq!(actor.library.store().completion_hold_count()?, 1);
+    actor.restore_completion_holds()?;
+    assert_eq!(actor.pool.translation_slots.len(), 1);
+    assert_eq!(actor.drive_settlement()?, ());
+    let job = actor.library.store().translation_job("mt")?;
+    assert_eq!(job.state, "failed");
+    assert_eq!(job.reason.as_deref(), Some("worker-start-failed"));
+    assert_eq!(actor.library.store().completion_hold_count()?, 0);
+    assert_eq!(translation_attempts(&actor)?, []);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_finish_without_a_hold_still_publishes_the_cue() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let (sender, _receiver) = mpsc::channel(4);
+    let mut actor = actor(root.path(), &sender)?;
+    recognized(&mut actor)?;
+    assert_eq!(
+        actor.library.store().published_original_scripts("pin")?,
+        vec!["eau".to_owned()]
+    );
+    assert_eq!(actor.library.store().completion_hold_count()?, 0);
     Ok(())
 }

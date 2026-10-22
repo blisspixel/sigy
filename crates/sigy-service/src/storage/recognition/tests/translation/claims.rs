@@ -555,6 +555,13 @@ fn v51_catalog_gains_claim_tables_and_a_conflict_rolls_back() -> TestResult {
         .connection
         .pragma_query_value(None, "user_version", |row| row.get(0))?;
     assert_eq!(version, i64::from(crate::storage::SCHEMA_VERSION));
+    let holds: i64 =
+        store
+            .connection
+            .query_row("SELECT count(*) FROM completion_holds", [], |row| {
+                row.get(0)
+            })?;
+    assert_eq!(holds, 0);
     drop(store);
 
     let conflict = directory.path().join("conflict");

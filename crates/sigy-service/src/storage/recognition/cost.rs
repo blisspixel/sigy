@@ -12,6 +12,34 @@ use crate::{Error, Result};
 const ROLES: [&str; 2] = ["decode", "recognize"];
 const MECHANISMS: [&str; 4] = ["job_object", "cgroup_v2", "process_group", "process_reaper"];
 
+/// Restore one stored account only when the role and mechanism are the known set.
+/// # Errors
+/// Rejects an unknown role, mechanism, or ordinal.
+pub(in crate::storage) fn known_account(
+    role: &str,
+    mechanism: &str,
+    ordinal: u32,
+    peak_memory_bytes: Option<u64>,
+    cpu_time_us: Option<u64>,
+) -> Result<GroupAccount> {
+    let Some(role) = ROLES.into_iter().find(|item| *item == role) else {
+        return Err(Error::StorageIntegrity);
+    };
+    let Some(mechanism) = MECHANISMS.into_iter().find(|item| *item == mechanism) else {
+        return Err(Error::StorageIntegrity);
+    };
+    if ordinal > 1023 {
+        return Err(Error::StorageIntegrity);
+    }
+    Ok(GroupAccount {
+        role,
+        ordinal,
+        mechanism,
+        peak_memory_bytes,
+        cpu_time_us,
+    })
+}
+
 /// Job-object groups with both measures, kept apart from every other row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorkerCost {

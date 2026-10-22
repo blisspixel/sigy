@@ -240,6 +240,20 @@ impl LocalAsrFailure {
             Self::InvalidOutput => "invalid-worker-output",
         }
     }
+
+    pub(crate) fn from_reason(reason: &str) -> Option<Self> {
+        Some(match reason {
+            "input-unavailable" => Self::InputUnavailable,
+            "decoder-failed" => Self::DecoderFailed,
+            "recognizer-failed" => Self::RecognizerFailed,
+            "deadline" => Self::Deadline,
+            "worker-panicked" => Self::WorkerPanicked,
+            "profile-unavailable" => Self::ProfileUnavailable,
+            "limits-unavailable" => Self::LimitsUnavailable,
+            "invalid-worker-output" => Self::InvalidOutput,
+            _ => return None,
+        })
+    }
 }
 
 /// A sealed service capability for a completed, drained native process tree.

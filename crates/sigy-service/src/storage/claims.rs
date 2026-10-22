@@ -659,6 +659,7 @@ fn status_from(value: &str) -> Option<ClaimStatus> {
 /// Removes claim tables that have no rows so a v51 fixture can replay this migration.
 #[cfg(test)]
 pub(crate) fn revert_052_for_tests(connection: &rusqlite::Connection) -> Result<()> {
+    super::completion_hold::revert_053_for_tests(connection)?;
     let exists: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='claims')",
         [],

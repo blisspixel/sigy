@@ -102,7 +102,7 @@ impl Family {
         }
     }
 
-    fn name(self) -> &'static str {
+    pub(super) fn name(self) -> &'static str {
         match self {
             Self::Analysis => "analysis",
             Self::Translation => "translation",
@@ -264,6 +264,17 @@ pub(super) fn recover(connection: &mut Connection, family: Family, now: i64) -> 
             .collect::<rusqlite::Result<Vec<_>>>()?
     };
     for job in held {
+        if super::completion_hold::matches_claim(
+            &tx,
+            family,
+            &job.id,
+            job.generation,
+            job.attempt,
+            &job.owner,
+        )? {
+            continue;
+        }
+        super::completion_hold::delete_job(&tx, family, &job.id)?;
         let stop_family = if family == Family::Analysis {
             "recognition"
         } else {

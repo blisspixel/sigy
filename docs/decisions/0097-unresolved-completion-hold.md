@@ -32,4 +32,4 @@ The inspected contracts are `Pool::running`, `Pool::is_empty` and `PoolCaps::def
 
 ## Limits
 
-This decision selects no retry numbers. Decision0098 selects them and implements the live slot. Process exit still drops an uncommitted completion. Language, platform and acoustic qualification are unchanged. External spend is USD 0.
+This decision selects no retry numbers. Decision0098 selects them and implements the live slot. Process exit still drops an uncommitted completion. [Decision 0108](0108-durable-completion-hold.md) later stores a bounded publication body before finish. Death before that commit still drops the outcome. Language, platform and acoustic qualification are unchanged. External spend is USD 0.
