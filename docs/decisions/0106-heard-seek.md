@@ -16,7 +16,7 @@ While that new child is still running, a decoder sample commits the target. If t
 
 The service still refuses a seek inside a recording gap or the open tail, and that refusal writes no reader. The terminal does not invent a gap from the decoder sample alone. Capture is not paused. Quit still leaves the recording running. The desktop desk does not gain Play or Stop. No MCP mutation is added. `listen seek` remains the metadata playhead.
 
-On Windows, a finding seek can use the existing system excerpt path. Other platforms still refuse a system excerpt, so a finding seek there fails closed the same way. A whole-file seek stays on the ordinary `listen file` path. Neither result is an acoustic or platform qualification.
+On Windows, a finding seek can use the existing system excerpt path. Other platforms still refuse a system excerpt, so a finding seek there fails closed the same way. A whole-file seek stays on the ordinary `listen file` path. Neither result is an acoustic or platform qualification. [Decision 0107](0107-heard-segment-handoff.md) starts the next sealed segment after this one completes. This decision does not.
 
 ## Evidence
 

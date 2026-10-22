@@ -68,6 +68,9 @@ pub(super) struct Audio {
     admission: Option<Admission>,
     hold: Option<Hold>,
     seek_attempt: Option<SeekAttempt>,
+    handoff_attempt: Option<SeekAttempt>,
+    /// Request that already produced one handoff outcome. A later request can continue.
+    explained: Option<String>,
 }
 
 impl Audio {
@@ -76,6 +79,8 @@ impl Audio {
         self.retained.poll(model);
         self.settle_hold(directory, model);
         self.recover_seek(model);
+        self.recover_handoff(model);
+        self.advance_segment(directory, model);
         self.pump(directory, model);
     }
 
@@ -311,6 +316,8 @@ impl Audio {
         self.hold = None;
         self.admission = None;
         self.seek_attempt = None;
+        self.handoff_attempt = None;
+        self.explained = None;
         model.release_pause();
     }
 
@@ -363,6 +370,7 @@ impl Audio {
             phase: HoldPhase::Stopping,
         });
         self.seek_attempt = None;
+        self.handoff_attempt = None;
         if self.retained.occupied() || self.retained.has_request() {
             self.retained.stop(runtime, directory, model);
         }
@@ -413,6 +421,7 @@ impl Audio {
             phase: HoldPhase::Paused,
         });
         self.seek_attempt = None;
+        self.handoff_attempt = None;
         model.show_paused(&request, at_us);
         model.note_message(&format!(
             "The client already exited. That is not a pause. Position kept at {at_us} us. Press H to listen there. Capture keeps running."
@@ -446,6 +455,7 @@ impl Audio {
     ) {
         self.discard_queued(model);
         self.seek_attempt = None;
+        self.handoff_attempt = None;
         self.hold = Some(Hold {
             at_us: fallback_us,
             pending_us: Some(target_us),
@@ -512,6 +522,7 @@ impl Audio {
                     fallback_us,
                     request: request.clone(),
                 });
+                self.handoff_attempt = None;
                 model.begin_retained(&request);
                 model.note_message(&format!(
                     "Starting one retained listen at {target_us} us. Request {request}. Capture keeps running."
@@ -563,6 +574,7 @@ impl Audio {
             return;
         };
         self.seek_attempt = None;
+        self.handoff_attempt = None;
         self.hold = Some(Hold {
             at_us,
             pending_us: None,
@@ -583,6 +595,7 @@ impl Audio {
     fn park(&mut self, model: &mut Explorer, at_us: u64, message: &str) {
         let request = self.admission.as_ref().map(|item| item.request.clone());
         self.seek_attempt = None;
+        self.handoff_attempt = None;
         self.hold = Some(Hold {
             at_us,
             pending_us: None,
@@ -632,9 +645,185 @@ impl Audio {
         }
     }
 
+    fn recover_handoff(&mut self, model: &mut Explorer) {
+        let Some(attempt) = self.handoff_attempt.as_ref() else {
+            return;
+        };
+        let request = attempt.request.clone();
+        let fallback_us = attempt.fallback_us;
+        let visible = model.retained_label().map(|(_, request)| request);
+        let recovery = super::seek::recover(
+            visible,
+            &request,
+            model.decoder_output_us().is_some(),
+            self.retained.occupied(),
+        );
+        match recovery {
+            super::seek::Recovery::Wait => {}
+            super::seek::Recovery::Commit | super::seek::Recovery::Forget => {
+                self.handoff_attempt = None;
+            }
+            super::seek::Recovery::Restore => self.park(
+                model,
+                fallback_us,
+                &format!(
+                    "The next segment wrote no reader. Position kept at {fallback_us} us. Press H to listen there. Capture keeps running."
+                ),
+            ),
+        }
+    }
+
+    fn advance_segment(&mut self, directory: &Path, model: &mut Explorer) {
+        if self.seek_attempt.is_some() || self.handoff_attempt.is_some() || self.hold.is_some() {
+            return;
+        }
+        let decision = super::handoff::decide(&self.handoff_input(model));
+        if matches!(
+            decision,
+            super::handoff::Decision::Idle | super::handoff::Decision::Wait
+        ) {
+            return;
+        }
+        let Some(request) = self.admission.as_ref().map(|item| item.request.clone()) else {
+            return;
+        };
+        if self.explained.as_deref() == Some(request.as_str()) {
+            return;
+        }
+        self.explained = Some(request);
+        match decision {
+            super::handoff::Decision::Jump {
+                fallback_us,
+                target_us,
+            } => self.finish_handoff(directory, model, fallback_us, target_us),
+            other => {
+                if let Some(message) = super::handoff::refusal(&other) {
+                    model.note_message(message);
+                }
+            }
+        }
+    }
+
+    fn finish_handoff(
+        &mut self,
+        directory: &Path,
+        model: &mut Explorer,
+        fallback_us: u64,
+        target_us: u64,
+    ) {
+        if self.live.occupied() || self.retained.occupied() {
+            self.park(
+                model,
+                fallback_us,
+                &format!(
+                    "A listen is still running. Position kept at {fallback_us} us. Press H to listen there. Capture keeps running."
+                ),
+            );
+            return;
+        }
+        let Some(admission) = self.admission.as_ref() else {
+            self.park(
+                model,
+                fallback_us,
+                "This decoder has no stored admission. The next segment was not started. Capture keeps running.",
+            );
+            return;
+        };
+        let recording = admission.recording.clone();
+        let Some(request) = model.allocate_retained() else {
+            self.park(
+                model,
+                fallback_us,
+                &format!(
+                    "The next segment wrote no reader. Position kept at {fallback_us} us. Press H to listen there. Capture keeps running."
+                ),
+            );
+            return;
+        };
+        match self
+            .retained
+            .start_file(directory, &recording, &request, target_us, None)
+        {
+            Ok(()) => {
+                self.hold = None;
+                self.admission = Some(Admission {
+                    recording,
+                    origin_us: target_us,
+                    end_us: None,
+                    request: request.clone(),
+                });
+                self.seek_attempt = None;
+                self.handoff_attempt = Some(SeekAttempt {
+                    fallback_us,
+                    request: request.clone(),
+                });
+                model.begin_retained(&request);
+                model.note_message(&format!(
+                    "Starting the next sealed segment at {target_us} us. Request {request}. Capture keeps running."
+                ));
+            }
+            Err(_) => self.park(
+                model,
+                fallback_us,
+                &format!(
+                    "The next segment wrote no reader. Position kept at {fallback_us} us. Press H to listen there. Capture keeps running."
+                ),
+            ),
+        }
+    }
+
+    fn handoff_input(&mut self, model: &Explorer) -> super::handoff::Input {
+        let (presence, origin_us, cited, decoder_us, live_occupied, stale, tracked) = {
+            let input = self.pause_input(model);
+            let stale = input.request.is_some() && input.visible_request != input.request;
+            (
+                input.presence,
+                input.origin_us,
+                input.end_us.is_some(),
+                input.decoder_us,
+                input.live_occupied,
+                stale,
+                input.recording.is_some() && input.request.is_some(),
+            )
+        };
+        let bound = self.retained.segment_bound();
+        let stop_requested = self.retained.stop_requested();
+        let excerpt = bound.is_some_and(|item| item.excerpt);
+        let block = if live_occupied {
+            super::handoff::Block::Live
+        } else if stop_requested {
+            super::handoff::Block::Stopped
+        } else if !tracked {
+            super::handoff::Block::Untracked
+        } else if stale {
+            super::handoff::Block::Stale
+        } else if cited || excerpt {
+            super::handoff::Block::Cited
+        } else {
+            super::handoff::Block::None
+        };
+        let receipt = if bound.is_some_and(|item| item.failed) {
+            super::handoff::Receipt::Failed
+        } else if bound.is_some_and(|item| item.completed) {
+            super::handoff::Receipt::Completed
+        } else {
+            super::handoff::Receipt::Pending
+        };
+        super::handoff::Input {
+            presence,
+            origin_us,
+            decoder_us,
+            segment_end_us: bound.map(|item| item.end_us),
+            block,
+            receipt,
+        }
+    }
+
     fn remember_spawn(&mut self, start: &Start) {
         self.hold = None;
         self.seek_attempt = None;
+        self.handoff_attempt = None;
+        self.explained = None;
         self.admission = match start {
             Start::Station(_) => None,
             Start::Recording { id, request } => Some(Admission {

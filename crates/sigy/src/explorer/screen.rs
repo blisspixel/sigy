@@ -1139,6 +1139,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             "  P then y plays a retained recording    S stops",
             "  H pauses at the decoder time and the next H resumes",
             "  [ and ] seek 10 s inside this admitted listen",
+            "  the next sealed segment starts when this one completes",
         ],
         Workspace::Monitors => {
             &["  arrows select or scroll    Enter inspects    Esc back    r reload"]
@@ -1148,6 +1149,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             "  P then y plays a cited interval    S stops",
             "  H pauses at the decoder time and the next H resumes",
             "  [ and ] seek 10 s inside this admitted listen",
+            "  a cited listen does not continue into the next segment",
         ],
     }
 }
@@ -2322,12 +2324,17 @@ mod tests {
         let (recordings, _) = frame(&model, 80, 40);
         assert!(recordings.contains("next H resumes"), "{recordings}");
         assert!(recordings.contains("seek 10 s"), "{recordings}");
+        assert!(recordings.contains("next sealed segment"), "{recordings}");
         model.handle(Key::Escape);
         model.handle(Key::Char('5'));
         model.handle(Key::Char('?'));
         let (findings, _) = frame(&model, 80, 40);
         assert!(findings.contains("next H resumes"), "{findings}");
         assert!(findings.contains("seek 10 s"), "{findings}");
+        assert!(
+            findings.contains("does not continue into the next segment"),
+            "{findings}"
+        );
     }
 
     #[test]

@@ -39,6 +39,26 @@ struct Receipt {
     request: String,
     state: String,
     generation: u64,
+    timeline_end_us: u64,
+    excerpt: bool,
+}
+
+/// Sealed-segment end from the service receipt. The timeline projection is not
+/// this value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct SegmentBound {
+    pub end_us: u64,
+    pub excerpt: bool,
+    pub completed: bool,
+    pub failed: bool,
+}
+
+struct Bound {
+    request: String,
+    end_us: u64,
+    excerpt: bool,
+    completed: bool,
+    failed: bool,
 }
 
 struct Pending {
@@ -123,6 +143,7 @@ pub(super) struct Client {
     request: Option<String>,
     reader_generation: Option<u64>,
     receipt_state: Option<String>,
+    bound: Option<Bound>,
     phase_label: String,
     stop_requested: bool,
     released: bool,
@@ -149,6 +170,25 @@ impl Client {
 
     pub(super) fn has_request(&self) -> bool {
         self.request.is_some()
+    }
+
+    pub(super) fn stop_requested(&self) -> bool {
+        self.stop_requested
+    }
+
+    /// Segment end for the request this client still holds.
+    #[must_use]
+    pub(super) fn segment_bound(&self) -> Option<SegmentBound> {
+        let bound = self.bound.as_ref()?;
+        if self.request.as_deref() != Some(bound.request.as_str()) {
+            return None;
+        }
+        Some(SegmentBound {
+            end_us: bound.end_us,
+            excerpt: bound.excerpt,
+            completed: bound.completed,
+            failed: bound.failed,
+        })
     }
 
     pub(super) fn start_file(
@@ -288,6 +328,7 @@ impl Client {
         self.request = Some(request.to_owned());
         self.reader_generation = None;
         self.receipt_state = None;
+        self.bound = None;
         self.phase_label = "pending".into();
         self.stop_requested = false;
         self.released = false;
@@ -352,6 +393,13 @@ impl Client {
                 }
                 self.reader_generation = Some(receipt.generation);
                 self.receipt_state = Some(receipt.state.clone());
+                self.bound = Some(Bound {
+                    request: receipt.request.clone(),
+                    end_us: receipt.timeline_end_us,
+                    excerpt: receipt.excerpt,
+                    completed: receipt.state == "completed",
+                    failed: receipt.state == "failed",
+                });
                 if receipt.state == "failed" && !self.notices.failure {
                     self.notices.failure = true;
                     model.note_message(&format!(
@@ -534,11 +582,23 @@ fn receipt_from(id: &str, snapshot: Snapshot) -> Result<Receipt, String> {
         .into_iter()
         .find(|entry| entry.spec.request_id == id)
         .ok_or("Retained reader receipt identity mismatch.")?;
+    let bound = segment_bound_from(&view);
     Ok(Receipt {
         request: view.spec.request_id,
         state: view.state,
         generation: view.spec.generation,
+        timeline_end_us: bound.end_us,
+        excerpt: bound.excerpt,
     })
+}
+
+pub(super) fn segment_bound_from(view: &sigy_service::control::RetainedReadView) -> SegmentBound {
+    SegmentBound {
+        end_us: view.spec.timeline_end_us,
+        excerpt: view.spec.excerpt.is_some(),
+        completed: view.state == "completed",
+        failed: view.state == "failed",
+    }
 }
 
 impl Drop for Client {
@@ -620,5 +680,58 @@ mod tests {
         lines.push(b"trailing failure", &mut diagnostic, &timeline);
         lines.finish(&mut diagnostic, &timeline);
         assert_eq!(diagnostic, b"helper failed\ntrailing failure\n");
+    }
+
+    #[test]
+    fn segment_bound_uses_the_service_object_end_and_excerpt_flag() {
+        let whole = view(5_000_000, false, "completed");
+        assert_eq!(
+            super::segment_bound_from(&whole),
+            super::SegmentBound {
+                end_us: 5_000_000,
+                excerpt: false,
+                completed: true,
+                failed: false,
+            }
+        );
+        let cited = view(5_000_000, true, "running");
+        let bound = super::segment_bound_from(&cited);
+        assert!(bound.excerpt);
+        assert!(!bound.completed);
+        assert_eq!(bound.end_us, 5_000_000);
+        let failed = view(5_000_000, false, "failed");
+        assert!(super::segment_bound_from(&failed).failed);
+    }
+
+    fn view(end: u64, excerpt: bool, state: &str) -> sigy_service::control::RetainedReadView {
+        sigy_service::control::RetainedReadView {
+            spec: sigy_service::control::RetainedReadSpec {
+                request_id: "reader-kept".into(),
+                generation: 1,
+                recording_id: "rec".into(),
+                source_revision: "rev".into(),
+                ordinal: 0,
+                object_key: "object".into(),
+                sha256: "ab".into(),
+                format: "wav".into(),
+                bytes: 100,
+                timeline_start_us: 0,
+                timeline_end_us: end,
+                file_seek_us: 0,
+                file_duration_us: end,
+                spec_sha256: "cd".into(),
+                excerpt: excerpt.then_some(sigy_service::control::RetainedExcerpt {
+                    version: 2,
+                    timeline_end_us: 1,
+                    citation: None,
+                }),
+            },
+            state: state.into(),
+            seek_us: 0,
+            admitted_ms: 0,
+            updated_ms: 0,
+            completion_reason: None,
+            recovery_reason: None,
+        }
     }
 }

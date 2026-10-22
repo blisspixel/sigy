@@ -1,6 +1,6 @@
 # 0087: Exact retained excerpts
 
-Date: 2026-10-04. Status: implemented increment; verification and limitations belong in [active work](../development/progress.md). This advances DV-01B and S-07 without completing an interactive DVR or a release stage. Terminal playback of one whole retained recording or one cited finding is [Decision 0102](0102-terminal-retained-playback.md). Pause, seek, and segment handoff remain later.
+Date: 2026-10-04. Status: implemented increment; verification and limitations belong in [active work](../development/progress.md). This advances DV-01B and S-07 without completing an interactive DVR or a release stage. Terminal playback of one whole retained recording or one cited finding is [Decision 0102](0102-terminal-retained-playback.md). Heard pause, heard seek, and one segment handoff are [Decision 0105](0105-heard-pause.md), [Decision 0106](0106-heard-seek.md), and [Decision 0107](0107-heard-segment-handoff.md). A range editor remains later.
 
 ## Admission and identity
 
@@ -28,7 +28,7 @@ Decoder, operation failure, output, native group and original-reader outcomes re
 
 ## Interface and remaining work
 
-The CLI exposes deliberate actions and reusable receipts. TUI selection, finding inspection and Enter remain read-only. [Decision 0102](0102-terminal-retained-playback.md) adds one explicit terminal action for a whole retained recording or a cited finding. No new MCP mutation is exposed. Pause, seek, segment handoff, and latest-sealed following remain later increments through the same service authority.
+The CLI exposes deliberate actions and reusable receipts. TUI selection, finding inspection and Enter remain read-only. [Decision 0102](0102-terminal-retained-playback.md) adds one explicit terminal action for a whole retained recording or a cited finding. No new MCP mutation is exposed. Heard pause, heard seek, and one segment handoff are later increments through the same service authority. Latest-sealed following remains later.
 
 The independent first oracle is a one-second stereo 48 kHz WAV. `[125000,375000)` selects frames 6,000 through 17,999: 12,000 frames and 96,000 f32 bytes. Compare every sample and distinct sentinels outside both boundaries. Additional witnesses cover fractional one-frame selections, empty selections, nonzero segment origins, exact end, adjacent ranges, early EOF, split scalars, immutable replay, legacy migration, citation staleness and retention refusal.
 
