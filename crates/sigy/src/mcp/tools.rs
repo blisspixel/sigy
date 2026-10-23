@@ -971,7 +971,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "claim_show",
-        description: "Read one claim: its wording history, the timeline of what was searched, links to stored findings, user evidence, status, and source lanes. Independence stays unknown. This tool does not create or change a claim and reports no truth or credibility score.",
+        description: "Read one claim: its wording history, the timeline of what was searched, links to stored findings, user evidence, status, whether that status still cites current evidence, and source lanes. Independence stays unknown. This tool does not create or change a claim and reports no truth or credibility score.",
         hints: HINT_QUERY,
         words: &["claim", "show"],
         slots: &[pos("id", "Claim id.")],

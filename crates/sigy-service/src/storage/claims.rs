@@ -8,9 +8,10 @@ use super::{Store, validate_key};
 use crate::{
     Error, Result,
     claim::{
-        CLAIM_LIMIT, ClaimCarrier, ClaimEvidenceKind, ClaimEvidenceLink, ClaimRelation,
-        ClaimSighting, ClaimStatus, ClaimTextRevision, ClaimTimeline, ClaimView, EVIDENCE_LIMIT,
-        NOTE_CHARS, SIGHTING_LIMIT, STATUS_LIMIT, TEXT_CHARS, TEXT_REVISION_LIMIT,
+        CLAIM_LIMIT, ClaimBasis, ClaimBasisReason, ClaimCarrier, ClaimEvidenceKind,
+        ClaimEvidenceLink, ClaimRelation, ClaimSighting, ClaimStatus, ClaimTextRevision,
+        ClaimTimeline, ClaimView, EVIDENCE_LIMIT, NOTE_CHARS, SIGHTING_LIMIT, STATUS_LIMIT,
+        TEXT_CHARS, TEXT_REVISION_LIMIT,
     },
     monitor::FindingOriginal,
 };
@@ -455,6 +456,7 @@ fn load(connection: &rusqlite::Connection, id: &str) -> Result<ClaimView> {
         gaps: ClaimTimeline::GAPS.to_owned(),
     };
     let carriers = carriers_of(&sightings);
+    let basis = basis_of(connection, id, current_status.evidence.as_deref())?;
     Ok(ClaimView {
         id: id.to_owned(),
         created_ms,
@@ -469,8 +471,77 @@ fn load(connection: &rusqlite::Connection, id: &str) -> Result<ClaimView> {
         status_revision: current_status.revision,
         status_setter: current_status.setter,
         status_evidence: current_status.evidence,
+        basis,
         carriers,
     })
+}
+
+const BASIS_SQL: &str = "SELECT e.sighting_id, s.finding_id, f.original_state, EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = f.transcript_id AND n.revision > f.transcript_revision AND n.kind = 'correction' AND n.outcome = 'text'), EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = f.transcript_id AND n.revision > f.transcript_revision AND n.kind = 'recognition' AND n.outcome = 'text'), EXISTS (SELECT 1 FROM translations AS tr WHERE tr.transcript_id = f.transcript_id AND tr.transcript_revision = f.transcript_revision AND tr.revision > f.translation_revision) FROM claim_evidence AS e JOIN claim_sightings AS s ON s.claim_id = e.claim_id AND s.id = e.sighting_id JOIN monitor_findings AS f ON f.monitor_id = s.monitor_id AND f.id = s.finding_id WHERE e.claim_id = ?1 AND e.id = ?2";
+
+struct BasisFacts {
+    sighting_id: String,
+    finding_id: String,
+    original_state: String,
+    correction: bool,
+    recognition: bool,
+    translation: bool,
+}
+
+fn basis_of(
+    connection: &rusqlite::Connection,
+    claim: &str,
+    cited: Option<&str>,
+) -> Result<ClaimBasis> {
+    let Some(cited) = cited else {
+        return Ok(ClaimBasis::unverified());
+    };
+    let found = connection
+        .query_row(BASIS_SQL, params![claim, cited], read_basis)
+        .optional()?;
+    let Some(found) = found else {
+        return Err(Error::CatalogIntegrity);
+    };
+    let reasons = basis_reasons(&found)?;
+    let state = if reasons.is_empty() {
+        "current"
+    } else {
+        "review"
+    };
+    Ok(ClaimBasis {
+        state: state.to_owned(),
+        evidence_id: Some(cited.to_owned()),
+        sighting_id: Some(found.sighting_id),
+        finding_id: Some(found.finding_id),
+        reasons,
+    })
+}
+
+fn read_basis(row: &rusqlite::Row<'_>) -> rusqlite::Result<BasisFacts> {
+    Ok(BasisFacts {
+        sighting_id: row.get(0)?,
+        finding_id: row.get(1)?,
+        original_state: row.get(2)?,
+        correction: row.get(3)?,
+        recognition: row.get(4)?,
+        translation: row.get(5)?,
+    })
+}
+
+fn basis_reasons(facts: &BasisFacts) -> Result<Vec<ClaimBasisReason>> {
+    let mut reasons = Vec::new();
+    if facts.correction {
+        reasons.push(ClaimBasisReason::Correction);
+    }
+    if facts.recognition || facts.translation {
+        reasons.push(ClaimBasisReason::Superseded);
+    }
+    match facts.original_state.as_str() {
+        "retained" => {}
+        "missing" => reasons.push(ClaimBasisReason::MissingMedia),
+        "expired" => reasons.push(ClaimBasisReason::RetentionExpired),
+        _ => return Err(Error::CatalogIntegrity),
+    }
+    Ok(reasons)
 }
 
 fn load_revisions(connection: &rusqlite::Connection, id: &str) -> Result<Vec<ClaimTextRevision>> {

@@ -4,8 +4,8 @@ use std::path::Path;
 
 use super::*;
 use crate::claim::{
-    CLAIM_LIMIT, ClaimEvidenceKind, ClaimRelation, ClaimStatus, ClaimView, EVIDENCE_LIMIT,
-    SIGHTING_LIMIT, STATUS_LIMIT, TEXT_REVISION_LIMIT,
+    CLAIM_LIMIT, ClaimBasisReason, ClaimEvidenceKind, ClaimRelation, ClaimStatus, ClaimView,
+    EVIDENCE_LIMIT, SIGHTING_LIMIT, STATUS_LIMIT, TEXT_REVISION_LIMIT,
 };
 use crate::control::Operation;
 use crate::monitor::{ActionOrigin, FindingCite, FindingOriginal, Proposal};
@@ -13,9 +13,13 @@ use crate::storage::claims::{EvidenceRequest, StatusRequest};
 use crate::translation::{TranslationOutcome, TranslationResult};
 
 fn cite(original: FindingOriginal) -> FindingCite {
+    cite_revision(1, original)
+}
+
+fn cite_revision(revision: i64, original: FindingOriginal) -> FindingCite {
     FindingCite {
         transcript_id: "pin".into(),
-        transcript_revision: 1,
+        transcript_revision: revision,
         translation_revision: 1,
         cue_ordinal: 0,
         original,
@@ -90,6 +94,8 @@ fn wording_history_is_kept_and_other_text_inserts_nothing() -> TestResult {
     let created = store.create_claim("dam", "  سد  ", 40)?;
     assert_eq!(created.text, "سد");
     assert_eq!(created.text_revision, 1);
+    assert_eq!(created.basis.state, "none");
+    assert_eq!(created.basis.reasons, []);
     assert_eq!(created.revisions.len(), 1);
     assert_eq!(created.status, "unverified");
     assert_eq!(created.status_revision, 0);
@@ -368,7 +374,12 @@ fn timeline_and_carriers_precede_sightings_without_a_score() -> TestResult {
     assert_eq!(page.carriers[0].repetition_group, "unknown");
     assert_eq!(page.carriers[0].independence, "unknown");
     assert_eq!(page.status, "unverified");
+    assert_eq!(page.basis.state, "none");
+    assert_eq!(page.basis.reasons, []);
+    assert!(page.basis.evidence_id.is_none());
     let text = serde_json::to_string(&page)?;
+    let restored: ClaimView = serde_json::from_str(&text)?;
+    assert_eq!(restored.basis, page.basis);
     let timeline = text.find("\"timeline\"").ok_or(Error::StorageIntegrity)?;
     let sightings = text.find("\"sightings\"").ok_or(Error::StorageIntegrity)?;
     assert!(timeline < sightings);
@@ -587,6 +598,285 @@ fn v51_catalog_gains_claim_tables_and_a_conflict_rolls_back() -> TestResult {
         |row| row.get(0),
     )?;
     assert_eq!(revisions, 0);
+    Ok(())
+}
+
+fn corroborate(
+    store: &mut Store,
+    claim: &str,
+    evidence: &str,
+    sighting: &str,
+    now: i64,
+) -> Result<ClaimView> {
+    store.add_evidence(
+        EvidenceRequest {
+            claim,
+            evidence,
+            sighting,
+            kind: ClaimEvidenceKind::Supports,
+            note: "The user stored this relation.",
+            relation: None,
+        },
+        now,
+    )?;
+    store.set_claim_status(
+        StatusRequest {
+            claim,
+            expected_revision: 0,
+            status: ClaimStatus::Corroborated,
+            evidence,
+        },
+        now + 1,
+    )
+}
+
+fn status_row(store: &Store, claim: &str, revision: i64) -> Result<(String, String)> {
+    Ok(store.connection.query_row(
+        "SELECT status, evidence_id FROM claim_status WHERE claim_id = ?1 AND revision = ?2",
+        (claim, revision),
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?)
+}
+
+fn translate_at(store: &mut Store, id: &str, revision: i64, english: &str, now: i64) -> Result<()> {
+    let mut request = super::request(id)?;
+    request.transcript_revision = revision;
+    let (job, work) = store.admit_translation(&request, now)?;
+    let outcome = TranslationOutcome::synthetic_fixture(
+        &job,
+        TranslationResult::Succeeded(vec![super::translated(0, english)]),
+    );
+    store.finish_translation(&work.ok_or(Error::StorageIntegrity)?, &outcome, now + 1)?;
+    Ok(())
+}
+
+fn cited_claim(path: &Path) -> Result<Store> {
+    let mut store = desk(path)?;
+    store.publish_finding("fair", "world", &cite(FindingOriginal::Retained), 40)?;
+    store.create_claim("dam", "The bulletin named the fair.", 41)?;
+    store.add_sighting("dam", "see", "fair", "world", 42)?;
+    store.create_claim("open", "No status is stored.", 43)?;
+    store.add_sighting("open", "see", "fair", "world", 44)?;
+    corroborate(&mut store, "dam", "note", "see", 45)?;
+    Ok(store)
+}
+
+#[test]
+fn a_status_keeps_its_token_when_the_cited_basis_changes() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = cited_claim(&directory.path().join("catalog"))?;
+    let decided = store.claim("dam")?;
+    assert_eq!(decided.status, "corroborated");
+    assert_eq!(decided.status_revision, 1);
+    assert_eq!(decided.status_evidence.as_deref(), Some("note"));
+    assert_eq!(decided.basis.state, "current");
+    assert_eq!(decided.basis.reasons, []);
+    assert_eq!(decided.basis.evidence_id.as_deref(), Some("note"));
+    assert_eq!(decided.basis.sighting_id.as_deref(), Some("see"));
+    assert_eq!(decided.basis.finding_id.as_deref(), Some("world"));
+    assert_eq!(
+        status_row(&store, "dam", 1)?,
+        ("corroborated".to_owned(), "note".to_owned())
+    );
+    let open = store.claim("open")?;
+    assert_eq!(open.status, "unverified");
+    assert_eq!(open.basis.state, "none");
+    assert!(open.basis.evidence_id.is_none());
+
+    store.correct_transcript("pin", 1, 0, "Una feria local", 60)?;
+    let reviewed = store.claim("dam")?;
+    assert_eq!(reviewed.status, "corroborated");
+    assert_eq!(reviewed.status_revision, 1);
+    assert_eq!(reviewed.status_evidence.as_deref(), Some("note"));
+    assert_eq!(reviewed.basis.state, "review");
+    assert_eq!(reviewed.basis.reasons, vec![ClaimBasisReason::Correction]);
+    assert_eq!(reviewed.basis.finding_id.as_deref(), Some("world"));
+    let still_open = store.claim("open")?;
+    assert_eq!(still_open.basis.state, "none");
+    assert_eq!(still_open.sightings[0].stale_transcript, Some(true));
+    assert_eq!(
+        status_row(&store, "dam", 1)?,
+        ("corroborated".to_owned(), "note".to_owned())
+    );
+    let sightings: i64 = store.connection.query_row(
+        "SELECT count(*) FROM claim_sightings WHERE claim_id = 'dam'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(sightings, 1);
+    let statuses: i64 = store.connection.query_row(
+        "SELECT count(*) FROM claim_status WHERE claim_id = 'dam'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(statuses, 1);
+    Ok(())
+}
+
+#[test]
+fn a_new_status_can_cite_the_corrected_revision() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = cited_claim(&directory.path().join("catalog"))?;
+    store.correct_transcript("pin", 1, 0, "Una feria local", 60)?;
+    translate_at(&mut store, "mt-fix", 2, "A local fair", 70)?;
+    store.publish_finding(
+        "fair",
+        "later",
+        &cite_revision(2, FindingOriginal::Retained),
+        72,
+    )?;
+    store.create_claim("next", "The corrected bulletin is the one cited.", 73)?;
+    store.add_sighting("next", "see", "fair", "later", 74)?;
+    let replacement = corroborate(&mut store, "next", "note", "see", 75)?;
+    assert_eq!(replacement.status, "corroborated");
+    assert_eq!(replacement.basis.state, "current");
+    assert_eq!(replacement.basis.reasons, []);
+    assert_eq!(replacement.basis.finding_id.as_deref(), Some("later"));
+    assert_eq!(store.claim("dam")?.basis.state, "review");
+
+    store.add_evidence(
+        EvidenceRequest {
+            claim: "dam",
+            evidence: "again",
+            sighting: "see",
+            kind: ClaimEvidenceKind::Supports,
+            note: "The user looked again.",
+            relation: None,
+        },
+        80,
+    )?;
+    let appended = store.set_claim_status(
+        StatusRequest {
+            claim: "dam",
+            expected_revision: 1,
+            status: ClaimStatus::Corroborated,
+            evidence: "again",
+        },
+        81,
+    )?;
+    assert_eq!(appended.status_revision, 2);
+    assert_eq!(appended.status_evidence.as_deref(), Some("again"));
+    assert_eq!(appended.basis.state, "review");
+    assert_eq!(appended.basis.reasons, vec![ClaimBasisReason::Correction]);
+    assert_eq!(
+        status_row(&store, "dam", 1)?,
+        ("corroborated".to_owned(), "note".to_owned())
+    );
+    let value = serde_json::to_value(&appended)?;
+    assert!(!contains_key(&value, "score"));
+    assert!(!contains_key(&value, "anomaly"));
+    assert_eq!(value["basis"]["reasons"], serde_json::json!(["correction"]));
+    let mut injected = value;
+    injected
+        .as_object_mut()
+        .ok_or(Error::StorageIntegrity)?
+        .insert("score".to_owned(), serde_json::json!(1));
+    assert!(serde_json::from_value::<ClaimView>(injected).is_err());
+    assert!(serde_json::from_str::<ClaimBasisReason>("\"withdrawal\"").is_err());
+    Ok(())
+}
+
+#[test]
+fn a_newer_translation_marks_superseded_without_a_correction() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = desk(&directory.path().join("catalog"))?;
+    store.publish_finding("fair", "world", &cite(FindingOriginal::Retained), 40)?;
+    store.create_claim("dam", "The first translation is the one cited.", 41)?;
+    store.add_sighting("dam", "see", "fair", "world", 42)?;
+    corroborate(&mut store, "dam", "note", "see", 43)?;
+    let (job, work) = store.admit_translation(&super::request("mt-2")?, 70)?;
+    let outcome = TranslationOutcome::synthetic_fixture(
+        &job,
+        TranslationResult::Succeeded(vec![super::translated(0, "A local fair")]),
+    );
+    store.finish_translation(&work.ok_or(Error::StorageIntegrity)?, &outcome, 71)?;
+    let page = store.claim("dam")?;
+    assert_eq!(page.status, "corroborated");
+    assert_eq!(page.status_revision, 1);
+    assert_eq!(page.basis.state, "review");
+    assert_eq!(page.basis.reasons, vec![ClaimBasisReason::Superseded]);
+    assert_eq!(page.sightings[0].stale_transcript, None);
+    assert_eq!(page.sightings[0].stale_translation, Some(true));
+    assert_eq!(
+        status_row(&store, "dam", 1)?,
+        ("corroborated".to_owned(), "note".to_owned())
+    );
+    let statuses: i64 = store.connection.query_row(
+        "SELECT count(*) FROM claim_status WHERE claim_id = 'dam'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(statuses, 1);
+    Ok(())
+}
+
+#[test]
+fn another_findings_media_does_not_review_this_decision() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = desk(&directory.path().join("catalog"))?;
+    store.publish_finding("fair", "world", &cite(FindingOriginal::Retained), 40)?;
+    store.create_claim("dam", "The retained account stands.", 41)?;
+    store.add_sighting("dam", "see", "fair", "world", 42)?;
+    let kept = corroborate(&mut store, "dam", "note", "see", 43)?;
+    assert_eq!(kept.basis.state, "current");
+    assert_eq!(kept.basis.reasons, []);
+
+    store.connection.execute(
+        "INSERT INTO recording_gaps VALUES ('one', 0, 'disconnect', 250000, 500000)",
+        [],
+    )?;
+    store.publish_finding("fair", "hole", &cite(FindingOriginal::Missing), 50)?;
+    store.create_claim("gap", "The cue crosses a gap.", 51)?;
+    store.add_sighting("gap", "see", "fair", "hole", 52)?;
+    let missing = corroborate(&mut store, "gap", "note", "see", 53)?;
+    assert_eq!(missing.basis.state, "review");
+    assert_eq!(missing.basis.reasons, vec![ClaimBasisReason::MissingMedia]);
+    assert_eq!(missing.basis.finding_id.as_deref(), Some("hole"));
+    assert_eq!(store.claim("dam")?.basis.state, "current");
+
+    store.correct_transcript("pin", 1, 0, "Una feria local", 60)?;
+    assert_eq!(store.claim("dam")?.status, "corroborated");
+    assert_eq!(
+        store.claim("dam")?.basis.reasons,
+        vec![ClaimBasisReason::Correction]
+    );
+    assert_eq!(
+        store.claim("gap")?.basis.reasons,
+        vec![ClaimBasisReason::Correction, ClaimBasisReason::MissingMedia]
+    );
+
+    store.begin_delete("one", false)?;
+    store.publish_finding("fair", "gone", &cite(FindingOriginal::Expired), 70)?;
+    store.create_claim("old", "The recording was released.", 71)?;
+    store.add_sighting("old", "see", "fair", "gone", 72)?;
+    let expired = corroborate(&mut store, "old", "note", "see", 73)?;
+    assert_eq!(
+        expired.basis.reasons,
+        vec![
+            ClaimBasisReason::Correction,
+            ClaimBasisReason::RetentionExpired
+        ]
+    );
+    assert_eq!(
+        store.claim("dam")?.basis.reasons,
+        vec![ClaimBasisReason::Correction]
+    );
+    assert_eq!(
+        store.claim("gap")?.basis.reasons,
+        vec![ClaimBasisReason::Correction, ClaimBasisReason::MissingMedia]
+    );
+    assert_eq!(
+        status_row(&store, "dam", 1)?,
+        ("corroborated".to_owned(), "note".to_owned())
+    );
+    assert_eq!(
+        status_row(&store, "gap", 1)?,
+        ("corroborated".to_owned(), "note".to_owned())
+    );
+    assert_eq!(
+        status_row(&store, "old", 1)?,
+        ("corroborated".to_owned(), "note".to_owned())
+    );
     Ok(())
 }
 

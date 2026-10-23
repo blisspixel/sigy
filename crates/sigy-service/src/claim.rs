@@ -207,6 +207,71 @@ pub struct ClaimEvidenceLink {
     pub relation: String,
 }
 
+/// Why the latest status may no longer match the evidence it cites.
+///
+/// These names are read from the cited finding. They are not a new status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClaimBasisReason {
+    /// A newer transcript revision has kind `correction` and outcome `text`.
+    Correction,
+    /// A newer recognition of the same transcript, or a newer translation of the cited revision.
+    Superseded,
+    /// The cited finding states that the original audio is missing.
+    MissingMedia,
+    /// The cited finding states that the original audio has expired.
+    RetentionExpired,
+}
+
+impl ClaimBasisReason {
+    /// Token printed in JSON and on the claim page.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Correction => "correction",
+            Self::Superseded => "superseded",
+            Self::MissingMedia => "missing-media",
+            Self::RetentionExpired => "retention-expired",
+        }
+    }
+}
+
+/// Whether the latest status still cites the evidence the user used.
+///
+/// `none` is unverified. `current` means no listed change applies.
+/// `review` names those changes and leaves the stored status in place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaimBasis {
+    /// `none`, `current`, or `review`.
+    pub state: String,
+    /// Evidence id cited by the latest status. Absent while unverified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_id: Option<String>,
+    /// Sighting that evidence cites. Absent while unverified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sighting_id: Option<String>,
+    /// Finding that sighting cites. Absent while unverified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_id: Option<String>,
+    /// Changes that apply to that finding, in a fixed order. Empty when none apply.
+    pub reasons: Vec<ClaimBasisReason>,
+}
+
+impl ClaimBasis {
+    /// No status row exists, so there is no decision to review.
+    #[must_use]
+    pub fn unverified() -> Self {
+        Self {
+            state: "none".to_owned(),
+            evidence_id: None,
+            sighting_id: None,
+            finding_id: None,
+            reasons: Vec::new(),
+        }
+    }
+}
+
 /// One source lane. Several sightings of the same source revision share a lane.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -255,6 +320,8 @@ pub struct ClaimView {
     pub status_setter: Option<String>,
     /// Evidence id cited by the latest status. Absent while unverified.
     pub status_evidence: Option<String>,
+    /// Whether that evidence still matches the cited finding. The status row is unchanged.
+    pub basis: ClaimBasis,
     /// One lane per source revision. Independence stays unknown.
     pub carriers: Vec<ClaimCarrier>,
 }

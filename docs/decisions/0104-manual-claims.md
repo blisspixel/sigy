@@ -22,7 +22,7 @@ One library stores at most 256 claims. One claim stores at most 64 text revision
 
 ## What this does not do
 
-This slice does not fetch, scrape, or store a news item. It does not add a globe layer, an anomaly lens, or a credibility score. It does not set a status from wording, from a model, or from a repeated carrier. It does not add an MCP tool that creates, revises, links, or sets a claim. `claim_list` and `claim_show` only read. It does not add pause, seek, or segment handoff. It does not close issue 14: later phases still need news items and a measured model. It does not exit a roadmap stage. S-03B stays open. Process exit can still drop an uncommitted recognition or translation completion.
+This slice does not fetch, scrape, or store a news item. It does not add a globe layer, an anomaly lens, or a credibility score. It does not set a status from wording, from a model, or from a repeated carrier. It does not add an MCP tool that creates, revises, links, or sets a claim. `claim_list` and `claim_show` only read. It does not add pause, seek, or segment handoff. It does not close issue 14: later phases still need news items and a measured model. It does not exit a roadmap stage. S-03B stays open. Process exit can still drop an uncommitted recognition or translation completion. [Decision 0109](0109-claim-status-basis.md) later reports when the cited evidence needs review. It does not change the stored status.
 
 ## Interface
 

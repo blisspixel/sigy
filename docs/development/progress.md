@@ -1,8 +1,14 @@
 # Implementation progress
 
-Updated: 2026-10-22. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
+Updated: 2026-10-23. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
+
+## 2026-10-23 claim status basis
+
+[Decision 0109](../decisions/0109-claim-status-basis.md) reports, when a claim is read, whether the evidence cited by its latest status still matches that finding. The stored status token, revision, setter, and evidence id stay in place. `none` means no status row. `current` means the cited finding has no later correction, newer recognition or translation, missing original, or retention expiry. `review` names those reasons for that finding only. A later status command appends a new row. Unverified stays `none` even when a sighting is stale. Frozen briefings are not rewritten. Catalog schema stays v53. Local IPC is v55. The same gate moves Tokio from 1.53.1 to 1.53.3 for RUSTSEC-2026-0386. That advisory covers the Unix `AsyncFd` constructors. Sigy does not call them. No other locked crate moves. Separate research experiment locks remain on 1.53.1. Issues 13 and 14 stay open. S-03B stays open. No stage exit is claimed.
+
+`cargo verify` exited 0 in 599.20 seconds. The `sigy` binary tests passed 382, with 7 ignored, in 26.47 seconds. The `sigy-service` library tests passed 760, with 2 ignored, in 183.94 seconds. `cargo audit --deny warnings` loaded 1351 advisories and scanned 382 dependencies. Coverage and `cargo visual-qa` were not run. `cargo verify-media` was not required. External spend is USD 0. This receipt was written after those commands. Hosted verify of this commit is not recorded here.
 
 ## 2026-10-22 durable completion hold
 

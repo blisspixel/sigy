@@ -5,8 +5,8 @@ use std::io::{self, Write};
 use clap::{Subcommand, ValueEnum};
 use sigy_service::{
     claim::{
-        ClaimCarrier, ClaimEvidenceKind, ClaimEvidenceLink, ClaimRelation, ClaimSighting,
-        ClaimStatus, ClaimTimeline, ClaimView,
+        ClaimBasis, ClaimCarrier, ClaimEvidenceKind, ClaimEvidenceLink, ClaimRelation,
+        ClaimSighting, ClaimStatus, ClaimTimeline, ClaimView,
     },
     control::{ClaimOperation, ClaimPage, Operation},
 };
@@ -239,6 +239,7 @@ fn render_claim(writer: &mut impl Write, claim: &ClaimView) -> io::Result<()> {
     if let Some(evidence) = &claim.status_evidence {
         writeln!(writer, "Status evidence: {}", sanitize(evidence, 128))?;
     }
+    render_basis(writer, &claim.basis)?;
     render_timeline(writer, &claim.timeline)?;
     writeln!(
         writer,
@@ -277,6 +278,29 @@ fn render_claim(writer: &mut impl Write, claim: &ClaimView) -> io::Result<()> {
         render_carrier(writer, carrier)?;
     }
     Ok(())
+}
+
+fn render_basis(writer: &mut impl Write, basis: &ClaimBasis) -> io::Result<()> {
+    match basis.state.as_str() {
+        "none" => writeln!(writer, "Basis: none"),
+        "current" => writeln!(writer, "Basis: current"),
+        "review" => {
+            let labels = basis
+                .reasons
+                .iter()
+                .map(|item| item.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(
+                writer,
+                "Basis: review ({labels}) | evidence {} | sighting {} | finding {}",
+                sanitize(basis.evidence_id.as_deref().unwrap_or("none"), 128),
+                sanitize(basis.sighting_id.as_deref().unwrap_or("none"), 128),
+                sanitize(basis.finding_id.as_deref().unwrap_or("none"), 128)
+            )
+        }
+        other => writeln!(writer, "Basis: {}", sanitize(other, 32)),
+    }
 }
 
 fn render_timeline(writer: &mut impl Write, timeline: &ClaimTimeline) -> io::Result<()> {
@@ -347,4 +371,89 @@ fn render_carrier(writer: &mut impl Write, carrier: &ClaimCarrier) -> io::Result
         sanitize(&carrier.repetition_group, 32),
         sanitize(&carrier.independence, 32)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use sigy_service::claim::ClaimBasisReason;
+
+    use super::*;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn view(status: &str, evidence: Option<&str>, basis: ClaimBasis) -> ClaimView {
+        ClaimView {
+            id: "dam".into(),
+            created_ms: 1,
+            text_revision: 1,
+            text: "Several stations carried one bulletin.".into(),
+            revisions: Vec::new(),
+            timeline: ClaimTimeline {
+                searched: ClaimTimeline::SEARCHED.into(),
+                library_search: false,
+                languages: ClaimTimeline::LANGUAGES.into(),
+                window: "none".into(),
+                gaps: ClaimTimeline::GAPS.into(),
+            },
+            sightings: Vec::new(),
+            evidence: Vec::new(),
+            status: status.into(),
+            status_label: status.into(),
+            status_revision: i64::from(evidence.is_some()),
+            status_setter: evidence.map(|_| "user".to_owned()),
+            status_evidence: evidence.map(str::to_owned),
+            basis,
+            carriers: Vec::new(),
+        }
+    }
+
+    fn rendered(claim: ClaimView) -> Result<String, Box<dyn std::error::Error>> {
+        let mut output = Vec::new();
+        render(
+            &mut output,
+            &ClaimPage::Claim {
+                claim: Box::new(claim),
+            },
+        )?;
+        Ok(String::from_utf8(output)?)
+    }
+
+    #[test]
+    fn the_page_prints_the_stored_status_and_the_basis_warning() -> TestResult {
+        let none = rendered(view("unverified", None, ClaimBasis::unverified()))?;
+        assert!(none.contains("Status: unverified (unverified, revision 0, setter none)"));
+        assert!(none.contains("Basis: none\n"));
+        assert!(
+            none.find("Basis: none").unwrap_or(usize::MAX) < none.find("Timeline").unwrap_or(0)
+        );
+
+        let current = ClaimBasis {
+            state: "current".into(),
+            evidence_id: Some("note".into()),
+            sighting_id: Some("see".into()),
+            finding_id: Some("world".into()),
+            reasons: Vec::new(),
+        };
+        let kept = rendered(view("corroborated", Some("note"), current))?;
+        assert!(kept.contains("Status: corroborated (corroborated, revision 1, setter user)"));
+        assert!(kept.contains("Status evidence: note"));
+        assert!(kept.contains("Basis: current\n"));
+
+        let review = ClaimBasis {
+            state: "review".into(),
+            evidence_id: Some("note".into()),
+            sighting_id: Some("see".into()),
+            finding_id: Some("world".into()),
+            reasons: vec![
+                ClaimBasisReason::Correction,
+                ClaimBasisReason::RetentionExpired,
+            ],
+        };
+        let warned = rendered(view("corroborated", Some("note"), review))?;
+        assert!(warned.contains("Status: corroborated (corroborated, revision 1, setter user)"));
+        assert!(warned.contains(
+            "Basis: review (correction, retention-expired) | evidence note | sighting see | finding world"
+        ));
+        Ok(())
+    }
 }
