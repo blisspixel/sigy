@@ -137,6 +137,128 @@ fn leap(year: i32) -> bool {
     year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 
+/// RFC 3339 instant in the accepted subset, as Unix milliseconds.
+///
+/// The form is `YYYY-MM-DDTHH:MM:SS` with `Z` or `±HH:MM`. `T` and `Z` ignore
+/// ASCII case. An optional fraction contributes its first three digits as
+/// milliseconds. A date alone, a missing zone, a leap second, and a named zone
+/// do not parse.
+#[must_use]
+pub(crate) fn parse_rfc3339(value: &str) -> Option<i64> {
+    let bytes = value.as_bytes();
+    if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return None;
+    }
+    let year = four_digits(bytes, 0)?;
+    let month = two_digits(bytes, 5)?;
+    let day = two_digits(bytes, 8)?;
+    if bytes[10] != b'T' && bytes[10] != b't' {
+        return None;
+    }
+    if bytes[13] != b':' || bytes[16] != b':' {
+        return None;
+    }
+    let hour = two_digits(bytes, 11)?;
+    let minute = two_digits(bytes, 14)?;
+    let second = two_digits(bytes, 17)?;
+    if !(1..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    if day == 0 || day > days_in_month(year, month) {
+        return None;
+    }
+    let mut index = 19;
+    let millis = if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        let start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+            if index - start > 9 {
+                return None;
+            }
+        }
+        if start == index {
+            return None;
+        }
+        fraction_millis(&bytes[start..index])?
+    } else {
+        0
+    };
+    let offset = rfc3339_offset(bytes.get(index..)?)?;
+    let days = days_from_civil(year, month, day)?;
+    let local = days
+        .checked_mul(86_400)?
+        .checked_add(i64::from(hour) * 3_600)?
+        .checked_add(i64::from(minute) * 60)?
+        .checked_add(i64::from(second))?;
+    local
+        .checked_sub(i64::from(offset) * 60)?
+        .checked_mul(1_000)?
+        .checked_add(millis)
+}
+
+fn four_digits(bytes: &[u8], at: usize) -> Option<i32> {
+    let slice = bytes.get(at..at.checked_add(4)?)?;
+    let mut value = 0_i32;
+    for byte in slice {
+        let digit = byte.checked_sub(b'0').filter(|digit| *digit <= 9)?;
+        value = value.checked_mul(10)?.checked_add(i32::from(digit))?;
+    }
+    Some(value)
+}
+
+fn two_digits(bytes: &[u8], at: usize) -> Option<u32> {
+    let slice = bytes.get(at..at.checked_add(2)?)?;
+    let mut value = 0_u32;
+    for byte in slice {
+        let digit = byte.checked_sub(b'0').filter(|digit| *digit <= 9)?;
+        value = value.checked_mul(10)?.checked_add(u32::from(digit))?;
+    }
+    Some(value)
+}
+
+fn fraction_millis(digits: &[u8]) -> Option<i64> {
+    let mut millis = 0_i64;
+    let mut factor = 100_i64;
+    let mut index = 0;
+    while index < digits.len() && index < 3 {
+        let value = digits[index]
+            .checked_sub(b'0')
+            .filter(|value| *value <= 9)?;
+        millis = millis.checked_add(i64::from(value).checked_mul(factor)?)?;
+        factor /= 10;
+        index += 1;
+    }
+    Some(millis)
+}
+
+fn rfc3339_offset(bytes: &[u8]) -> Option<i32> {
+    if bytes.len() == 1 && matches!(bytes[0], b'Z' | b'z') {
+        return Some(0);
+    }
+    if bytes.len() != 6 || bytes[3] != b':' {
+        return None;
+    }
+    let sign = match bytes[0] {
+        b'+' => 1,
+        b'-' => -1,
+        _ => return None,
+    };
+    let hours = two_digits(bytes, 1)?;
+    let minutes = two_digits(bytes, 4)?;
+    if hours > 23 || minutes > 59 {
+        return None;
+    }
+    let hours = i32::try_from(hours).ok()?;
+    let minutes = i32::try_from(minutes).ok()?;
+    Some(sign * (hours * 60 + minutes))
+}
+
 /// Howard Hinnant's `days_from_civil`, valid for the Gregorian calendar.
 fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
     let shifted = if month <= 2 { year - 1 } else { year };
@@ -150,7 +272,7 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_pub_date;
+    use super::{parse_pub_date, parse_rfc3339};
 
     #[test]
     fn epoch_and_numeric_zones_match() {
@@ -160,5 +282,20 @@ mod tests {
         assert!(parse_pub_date("29 Feb 2023 00:00:00 GMT").is_none());
         assert!(parse_pub_date("29 Feb 2024 00:00:00 GMT").is_some());
         assert!(parse_pub_date("01 Jan 1970 00:00:00 EST").is_none());
+    }
+
+    #[test]
+    fn rfc3339_epoch_offsets_and_fractions_match() {
+        assert_eq!(parse_rfc3339("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(parse_rfc3339("1970-01-01t00:00:00z"), Some(0));
+        assert_eq!(parse_rfc3339("1970-01-01T01:00:00+01:00"), Some(0));
+        assert_eq!(parse_rfc3339("1970-01-01T00:00:00.250Z"), Some(250));
+        assert_eq!(parse_rfc3339("1970-01-01T00:00:00.2Z"), Some(200));
+        assert_eq!(parse_rfc3339("1970-01-01T00:00:00.2509Z"), Some(250));
+        assert!(parse_rfc3339("2023-02-29T00:00:00Z").is_none());
+        assert!(parse_rfc3339("1970-01-01").is_none());
+        assert!(parse_rfc3339("1970-01-01T00:00:00").is_none());
+        assert!(parse_rfc3339("1970-01-01T00:00:60Z").is_none());
+        assert!(parse_rfc3339("1970-01-01T00:00:00EST").is_none());
     }
 }

@@ -19,7 +19,7 @@ Sigy is a local catalog. The MCP server runs the same commands as the CLI agains
 - `doctor` checks the catalog, decoder, quota, and cache age. It does not refresh, delete, or use the network. A stale station cache stays searchable. Favorites stay. The suggested refresh command is explicit.
 - `record_pause` stops one running capture. The uncovered plan is a gap with a cause. A gap is not a silence file. Seeking inside that range fails.
 - `listen_file` plays one sealed segment. `listen_pause` stores a playhead and does not stop the capture or write a gap. `listen_seek` stays inside a published segment. The open tail is not readable. `listen_play` drops that playhead when it returns and leaves the capture running.
-- `podcast_refresh` fetches one RSS document. It does not download enclosures, transcripts, or chapters.
+- `podcast_refresh` fetches one RSS 2.0 or Atom document. It does not download enclosures, transcripts, or chapters.
 - `podcast_text` fetches one stored transcript or chapter document. The cues are unverified publisher text. Their times are not media time. It does not change the recording quota. Restart marks a running fetch interrupted and keeps the previous snapshot.
 - `podcast_download` is explicit. It reserves 512 MiB and 30 minutes before connecting. Reusing the recording id does not download again.
 - `record_start` records an already registered source revision. It does not accept a URL. Radio attempts stay within 15 minutes and 256 MiB.

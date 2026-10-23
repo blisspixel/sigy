@@ -35,7 +35,7 @@ pub enum PodcastOperation {
     Show {
         id: String,
     },
-    /// Fetch one RSS document for an active subscription. Replay does not fetch again.
+    /// Fetch one RSS 2.0 or Atom document for an active subscription. Replay does not fetch again.
     Refresh {
         id: String,
         subscription_id: String,

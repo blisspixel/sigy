@@ -17,7 +17,7 @@ pub enum PodcastCommand {
     Subscribe {
         /// Subscription key. Reuse cannot change the URL, scope, pin, or redirects.
         id: String,
-        /// RSS 2.0 feed address. Do not put access credentials in it.
+        /// RSS 2.0 or Atom feed address. Do not put access credentials in it.
         #[arg(long)]
         url: String,
         /// Explicitly pin this subscription to one public, private, or loopback IP.
@@ -46,7 +46,7 @@ pub enum PodcastCommand {
         /// Subscription key.
         id: String,
     },
-    /// Refresh one RSS 2.0 document. Does not download enclosures, transcripts, or chapters.
+    /// Refresh one RSS 2.0 or Atom document. Does not download enclosures, transcripts, or chapters.
     Refresh {
         /// Subscription to refresh. A stopped subscription is not polled.
         subscription: String,

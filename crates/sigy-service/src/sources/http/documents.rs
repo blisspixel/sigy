@@ -35,7 +35,7 @@ const MAX_ENCODED_FEED: usize = 2 * 1024 * 1024;
 const MAX_FEED_DOCUMENT: usize = 8 * 1024 * 1024;
 const MAX_FEED_EXPANSION: usize = 16;
 const PLAYLIST_ACCEPT: &str = "audio/x-mpegurl, audio/mpegurl, application/x-mpegurl, application/vnd.apple.mpegurl, audio/x-scpls";
-const FEED_ACCEPT: &str = "application/rss+xml, application/xml, text/xml";
+const FEED_ACCEPT: &str = "application/rss+xml, application/atom+xml, application/xml, text/xml";
 const TEXT_ACCEPT: &str =
     "text/vtt, application/x-subrip, application/srt, application/json, application/json+chapters";
 const MAX_TEXT_DOCUMENT: usize = 1024 * 1024;
@@ -215,7 +215,7 @@ impl HttpAcquirer {
         .map_err(|_| Error::Acquisition("playlist deadline"))?
     }
 
-    /// Reads one RSS document. The decoded bytes are not a recording or a grant.
+    /// Reads one RSS or Atom document. The decoded bytes are not a recording or a grant.
     /// # Errors
     /// Fails closed on capacity, type, compression, size, or deadline.
     pub(crate) async fn feed_document(&self, source: &HttpSource) -> Result<FeedDocument> {
@@ -383,20 +383,20 @@ fn feed_encoding(headers: &reqwest::header::HeaderMap) -> Result<FeedEncoding> {
 fn feed_content_type(headers: &reqwest::header::HeaderMap) -> Result<()> {
     let types = headers.get_all(reqwest::header::CONTENT_TYPE);
     if types.iter().count() != 1 {
-        return Err(Error::Acquisition("expected an RSS document"));
+        return Err(Error::Acquisition("expected an RSS or Atom document"));
     }
     let raw = types
         .iter()
         .next()
         .and_then(|value| value.to_str().ok())
-        .ok_or(Error::Acquisition("expected an RSS document"))?;
+        .ok_or(Error::Acquisition("expected an RSS or Atom document"))?;
     let mut parts = raw.split(';');
     let mime = parts.next().map_or("", str::trim).to_ascii_lowercase();
     if !matches!(
         mime.as_str(),
-        "application/rss+xml" | "application/xml" | "text/xml"
+        "application/rss+xml" | "application/atom+xml" | "application/xml" | "text/xml"
     ) {
-        return Err(Error::Acquisition("expected an RSS document"));
+        return Err(Error::Acquisition("expected an RSS or Atom document"));
     }
     for parameter in parts {
         let Some((name, value)) = parameter.trim().split_once('=') else {
@@ -624,6 +624,121 @@ mod tests {
                 .contains("accept-encoding: gzip, deflate, identity")
         );
         assert!(request.contains("GET /feed.xml?token=hidden"));
+        Ok(())
+    }
+
+    async fn fetch_feed(header_block: &str, body: &[u8]) -> crate::Result<Vec<u8>> {
+        let response = format!(
+            "HTTP/1.1 200 OK\r\n{header_block}Content-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let payload = body.to_vec();
+        let server = tokio::spawn(async move {
+            let Ok(Ok((mut socket, _))) =
+                tokio::time::timeout(Duration::from_secs(2), listener.accept()).await
+            else {
+                return;
+            };
+            let mut request = Vec::new();
+            while request.len() < 4096 && !request.ends_with(b"\r\n\r\n") {
+                match tokio::time::timeout(Duration::from_secs(2), socket.read_u8()).await {
+                    Ok(Ok(byte)) => request.push(byte),
+                    _ => break,
+                }
+            }
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.write_all(&payload).await;
+        });
+        let source = HttpSource::new(
+            "Feed",
+            &format!(
+                "http://fixture.invalid:{}/feed.xml?token=hidden",
+                address.port()
+            ),
+            NetworkScope::PinnedAddress {
+                address: address.ip(),
+            },
+        )?;
+        let outcome = HttpAcquirer::default().feed_document(&source).await;
+        server.await.map_err(|_| Error::Acquisition("server"))?;
+        Ok(outcome?.document)
+    }
+
+    #[tokio::test]
+    async fn atom_content_type_returns_the_body() -> crate::Result<()> {
+        let body = b"<feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>";
+        let document = fetch_feed(
+            "Content-Type: application/atom+xml; charset=utf-8\r\n",
+            body,
+        )
+        .await?;
+        assert_eq!(document, body);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn feed_type_rejects_html_a_missing_type_and_utf_16() -> crate::Result<()> {
+        let body = b"<feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>";
+        let html = fetch_feed("Content-Type: text/html\r\n", body).await;
+        assert!(matches!(
+            html,
+            Err(Error::Acquisition("expected an RSS or Atom document"))
+        ));
+        let missing = fetch_feed("", body).await;
+        assert!(matches!(
+            missing,
+            Err(Error::Acquisition("expected an RSS or Atom document"))
+        ));
+        let utf16 = fetch_feed(
+            "Content-Type: application/atom+xml; charset=utf-16\r\n",
+            body,
+        )
+        .await;
+        assert!(matches!(
+            utf16,
+            Err(Error::Acquisition("feed document is not UTF-8"))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn other_feed_types_fail_closed() -> crate::Result<()> {
+        for value in ["application/xhtml+xml", "application/json", "text/html"] {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_str(value)
+                    .map_err(|_| Error::Acquisition("header"))?,
+            );
+            assert!(matches!(
+                super::feed_content_type(&headers),
+                Err(Error::Acquisition("expected an RSS or Atom document"))
+            ));
+        }
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_str("application/atom+xml")
+                .map_err(|_| Error::Acquisition("header"))?,
+        );
+        headers.append(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_str("application/xml")
+                .map_err(|_| Error::Acquisition("header"))?,
+        );
+        assert!(matches!(
+            super::feed_content_type(&headers),
+            Err(Error::Acquisition("expected an RSS or Atom document"))
+        ));
+        let mut ascii = reqwest::header::HeaderMap::new();
+        ascii.insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_str("application/atom+xml; charset=us-ascii")
+                .map_err(|_| Error::Acquisition("header"))?,
+        );
+        assert!(super::feed_content_type(&ascii).is_ok());
         Ok(())
     }
 }

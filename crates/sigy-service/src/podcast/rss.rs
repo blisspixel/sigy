@@ -1,9 +1,9 @@
-//! Bounded RSS 2.0 item extraction. No DTD, external entity, or `XInclude` resolution.
+//! Bounded RSS 2.0 and Atom item extraction. No DTD, external entity, or `XInclude` resolution.
 
 use std::collections::HashSet;
 
 use super::{
-    date::parse_pub_date,
+    date::{parse_pub_date, parse_rfc3339},
     identity::{EpisodeIdentity, resolve_http_url},
 };
 use crate::{Error, Result, sources::unsafe_display};
@@ -13,6 +13,8 @@ const MAX_ITEMS: usize = 500;
 const MAX_TRANSCRIPTS: usize = 8;
 const MAX_CHAPTERS: usize = 4;
 const PODCAST_NAMESPACE: &str = "https://podcastindex.org/namespace/1.0";
+const ATOM_NAMESPACE: &str = "http://www.w3.org/2005/Atom";
+const ATOM_ENCLOSURE_REL: &str = "http://www.iana.org/assignments/relation/enclosure";
 const XINCLUDE_NAMESPACE: &str = "http://www.w3.org/2001/XInclude";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,13 +47,17 @@ pub(crate) struct ParsedFeed {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Rss,
+    Atom,
     Channel,
     Item,
+    Entry,
     Live,
     Title,
     Guid,
     PubDate,
+    Updated,
     Enclosure,
+    Link,
     Transcript,
     Chapters,
     Other,
@@ -62,6 +68,7 @@ enum Capture {
     Title,
     Guid,
     Published,
+    Updated,
 }
 
 struct Namespace {
@@ -80,6 +87,7 @@ struct ItemBuild {
     title: String,
     guid: String,
     published: String,
+    updated: String,
     enclosure_url: Option<String>,
     enclosure_type: Option<String>,
     enclosure_length: Option<i64>,
@@ -102,10 +110,10 @@ struct Parser<'a> {
     saw_root: bool,
 }
 
-/// Parses one RSS 2.0 document. Relative references use `base`, never `xml:base`.
+/// Parses one RSS 2.0 or Atom document. Relative references use `base`, never `xml:base`.
 /// # Errors
 /// Rejects a DTD, an external or undeclared entity, `XInclude`, excess depth, and
-/// a document that is not RSS 2.0.
+/// a document that is not RSS 2.0 or Atom.
 pub(crate) fn parse(document: &str, base: Option<&reqwest::Url>) -> Result<ParsedFeed> {
     if document.len() > 8 * 1024 * 1024 || document.as_bytes().contains(&0) {
         return Err(Error::InvalidInput("feed document exceeded parser limits"));
@@ -136,7 +144,9 @@ impl Parser<'_> {
             self.declaration()?;
         }
         while self.index < self.input.len() {
-            self.skip_space();
+            if self.capture.is_none() {
+                self.skip_space();
+            }
             if self.index >= self.input.len() {
                 break;
             }
@@ -149,13 +159,13 @@ impl Parser<'_> {
             } else if self.starts_with("<") {
                 self.element()?;
             } else if self.saw_root && self.stack.is_empty() {
-                return Err(Error::InvalidInput("feed document is not RSS 2.0"));
+                return Err(Error::InvalidInput("feed document is not RSS 2.0 or Atom"));
             } else {
                 self.consume_text()?;
             }
         }
         if !self.saw_root || !self.stack.is_empty() {
-            return Err(Error::InvalidInput("feed document is not RSS 2.0"));
+            return Err(Error::InvalidInput("feed document is not RSS 2.0 or Atom"));
         }
         Ok(std::mem::take(&mut self.feed))
     }
@@ -188,13 +198,13 @@ impl Parser<'_> {
 
     fn element(&mut self) -> Result<()> {
         if self.saw_root && self.stack.is_empty() {
-            return Err(Error::InvalidInput("feed document is not RSS 2.0"));
+            return Err(Error::InvalidInput("feed document is not RSS 2.0 or Atom"));
         }
         if self.starts_with("<!") {
             return self.reject_declaration();
         }
         if !self.starts_with("<") {
-            return Err(Error::InvalidInput("feed document is not RSS 2.0"));
+            return Err(Error::InvalidInput("feed document is not RSS 2.0 or Atom"));
         }
         self.index += 1;
         let closing = self.consume('/');
@@ -232,7 +242,13 @@ impl Parser<'_> {
         if self.inside(Kind::Live) && kind != Kind::Live {
             kind = Kind::Other;
         }
-        if kind == Kind::Item && (self.item.is_some() || !self.inside(Kind::Channel)) {
+        if kind == Kind::Entry {
+            kind = if self.item.is_none() && self.inside(Kind::Atom) {
+                Kind::Item
+            } else {
+                Kind::Other
+            };
+        } else if kind == Kind::Item && (self.item.is_some() || !self.inside(Kind::Channel)) {
             kind = Kind::Other;
         }
         self.prepare(kind, attributes)?;
@@ -242,7 +258,7 @@ impl Parser<'_> {
                 .stack
                 .last()
                 .map(|open| open.raw.clone())
-                .ok_or(Error::InvalidInput("feed document is not RSS 2.0"))?;
+                .ok_or(Error::InvalidInput("feed document is not RSS 2.0 or Atom"))?;
             self.close(&raw)?;
         }
         Ok(())
@@ -257,24 +273,35 @@ impl Parser<'_> {
                         .any(|(name, value)| name == "version" && value != "2.0")
                     || !attributes.iter().any(|(name, _)| name == "version")
                 {
-                    return Err(Error::InvalidInput("feed document is not RSS 2.0"));
+                    return Err(Error::InvalidInput("feed document is not RSS 2.0 or Atom"));
                 }
                 self.saw_root = true;
             }
-            Kind::Item if self.inside(Kind::Channel) && self.item.is_none() => {
+            Kind::Atom => {
+                if self.saw_root {
+                    return Err(Error::InvalidInput("feed document is not RSS 2.0 or Atom"));
+                }
+                self.saw_root = true;
+            }
+            Kind::Item
+                if self.item.is_none()
+                    && (self.inside(Kind::Channel) || self.inside(Kind::Atom)) =>
+            {
                 self.item = Some(ItemBuild::default());
             }
-            Kind::Title | Kind::Guid | Kind::PubDate if self.item.is_some() => {
+            Kind::Title | Kind::Guid | Kind::PubDate | Kind::Updated if self.item.is_some() => {
                 self.capture = Some((
                     match kind {
                         Kind::Title => Capture::Title,
                         Kind::Guid => Capture::Guid,
+                        Kind::Updated => Capture::Updated,
                         _ => Capture::Published,
                     },
                     self.depth,
                 ));
             }
             Kind::Enclosure if self.item.is_some() => self.enclosure(attributes),
+            Kind::Link if self.direct_child_of_item() => self.atom_link(attributes),
             Kind::Transcript if self.item.is_some() => self.asset(attributes, true),
             Kind::Chapters if self.item.is_some() => self.asset(attributes, false),
             _ => {}
@@ -296,6 +323,32 @@ impl Parser<'_> {
         item.enclosure_url = Some(url);
         item.enclosure_type = attr(attributes, "type").and_then(|value| bounded(value, 128));
         item.enclosure_length = attr(attributes, "length").and_then(parse_length);
+    }
+
+    fn atom_link(&mut self, attributes: &[(String, String)]) {
+        let Some(item) = self.item.as_mut() else {
+            return;
+        };
+        if item.enclosure_url.is_some() {
+            return;
+        }
+        let rel = attr(attributes, "rel").unwrap_or("alternate");
+        if rel != "enclosure" && rel != ATOM_ENCLOSURE_REL {
+            return;
+        }
+        let Some(url) = attr(attributes, "href").and_then(|url| resolve_http_url(url, self.base))
+        else {
+            return;
+        };
+        item.enclosure_url = Some(url);
+        item.enclosure_type = attr(attributes, "type").and_then(|value| bounded(value, 128));
+        item.enclosure_length = attr(attributes, "length").and_then(parse_length);
+    }
+
+    fn direct_child_of_item(&self) -> bool {
+        self.stack
+            .last()
+            .is_some_and(|open| open.kind == Kind::Item)
     }
 
     fn asset(&mut self, attributes: &[(String, String)], transcript: bool) {
@@ -326,9 +379,9 @@ impl Parser<'_> {
         let top = self
             .stack
             .pop()
-            .ok_or(Error::InvalidInput("feed document is not RSS 2.0"))?;
+            .ok_or(Error::InvalidInput("feed document is not RSS 2.0 or Atom"))?;
         if top.raw != raw {
-            return Err(Error::InvalidInput("feed document is not RSS 2.0"));
+            return Err(Error::InvalidInput("feed document is not RSS 2.0 or Atom"));
         }
         if top.kind == Kind::Item && self.item.is_some() {
             self.finish_item()?;
@@ -351,17 +404,13 @@ impl Parser<'_> {
         let item = self
             .item
             .take()
-            .ok_or(Error::InvalidInput("feed document is not RSS 2.0"))?;
+            .ok_or(Error::InvalidInput("feed document is not RSS 2.0 or Atom"))?;
         let (title, title_truncated) = clean_title(&item.title, item.title_overflow)?;
         if title_truncated {
             self.feed.truncated = true;
         }
         let guid = clean_guid(&item.guid)?;
-        let published_ms = if item.published.trim().is_empty() {
-            None
-        } else {
-            parse_pub_date(item.published.trim())
-        };
+        let published_ms = publication_instant(&item.published, &item.updated);
         let identity = if let Some(guid) = guid {
             EpisodeIdentity::PublisherGuid(guid)
         } else if let (Some(url), Some(published_ms)) = (item.enclosure_url.clone(), published_ms) {
@@ -423,6 +472,7 @@ impl Parser<'_> {
             Capture::Title => (&mut item.title, 4_096),
             Capture::Guid => (&mut item.guid, 2_048),
             Capture::Published => (&mut item.published, 128),
+            Capture::Updated => (&mut item.updated, 128),
         };
         if buffer.len().saturating_add(text.len()) > limit {
             return match which {
@@ -435,6 +485,11 @@ impl Parser<'_> {
                 Capture::Guid => Err(Error::InvalidInput("feed document exceeded parser limits")),
                 Capture::Published => {
                     item.published.clear();
+                    self.capture = None;
+                    Ok(())
+                }
+                Capture::Updated => {
+                    item.updated.clear();
                     self.capture = None;
                     Ok(())
                 }
@@ -572,7 +627,7 @@ impl Parser<'_> {
 
     fn skip_pi(&mut self) -> Result<()> {
         if self.starts_with("<?xml") {
-            return Err(Error::InvalidInput("feed document is not RSS 2.0"));
+            return Err(Error::InvalidInput("feed document is not RSS 2.0 or Atom"));
         }
         let end = self.input[self.index..]
             .find("?>")
@@ -587,7 +642,7 @@ impl Parser<'_> {
         let start = self.index;
         let mut chars = self.input[self.index..].chars();
         let Some(first) = chars.next() else {
-            return Err(Error::InvalidInput("feed document is not RSS 2.0"));
+            return Err(Error::InvalidInput("feed document is not RSS 2.0 or Atom"));
         };
         if !first.is_ascii_alphabetic() && first != '_' {
             return Err(Error::InvalidInput(
@@ -668,6 +723,18 @@ fn classify(uri: &str, local: &str) -> Kind {
             _ => Kind::Other,
         };
     }
+    if uri == ATOM_NAMESPACE {
+        return match local {
+            "feed" => Kind::Atom,
+            "entry" => Kind::Entry,
+            "id" => Kind::Guid,
+            "title" => Kind::Title,
+            "published" => Kind::PubDate,
+            "updated" => Kind::Updated,
+            "link" => Kind::Link,
+            _ => Kind::Other,
+        };
+    }
     if !uri.is_empty() {
         return Kind::Other;
     }
@@ -681,6 +748,14 @@ fn classify(uri: &str, local: &str) -> Kind {
         "enclosure" => Kind::Enclosure,
         _ => Kind::Other,
     }
+}
+
+fn publication_instant(published: &str, updated: &str) -> Option<i64> {
+    let published = published.trim();
+    if published.is_empty() {
+        return parse_rfc3339(updated.trim());
+    }
+    parse_pub_date(published).or_else(|| parse_rfc3339(published))
 }
 
 fn attr<'a>(attributes: &'a [(String, String)], name: &str) -> Option<&'a str> {
@@ -878,9 +953,10 @@ mod tests {
                 "XInclude",
             ),
             (
-                r#"<feed xmlns="http://www.w3.org/2005/Atom"><title>No</title></feed>"#,
+                r#"<feed xmlns="http://purl.org/atom/ns#"><title>No</title></feed>"#,
                 "not RSS 2.0",
             ),
+            (r"<feed><title>No</title></feed>", "not RSS 2.0"),
         ];
         for (xml, detail) in samples {
             match parse(xml, None) {
@@ -934,6 +1010,149 @@ mod tests {
             feed.episodes[0].transcripts[0].url,
             "http://fixture.example/notes.vtt"
         );
+        Ok(())
+    }
+
+    fn atom(entries: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:podcast="https://podcastindex.org/namespace/1.0">{entries}</feed>"#
+        )
+    }
+
+    #[test]
+    fn an_atom_entry_keeps_its_id_enclosure_and_first_duplicate() -> TestResult {
+        let feed = parse(
+            &atom(
+                r#"<id>urn:feed</id><title>Feed</title><entry><id>ep-1</id><title>A <b>world</b> fair</title><published>1970-01-01T00:00:00Z</published><link rel="enclosure" href="https://cdn.example/a.mp3" type="audio/mpeg" length="3"/><link rel="enclosure" href="https://cdn.example/later.mp3"/><podcast:transcript url="https://cdn.example/a.vtt" type="text/vtt" language="en"/><podcast:chapters url="https://cdn.example/a.json" type="application/json"/></entry><entry><title>Only a title</title></entry><entry><id>ep-1</id><title>Again</title></entry><entry><id>ep-2</id><link href="https://cdn.example/page"/><link rel="alternate" href="https://cdn.example/alt.mp3"/></entry>"#,
+            ),
+            None,
+        )?;
+        assert_eq!(feed.episodes.len(), 2);
+        assert_eq!(feed.skipped, 1);
+        assert!(!feed.truncated);
+        assert_eq!(feed.episodes[0].title.as_deref(), Some("A world fair"));
+        assert_eq!(feed.episodes[0].published_ms, Some(0));
+        assert_eq!(
+            feed.episodes[0].enclosure_url.as_deref(),
+            Some("https://cdn.example/a.mp3")
+        );
+        assert_eq!(feed.episodes[0].enclosure_length, Some(3));
+        assert_eq!(feed.episodes[0].transcripts.len(), 1);
+        assert_eq!(feed.episodes[0].chapters.len(), 1);
+        assert!(feed.episodes[1].enclosure_url.is_none());
+        assert!(matches!(
+            &feed.episodes[0].identity,
+            super::EpisodeIdentity::PublisherGuid(guid) if guid == "ep-1"
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn atom_dates_prefer_published_and_collapse_updated() -> TestResult {
+        let both = parse(
+            &atom(
+                r"<entry><id>both</id><published>1970-01-01T00:00:01Z</published><updated>1970-01-01T00:00:00Z</updated></entry>",
+            ),
+            None,
+        )?;
+        assert_eq!(both.episodes[0].published_ms, Some(1_000));
+        let updated = parse(
+            &atom(r"<entry><id>later</id><updated>1970-01-01T00:00:00Z</updated></entry>"),
+            None,
+        )?;
+        assert_eq!(updated.episodes[0].published_ms, Some(0));
+        let broken = parse(
+            &atom(
+                r"<entry><id>broken</id><published>not-a-date</published><updated>1970-01-01T00:00:00Z</updated></entry>",
+            ),
+            None,
+        )?;
+        assert!(broken.episodes[0].published_ms.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn atom_summary_content_and_foreign_items_add_no_enclosure() -> TestResult {
+        let base = reqwest::Url::parse("http://cdn.example/show/feed.xml")?;
+        let feed = parse(
+            &atom(
+                r#"<entry xml:base="http://evil.example/"><id>ep</id><link rel="enclosure" href="audio.mp3" type="audio/mpeg" length="4"/><summary>See <link rel="enclosure" href="https://cdn.example/hidden.mp3"/></summary><content><link rel="http://www.iana.org/assignments/relation/enclosure" href="https://cdn.example/body.mp3"/></content></entry><entry><title>Derived</title><updated>1970-01-01T00:00:00Z</updated><link rel="http://www.iana.org/assignments/relation/enclosure" href="https://cdn.example/derived.mp3" length="8" type="audio/mpeg"/></entry><item><guid>rss-inside</guid></item><podcast:liveItem status="live"><link rel="enclosure" href="https://cdn.example/live.mp3"/></podcast:liveItem>"#,
+            ),
+            Some(&base),
+        )?;
+        assert_eq!(feed.episodes.len(), 2);
+        assert_eq!(feed.live_count, 1);
+        assert_eq!(feed.skipped, 0);
+        assert_eq!(
+            feed.episodes[0].enclosure_url.as_deref(),
+            Some("http://cdn.example/show/audio.mp3")
+        );
+        assert!(matches!(
+            &feed.episodes[1].identity,
+            super::EpisodeIdentity::Derived { url, published_ms }
+                if url == "https://cdn.example/derived.mp3" && *published_ms == 0
+        ));
+        let rss = parse(
+            &document(
+                r#"<entry xmlns="http://www.w3.org/2005/Atom"><id>atom-inside</id><link rel="enclosure" href="https://cdn.example/no.mp3"/></entry>"#,
+            ),
+            None,
+        )?;
+        assert_eq!(rss.episodes, []);
+        let empty = parse(
+            r#"<feed xmlns="http://www.w3.org/2005/Atom"><title>No</title></feed>"#,
+            None,
+        )?;
+        assert_eq!(empty.episodes, []);
+        assert_eq!(empty.skipped, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn atom_entries_truncate_at_five_hundred_and_deep_markup_fails() -> TestResult {
+        let mut entries = String::new();
+        for index in 0..501 {
+            write!(entries, "<entry><id>e{index}</id></entry>")?;
+        }
+        let feed = parse(&atom(&entries), None)?;
+        assert_eq!(feed.episodes.len(), 500);
+        assert!(feed.truncated);
+        let mut deep = String::from(r#"<feed xmlns="http://www.w3.org/2005/Atom">"#);
+        for _ in 0..31 {
+            deep.push_str("<a>");
+        }
+        for _ in 0..31 {
+            deep.push_str("</a>");
+        }
+        deep.push_str("</feed>");
+        assert!(parse(&deep, None).is_ok(), "depth {MAX_DEPTH} is allowed");
+        deep.insert_str(r#"<feed xmlns="http://www.w3.org/2005/Atom">"#.len(), "<a>");
+        deep.insert_str(deep.len() - "</feed>".len(), "</a>");
+        assert!(matches!(
+            parse(&deep, None),
+            Err(Error::InvalidInput(detail)) if detail.contains("depth")
+        ));
+        assert!(matches!(
+            parse(
+                r#"<!DOCTYPE feed [<!ENTITY xxe SYSTEM "file:///secret">]><feed xmlns="http://www.w3.org/2005/Atom"></feed>"#,
+                None,
+            ),
+            Err(Error::InvalidInput(detail)) if detail.contains("DTD")
+        ));
+        assert!(matches!(
+            parse(
+                r#"<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>&secret;</id></entry></feed>"#,
+                None,
+            ),
+            Err(Error::InvalidInput(detail)) if detail.contains("external entity")
+        ));
+        assert!(matches!(
+            parse(
+                r#"<feed xmlns="http://www.w3.org/2005/Atom" xmlns:xi="http://www.w3.org/2001/XInclude"><xi:include href="http://evil.example/x"/></feed>"#,
+                None,
+            ),
+            Err(Error::InvalidInput(detail)) if detail.contains("XInclude")
+        ));
         Ok(())
     }
 }

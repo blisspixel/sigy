@@ -526,7 +526,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "podcast_refresh",
-        description: "Fetch one RSS 2.0 document on the shared acquirer. Does not download enclosures, transcripts, or chapters.",
+        description: "Fetch one RSS 2.0 or Atom document on the shared acquirer. Does not download enclosures, transcripts, or chapters.",
         hints: HINT_NETWORK,
         words: &["podcast", "refresh"],
         slots: REFRESH,

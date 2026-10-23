@@ -159,7 +159,7 @@ A subscription is not a favorite and not an `http_audio` revision. Feed text gra
 
 14. **Fetch publisher transcripts and chapters only when asked.** One asset per request, outside the media quota, with origin, type, language hint, document hash, and unverified alignment. Accept VTT, SRT, and the podcast-namespace JSON forms. Cue times are not media time, and the text is not an ASR row. Exit: refresh does not fetch the asset, and inspection shows unverified publisher text.
 
-Atom enclosure-only input, automatic metadata polling, range resume, images, private authorization headers, and article text wait. Article mining stays in stage 9.
+Atom enclosure metadata on the existing refresh is implemented. Automatic polling, range resume, images, private authorization headers, and article text still wait. Article mining stays in stage 9.
 
 ### D. Segmented recording
 

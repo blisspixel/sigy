@@ -4,6 +4,12 @@ Updated: 2026-10-23. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-23 Atom feed document
+
+[Decision 0111](../decisions/0111-atom-feed-document.md) accepts one Atom document on the existing podcast refresh. An entry `id` is a publisher guid. `published` fills the existing publication time, and `updated` fills it only when `published` is absent. A direct child enclosure link is stored. Summary, content, and alternate links are not stored and are not requested. An empty feed commits zero episodes. A hostile document leaves the previous snapshot. Catalog schema stays v53. Local IPC stays v56. Issue 13 stays open. Issue 14 stays open. S-03B stays open. No stage exit is claimed.
+
+`cargo verify` exited 0 in 423.33 seconds. The `sigy` binary tests passed 384, with 7 ignored, in 27.02 seconds. The `sigy-service` library tests passed 770, with 2 ignored, in 183.76 seconds. `cargo audit --deny warnings` loaded 1351 advisories and scanned 382 dependencies. `cargo verify-media` exited 0 in 140.26 seconds: 20 ignored service fixtures in 115.56 seconds and the direct live PCM check in 0.07 seconds. FFmpeg is `N-113513-gaa3cfd4b5a-20240202`. Coverage and `cargo visual-qa` were not run. External spend is USD 0. This receipt was written after those commands. Hosted verify of this commit is not recorded here.
+
 ## 2026-10-23 claim candidates
 
 [Decision 0110](../decisions/0110-claim-candidates.md) lists analysis-search hits that a stored finding already cites. The search writes nothing. The user accepts with the existing `sigy claim sighting` command. A current search uses the newest translation. `--history` adds an older cited translation only when the term is in that older English text and not in the original, and that hit is labeled stale. At most eight findings are named for each hit. Findings opens a read-only claim list with `c`. Enter reads one claim. The page does not create a claim or start playback. Catalog schema stays v53. Local IPC is v56. Issues 13 and 14 stay open. S-03B stays open. No stage exit is claimed.

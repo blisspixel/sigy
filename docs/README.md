@@ -62,7 +62,7 @@ Finite recording and its current limitations are covered by [recording and reten
 
 [Local podcast subscriptions](decisions/0017-local-podcast-subscriptions.md) store one feed URL, scope, pin, and redirect policy. Subscribe does not resolve DNS or start a capture. Unsubscribe stops future polls and deletes nothing.
 
-[RSS feed refresh](decisions/0018-rss-feed-refresh.md) reads one RSS 2.0 document on the shared acquirer and lists episodes. It does not download enclosures. A failed document leaves the last good snapshot.
+[RSS feed refresh](decisions/0018-rss-feed-refresh.md) reads one RSS 2.0 or Atom document on the shared acquirer and lists episodes. [Decision 0111](decisions/0111-atom-feed-document.md) is the Atom document. It does not download enclosures. A failed document leaves the last good snapshot.
 
 [Episode enclosure download](decisions/0019-episode-enclosure.md) fetches one stored enclosure through the existing recording path. It reserves 512 MiB and 30 minutes before connecting. Feed text does not grant that fetch.
 

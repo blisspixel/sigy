@@ -162,7 +162,7 @@ enum Command {
         #[command(subcommand)]
         command: sources::SourceCommand,
     },
-    /// Store a podcast subscription, refresh one RSS document, or download one enclosure.
+    /// Store a podcast subscription, refresh one RSS 2.0 or Atom document, or download one enclosure.
     Podcast {
         #[command(subcommand)]
         command: podcast::PodcastCommand,

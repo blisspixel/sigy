@@ -198,7 +198,7 @@ sigy --data-dir PATH_TO_LIBRARY podcast refresh-status feed:v1
 sigy --data-dir PATH_TO_LIBRARY podcast episodes show:v1
 ```
 
-Refresh reads one RSS 2.0 document on the shared acquirer. A compressed body is at most 2 MiB, the decoded document is at most 8 MiB, and the expansion ratio is at most 16. At most 500 items are committed. Further items mark the snapshot truncated. A failed document leaves the last good snapshot. Omission from a later snapshot does not delete an episode. Transcript and chapter URLs are stored and are not fetched by refresh. A live item is counted and not opened. Episode titles are not identity. Listing episodes works offline.
+Refresh reads one RSS 2.0 or Atom document on the shared acquirer. A compressed body is at most 2 MiB, the decoded document is at most 8 MiB, and the expansion ratio is at most 16. At most 500 items are committed. Further items mark the snapshot truncated. A failed document leaves the last good snapshot. Omission from a later snapshot does not delete an episode. Transcript and chapter URLs are stored and are not fetched by refresh. A live item is counted and not opened. Episode titles are not identity. Listing episodes works offline.
 
 ```text
 sigy --data-dir PATH_TO_LIBRARY podcast download show:v1 --episode EPISODE_ID --id episode:v1 --revision enc:v1

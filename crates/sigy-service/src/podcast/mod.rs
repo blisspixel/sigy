@@ -1,4 +1,4 @@
-//! One RSS 2.0 document. Feed text does not grant a fetch, a recording, or playback.
+//! One RSS 2.0 or Atom document. Feed text does not grant a fetch, a recording, or playback.
 
 mod date;
 mod identity;

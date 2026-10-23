@@ -894,3 +894,155 @@ fn text_response(path: &str, port: u16) -> Vec<u8> {
     }
     http_body("404 Not Found", "Content-Type: text/plain\r\n", b"missing")
 }
+
+fn atom_document(port: u16) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:podcast="https://podcastindex.org/namespace/1.0"><title>Fixture</title><entry><id>ep-guid</id><title>Guided</title><published>1970-01-01T00:00:00Z</published><link rel="enclosure" href="http://127.0.0.1:{port}/audio/a.mp3?token=hidden" type="audio/mpeg" length="4"/></entry><entry><title>Derived</title><published>1970-01-01T00:00:00Z</published><link rel="enclosure" href="http://127.0.0.1:{port}/audio/b.mp3?token=hidden" type="audio/mpeg" length="4"/></entry><entry><title>Skipped</title></entry><podcast:liveItem status="live"><title>Live</title><link rel="enclosure" href="http://127.0.0.1:{port}/live.mp3?token=hidden"/></podcast:liveItem></feed>"#
+    )
+}
+
+fn spawn_atom_listener(
+    listener: TcpListener,
+    port: u16,
+    stop: &Arc<AtomicBool>,
+    hits: &Arc<AtomicUsize>,
+) -> thread::JoinHandle<std::io::Result<()>> {
+    let cancelled = Arc::clone(stop);
+    let counter = Arc::clone(hits);
+    thread::spawn(move || -> std::io::Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !cancelled.load(Ordering::Relaxed) && Instant::now() < deadline {
+            match listener.accept() {
+                Ok((mut socket, _)) => {
+                    socket.set_nonblocking(false)?;
+                    socket.set_read_timeout(Some(Duration::from_secs(5)))?;
+                    let mut bytes = Vec::new();
+                    while bytes.len() < 4096 && !bytes.ends_with(b"\r\n\r\n") {
+                        let mut byte = [0];
+                        if socket.read_exact(&mut byte).is_err() {
+                            break;
+                        }
+                        bytes.push(byte[0]);
+                    }
+                    let hit = counter.fetch_add(1, Ordering::Relaxed);
+                    let response = if hit == 0 {
+                        let body = atom_document(port);
+                        http_body(
+                            "200 OK",
+                            "Content-Type: application/atom+xml; charset=utf-8\r\n",
+                            body.as_bytes(),
+                        )
+                    } else {
+                        http_body(
+                            "200 OK",
+                            "Content-Type: application/atom+xml\r\n",
+                            b"<!DOCTYPE feed [<!ENTITY secret SYSTEM \"file:///secret\">]><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>",
+                        )
+                    };
+                    let _ = socket.write_all(&response);
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                    ) =>
+                {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    })
+}
+
+fn assert_atom_episodes(directory: &std::path::Path) -> TestResult {
+    let page = success(directory, &["podcast", "episodes", "atom", "--limit", "32"])?;
+    let rendered = page.to_string();
+    assert!(!rendered.contains("token=hidden"), "{rendered}");
+    assert!(!rendered.contains("/audio/"), "{rendered}");
+    assert!(!rendered.contains("/live.mp3"), "{rendered}");
+    let episodes = page["podcast_feed"]["episodes"]
+        .as_array()
+        .ok_or("episode page")?;
+    assert_eq!(episodes.len(), 2);
+    assert_eq!(
+        episodes
+            .iter()
+            .filter(|episode| episode["identity"] == "publisher_guid")
+            .count(),
+        1
+    );
+    assert_eq!(
+        episodes
+            .iter()
+            .filter(|episode| episode["identity"] == "derived_enclosure")
+            .count(),
+        1
+    );
+    Ok(())
+}
+
+#[test]
+fn atom_refresh_lists_guid_and_derived_episodes_and_keeps_a_failed_replay() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    listener.set_nonblocking(true)?;
+    let port = listener.local_addr()?.port();
+    let stop = Arc::new(AtomicBool::new(false));
+    let hits = Arc::new(AtomicUsize::new(0));
+    let worker = spawn_atom_listener(listener, port, &stop, &hits);
+    success(directory.path(), &["library", "init"])?;
+    let url = format!("http://fixture.invalid:{port}/feed.xml?token=hidden");
+    success(
+        directory.path(),
+        &[
+            "podcast",
+            "subscribe",
+            "atom",
+            "--url",
+            &url,
+            "--pin-address",
+            "127.0.0.1",
+            "--redirects",
+            "deny",
+        ],
+    )?;
+    let mut service = RunningChild::start(directory.path())?;
+    success(
+        directory.path(),
+        &["podcast", "refresh", "atom", "--id", "atom:v1"],
+    )?;
+    let completed = wait_refresh(directory.path(), "atom:v1")?;
+    assert_eq!(
+        completed["podcast_feed"]["refresh"]["state"], "completed",
+        "{completed}"
+    );
+    assert_eq!(completed["podcast_feed"]["refresh"]["committed_items"], 2);
+    assert_eq!(completed["podcast_feed"]["refresh"]["live_count"], 1);
+    assert_eq!(completed["podcast_feed"]["refresh"]["skipped_items"], 1);
+    success(
+        directory.path(),
+        &["podcast", "refresh", "atom", "--id", "atom:v1"],
+    )?;
+    assert_eq!(hits.load(Ordering::Relaxed), 1);
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    assert_atom_episodes(directory.path())?;
+    let mut service = RunningChild::start(directory.path())?;
+    thread::sleep(Duration::from_millis(2_100));
+    success(
+        directory.path(),
+        &["podcast", "refresh", "atom", "--id", "atom:v2"],
+    )?;
+    let failed = wait_refresh(directory.path(), "atom:v2")?;
+    assert_eq!(failed["podcast_feed"]["refresh"]["state"], "failed");
+    assert_eq!(failed["podcast_feed"]["snapshot"]["refresh_id"], "atom:v1");
+    success(directory.path(), &["service", "stop"])?;
+    service.wait()?;
+    assert_atom_episodes(directory.path())?;
+    assert_eq!(hits.load(Ordering::Relaxed), 2);
+    stop.store(true, Ordering::Relaxed);
+    let _ = worker.join();
+    Ok(())
+}
