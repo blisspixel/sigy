@@ -401,6 +401,12 @@ pub enum Effect {
     FindingOriginal {
         recording: String,
     },
+    /// Read claim ids. This writes nothing.
+    ClaimList,
+    /// Read one stored claim. This writes nothing.
+    ClaimShow {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -480,6 +486,7 @@ pub struct Explorer {
     globe: GlobeView,
     pub monitors: super::monitor::Browser,
     pub findings: super::finding::Browser,
+    pub claims: super::claims::Browser,
 }
 
 /// What the Globe workspace shows. Changing it never contacts a station.
@@ -564,6 +571,7 @@ impl Explorer {
             },
             monitors: super::monitor::Browser::default(),
             findings: super::finding::Browser::default(),
+            claims: super::claims::Browser::default(),
         }
     }
 
@@ -1114,6 +1122,21 @@ impl Explorer {
             return self.context_key(&key);
         }
         if self.workspace == Workspace::Findings {
+            if self.claims.open() {
+                if leaves_claim_page(&key) {
+                    self.claims.close();
+                } else {
+                    let effect = self.claims.handle(&key);
+                    if matches!(key, Key::Escape) {
+                        self.invalidate_reads();
+                    }
+                    return effect;
+                }
+            } else if matches!(key, Key::Char('c')) {
+                self.invalidate_reads();
+                self.claims.open_list();
+                return Effect::ClaimList;
+            }
             let previous_query = self.findings.query().to_owned();
             if let Some(effect) = self.findings.handle(&key) {
                 if self.findings.query() != previous_query {
@@ -1552,6 +1575,9 @@ impl Explorer {
     }
 
     fn workspace_effect(&mut self) -> Effect {
+        if self.workspace != Workspace::Findings {
+            self.claims.close();
+        }
         self.invalidate_reads();
         if self.workspace == Workspace::Monitors {
             Effect::MonitorList
@@ -1576,6 +1602,7 @@ impl Explorer {
     }
 
     pub fn open_finding_recording(&mut self, record: RecordingLine) {
+        self.claims.close();
         if let Some(index) = self.recordings.iter().position(|item| item.id == record.id) {
             self.recordings[index] = record;
             self.recording_selection = index;
@@ -1771,6 +1798,10 @@ impl Explorer {
             }
         }
     }
+}
+
+fn leaves_claim_page(key: &Key) -> bool {
+    matches!(key, Key::Left | Key::Right | Key::Char('1'..='7'))
 }
 
 fn workspace_from_digit(character: char) -> Workspace {
@@ -2442,6 +2473,23 @@ mod tests {
         assert_eq!(model.workspace(), Workspace::Findings);
         assert_eq!(model.handle(Key::Char('6')), Effect::None);
         assert_eq!(model.workspace(), Workspace::System);
+    }
+
+    #[test]
+    fn findings_claim_page_is_read_only_and_closes_when_the_workspace_changes() {
+        let mut model = loaded();
+        assert_eq!(model.handle(Key::Char('5')), Effect::None);
+        assert_eq!(model.handle(Key::Char('c')), Effect::ClaimList);
+        assert!(model.claims.open());
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert_eq!(model.handle(Key::Char('S')), Effect::None);
+        assert!(model.playback().is_none());
+        assert!(model.claims.open());
+        assert_eq!(model.handle(Key::Char('H')), Effect::HoldRetained);
+        assert!(model.claims.open());
+        assert_eq!(model.handle(Key::Char('3')), Effect::None);
+        assert_eq!(model.workspace(), Workspace::Recordings);
+        assert!(!model.claims.open());
     }
 
     #[test]

@@ -153,7 +153,9 @@ impl Audio {
             | Effect::MonitorList
             | Effect::MonitorDetail { .. }
             | Effect::Finding { .. }
-            | Effect::FindingOriginal { .. } => {}
+            | Effect::FindingOriginal { .. }
+            | Effect::ClaimList
+            | Effect::ClaimShow { .. } => {}
         }
     }
 

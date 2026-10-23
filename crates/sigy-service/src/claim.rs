@@ -22,6 +22,8 @@ pub const STATUS_LIMIT: i64 = 32;
 pub const TEXT_CHARS: usize = 2_000;
 /// Most characters in an evidence note.
 pub const NOTE_CHARS: usize = 500;
+/// Most stored findings named for one search hit. One extra row sets `more_findings`.
+pub const CANDIDATE_FINDING_LIMIT: usize = 8;
 
 /// What the user says an evidence note does. This is not a classifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -270,6 +272,70 @@ impl ClaimBasis {
             reasons: Vec::new(),
         }
     }
+}
+
+/// One stored finding that cites the same cue a search hit read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaimCandidateFinding {
+    /// Monitor that owns the finding.
+    pub monitor_id: String,
+    /// Finding id.
+    pub finding_id: String,
+    /// Stored original state: `retained`, `missing`, or `expired`.
+    pub original_state: String,
+}
+
+/// One analysis-search hit that at least one stored finding already cites.
+///
+/// The join is exact: transcript, translation revision, cue, and recording.
+/// A passage with no finding is omitted. Nothing here is inserted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaimCandidate {
+    /// Source revision of the recording.
+    pub source: String,
+    /// Recording that holds the cue.
+    pub recording_id: String,
+    /// Transcript the finding cites.
+    pub transcript_id: String,
+    /// Transcript revision the finding cites.
+    pub transcript_revision: i64,
+    /// Translation revision the finding cites.
+    pub translation_revision: i64,
+    /// Cue ordinal inside that transcript revision.
+    pub cue_ordinal: u32,
+    /// Cue start on the recording media clock, in microseconds.
+    pub start_us: u64,
+    /// Cue end on that clock, exclusive, in microseconds.
+    pub end_us: u64,
+    /// Original script of the cue.
+    pub original: String,
+    /// English translation stored for that translation revision, when present.
+    pub english: Option<String>,
+    /// A newer transcript revision exists.
+    pub stale_transcript: bool,
+    /// This hit is an older translation of the cited transcript revision.
+    pub stale_translation: bool,
+    /// Matching findings, in monitor and finding id order, at most [`CANDIDATE_FINDING_LIMIT`].
+    pub findings: Vec<ClaimCandidateFinding>,
+    /// Another matching finding exists beyond that limit.
+    pub more_findings: bool,
+}
+
+/// The search page reduced to hits a stored finding already cites.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaimCandidatePage {
+    /// The validated search, with every bound filled in.
+    pub query: crate::archive::ArchiveQuery,
+    /// Search hits read on this page, including hits that are not findings.
+    pub hits_read: u32,
+    /// Hits that match at least one stored finding.
+    pub candidates: Vec<ClaimCandidate>,
+    /// Why the search stopped before the catalog ended. Absent when it finished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped: Option<crate::archive::ArchiveStop>,
 }
 
 /// One source lane. Several sightings of the same source revision share a lane.

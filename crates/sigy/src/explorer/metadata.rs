@@ -44,6 +44,10 @@ enum Kind {
         recording: String,
         query: String,
     },
+    ClaimList,
+    ClaimShow {
+        id: String,
+    },
 }
 
 struct Job {
@@ -97,6 +101,15 @@ enum ReadOutcome {
         epoch: u64,
         recording: String,
         query: String,
+        result: Attempt<(bool, Snapshot)>,
+    },
+    ClaimList {
+        epoch: u64,
+        result: Attempt<(bool, Snapshot)>,
+    },
+    ClaimShow {
+        epoch: u64,
+        id: String,
         result: Attempt<(bool, Snapshot)>,
     },
 }
@@ -223,6 +236,13 @@ impl Reads {
                     recording: recording.clone(),
                     query: model.findings.query().to_owned(),
                 },
+            ),
+            Effect::ClaimList => self.enqueue(runtime, directory, model, Kind::ClaimList),
+            Effect::ClaimShow { id } => self.enqueue(
+                runtime,
+                directory,
+                model,
+                Kind::ClaimShow { id: id.clone() },
             ),
             Effect::SetFavorite {
                 generation,
@@ -549,6 +569,15 @@ async fn execute(directory: &Path, epoch: u64, kind: Kind) -> ReadOutcome {
             recording,
             query,
         },
+        Kind::ClaimList => ReadOutcome::ClaimList {
+            epoch,
+            result: finish(client::fetch(directory, client::claim_list_operation()).await),
+        },
+        Kind::ClaimShow { id } => ReadOutcome::ClaimShow {
+            epoch,
+            result: finish(client::fetch(directory, client::claim_show_operation(&id)).await),
+            id,
+        },
     }
 }
 
@@ -606,6 +635,15 @@ fn closed_read(epoch: u64, kind: &Kind) -> ReadOutcome {
             epoch,
             recording: recording.clone(),
             query: query.clone(),
+            result: Attempt::Closed,
+        },
+        Kind::ClaimList => ReadOutcome::ClaimList {
+            epoch,
+            result: Attempt::Closed,
+        },
+        Kind::ClaimShow { id } => ReadOutcome::ClaimShow {
+            epoch,
+            id: id.clone(),
             result: Attempt::Closed,
         },
     }
@@ -673,6 +711,14 @@ fn adopt_read(model: &mut Explorer, outcome: ReadOutcome) {
                 Attempt::Finished(result) => client::adopt_original(model, &recording, *result),
             }
         }
+        ReadOutcome::ClaimList { result, .. } => match result {
+            Attempt::Closed => model.note_message(UNRESOLVED),
+            Attempt::Finished(result) => client::adopt_claim_list(model, *result),
+        },
+        ReadOutcome::ClaimShow { id, result, .. } => match result {
+            Attempt::Closed => model.note_message(UNRESOLVED),
+            Attempt::Finished(result) => client::adopt_claim_show(model, &id, *result),
+        },
     }
 }
 
@@ -689,7 +735,9 @@ fn epoch_of(outcome: &ReadOutcome) -> u64 {
         | ReadOutcome::MonitorList { epoch, .. }
         | ReadOutcome::MonitorDetail { epoch, .. }
         | ReadOutcome::Finding { epoch, .. }
-        | ReadOutcome::FindingOriginal { epoch, .. } => *epoch,
+        | ReadOutcome::FindingOriginal { epoch, .. }
+        | ReadOutcome::ClaimList { epoch, .. }
+        | ReadOutcome::ClaimShow { epoch, .. } => *epoch,
     }
 }
 

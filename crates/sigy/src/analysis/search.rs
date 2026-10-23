@@ -62,31 +62,39 @@ impl SearchArgs {
     /// Fails on a malformed cursor. The service checks every other bound.
     pub fn operation(&self) -> Result<AnalysisOperation, Box<dyn std::error::Error>> {
         Ok(AnalysisOperation::Search {
-            query: ArchiveQuery {
-                term: self.term.clone(),
-                fields: match self.within {
-                    Within::Original => ArchiveFields::Original,
-                    Within::English => ArchiveFields::English,
-                    Within::Both => ArchiveFields::Both,
-                },
-                revisions: if self.history {
-                    ArchiveRevisions::All
-                } else {
-                    ArchiveRevisions::Current
-                },
-                source: self.source.clone(),
-                from_ms: self.from_ms,
-                to_ms: self.to_ms,
-                language: self.language.clone(),
-                limit: self.limit,
-                scan_rows: self.scan_rows,
-                deadline_ms: self.deadline_ms,
-                after: self
-                    .after
-                    .as_deref()
-                    .map(ArchiveCursor::parse)
-                    .transpose()?,
+            query: self.query()?,
+        })
+    }
+
+    /// The archive query these arguments name.
+    ///
+    /// # Errors
+    /// Fails on a malformed cursor. The service checks every other bound.
+    pub(crate) fn query(&self) -> Result<ArchiveQuery, Box<dyn std::error::Error>> {
+        Ok(ArchiveQuery {
+            term: self.term.clone(),
+            fields: match self.within {
+                Within::Original => ArchiveFields::Original,
+                Within::English => ArchiveFields::English,
+                Within::Both => ArchiveFields::Both,
             },
+            revisions: if self.history {
+                ArchiveRevisions::All
+            } else {
+                ArchiveRevisions::Current
+            },
+            source: self.source.clone(),
+            from_ms: self.from_ms,
+            to_ms: self.to_ms,
+            language: self.language.clone(),
+            limit: self.limit,
+            scan_rows: self.scan_rows,
+            deadline_ms: self.deadline_ms,
+            after: self
+                .after
+                .as_deref()
+                .map(ArchiveCursor::parse)
+                .transpose()?,
         })
     }
 }

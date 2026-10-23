@@ -5,8 +5,8 @@ use std::path::Path;
 use sigy_service::{
     Error,
     control::{
-        self, DirectoryOperation, DvrOperation, ListenView, MonitorOperation, MonitorPage,
-        Operation, RecordingOperation, Snapshot,
+        self, ClaimOperation, ClaimPage, DirectoryOperation, DvrOperation, ListenView,
+        MonitorOperation, MonitorPage, Operation, RecordingOperation, Snapshot,
     },
     library::Library,
     storage::dvr::DvrStatus,
@@ -95,6 +95,16 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
             adopt_original(model, recording, result);
             Ok(())
         }
+        Effect::ClaimList => {
+            let result = fetch(directory, claim_list_operation()).await;
+            adopt_claim_list(model, result);
+            Ok(())
+        }
+        Effect::ClaimShow { id } => {
+            let result = fetch(directory, claim_show_operation(id)).await;
+            adopt_claim_show(model, id, result);
+            Ok(())
+        }
         Effect::Search(query) => {
             adopt_search(
                 model,
@@ -149,6 +159,8 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
         Effect::MonitorDetail { id } => monitor_reads(id, model.now_ms()),
         Effect::Finding { monitor, finding } => vec![finding_operation(monitor, finding)],
         Effect::FindingOriginal { recording } => vec![original_operation(recording)],
+        Effect::ClaimList => vec![claim_list_operation()],
+        Effect::ClaimShow { id } => vec![claim_show_operation(id)],
         Effect::Reload => vec![
             Operation::Status {},
             radio_status(),
@@ -168,6 +180,18 @@ pub(super) fn finding_operation(monitor: &str, finding: &str) -> Operation {
         monitor: monitor.into(),
         finding: finding.into(),
     })
+}
+
+pub(super) fn claim_list_operation() -> Operation {
+    Operation::Claim {
+        command: ClaimOperation::List {},
+    }
+}
+
+pub(super) fn claim_show_operation(id: &str) -> Operation {
+    Operation::Claim {
+        command: ClaimOperation::Show { id: id.into() },
+    }
 }
 
 pub(super) fn original_operation(recording: &str) -> Operation {
@@ -341,6 +365,45 @@ pub(super) fn adopt_finding(
                 );
             } else {
                 model.note_message("Unexpected finding page; previous citation kept.");
+            }
+        }
+        Err(error) => report(model, &error),
+    }
+}
+
+pub(super) fn adopt_claim_list(model: &mut Explorer, result: Result<(bool, Snapshot), Error>) {
+    match result {
+        Ok((via_service, snapshot)) => {
+            model.note_link(link_from(via_service, &snapshot));
+            if let Some(ClaimPage::List { ids }) = snapshot.claim.as_deref() {
+                model.claims.load_ids(ids.clone());
+                model.note_message(
+                    "Stored claims read. Enter opens one. This page does not create a claim.",
+                );
+            } else {
+                model.note_message("Unexpected claim list; previous claims kept.");
+            }
+        }
+        Err(error) => report(model, &error),
+    }
+}
+
+pub(super) fn adopt_claim_show(
+    model: &mut Explorer,
+    id: &str,
+    result: Result<(bool, Snapshot), Error>,
+) {
+    match result {
+        Ok((via_service, snapshot)) => {
+            model.note_link(link_from(via_service, &snapshot));
+            if let Some(ClaimPage::Claim { claim }) = snapshot.claim.as_deref()
+                && model.claims.load_claim(id, claim)
+            {
+                model.note_message(
+                    "Claim page read. Arrows scroll. Esc returns to the list. Nothing was written.",
+                );
+            } else {
+                model.note_message("Unexpected claim page; previous claim kept.");
             }
         }
         Err(error) => report(model, &error),
@@ -801,7 +864,8 @@ mod tests {
     use super::{favorite_operation, operations_for, search_operation};
     use crate::explorer::state::{Effect, Explorer, Modes, SearchQuery};
     use sigy_service::control::{
-        DirectoryOperation, DvrOperation, MonitorOperation, Operation, RecordingOperation,
+        ClaimOperation, DirectoryOperation, DvrOperation, MonitorOperation, Operation,
+        RecordingOperation,
     };
     use sigy_service::discovery::StationFilter;
 
@@ -830,8 +894,11 @@ mod tests {
             | Operation::SetBudget { .. }
             | Operation::RegisterSource { .. }
             | Operation::Playlist { .. }
-            | Operation::Task { .. }
-            | Operation::Claim { .. } => true,
+            | Operation::Task { .. } => true,
+            Operation::Claim { command } => !matches!(
+                command,
+                ClaimOperation::List {} | ClaimOperation::Show { .. }
+            ),
             Operation::Monitor { command } => !matches!(
                 command,
                 MonitorOperation::List {}
@@ -891,6 +958,8 @@ mod tests {
             Effect::FindingOriginal {
                 recording: "rec".into(),
             },
+            Effect::ClaimList,
+            Effect::ClaimShow { id: "dam".into() },
             Effect::Play {
                 station: "station".into(),
             },

@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use super::*;
+use crate::archive::{ArchiveQuery, ArchiveRevisions};
 use crate::claim::{
     CLAIM_LIMIT, ClaimBasisReason, ClaimEvidenceKind, ClaimRelation, ClaimStatus, ClaimView,
     EVIDENCE_LIMIT, SIGHTING_LIMIT, STATUS_LIMIT, TEXT_REVISION_LIMIT,
@@ -882,4 +883,87 @@ fn another_findings_media_does_not_review_this_decision() -> TestResult {
 
 fn params_evidence(index: i64) -> (String, i64) {
     (format!("e{index}"), index)
+}
+
+fn feria() -> Result<ArchiveQuery> {
+    ArchiveQuery::new("feria").validate()
+}
+
+#[test]
+fn a_search_hit_is_a_candidate_only_when_a_finding_cites_that_cue() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = desk(&directory.path().join("catalog"))?;
+    let empty = store.claim_candidates(feria()?)?;
+    assert_eq!(empty.candidates, []);
+    assert!(empty.hits_read >= 1);
+    assert_eq!(tally(&store)?, (0, 0, 0, 0, 0));
+
+    store.publish_finding("fair", "world", &cite(FindingOriginal::Retained), 40)?;
+    let page = store.claim_candidates(feria()?)?;
+    assert_eq!(page.candidates.len(), 1);
+    let hit = &page.candidates[0];
+    assert_eq!(hit.original, "Una feria mundial");
+    assert_eq!(hit.english.as_deref(), Some("A world fair"));
+    assert_eq!(hit.translation_revision, 1);
+    assert!(!hit.stale_transcript);
+    assert!(!hit.stale_translation);
+    assert_eq!(hit.findings.len(), 1);
+    assert_eq!(hit.findings[0].monitor_id, "fair");
+    assert_eq!(hit.findings[0].finding_id, "world");
+    assert_eq!(hit.findings[0].original_state, "retained");
+    assert!(!hit.more_findings);
+    assert_eq!(tally(&store)?, (0, 0, 0, 0, 0));
+    for index in 0..8i64 {
+        store.publish_finding(
+            "fair",
+            &format!("extra{index}"),
+            &cite(FindingOriginal::Retained),
+            41 + index,
+        )?;
+    }
+    let capped = store.claim_candidates(feria()?)?;
+    assert_eq!(capped.candidates.len(), 1);
+    assert_eq!(capped.candidates[0].findings.len(), 8);
+    assert!(capped.candidates[0].more_findings);
+    assert_eq!(capped.candidates[0].findings[0].finding_id, "extra0");
+    assert!(
+        capped.candidates[0]
+            .findings
+            .iter()
+            .all(|finding| finding.finding_id != "world")
+    );
+
+    let missed = store.claim_candidates(ArchiveQuery::new("zzzz").validate()?)?;
+    assert_eq!(missed.hits_read, 0);
+    assert_eq!(missed.candidates, []);
+    let value = serde_json::to_value(&page)?;
+    assert!(!contains_key(&value, "score"));
+    Ok(())
+}
+
+#[test]
+fn a_newer_translation_stays_off_the_current_candidate_page() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = desk(&directory.path().join("catalog"))?;
+    store.publish_finding("fair", "world", &cite(FindingOriginal::Retained), 40)?;
+    translate_at(&mut store, "mt-2", 1, "A later fair", 50)?;
+    let current = store.claim_candidates(feria()?)?;
+    assert!(current.hits_read >= 1);
+    assert_eq!(current.candidates, []);
+
+    let mut history = feria()?;
+    history.revisions = ArchiveRevisions::All;
+    let same_term = store.claim_candidates(history)?;
+    assert!(same_term.hits_read >= 1);
+    assert_eq!(same_term.candidates, []);
+
+    let mut older = ArchiveQuery::new("world").validate()?;
+    older.revisions = ArchiveRevisions::All;
+    let page = store.claim_candidates(older)?;
+    assert_eq!(page.candidates.len(), 1);
+    assert_eq!(page.candidates[0].translation_revision, 1);
+    assert!(page.candidates[0].stale_translation);
+    assert_eq!(page.candidates[0].findings[0].finding_id, "world");
+    assert_eq!(tally(&store)?, (0, 0, 0, 0, 0));
+    Ok(())
 }

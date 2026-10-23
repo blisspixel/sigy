@@ -7,8 +7,10 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use super::{Store, validate_key};
 use crate::{
     Error, Result,
+    archive::{ArchiveHit, ArchiveQuery},
     claim::{
-        CLAIM_LIMIT, ClaimBasis, ClaimBasisReason, ClaimCarrier, ClaimEvidenceKind,
+        CANDIDATE_FINDING_LIMIT, CLAIM_LIMIT, ClaimBasis, ClaimBasisReason, ClaimCandidate,
+        ClaimCandidateFinding, ClaimCandidatePage, ClaimCarrier, ClaimEvidenceKind,
         ClaimEvidenceLink, ClaimRelation, ClaimSighting, ClaimStatus, ClaimTextRevision,
         ClaimTimeline, ClaimView, EVIDENCE_LIMIT, NOTE_CHARS, SIGHTING_LIMIT, STATUS_LIMIT,
         TEXT_CHARS, TEXT_REVISION_LIMIT,
@@ -19,6 +21,50 @@ use crate::{
 const ORIGIN: &str = "user";
 const UNSPECIFIED: &str = "unspecified";
 const UNKNOWN_SOURCE: &str = "unknown";
+
+fn findings_for_hit(
+    connection: &rusqlite::Connection,
+    hit: &ArchiveHit,
+    translation_revision: i64,
+) -> Result<(Vec<ClaimCandidateFinding>, bool)> {
+    let limit = CANDIDATE_FINDING_LIMIT.saturating_add(1);
+    let sql = format!(
+        "SELECT monitor_id, id, original_state FROM monitor_findings \
+         WHERE transcript_id = ?1 AND transcript_revision = ?2 AND translation_revision = ?3 \
+         AND cue_ordinal = ?4 AND recording_id = ?5 ORDER BY monitor_id, id LIMIT {limit}"
+    );
+    let mut statement = connection.prepare(&sql)?;
+    let rows = statement.query_map(
+        params![
+            hit.transcript_id,
+            hit.transcript_revision,
+            translation_revision,
+            hit.cue_ordinal,
+            hit.recording_id
+        ],
+        |row| {
+            Ok(ClaimCandidateFinding {
+                monitor_id: row.get(0)?,
+                finding_id: row.get(1)?,
+                original_state: row.get(2)?,
+            })
+        },
+    )?;
+    let mut findings = Vec::new();
+    for row in rows {
+        let finding = row?;
+        if !matches!(
+            finding.original_state.as_str(),
+            "retained" | "missing" | "expired"
+        ) {
+            return Err(Error::CatalogIntegrity);
+        }
+        findings.push(finding);
+    }
+    let more_findings = findings.len() > CANDIDATE_FINDING_LIMIT;
+    findings.truncate(CANDIDATE_FINDING_LIMIT);
+    Ok((findings, more_findings))
+}
 
 /// Fields of one evidence link. The origin is always the user.
 #[derive(Debug, Clone, Copy)]
@@ -139,6 +185,48 @@ impl Store {
         let rows = statement.query_map([], |row| row.get(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Error::from)
+    }
+
+    /// Keep search hits that a stored finding already cites. This writes nothing.
+    ///
+    /// # Errors
+    /// Refuses an invalid query. A stored original state outside the finding check is
+    /// a catalog integrity failure.
+    pub(crate) fn claim_candidates(&self, query: ArchiveQuery) -> Result<ClaimCandidatePage> {
+        let searched = self.archive_search(query)?;
+        let mut candidates = Vec::new();
+        for hit in &searched.hits {
+            let Some(translation_revision) = hit.translation_revision else {
+                continue;
+            };
+            let (findings, more_findings) =
+                findings_for_hit(&self.connection, hit, translation_revision)?;
+            if findings.is_empty() {
+                continue;
+            }
+            candidates.push(ClaimCandidate {
+                source: hit.source.clone(),
+                recording_id: hit.recording_id.clone(),
+                transcript_id: hit.transcript_id.clone(),
+                transcript_revision: hit.transcript_revision,
+                translation_revision,
+                cue_ordinal: hit.cue_ordinal,
+                start_us: hit.start_us,
+                end_us: hit.end_us,
+                original: hit.original.clone(),
+                english: hit.english.clone(),
+                stale_transcript: hit.stale_transcript,
+                stale_translation: hit.stale_translation,
+                findings,
+                more_findings,
+            });
+        }
+        Ok(ClaimCandidatePage {
+            query: searched.query,
+            hits_read: u32::try_from(searched.hits.len()).map_err(|_| Error::StorageIntegrity)?,
+            candidates,
+            stopped: searched.stopped,
+        })
     }
 
     /// Read one claim. A newer transcript or translation is stale and is not rewritten.

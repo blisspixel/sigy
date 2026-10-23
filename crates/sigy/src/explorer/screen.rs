@@ -272,12 +272,25 @@ fn pane_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static
             .into_iter()
             .map(Line::from)
             .collect(),
-        Workspace::Findings => model
-            .findings
-            .lines(height, width, 0)
+        Workspace::Findings => finding_lines(model, height, width),
+    }
+}
+
+fn finding_lines(model: &Explorer, limit: usize, width: usize) -> Vec<Line<'static>> {
+    if model.claims.open() {
+        model
+            .claims
+            .lines(limit)
             .into_iter()
             .map(Line::from)
-            .collect(),
+            .collect()
+    } else {
+        model
+            .findings
+            .lines(limit, width, 0)
+            .into_iter()
+            .map(Line::from)
+            .collect()
     }
 }
 
@@ -464,6 +477,7 @@ fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
             vec![
                 "/ edit IDs",
                 "Enter inspect",
+                "c claims",
                 "o metadata",
                 "P play",
                 "S stop",
@@ -527,7 +541,9 @@ fn help_line(pairs: &[&str]) -> String {
 
 fn editing(model: &Explorer) -> bool {
     model.focus() == Focus::Search
-        || (model.workspace() == Workspace::Findings && model.findings.editing())
+        || (model.workspace() == Workspace::Findings
+            && model.findings.editing()
+            && !model.claims.open())
 }
 
 fn many(lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
@@ -1146,6 +1162,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
         }
         Workspace::Findings => &[
             "  / edit IDs    Enter inspects    arrows scroll    o recording metadata",
+            "  c opens stored claims, read-only",
             "  P then y plays a cited interval    S stops",
             "  H pauses at the decoder time and the next H resumes",
             "  [ and ] seek 10 s inside this admitted listen",
@@ -1169,12 +1186,7 @@ fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
                 .into_iter()
                 .map(Line::from)
                 .collect(),
-            Workspace::Findings => model
-                .findings
-                .lines(limit, 60, 0)
-                .into_iter()
-                .map(Line::from)
-                .collect(),
+            Workspace::Findings => finding_lines(model, limit, 60),
         }
     } else {
         unavailable_lines(model)
@@ -2335,6 +2347,7 @@ mod tests {
             findings.contains("does not continue into the next segment"),
             "{findings}"
         );
+        assert!(findings.contains("stored claims"), "{findings}");
     }
 
     #[test]

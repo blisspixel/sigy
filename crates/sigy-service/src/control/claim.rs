@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use super::{Snapshot, snapshot};
 use crate::{
     Result,
-    claim::{ClaimEvidenceKind, ClaimRelation, ClaimStatus, ClaimView},
+    archive::ArchiveQuery,
+    claim::{ClaimCandidatePage, ClaimEvidenceKind, ClaimRelation, ClaimStatus, ClaimView},
     storage::{Store, claims::EvidenceRequest, claims::StatusRequest},
 };
 
@@ -49,6 +50,8 @@ pub enum ClaimOperation {
         status: ClaimStatus,
         evidence: String,
     },
+    /// Read search hits that a stored finding already cites. This writes nothing.
+    Candidates { query: ArchiveQuery },
 }
 
 /// A claim list or one claim page.
@@ -59,6 +62,8 @@ pub enum ClaimPage {
     List { ids: Vec<String> },
     /// One claim. The timeline precedes the sightings.
     Claim { claim: Box<ClaimView> },
+    /// Search hits that already are stored findings. No claim row is written.
+    Candidates { page: Box<ClaimCandidatePage> },
 }
 
 pub(super) fn apply(store: &mut Store, command: ClaimOperation) -> Result<Snapshot> {
@@ -123,6 +128,9 @@ pub(super) fn apply(store: &mut Store, command: ClaimOperation) -> Result<Snapsh
                 },
                 now,
             )?),
+        },
+        ClaimOperation::Candidates { query } => ClaimPage::Candidates {
+            page: Box::new(store.claim_candidates(query)?),
         },
     };
     let mut view = snapshot(store)?;

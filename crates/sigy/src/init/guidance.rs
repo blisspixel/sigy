@@ -161,7 +161,7 @@ fn claim_missing(command: &ClaimCommand) -> (String, &'static str) {
         ClaimCommand::Sighting { claim, .. }
         | ClaimCommand::Evidence { claim, .. }
         | ClaimCommand::Status { claim, .. } => claim.as_str(),
-        ClaimCommand::List => "",
+        ClaimCommand::List | ClaimCommand::Candidates { .. } => "",
     };
     if id.is_empty() {
         ("that claim was not found".into(), "claim list")

@@ -337,7 +337,7 @@ async fn execute(cli: &Cli) -> Result<Option<Snapshot>, Box<dyn std::error::Erro
     } else if let Command::Monitor { command } = &cli.command {
         command.operation()?
     } else if let Command::Claim { command } = &cli.command {
-        command.operation()
+        command.operation()?
     } else if let Command::Task { command } = &cli.command {
         command.operation()?
     } else if let Command::Provider { command } = &cli.command {

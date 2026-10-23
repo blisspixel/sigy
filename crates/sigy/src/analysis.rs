@@ -10,7 +10,7 @@ use sigy_service::translation::{TranslationJob, TranslationPage, TranslationProf
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-mod search;
+pub(crate) mod search;
 
 #[derive(Debug, Subcommand)]
 pub enum AnalysisCommand {

@@ -5,8 +5,8 @@ use std::io::{self, Write};
 use clap::{Subcommand, ValueEnum};
 use sigy_service::{
     claim::{
-        ClaimBasis, ClaimCarrier, ClaimEvidenceKind, ClaimEvidenceLink, ClaimRelation,
-        ClaimSighting, ClaimStatus, ClaimTimeline, ClaimView,
+        ClaimBasis, ClaimCandidatePage, ClaimCarrier, ClaimEvidenceKind, ClaimEvidenceLink,
+        ClaimRelation, ClaimSighting, ClaimStatus, ClaimTimeline, ClaimView,
     },
     control::{ClaimOperation, ClaimPage, Operation},
 };
@@ -127,6 +127,11 @@ pub enum ClaimCommand {
         #[arg(long, value_enum)]
         relation: Option<RelationChoice>,
     },
+    /// List stored findings that match an analysis search. This writes nothing.
+    Candidates {
+        #[command(flatten)]
+        search: crate::analysis::search::SearchArgs,
+    },
     /// Set disputed, corroborated, or retracted. Cite one evidence link you already stored.
     Status {
         claim: String,
@@ -144,8 +149,10 @@ pub enum ClaimCommand {
 
 impl ClaimCommand {
     /// The service command for this claim request.
-    #[must_use]
-    pub fn operation(&self) -> Operation {
+    ///
+    /// # Errors
+    /// A candidate search fails when its cursor cannot be read. The service checks the other bounds.
+    pub fn operation(&self) -> Result<Operation, Box<dyn std::error::Error>> {
         let command = match self {
             Self::Create { id, text } => ClaimOperation::Create {
                 id: id.clone(),
@@ -199,8 +206,11 @@ impl ClaimCommand {
                 status: ClaimStatus::from(*status),
                 evidence: evidence.clone(),
             },
+            Self::Candidates { search } => ClaimOperation::Candidates {
+                query: search.query()?,
+            },
         };
-        Operation::Claim { command }
+        Ok(Operation::Claim { command })
     }
 }
 
@@ -223,7 +233,69 @@ pub fn render(writer: &mut impl Write, page: &ClaimPage) -> io::Result<()> {
             Ok(())
         }
         ClaimPage::Claim { claim } => render_claim(writer, claim),
+        ClaimPage::Candidates { page } => render_candidates(writer, page),
     }
+}
+
+fn render_candidates(writer: &mut impl Write, page: &ClaimCandidatePage) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Candidates: {} of {} hits. This search writes nothing.",
+        page.candidates.len(),
+        page.hits_read
+    )?;
+    if page.candidates.is_empty() {
+        writeln!(
+            writer,
+            "No stored finding matches this search. A passage that is not a finding is not a candidate."
+        )?;
+        return Ok(());
+    }
+    for candidate in &page.candidates {
+        let transcript = if candidate.stale_transcript {
+            "transcript stale"
+        } else {
+            "transcript current"
+        };
+        let translation = if candidate.stale_translation {
+            "translation stale"
+        } else {
+            "translation current"
+        };
+        writeln!(
+            writer,
+            "{} revision {} translation {} cue {} | {} | recording {} | {transcript}; {translation}",
+            sanitize(&candidate.transcript_id, 128),
+            candidate.transcript_revision,
+            candidate.translation_revision,
+            candidate.cue_ordinal,
+            sanitize(&candidate.source, 128),
+            sanitize(&candidate.recording_id, 128)
+        )?;
+        writeln!(writer, "  {}", sanitize(&candidate.original, 2_000))?;
+        if let Some(english) = &candidate.english {
+            writeln!(writer, "  English: {}", sanitize(english, 2_000))?;
+        }
+        for finding in &candidate.findings {
+            writeln!(
+                writer,
+                "  finding {} monitor {} {}",
+                sanitize(&finding.finding_id, 128),
+                sanitize(&finding.monitor_id, 128),
+                sanitize(&finding.original_state, 32)
+            )?;
+            writeln!(
+                writer,
+                "Accept with: sigy claim sighting CLAIM SIGHTING --monitor {} --finding {}",
+                sanitize(&finding.monitor_id, 128),
+                sanitize(&finding.finding_id, 128)
+            )?;
+        }
+        if candidate.more_findings {
+            writeln!(writer, "  more findings exist")?;
+        }
+    }
+    Ok(())
 }
 
 fn render_claim(writer: &mut impl Write, claim: &ClaimView) -> io::Result<()> {
@@ -454,6 +526,52 @@ mod tests {
         assert!(warned.contains(
             "Basis: review (correction, retention-expired) | evidence note | sighting see | finding world"
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn candidates_name_the_sighting_command_and_insert_nothing() -> TestResult {
+        use sigy_service::archive::ArchiveQuery;
+        use sigy_service::claim::{ClaimCandidate, ClaimCandidateFinding};
+        let page = ClaimCandidatePage {
+            query: ArchiveQuery::new("feria").validate()?,
+            hits_read: 2,
+            stopped: None,
+            candidates: vec![ClaimCandidate {
+                source: "radio:v1".into(),
+                recording_id: "one".into(),
+                transcript_id: "pin".into(),
+                transcript_revision: 1,
+                translation_revision: 1,
+                cue_ordinal: 0,
+                start_us: 0,
+                end_us: 1_000_000,
+                original: "Una feria mundial".into(),
+                english: Some("A world fair".into()),
+                stale_transcript: false,
+                stale_translation: true,
+                findings: vec![ClaimCandidateFinding {
+                    monitor_id: "fair".into(),
+                    finding_id: "world".into(),
+                    original_state: "retained".into(),
+                }],
+                more_findings: false,
+            }],
+        };
+        let mut output = Vec::new();
+        render(
+            &mut output,
+            &ClaimPage::Candidates {
+                page: Box::new(page),
+            },
+        )?;
+        let text = String::from_utf8(output)?;
+        assert!(text.contains("Candidates: 1 of 2 hits. This search writes nothing."));
+        assert!(text.contains("translation stale"));
+        assert!(text.contains(
+            "Accept with: sigy claim sighting CLAIM SIGHTING --monitor fair --finding world"
+        ));
+        assert!(!text.contains("score"));
         Ok(())
     }
 }

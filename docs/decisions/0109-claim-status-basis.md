@@ -23,7 +23,7 @@ Frozen briefing generations and redacted exports are not opened or rewritten. Th
 
 ## What this does not do
 
-This slice does not search the library, accept a passage that is not a stored finding, or insert a claim from analysis search. It does not fetch, scrape, or store a news item. It does not add a score, an anomaly table, or an MCP tool that creates or changes a claim. `claim_list` and `claim_show` only read. It does not close issue 14. Later phases still need news items and a measured model. It does not close issue 13. It does not close S-03B. It does not exit a roadmap stage.
+This slice does not search the library, accept a passage that is not a stored finding, or insert a claim from analysis search. [Decision 0110](0110-claim-candidates.md) later lists those search hits for the user to accept with the existing sighting command, and local IPC for that page is v56. It does not fetch, scrape, or store a news item. It does not add a score, an anomaly table, or an MCP tool that creates or changes a claim. `claim_list` and `claim_show` only read. It does not close issue 14. Later phases still need news items and a measured model. It does not close issue 13. It does not close S-03B. It does not exit a roadmap stage.
 
 ## Interface
 
