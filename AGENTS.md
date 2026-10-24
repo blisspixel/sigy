@@ -106,6 +106,20 @@ Keep one coherent implementation of shared behavior. Add enforceable invariants 
 
 ## Continuity and consequences
 
+### Start tidy, stop tidy
+
+Work in this repository may come from several agent tools, and a session can end partway through a task.
+
+- Check first. Before starting new work, run `git fetch --prune` and check `git worktree list`, local and remote branches, and open pull requests. Finish, merge, or park leftover work instead of starting a parallel attempt. A squash merge hides merged work from ancestry, so check pull request state, not only `git branch --merged`.
+- Checkpoint and hand off. Commit and push at a meaningful checkpoint. Before stopping, leave a short handoff in the pull request or commit message that says what is done and what is next.
+- Keep the tree clean. Test fixtures, scratch scripts, logs, and generated output go only in the designated test or temp locations, or in the gitignored `.agents/` directory. Do not leave throwaway files elsewhere in the tree. Remove scratch artifacts before finishing.
+- Keep branches short-lived. Merge promptly and delete a branch after its work is on `main`. Keep GitHub current: push finished work, update or close pull requests, and close an issue only when its own checklist is true.
+- Goal state. One `main` branch with CI passing. Do not leave `main` red, and do not leave finished work on a side branch.
+- Remove only with evidence. Remove a worktree or branch only after its work is merged, contained in `main`, or pushed to the remote. Do not use `--force` to remove one. Report anything uncertain instead of deleting it. Run `git worktree prune` when a listed directory is already gone.
+- Ask when unclear. If it is unclear whether leftover work should be finished, kept, or removed, stop and ask.
+
+The public incidents behind this rule are a stale worktree left across tools (https://github.com/anthropics/claude-code/issues/26725) and a cleanup that deleted worktrees with `--force` (https://mergify.com/blog/the-day-my-ai-agent-deleted-29-git-worktrees). A session-start check is also described at https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents.
+
 Keep disposable maps, diagnostics, scratch notes, and local receipts in gitignored `.agents/`. Never store credentials there. Promote durable conclusions to canonical documentation, decisions, tests, or bounded tickets. Add structural indexes or coordination machinery only when they materially help, and keep them synchronized.
 
 Before finishing or closing an issue, including closure by a merged pull request, leave a short comment on the issue. State what changed, the shared code or contract seam, and the pull request or commit. State the checks that actually ran and their outcomes. Link the detailed evidence in the pull request and in [active work](docs/development/progress.md) rather than copying it. Distinguish passed, failed, blocked, and not run. Where relevant, state native, platform, media, model-quality, install, release, and stage-exit limits. Reconcile the acceptance criteria and name any deferred scope with its follow-up. A merged change does not by itself establish a supported release or a roadmap stage exit. For a duplicate, superseded, or not-planned issue, state the reason and link the canonical target or decision. Keep the note proportional: a small documentation change needs the relevant review, not a new runtime suite or reporting system.

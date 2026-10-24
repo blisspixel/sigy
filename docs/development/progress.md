@@ -4,6 +4,12 @@ Updated: 2026-10-23. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-24 session-start tidy check
+
+[Issue 50](https://github.com/blisspixel/sigy/issues/50) adds a start-tidy rule to [AGENTS.md](../../AGENTS.md). Before new work, check worktrees, branches, and open pull requests, including squash-merged pull request state. Remove a worktree or branch only after its work is on `main` or pushed, and do not use `--force`. Scratch files stay in designated test paths or gitignored `.agents/`. This does not change the program, the catalog, or local IPC. Issues 13, 14, and 38 through 49 stay open because their own checklists are not true. No stage exit is claimed.
+
+This edit changes repository instructions only. It does not change Rust, the catalog, or local IPC, so `cargo verify` and `cargo verify-media` were not run for this slice. Coverage and `cargo visual-qa` were not run. External spend is USD 0. Hosted verify of this commit is not recorded here.
+
 ## 2026-10-23 retained cue candidates
 
 [Decision 0117](../decisions/0117-claim-passage-candidates.md) lists one retained cue from `claim candidates` when no stored finding cites that hit. The accept line names the transcript, revision, translation, and cue. The search writes nothing. A cue that is not retained is omitted. A hit that a finding already cites stays a finding candidate. Nothing is fetched and no score is set. Catalog schema stays v54. Local IPC is v58. Issues 13 and 14 stay open. S-03B stays open. No stage exit is claimed.
