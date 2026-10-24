@@ -71,6 +71,7 @@ pub(super) struct Audio {
     handoff_attempt: Option<SeekAttempt>,
     /// Request that already produced one handoff outcome. A later request can continue.
     explained: Option<String>,
+    follow: super::follow::Slot,
 }
 
 impl Audio {
@@ -80,13 +81,17 @@ impl Audio {
         self.settle_hold(directory, model);
         self.recover_seek(model);
         self.recover_handoff(model);
-        self.advance_segment(directory, model);
+        if let Some(start) = self.follow.poll(model) {
+            self.finish_handoff(directory, model, start.fallback_us, start.target_us);
+        }
+        self.advance_segment(model);
         self.pump(directory, model);
     }
 
     pub(super) fn request_status(&mut self, runtime: &Runtime, directory: &Path) {
         self.live.request_status(runtime, directory);
         self.retained.request_status(runtime, directory);
+        self.follow.request(runtime, directory);
     }
 
     pub(super) fn apply(
@@ -160,6 +165,7 @@ impl Audio {
     }
 
     fn heard(&mut self, runtime: &Runtime, directory: &Path, model: &mut Explorer) {
+        self.follow.clear();
         let decision = super::pause::decide(&self.pause_input(model));
         match decision {
             super::pause::Decision::Stop { at_us } => {
@@ -320,6 +326,7 @@ impl Audio {
         self.seek_attempt = None;
         self.handoff_attempt = None;
         self.explained = None;
+        self.follow.clear();
         model.release_pause();
     }
 
@@ -431,6 +438,7 @@ impl Audio {
     }
 
     fn nudge(&mut self, runtime: &Runtime, directory: &Path, model: &mut Explorer, forward: bool) {
+        self.follow.clear();
         let decision = super::seek::decide(&self.pause_input(model), forward);
         match decision {
             super::seek::Decision::Jump {
@@ -595,6 +603,7 @@ impl Audio {
     }
 
     fn park(&mut self, model: &mut Explorer, at_us: u64, message: &str) {
+        self.follow.clear();
         let request = self.admission.as_ref().map(|item| item.request.clone());
         self.seek_attempt = None;
         self.handoff_attempt = None;
@@ -675,7 +684,7 @@ impl Audio {
         }
     }
 
-    fn advance_segment(&mut self, directory: &Path, model: &mut Explorer) {
+    fn advance_segment(&mut self, model: &mut Explorer) {
         if self.seek_attempt.is_some() || self.handoff_attempt.is_some() || self.hold.is_some() {
             return;
         }
@@ -697,13 +706,25 @@ impl Audio {
             super::handoff::Decision::Jump {
                 fallback_us,
                 target_us,
-            } => self.finish_handoff(directory, model, fallback_us, target_us),
+            } => self.arm_follow(model, fallback_us, target_us),
             other => {
                 if let Some(message) = super::handoff::refusal(&other) {
                     model.note_message(message);
                 }
             }
         }
+    }
+
+    fn arm_follow(&mut self, model: &mut Explorer, fallback_us: u64, target_us: u64) {
+        let Some(recording) = self.admission.as_ref().map(|item| item.recording.clone()) else {
+            self.park(
+                model,
+                fallback_us,
+                "This decoder has no stored admission. The next segment was not started. Capture keeps running.",
+            );
+            return;
+        };
+        self.follow.arm(recording, fallback_us, target_us);
     }
 
     fn finish_handoff(

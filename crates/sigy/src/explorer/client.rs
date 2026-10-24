@@ -802,6 +802,7 @@ fn recording_from(record: &sigy_service::storage::dvr::Recording) -> RecordingLi
         storage_state: sanitize(&record.storage_state, 32),
         format: record.format.as_deref().map(|format| sanitize(format, 16)),
         timeline: super::timeline::Timeline::from_recording(record),
+        seal: super::state::SealMap::from_recording(record),
     }
 }
 

@@ -2,8 +2,9 @@
 //!
 //! The service receipt supplies the exclusive segment end. A cited excerpt does
 //! not continue. The terminal does not prefetch, and it does not invent a gap
-//! from the timeline projection. Admission of the next position still refuses a
-//! gap, the open tail, and a missing segment, and that refusal writes no reader.
+//! from the timeline projection. [`Decision::Jump`] arms a follow read before any
+//! decoder starts. That read refuses a gap, the open tail, and a missing segment
+//! without writing a reader.
 
 use super::pause::Presence;
 

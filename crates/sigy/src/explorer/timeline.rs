@@ -5,7 +5,7 @@ use sigy_service::storage::dvr::Recording;
 #[cfg(test)]
 pub(super) use tests::{fixture, truncated_fixture};
 
-const MAX_INTERVALS: usize = 1_024;
+pub(super) const MAX_INTERVALS: usize = 1_024;
 const MAX_CELLS: usize = 120;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

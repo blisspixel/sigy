@@ -1,9 +1,11 @@
 //! Explorer view state. Mutations are explicit effects, never selection.
 
 use super::search::{Edit, Search};
+use super::timeline::MAX_INTERVALS;
 #[cfg(test)]
 mod filter_tests;
 use crate::explorer::text::{age_label, sanitize};
+use sigy_service::storage::dvr::{Recording, RecordingGap, RecordingInterval};
 use sigy_service::{control::DirectoryCatalog, discovery::StationFilter};
 mod catalog;
 mod context;
@@ -233,6 +235,38 @@ pub struct DirectoryView {
     pub refresh: Option<RefreshView>,
 }
 
+/// Sealed intervals and gaps used to choose the next listen. The glyph timeline is not this map.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SealMap {
+    pub state: String,
+    pub open_ceiling: u64,
+    pub open_object_key: Option<String>,
+    pub intervals: Vec<RecordingInterval>,
+    pub gaps: Vec<RecordingGap>,
+    pub truncated: bool,
+}
+
+impl SealMap {
+    /// Copy at most [`MAX_INTERVALS`] rows. A longer recording is marked truncated and must not start audio.
+    #[must_use]
+    pub(super) fn from_recording(record: &Recording) -> Self {
+        let truncated = record.intervals.len() > MAX_INTERVALS || record.gaps.len() > MAX_INTERVALS;
+        Self {
+            state: record.state.chars().take(32).collect(),
+            open_ceiling: record.open_ceiling,
+            open_object_key: record.open_object_key.clone(),
+            intervals: record
+                .intervals
+                .iter()
+                .take(MAX_INTERVALS)
+                .cloned()
+                .collect(),
+            gaps: record.gaps.iter().take(MAX_INTERVALS).cloned().collect(),
+            truncated,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordingLine {
     pub id: String,
@@ -240,6 +274,7 @@ pub struct RecordingLine {
     pub storage_state: String,
     pub format: Option<String>,
     pub timeline: super::timeline::Timeline,
+    pub seal: SealMap,
 }
 
 impl RecordingLine {
@@ -1897,6 +1932,7 @@ mod tests {
                 storage_state: "reserved".into(),
                 format: None,
                 timeline: super::super::timeline::Timeline::default(),
+                seal: super::SealMap::default(),
             }],
         ));
         model
@@ -2202,6 +2238,7 @@ mod tests {
             storage_state: storage.into(),
             format: None,
             timeline: super::super::timeline::Timeline::default(),
+            seal: super::SealMap::default(),
         }
     }
 

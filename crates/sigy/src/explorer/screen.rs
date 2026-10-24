@@ -1155,7 +1155,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             "  P then y plays a retained recording    S stops",
             "  H pauses at the decoder time and the next H resumes",
             "  [ and ] seek 10 s inside this admitted listen",
-            "  the next sealed segment starts when this one completes",
+            "  the next sealed segment starts once sealed; an open tail waits",
         ],
         Workspace::Monitors => {
             &["  arrows select or scroll    Enter inspects    Esc back    r reload"]
@@ -1795,7 +1795,7 @@ mod tests {
     use super::{HELP_PRIMARY, HELP_SELECTION, render};
     use crate::explorer::state::{
         BudgetLine, Coordinates, Desk, DirectoryView, Explorer, Health, Key, Link, Modes,
-        PlaybackView, QuotaView, RecordingLine, RefreshView, StationRow, Workspace,
+        PlaybackView, QuotaView, RecordingLine, RefreshView, SealMap, StationRow, Workspace,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -1870,6 +1870,7 @@ mod tests {
                 storage_state: "reserved".into(),
                 format: None,
                 timeline: crate::explorer::timeline::fixture(),
+                seal: SealMap::default(),
             }],
             playback: Some(PlaybackView {
                 id: "listen-1".into(),
@@ -2337,6 +2338,7 @@ mod tests {
         assert!(recordings.contains("next H resumes"), "{recordings}");
         assert!(recordings.contains("seek 10 s"), "{recordings}");
         assert!(recordings.contains("next sealed segment"), "{recordings}");
+        assert!(recordings.contains("open tail waits"), "{recordings}");
         model.handle(Key::Escape);
         model.handle(Key::Char('5'));
         model.handle(Key::Char('?'));

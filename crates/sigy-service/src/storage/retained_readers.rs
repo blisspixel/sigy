@@ -18,7 +18,7 @@ mod tests;
 mod write;
 
 pub(crate) const MAX_RETAINED_READ_BYTES: u64 = 512 * 1024 * 1024;
-pub(crate) const RETAINED_READ_DEADLINE_SECONDS: u64 = 30 * 60;
+pub const RETAINED_READ_DEADLINE_SECONDS: u64 = 30 * 60;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

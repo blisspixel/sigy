@@ -10,6 +10,7 @@ mod seal;
 mod segment;
 mod timeline;
 
+pub use crate::storage::retained_readers::RETAINED_READ_DEADLINE_SECONDS;
 pub(crate) use live::stream_revision;
 #[cfg(test)]
 pub(crate) use pipe::connect_listen_pipe as connect_retained_for_test;

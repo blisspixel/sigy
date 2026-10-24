@@ -4,6 +4,12 @@ Updated: 2026-10-23. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-23 latest-sealed follow
+
+[Decision 0112](../decisions/0112-latest-sealed-follow.md) waits for the next sealed segment after a whole-segment listen. The handoff decision is unchanged. The terminal reads that recording once per second before it starts a decoder. A sealed interval starts one `listen file` at the exclusive end. The open tail waits and starts no decoder. A gap, a released edge, a truncated map, or a capture that is no longer running at that edge starts nothing. The wait ends after 30 minutes. `H`, `[`, `]`, `S`, quit, and a new confirmed play clear the wait and do not call `listen pause` or `listen seek`. A codec change remains the existing seal-time gap. Prefetch and the range editor stay later. Catalog schema stays v53. Local IPC stays v56. Issues 13 and 14 stay open. S-03B stays open. No stage exit is claimed.
+
+`cargo verify` exited 0 in 403.4 seconds. The `sigy` binary tests passed 390, with 7 ignored, in 26.30 seconds. The `sigy-service` library tests passed 770, with 2 ignored, in 185.54 seconds. `cargo audit --deny warnings` loaded 1351 advisories and scanned 382 dependencies. `cargo verify-media` exited 0 in 199.32 seconds: 20 ignored service fixtures in 113.13 seconds and the direct live PCM check in 0.08 seconds. FFmpeg is `N-113513-gaa3cfd4b5a-20240202`. Coverage and `cargo visual-qa` were not run. External spend is USD 0. This receipt was written after those commands. Hosted verify of this commit is not recorded here.
+
 ## 2026-10-23 Atom feed document
 
 [Decision 0111](../decisions/0111-atom-feed-document.md) accepts one Atom document on the existing podcast refresh. An entry `id` is a publisher guid. `published` fills the existing publication time, and `updated` fills it only when `published` is absent. A direct child enclosure link is stored. Summary, content, and alternate links are not stored and are not requested. An empty feed commits zero episodes. A hostile document leaves the previous snapshot. Catalog schema stays v53. Local IPC stays v56. Issue 13 stays open. Issue 14 stays open. S-03B stays open. No stage exit is claimed.
