@@ -101,6 +101,8 @@ Nothing yet.
             "0.1.0-dev.20261011.1",
             "0.1.0-dev.20261011.2",
             "0.1.0-dev.20261011.3",
+            "0.1.0-dev.20261020",
+            "0.1.0-dev.20261024",
         ] {
             assert!(
                 heading_present(&changelog, version),

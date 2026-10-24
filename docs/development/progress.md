@@ -4,6 +4,12 @@ Updated: 2026-10-24. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-24 source checkpoint heading
+
+The changelog heading `0.1.0-dev.20261024` collects the notes since `0.1.0-dev.20261020`. It is a source-only development prerelease. Catalog schema is v54. Local IPC is v58. No binaries or models are attached. No roadmap stage is exited. The tag is published only after hosted verify of this heading commit. Hosted verify of program commit `9ab823c` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/40108763598. The three changelog tests passed, including the check that the changelog names `0.1.0-dev.20261020` and `0.1.0-dev.20261024`.
+
+This commit changes the changelog and that test list. Full `cargo verify` was not re-run locally for this heading. Coverage and `cargo visual-qa` were not run. External spend is USD 0. Hosted verify of this commit is not recorded here.
+
 ## 2026-10-24 workspace actions
 
 [Decision 0118](../decisions/0118-workspace-actions.md) gives each explorer workspace one action table. The footer and the `?` overlay read it. `s` toggles slow Globe turning. `r` reloads in every workspace, including Globe. The hint still ends `? more`. Live shows play and stop. The Globe hint includes inspect and play. Home is the recorded parent of each workspace and is not drawn. Catalog schema stays v54. Local IPC stays v58. Issues 13, 14, 38, and 40 through 49 stay open. No stage exit is claimed.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.0-dev.20261024 (development prerelease, source only)
+
+Source-only checkpoint for retained listening, claim passages, and one explorer action table per workspace. Catalog schema is v54. Local IPC is v58. No binaries or models are distributed, and no roadmap stage exit or supported release is claimed.
+
 - The explorer footer and the `?` overlay read one action table per workspace. `s` toggles slow Globe turning. `r` reloads in every workspace, including Globe. The hint still ends in `? more`. Live shows play and stop. The Globe hint includes inspect and play. Home is recorded as the parent screen and is not drawn. Catalog schema stays v54. Local IPC stays v58. Issues 38 and 40 through 49 stay open.
 - Repository instructions now require a session-start check of worktrees, branches, and pull requests. A worktree or branch is removed only after its work is on `main` or pushed, and not with `--force`. This does not change the program. Catalog schema stays v54. Local IPC stays v58.
 - `sigy claim candidates` lists a retained cue that no stored finding cites. The accept line names `--transcript`, `--revision`, `--translation`, and `--cue`. The search writes nothing. A cue that is not retained is omitted. A hit that a finding already cites keeps the finding accept line. Nothing is fetched and no score is set. Catalog schema stays v54. Local IPC is v58. Issue 14 stays open.
