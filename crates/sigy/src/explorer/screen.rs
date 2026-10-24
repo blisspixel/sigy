@@ -438,66 +438,7 @@ fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
             vec!["Esc ends edit", "Enter applies"]
         };
     }
-    match model.workspace() {
-        Workspace::Explore if restart => vec![
-            "g first page",
-            "/ search",
-            "F filters",
-            "C country",
-            "e explore",
-            "R fetch",
-            "f favorite",
-            "n/p page",
-            "q quit",
-        ],
-        Workspace::Explore => vec![
-            "/ search",
-            "F filters",
-            "C country",
-            "e explore",
-            "R fetch",
-            "f favorite",
-            "n/p page",
-            "q quit",
-        ],
-        Workspace::Live | Workspace::System => vec!["r reload", "Tab focus", "q quit"],
-        Workspace::Recordings => {
-            vec![
-                "select row",
-                "r reload",
-                "P play",
-                "L latest",
-                "K hold",
-                "S stop",
-                "H pause",
-                "[/] 10s",
-                "q quit",
-            ]
-        }
-        Workspace::Monitors => vec!["inspect row", "r reload", "Esc back", "q quit"],
-        Workspace::Findings => {
-            vec![
-                "/ edit IDs",
-                "Enter inspect",
-                "c claims",
-                "o metadata",
-                "P play",
-                "S stop",
-                "H pause",
-                "[/] 10s",
-                "q quit",
-            ]
-        }
-        Workspace::Globe if restart => vec!["g first page", "Arrows turn", "R fetch", "q quit"],
-        Workspace::Globe => vec![
-            "Arrows turn",
-            "m map",
-            "e explore",
-            "R fetch",
-            "n/p page",
-            "q quit",
-        ],
-    }
+    crate::explorer::actions::footer_pairs(model)
 }
 
 /// Keep the first pair whole. End with `? more` when that tail fits.
@@ -1120,60 +1061,10 @@ fn quota_line(model: &Explorer) -> Line<'static> {
 }
 
 fn key_lines(model: &Explorer) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        plain(&format!("Keys: {}", model.workspace().label())),
-        plain(""),
-        plain("Move"),
-        plain("  1-7 workspace    Tab focus"),
-        plain("  Globe results: arrows turn the view"),
-        plain("  Other views: Left/Right workspace, Up/Down select"),
-        plain(""),
-        plain("This workspace"),
-    ];
-    for line in workspace_keys(model.workspace()) {
-        lines.push(plain(line));
-    }
-    lines.push(plain(""));
-    lines.push(plain("Close"));
-    lines.push(plain("  ? or Esc closes this list    q quits this client"));
-    lines
-}
-
-fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
-    match workspace {
-        Workspace::Explore => &[
-            "  / search    F filters    C country    e explore",
-            "  g first page    n/p page    f favorite",
-            "  R then y fetch    Enter inspect",
-            "  P then y plays    S stops",
-        ],
-        Workspace::Globe => &[
-            "  arrows or h/l/j/k turn    m map    c center    r spin",
-            "  e explore    R then y fetch    n/p page    g first page",
-        ],
-        Workspace::Live | Workspace::System => &["  r reload    Tab focus"],
-        Workspace::Recordings => &[
-            "  arrows select a recording    r reloads its metadata",
-            "  P then y plays a retained recording    S stops",
-            "  H pauses at the decoder time and the next H resumes",
-            "  [ and ] seek 10 s inside this admitted listen",
-            "  the next sealed segment starts once sealed; an open tail waits",
-            "  , and . choose a sealed interval    I then y plays that interval",
-            "  K then y records one hold on that interval",
-            "  L then y plays the latest sealed interval",
-        ],
-        Workspace::Monitors => {
-            &["  arrows select or scroll    Enter inspects    Esc back    r reload"]
-        }
-        Workspace::Findings => &[
-            "  / edit IDs    Enter inspects    arrows scroll    o recording metadata",
-            "  c opens stored claims, read-only",
-            "  P then y plays a cited interval    S stops",
-            "  H pauses at the decoder time and the next H resumes",
-            "  [ and ] seek 10 s inside this admitted listen",
-            "  a cited listen does not continue into the next segment",
-        ],
-    }
+    crate::explorer::actions::overlay_lines(model)
+        .iter()
+        .map(|line| plain(line))
+        .collect()
 }
 
 fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
@@ -1804,10 +1695,10 @@ mod tests {
     mod linked;
     mod raster;
     mod visual_qa;
-    use super::{HELP_PRIMARY, HELP_SELECTION, render};
+    use super::{HELP_PRIMARY, HELP_SELECTION, editing, hint_pairs, hint_text, render};
     use crate::explorer::state::{
-        BudgetLine, Coordinates, Desk, DirectoryView, Explorer, Health, Key, Link, Modes,
-        PlaybackView, QuotaView, RecordingLine, RefreshView, SealMap, StationRow, Workspace,
+        BudgetLine, Coordinates, Desk, DirectoryView, Effect, Explorer, Focus, Health, Key, Link,
+        Modes, PlaybackView, QuotaView, RecordingLine, RefreshView, SealMap, StationRow, Workspace,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -3243,5 +3134,198 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn action_table_matches_dispatch_for_every_workspace_and_focus() {
+        let base = action_fixture();
+        for workspace in Workspace::ALL {
+            for focus in FOCI {
+                let mut model = base.clone();
+                model.place_for_actions(workspace, focus);
+                if editing(&model) {
+                    assert_editing_keys(&model, workspace, focus);
+                    continue;
+                }
+                assert_footer_and_overlay(&model, workspace);
+                for key in crate::explorer::actions::keys_for(workspace) {
+                    assert!(
+                        handled(&model, key.clone()),
+                        "{workspace:?} {focus:?} does not handle {key:?}"
+                    );
+                }
+                for key in probe_keys() {
+                    if reacts(&model, key.clone()) {
+                        assert!(
+                            crate::explorer::actions::covers(workspace, &key),
+                            "{workspace:?} {focus:?} handles {key:?} with no table row"
+                        );
+                    }
+                }
+            }
+        }
+        assert_linear_matches_monochrome();
+        let mut globe = base.clone();
+        globe.place_for_actions(Workspace::Globe, Focus::Results);
+        assert_eq!(globe.handle(Key::Char('r')), Effect::Reload);
+        assert!(!globe.spin_requested());
+    }
+
+    const FOCI: [Focus; 6] = [
+        Focus::Search,
+        Focus::Results,
+        Focus::Detail,
+        Focus::Playback,
+        Focus::Help,
+        Focus::Workspaces,
+    ];
+
+    fn action_fixture() -> Explorer {
+        let mut model = sample();
+        model.triplicate_lists_for_test();
+        model
+            .monitors
+            .load_ids(vec!["one".into(), "two".into(), "three".into()]);
+        model.monitors.move_selection(true);
+        let page = sigy_service::monitor::FindingPage {
+            monitor_id: "mon".into(),
+            id: "find".into(),
+            transcript_id: "cue".into(),
+            transcript_revision: 1,
+            translation_revision: 1,
+            cue_ordinal: 0,
+            original: sigy_service::monitor::FindingOriginal::Retained,
+            recording_id: "rec".into(),
+            start_us: Some(0),
+            end_us: Some(1),
+            original_script: "original script line for scroll".into(),
+            english: None,
+            untranslated_reason: None,
+            stale_transcript: None,
+            stale_translation: None,
+        };
+        assert!(model.findings.load("mon", "find", &page));
+        let before = model.findings.clone();
+        let _ = model.findings.handle(&Key::Down);
+        assert_ne!(model.findings, before, "finding scroll did not move");
+        model
+    }
+
+    fn assert_footer_and_overlay(model: &Explorer, workspace: Workspace) {
+        let help = hint_text(model, 80);
+        assert!(help.ends_with("? more"), "{workspace:?} {help}");
+        if workspace == Workspace::Live {
+            assert!(help.contains("P play"), "{help}");
+            assert!(help.contains("S stop"), "{help}");
+        }
+        if workspace == Workspace::Globe {
+            assert!(help.contains("P play"), "{help}");
+            assert!(help.contains("Enter inspect"), "{help}");
+            assert!(!help.contains("r spin"), "{help}");
+        }
+        let mut open = model.clone();
+        let _ = open.handle(Key::Char('?'));
+        let overlay = frame(&open, 100, 64).0;
+        for line in crate::explorer::actions::overlay_lines(model) {
+            let mark = line.trim();
+            if mark.is_empty() || mark.starts_with("Keys:") {
+                continue;
+            }
+            assert!(
+                overlay.contains(mark),
+                "{workspace:?} overlay missing {mark}"
+            );
+        }
+    }
+
+    fn assert_editing_keys(model: &Explorer, workspace: Workspace, focus: Focus) {
+        for pair in hint_pairs(model) {
+            let key = if pair.contains("Esc") {
+                Key::Escape
+            } else if pair.contains("Enter") {
+                Key::Enter
+            } else if pair.starts_with('g') {
+                Key::Char('g')
+            } else {
+                panic!("unexpected editing hint {pair}");
+            };
+            assert!(
+                reacts(model, key),
+                "{workspace:?} {focus:?} editing hint {pair} is not handled"
+            );
+        }
+    }
+
+    fn assert_linear_matches_monochrome() {
+        let linear = mode_model(true, false);
+        let monochrome = mode_model(false, true);
+        for workspace in Workspace::ALL {
+            let mut left = linear.clone();
+            let mut right = monochrome.clone();
+            left.place_for_actions(workspace, Focus::Results);
+            right.place_for_actions(workspace, Focus::Results);
+            assert_eq!(hint_text(&left, 80), hint_text(&right, 80), "{workspace:?}");
+            assert_eq!(
+                crate::explorer::actions::overlay_lines(&left),
+                crate::explorer::actions::overlay_lines(&right),
+                "{workspace:?}"
+            );
+        }
+    }
+
+    fn mode_model(linear: bool, monochrome: bool) -> Explorer {
+        Explorer::new(
+            Modes {
+                reduced_motion: false,
+                linear,
+                monochrome,
+                emphasis: crate::explorer::state::Emphasis::Standard,
+            },
+            10_000,
+        )
+    }
+
+    fn handled(model: &Explorer, key: Key) -> bool {
+        if reacts(model, key.clone()) {
+            return true;
+        }
+        if !matches!(key, Key::Enter) || model.focus() != Focus::Detail {
+            return false;
+        }
+        if !matches!(
+            model.workspace(),
+            Workspace::Live | Workspace::System | Workspace::Recordings
+        ) {
+            return false;
+        }
+        let mut results = model.clone();
+        results.place_for_actions(model.workspace(), Focus::Results);
+        reacts(&results, key)
+    }
+
+    fn reacts(model: &Explorer, key: Key) -> bool {
+        let mut next = model.clone();
+        let effect = next.handle(key);
+        effect != Effect::None || next != *model
+    }
+
+    fn probe_keys() -> Vec<Key> {
+        let mut keys = Vec::new();
+        let characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/?[].,";
+        for character in characters.chars() {
+            keys.push(Key::Char(character));
+        }
+        keys.extend([
+            Key::Tab,
+            Key::BackTab,
+            Key::Enter,
+            Key::Escape,
+            Key::Up,
+            Key::Down,
+            Key::Left,
+            Key::Right,
+            Key::Backspace,
+        ]);
+        keys
     }
 }

@@ -74,7 +74,7 @@ fn spin_render_measurement() -> Result<()> {
         model.configure_motion(true, false, now);
         model.handle(Key::Char('7'));
         model.handle(Key::Char('c'));
-        model.handle(Key::Char('r'));
+        model.handle(Key::Char('s'));
         model.advance_spin(now, true);
         let mut samples = Vec::new();
         let mut terminal = Terminal::new(TestBackend::new(width, height))?;

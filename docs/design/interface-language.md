@@ -89,7 +89,7 @@ The hint line is `key action` pairs, two spaces apart, most useful first, ending
 
 CLI help wraps to the real width. CLI reports use one summary line, a fixed-width state column, grouped idle checks, and `Next:` last.
 
-Issue 27 applies that layout. Below 80 columns, the recording hint says `select row` and the monitor hint says `inspect row`, so `? more` still fits at 20 columns. The workspace body still says arrows select and Enter inspects. Issue 26 applies help wrapping and the `?` overlay. The overlay lists the keys this workspace uses now. On the Globe canvas, arrows turn. Elsewhere, Left and Right change workspace. `h`, `j`, `k` and `l` remain globe aliases.
+Issue 27 applies that layout. Below 80 columns, the recording hint says `select row` and the monitor hint says `inspect row`, so `? more` still fits at 20 columns. The workspace body still says arrows select and Enter inspects. Issue 26 applies help wrapping and the `?` overlay. The overlay lists the keys this workspace uses now. On the Globe canvas, arrows turn. Elsewhere, Left and Right change workspace. `h`, `j`, `k` and `l` remain globe aliases. `s` toggles slow turning on that canvas when motion is allowed. `r` reloads in every workspace, including Globe. The hint still ends in `? more`.
 
 ## States
 

@@ -112,7 +112,7 @@ pub fn header_lines(model: &Explorer) -> Vec<Line<'static>> {
             "arrows or h/l/j/k turn, m map, c center | 2-9 count, + 10 or more in one cell"
                 .to_owned()
         },
-        |spin| format!("arrows turn, r spin {spin}, m map, c center | 2-9 count, + 10+"),
+        |spin| format!("arrows turn, s spin {spin}, m map, c center | 2-9 count, + 10+"),
     );
     vec![
         Line::from(format!(

@@ -1,8 +1,14 @@
 # Implementation progress
 
-Updated: 2026-10-23. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
+Updated: 2026-10-24. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
+
+## 2026-10-24 workspace actions
+
+[Decision 0118](../decisions/0118-workspace-actions.md) gives each explorer workspace one action table. The footer and the `?` overlay read it. `s` toggles slow Globe turning. `r` reloads in every workspace, including Globe. The hint still ends `? more`. Live shows play and stop. The Globe hint includes inspect and play. Home is the recorded parent of each workspace and is not drawn. Catalog schema stays v54. Local IPC stays v58. Issues 13, 14, 38, and 40 through 49 stay open. No stage exit is claimed.
+
+`cargo verify` exited 0 in 297.03 seconds. The `sigy` binary tests passed 409, with 7 ignored, in 24.02 seconds. The `sigy-service` library tests passed 774, with 2 ignored, in 172.83 seconds. `cargo audit --deny warnings` loaded 1352 advisories and scanned 382 dependencies. This slice does not change playback admission, recording publication, or HTTP acquisition, so `cargo verify-media` was not run. Coverage was not run. `cargo visual-qa` exited 0 in 11.16 seconds and wrote 78 synthetic frames. The Globe turn frame shows `s spin` and `r reload`, and it does not show `r spin`. Live at 80 columns shows play and stop. The agreement test checks that linear and monochrome hint and overlay words match. External spend is USD 0. This receipt was written after those commands. Hosted verify of this commit is not recorded here.
 
 ## 2026-10-24 session-start tidy check
 

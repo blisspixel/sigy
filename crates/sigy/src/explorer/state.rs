@@ -733,7 +733,7 @@ impl Explorer {
 
     fn globe_key(&mut self, key: char) -> bool {
         match key {
-            'r' => self.toggle_spin(),
+            's' => self.toggle_spin(),
             'h' => self.turn_by(-15.0, 0.0),
             'l' => self.turn_by(15.0, 0.0),
             'k' => self.turn_by(0.0, 15.0),
@@ -2229,6 +2229,43 @@ impl Explorer {
                 self.selection = self.selection.min(self.rows.len() - 1);
                 self.status = "The selected station is not on this page.".into();
             }
+        }
+    }
+
+    /// Puts the explorer on one workspace and focus without pressing a key.
+    #[cfg(test)]
+    pub(crate) fn place_for_actions(&mut self, workspace: Workspace, focus: Focus) {
+        self.workspace = workspace;
+        self.focus = focus;
+        self.keys = KeyList::Closed;
+        self.context = None;
+        self.fetch_confirmation = None;
+        self.play_confirmation = None;
+        self.protect_confirmation = None;
+        self.claims.close();
+        self.draw = Draw::Needed;
+    }
+
+    /// Adds two copies of the first station and recording so Up and Down both move.
+    #[cfg(test)]
+    pub(crate) fn triplicate_lists_for_test(&mut self) {
+        if let Some(first) = self.rows.first().cloned() {
+            let mut second = first.clone();
+            second.id = format!("{}-b", first.id);
+            let mut third = first.clone();
+            third.id = format!("{}-c", first.id);
+            self.rows.push(second);
+            self.rows.push(third);
+            self.selection = 1;
+        }
+        if let Some(first) = self.recordings.first().cloned() {
+            let mut second = first.clone();
+            second.id = format!("{}-b", first.id);
+            let mut third = first.clone();
+            third.id = format!("{}-c", first.id);
+            self.recordings.push(second);
+            self.recordings.push(third);
+            self.recording_selection = 1;
         }
     }
 }

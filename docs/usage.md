@@ -587,7 +587,7 @@ Press `7` for the Globe workspace: an orthographic globe, or with `m` a flat wor
 
 The same page has coordinates for two stations. The globe uses those directory positions and offline coastlines; its night layer is geometric.
 
-In an interactive color terminal, `r` in the Globe workspace toggles optional slow turning, initially off. The header shows its state. Turning moves east at six degrees per second; `h`, `l`, `j`, `k` or `c` stops it. It pauses in a flat map, hidden pane, small terminal or after five minutes without input, and resumes without jumping. `--reduced-motion`, `SIGY_REDUCED_MOTION=1`, `--linear`, monochrome presentation, `NO_COLOR`, and one-frame inspection keep the globe still. A pipe or `TERM=dumb` refuses the explorer before a frame. Other workspaces retain `r` to reload. See [optional globe rotation](decisions/0093-optional-globe-rotation.md).
+In an interactive color terminal, `s` in the Globe workspace toggles optional slow turning, initially off. The header shows its state. Turning moves east at six degrees per second; `h`, `l`, `j`, `k` or `c` stops it. It pauses in a flat map, hidden pane, small terminal or after five minutes without input, and resumes without jumping. `--reduced-motion`, `SIGY_REDUCED_MOTION=1`, `--linear`, monochrome presentation, `NO_COLOR`, and one-frame inspection keep the globe still. A pipe or `TERM=dumb` refuses the explorer before a frame. `r` reloads local state in every workspace, including Globe. See [optional globe rotation](decisions/0093-optional-globe-rotation.md) and [workspace actions](decisions/0118-workspace-actions.md).
 
 ## Desktop panel
 

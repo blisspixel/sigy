@@ -117,7 +117,7 @@ fn random_jump_stops_enabled_spin_before_replacing_the_camera() -> TestResult {
     let now = std::time::Instant::now();
     model.configure_motion(true, false, now);
     model.handle(Key::Char('7'));
-    model.handle(Key::Char('r'));
+    model.handle(Key::Char('s'));
     assert!(model.spin_requested());
     let query = query(&mut model);
     assert!(adopt_random(

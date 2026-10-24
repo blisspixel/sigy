@@ -514,7 +514,7 @@ mod tests {
         let mut model = motion_model(now);
         assert_eq!(model.advance_spin(now, true), REST);
         assert_eq!(model.animation_frames(), 0);
-        assert_eq!(model.handle(Key::Char('r')), Effect::None);
+        assert_eq!(model.handle(Key::Char('s')), Effect::None);
         assert_eq!(model.advance_spin(now, true), FRAME);
         assert_eq!(
             model.advance_spin(now + Duration::from_millis(40), true),
@@ -527,7 +527,7 @@ mod tests {
         near(model.globe_center().0, -175.2);
         near(model.globe_center().1, 20.0);
         assert_eq!(model.animation_frames(), 2);
-        model.handle(Key::Char('r'));
+        model.handle(Key::Char('s'));
         assert_eq!(
             model.advance_spin(now + Duration::from_secs(32), true),
             REST
@@ -539,7 +539,7 @@ mod tests {
     fn visibility_flat_and_idle_pause_without_catching_up() {
         let now = Instant::now();
         let mut model = motion_model(now);
-        model.handle(Key::Char('r'));
+        model.handle(Key::Char('s'));
         model.advance_spin(now, true);
         model.advance_spin(now + Duration::from_secs(1), true);
         let center = model.globe_center();
@@ -571,7 +571,7 @@ mod tests {
         let now = Instant::now();
         for key in ['h', 'l', 'j', 'k', 'c'] {
             let mut model = motion_model(now);
-            model.handle(Key::Char('r'));
+            model.handle(Key::Char('s'));
             model.advance_spin(now, true);
             assert_eq!(model.handle(Key::Char(key)), Effect::None);
             assert_eq!(model.spin_label(), Some("off"));
@@ -588,7 +588,7 @@ mod tests {
             near(center.1, expected.1);
             assert_eq!(model.advance_spin(now + Duration::from_secs(2), true), REST);
             assert_eq!(model.globe_center(), center);
-            model.handle(Key::Char('r'));
+            model.handle(Key::Char('s'));
             model.advance_spin(now + Duration::from_secs(3), true);
             assert_eq!(model.globe_center(), center);
         }
@@ -717,7 +717,7 @@ mod tests {
             };
             model.configure_motion(interactive, one_frame, now);
             let center = model.globe_center();
-            model.handle(Key::Char('r'));
+            model.handle(Key::Char('s'));
             assert_eq!(model.advance_spin(now, true), REST);
             assert_eq!(model.advance_spin(now + Duration::from_secs(1), true), REST);
             assert_eq!(model.globe_center(), center);
@@ -831,7 +831,7 @@ mod tests {
         let mut model = Explorer::new(Modes::resolve(false, false, false), 0);
         model.configure_motion(true, false, now);
         model.handle(Key::Char('7'));
-        model.handle(Key::Char('r'));
+        model.handle(Key::Char('s'));
         assert_eq!(model.advance_spin(now, true), REST);
         assert_eq!(model.advance_spin(now + Duration::from_secs(1), true), REST);
         assert_eq!(model.globe_center(), (0.0, 20.0));

@@ -38,7 +38,7 @@ Offline production render at 100 by 32 cells. The service is connected, one synt
 
 ![Sigy's globe view over retained station metadata](docs/images/globe.png)
 
-The globe uses offline geometry and cached station coordinates. This 2026-10-04 render shows directory observations, not a live coverage survey. Enter inspects a station; `i` inspects its exact registrations and recording metadata. Escape restores your search and selection. See [terminal controls and listening](docs/usage.md#list-explorer) and [image provenance](docs/development/interface-images.md).
+The globe uses offline geometry and cached station coordinates. This 2026-10-04 render shows directory observations, not a live coverage survey. Enter inspects a station; `i` inspects its exact registrations and recording metadata. Escape restores your search and selection. In an interactive color terminal, `s` toggles slow turning and `r` reloads, including on the globe. See [terminal controls and listening](docs/usage.md#list-explorer) and [image provenance](docs/development/interface-images.md).
 
 ## Get started
 
