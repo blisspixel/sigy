@@ -182,6 +182,7 @@ impl Audio {
             | Effect::ExploreRandom(_)
             | Effect::Fetch(_)
             | Effect::SetFavorite { .. }
+            | Effect::ProtectInterval { .. }
             | Effect::Reload
             | Effect::MonitorList
             | Effect::MonitorDetail { .. }

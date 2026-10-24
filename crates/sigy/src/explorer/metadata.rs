@@ -10,7 +10,7 @@ use tokio::{runtime::Runtime, sync::mpsc, task::JoinHandle};
 
 use super::{
     client,
-    state::{Desk, Effect, Explorer, SearchQuery},
+    state::{Desk, Effect, Explorer, PROTECT_BUSY, PROTECT_UNRESOLVED, SearchQuery},
 };
 
 const UNRESOLVED: &str = "Metadata read ended without a result. The previous view was kept.";
@@ -126,6 +126,26 @@ enum FavoriteOutcome {
     },
 }
 
+struct ProtectRequest {
+    generation: u64,
+    id: String,
+    start_us: u64,
+    end_us: u64,
+}
+
+enum ProtectOutcome {
+    Finished {
+        generation: u64,
+        id: String,
+        start_us: u64,
+        end_us: u64,
+        result: Box<Result<(bool, Snapshot), Error>>,
+    },
+    Closed {
+        generation: u64,
+    },
+}
+
 struct Slot<T> {
     token: u64,
     receive: mpsc::Receiver<T>,
@@ -143,6 +163,7 @@ struct Gate {
 pub(super) struct Reads {
     inflight: Option<Slot<ReadOutcome>>,
     favorites: Option<Slot<FavoriteOutcome>>,
+    protects: Option<Slot<ProtectOutcome>>,
     queued: Option<Job>,
     catalog: Arc<tokio::sync::Mutex<()>>,
     withhold: Option<tokio::sync::oneshot::Receiver<()>>,
@@ -152,6 +173,8 @@ pub(super) struct Reads {
     read_started: u32,
     #[cfg(test)]
     favorite_started: u32,
+    #[cfg(test)]
+    protect_started: u32,
 }
 
 impl Default for Reads {
@@ -159,6 +182,7 @@ impl Default for Reads {
         Self {
             inflight: None,
             favorites: None,
+            protects: None,
             queued: None,
             catalog: Arc::new(tokio::sync::Mutex::new(())),
             withhold: None,
@@ -168,6 +192,8 @@ impl Default for Reads {
             read_started: 0,
             #[cfg(test)]
             favorite_started: 0,
+            #[cfg(test)]
+            protect_started: 0,
         }
     }
 }
@@ -249,6 +275,22 @@ impl Reads {
                 id,
                 favorite,
             } => self.submit_favorite(runtime, directory, model, *generation, id, *favorite),
+            Effect::ProtectInterval {
+                generation,
+                id,
+                start_us,
+                end_us,
+            } => self.submit_protect(
+                runtime,
+                directory,
+                model,
+                ProtectRequest {
+                    generation: *generation,
+                    id: id.clone(),
+                    start_us: *start_us,
+                    end_us: *end_us,
+                },
+            ),
             Effect::None
             | Effect::Detach
             | Effect::Play { .. }
@@ -270,6 +312,9 @@ impl Reads {
         self.pump(runtime, directory, model);
         for outcome in poll_slot(&mut self.favorites) {
             adopt_favorite(model, outcome);
+        }
+        for outcome in poll_slot(&mut self.protects) {
+            adopt_protect(model, outcome);
         }
     }
 
@@ -359,6 +404,39 @@ impl Reads {
             task,
             delivered: false,
             fallback: Some(FavoriteOutcome::Closed { generation }),
+        });
+    }
+
+    fn submit_protect(
+        &mut self,
+        runtime: &Runtime,
+        directory: &Path,
+        model: &mut Explorer,
+        request: ProtectRequest,
+    ) {
+        if let Some(inflight) = self.protects.as_ref().map(|slot| slot.token) {
+            model.restore_pending_protect(inflight);
+            model.note_message(PROTECT_BUSY);
+            return;
+        }
+        let (send, receive) = mpsc::channel(2);
+        let directory = directory.to_path_buf();
+        let catalog = Arc::clone(&self.catalog);
+        let gate = self.take_gate();
+        let generation = request.generation;
+        #[cfg(test)]
+        {
+            self.protect_started = self.protect_started.saturating_add(1);
+        }
+        let task = runtime.spawn(async move {
+            run_protect(directory, catalog, request, send, gate).await;
+        });
+        self.protects = Some(Slot {
+            token: generation,
+            receive,
+            task,
+            delivered: false,
+            fallback: Some(ProtectOutcome::Closed { generation }),
         });
     }
 
@@ -493,6 +571,41 @@ async fn run_favorite(
                 generation,
                 id,
                 favorite,
+                result: Box::new(result),
+            })
+            .await;
+    }
+    if let Some(wait) = gate.hold_after {
+        let _ = wait.await;
+    }
+}
+
+async fn run_protect(
+    directory: PathBuf,
+    catalog: Arc<tokio::sync::Mutex<()>>,
+    request: ProtectRequest,
+    send: mpsc::Sender<ProtectOutcome>,
+    gate: Gate,
+) {
+    if let Some(wait) = gate.withhold {
+        let _ = wait.await;
+    }
+    if gate.close {
+        return;
+    }
+    {
+        let _guard = catalog.lock().await;
+        let result = client::fetch(
+            &directory,
+            client::protect_operation(&request.id, request.start_us, request.end_us),
+        )
+        .await;
+        let _ = send
+            .send(ProtectOutcome::Finished {
+                generation: request.generation,
+                id: request.id,
+                start_us: request.start_us,
+                end_us: request.end_us,
                 result: Box::new(result),
             })
             .await;
@@ -787,6 +900,21 @@ fn adopt_favorite(model: &mut Explorer, outcome: FavoriteOutcome) {
             favorite,
             result,
         } => client::adopt_favorite(model, generation, &id, favorite, *result),
+    }
+}
+
+fn adopt_protect(model: &mut Explorer, outcome: ProtectOutcome) {
+    match outcome {
+        ProtectOutcome::Closed { generation } => {
+            let _ = model.fail_protect(generation, PROTECT_UNRESOLVED);
+        }
+        ProtectOutcome::Finished {
+            generation,
+            id,
+            start_us,
+            end_us,
+            result,
+        } => client::adopt_protect(model, generation, &id, start_us, end_us, *result),
     }
 }
 

@@ -5,7 +5,7 @@ use super::timeline::MAX_INTERVALS;
 #[cfg(test)]
 mod filter_tests;
 use crate::explorer::text::{age_label, sanitize};
-use sigy_service::storage::dvr::{Recording, RecordingGap, RecordingInterval};
+use sigy_service::storage::dvr::{Recording, RecordingGap, RecordingHold, RecordingInterval};
 use sigy_service::{control::DirectoryCatalog, discovery::StationFilter};
 mod catalog;
 mod context;
@@ -14,6 +14,12 @@ mod ordered_tests;
 mod random;
 mod spin;
 const PAGE_LIMIT: u32 = 16;
+/// Newest holds kept on one recording row. The catalog can store more.
+pub(super) const MAX_SHOWN_HOLDS: usize = 8;
+pub(super) const PROTECT_BUSY: &str =
+    "A hold is still settling. It was not repeated. Capture keeps running.";
+pub(super) const PROTECT_UNRESOLVED: &str =
+    "Hold request ended without a result. It was not repeated. Capture keeps running.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Workspace {
@@ -267,6 +273,14 @@ impl SealMap {
     }
 }
 
+/// Bounds of one `record hold` row. No object key or path is stored here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HoldSpan {
+    pub ordinal: u32,
+    pub start_us: u64,
+    pub end_us: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordingLine {
     pub id: String,
@@ -275,6 +289,25 @@ pub struct RecordingLine {
     pub format: Option<String>,
     pub timeline: super::timeline::Timeline,
     pub seal: SealMap,
+    pub hold_total: u32,
+    pub shown_holds: Vec<HoldSpan>,
+}
+
+/// Keep the newest [`MAX_SHOWN_HOLDS`] ranges and the full count.
+#[must_use]
+pub(super) fn shown_holds(holds: &[RecordingHold]) -> (u32, Vec<HoldSpan>) {
+    let hold_total = u32::try_from(holds.len()).unwrap_or(u32::MAX);
+    let skip = holds.len().saturating_sub(MAX_SHOWN_HOLDS);
+    let shown_holds = holds
+        .iter()
+        .skip(skip)
+        .map(|hold| HoldSpan {
+            ordinal: hold.ordinal,
+            start_us: hold.start_us,
+            end_us: hold.end_us,
+        })
+        .collect();
+    (hold_total, shown_holds)
 }
 
 impl RecordingLine {
@@ -284,6 +317,38 @@ impl RecordingLine {
             self.state.as_str(),
             "scheduled" | "starting" | "running" | "retrying" | "stopping"
         )
+    }
+
+    /// One line for holds already on this row. Empty when nothing is recorded.
+    #[must_use]
+    pub fn hold_caption(&self) -> Option<String> {
+        let latest = self.shown_holds.last()?;
+        if u32::try_from(self.shown_holds.len()).ok() == Some(self.hold_total) {
+            Some(format!(
+                "Hold {}: [{}, {}). {} on this recording.",
+                latest.ordinal,
+                latest.start_us,
+                latest.end_us,
+                hold_word(self.hold_total)
+            ))
+        } else {
+            Some(format!(
+                "Hold {}: [{}, {}). Showing {} of {} holds.",
+                latest.ordinal,
+                latest.start_us,
+                latest.end_us,
+                self.shown_holds.len(),
+                self.hold_total
+            ))
+        }
+    }
+}
+
+fn hold_word(count: u32) -> String {
+    if count == 1 {
+        "1 hold".to_owned()
+    } else {
+        format!("{count} holds")
     }
 }
 
@@ -379,6 +444,14 @@ enum PendingPlay {
     },
 }
 
+/// A confirmed interval hold that is waiting for `y` or `n`. It starts no audio.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingProtect {
+    id: String,
+    start_us: u64,
+    end_us: u64,
+}
+
 /// One explicit retained listen. It is independent of the live session receipt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RetainedView {
@@ -411,6 +484,13 @@ pub enum Effect {
     PlayInterval {
         id: String,
         request: String,
+        start_us: u64,
+        end_us: u64,
+    },
+    /// Record one hold on a sealed interval. This starts no decoder.
+    ProtectInterval {
+        generation: u64,
+        id: String,
         start_us: u64,
         end_us: u64,
     },
@@ -479,6 +559,7 @@ pub struct Explorer {
     keys: KeyList,
     explicit_directory: Option<String>,
     play_confirmation: Option<PendingPlay>,
+    protect_confirmation: Option<PendingProtect>,
     pub(super) context: Option<super::context::StationContext>,
     context_generation: u64,
     focus: Focus,
@@ -527,6 +608,8 @@ pub struct Explorer {
     random_count: Option<u32>,
     favorite_generation: u64,
     pending_favorite: Option<u64>,
+    protect_generation: u64,
+    pending_protect: Option<u64>,
     /// Fences discardable metadata reads. A late success or failure is ignored.
     read_epoch: u64,
     status: String,
@@ -566,6 +649,7 @@ impl Explorer {
             keys: KeyList::Closed,
             explicit_directory: None,
             play_confirmation: None,
+            protect_confirmation: None,
             context: None,
             context_generation: 0,
             focus: Focus::Results,
@@ -609,6 +693,8 @@ impl Explorer {
             random_count: None,
             favorite_generation: 0,
             pending_favorite: None,
+            protect_generation: 0,
+            pending_protect: None,
             read_epoch: 0,
             status: "Quit detaches this client. It does not stop the service or a recording."
                 .into(),
@@ -947,6 +1033,8 @@ impl Explorer {
         self.search.interrupt();
         self.pending_page = None;
         self.pending_favorite = None;
+        self.pending_protect = None;
+        self.protect_confirmation = None;
         self.status = sanitize(
             &format!(
                 "Disconnected. Capture was not stopped. Last snapshot kept. r reconnects. Cause: {reason}."
@@ -1170,6 +1258,9 @@ impl Explorer {
         if self.play_confirmation.is_some() {
             return self.confirm_play(&key);
         }
+        if self.protect_confirmation.is_some() {
+            return self.confirm_protect(&key);
+        }
         if let Some(effect) = self.keys_key(&key) {
             return effect;
         }
@@ -1378,6 +1469,7 @@ impl Explorer {
         match key {
             Key::Char('P') => Some(self.confirm_recording()),
             Key::Char('I') => Some(self.confirm_interval()),
+            Key::Char('K') => Some(self.ask_protect()),
             Key::Char('S') => Some(Effect::StopRetained),
             _ => None,
         }
@@ -1416,6 +1508,127 @@ impl Explorer {
             Err(refusal) => self.note_message(super::interval::sentence(refusal)),
         }
         Effect::None
+    }
+
+    fn confirm_protect(&mut self, key: &Key) -> Effect {
+        match key {
+            Key::Char('y' | 'Y') => self.accept_protect(),
+            Key::Char('n' | 'N') | Key::Escape => {
+                self.protect_confirmation = None;
+                self.note_message(
+                    "Hold request discarded. No retention change was recorded. Capture keeps running.",
+                );
+                Effect::None
+            }
+            _ => Effect::None,
+        }
+    }
+
+    fn accept_protect(&mut self) -> Effect {
+        let Some(pending) = self.protect_confirmation.take() else {
+            return Effect::None;
+        };
+        if self.pending_protect.is_some() {
+            self.note_message(PROTECT_BUSY);
+            return Effect::None;
+        }
+        self.protect_generation = self.protect_generation.saturating_add(1);
+        let generation = self.protect_generation;
+        self.pending_protect = Some(generation);
+        self.note_message("Recording one hold on that sealed interval. Capture keeps running.");
+        Effect::ProtectInterval {
+            generation,
+            id: pending.id,
+            start_us: pending.start_us,
+            end_us: pending.end_us,
+        }
+    }
+
+    fn ask_protect(&mut self) -> Effect {
+        if matches!(self.link, Link::Disconnected) {
+            self.note_message(
+                "Disconnected. The hold was not submitted. r reconnects. Capture keeps running.",
+            );
+            return Effect::None;
+        }
+        if self.pending_protect.is_some() {
+            self.note_message(PROTECT_BUSY);
+            return Effect::None;
+        }
+        let stored = self.selected_recording().map(|recording| {
+            (
+                recording.id.clone(),
+                recording.storage_state.clone(),
+                recording.seal.clone(),
+            )
+        });
+        let Some((id, storage, seal)) = stored else {
+            self.note_message(
+                "No selected recording. No hold was recorded. Capture keeps running.",
+            );
+            return Effect::None;
+        };
+        if !matches!(storage.as_str(), "reserved" | "retained") {
+            self.note_message(super::interval::UNSTORED);
+            return Effect::None;
+        }
+        match super::interval::select(&seal, self.interval_index) {
+            Ok(bounds) => {
+                self.protect_confirmation = Some(PendingProtect {
+                    id,
+                    start_us: bounds.start_us,
+                    end_us: bounds.end_us,
+                });
+                self.note_message(&format!(
+                    "Hold sealed interval [{}, {})? y confirms; n/Esc cancels. Capture keeps running.",
+                    bounds.start_us, bounds.end_us
+                ));
+            }
+            Err(refusal) => self.note_message(super::interval::sentence(refusal)),
+        }
+        Effect::None
+    }
+
+    /// Drops the in-flight hold fence when this generation is still current.
+    pub(super) fn take_protect(&mut self, generation: u64) -> bool {
+        if self.pending_protect != Some(generation) {
+            return false;
+        }
+        self.pending_protect = None;
+        true
+    }
+
+    /// Restores the generation that is already in flight.
+    pub(super) fn restore_pending_protect(&mut self, generation: u64) {
+        self.pending_protect = Some(generation);
+    }
+
+    pub(super) fn fail_protect(&mut self, generation: u64, message: &str) -> bool {
+        if !self.take_protect(generation) {
+            return false;
+        }
+        self.note_message(message);
+        true
+    }
+
+    /// Replaces one loaded recording after a hold reply. The cursor stays when it still fits.
+    pub(super) fn install_protected_recording(&mut self, line: RecordingLine) -> bool {
+        let Some(index) = self.recordings.iter().position(|item| item.id == line.id) else {
+            self.note_message(
+                "Hold reply did not match a loaded recording. The previous view was kept. Capture keeps running.",
+            );
+            return false;
+        };
+        let same = self.recording_selection == index;
+        self.recordings[index] = line;
+        if same {
+            let len = self.recordings[index].seal.intervals.len();
+            if self.interval_index >= len {
+                self.interval_index = 0;
+            }
+        }
+        self.draw = Draw::Needed;
+        true
     }
 
     fn confirm_recording(&mut self) -> Effect {
@@ -2060,6 +2273,8 @@ mod tests {
                 format: None,
                 timeline: super::super::timeline::Timeline::default(),
                 seal: super::SealMap::default(),
+                hold_total: 0,
+                shown_holds: Vec::new(),
             }],
         ));
         model
@@ -2366,6 +2581,8 @@ mod tests {
             format: None,
             timeline: super::super::timeline::Timeline::default(),
             seal: super::SealMap::default(),
+            hold_total: 0,
+            shown_holds: Vec::new(),
         }
     }
 
@@ -2779,6 +2996,8 @@ mod tests {
                 gaps: Vec::new(),
                 truncated: false,
             },
+            hold_total: 0,
+            shown_holds: Vec::new(),
         }
     }
 
@@ -2848,5 +3067,133 @@ mod tests {
         assert_eq!(model.handle(Key::Char('P')), Effect::None);
         let effect = model.handle(Key::Char('y'));
         assert!(matches!(effect, Effect::PlayRecording { .. }));
+    }
+
+    #[test]
+    fn a_confirmed_sealed_interval_records_one_hold_and_starts_nothing() {
+        let mut model = loaded();
+        model.recordings[0] = sealed_line(
+            "reserved",
+            vec![
+                one_interval(0, 5_000_000, "a"),
+                one_interval(5_000_000, 9_000_000, "b"),
+            ],
+            Some("c"),
+        );
+        model.recordings[0].state = "running".into();
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Char('.')), Effect::None);
+        assert_eq!(model.interval_index(), 1);
+        assert_eq!(model.handle(Key::Char('H')), Effect::HoldRetained);
+        assert_eq!(model.handle(Key::Char('K')), Effect::None);
+        assert!(
+            model
+                .status()
+                .contains("Hold sealed interval [5000000, 9000000)")
+        );
+        assert_eq!(model.handle(Key::Char('H')), Effect::None);
+        assert_eq!(model.handle(Key::Char('.')), Effect::None);
+        assert_eq!(model.interval_index(), 1);
+        assert_eq!(model.handle(Key::Char('n')), Effect::None);
+        assert!(model.status().contains("No retention change"));
+        assert_eq!(model.handle(Key::Char('H')), Effect::HoldRetained);
+        assert_eq!(model.handle(Key::Char('K')), Effect::None);
+        let effect = model.handle(Key::Char('y'));
+        let Effect::ProtectInterval {
+            generation,
+            id,
+            start_us,
+            end_us,
+        } = effect
+        else {
+            panic!("expected one interval hold");
+        };
+        assert_eq!(generation, 1);
+        assert_eq!(id, "rec-sealed");
+        assert_eq!(start_us, 5_000_000);
+        assert_eq!(end_us, 9_000_000);
+        assert!(model.playback().is_none());
+        assert!(model.retained_label().is_none());
+        assert_eq!(model.handle(Key::Char('K')), Effect::None);
+        assert!(model.status().contains("still settling"));
+        assert!(!model.take_protect(2));
+        assert!(model.take_protect(1));
+        let mut line = model.recordings[0].clone();
+        line.hold_total = 1;
+        line.shown_holds = vec![super::HoldSpan {
+            ordinal: 0,
+            start_us: 5_000_000,
+            end_us: 9_000_000,
+        }];
+        assert!(model.install_protected_recording(line));
+        assert_eq!(model.interval_index(), 1);
+        assert_eq!(
+            model
+                .selected_recording()
+                .and_then(super::RecordingLine::hold_caption)
+                .as_deref(),
+            Some("Hold 0: [5000000, 9000000). 1 hold on this recording.")
+        );
+    }
+
+    #[test]
+    fn an_open_tail_a_gap_and_a_disconnect_record_no_hold() {
+        let mut model = loaded();
+        model.recordings[0] =
+            sealed_line("retained", vec![one_interval(0, 5_000_000, "a")], Some("a"));
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Char('K')), Effect::None);
+        assert!(model.status().contains("open tail"));
+        assert_eq!(model.handle(Key::Char('y')), Effect::None);
+        model.recordings[0].seal.open_object_key = None;
+        model.recordings[0]
+            .seal
+            .gaps
+            .push(sigy_service::storage::dvr::RecordingGap {
+                ordinal: 0,
+                cause: sigy_service::storage::dvr::GapCause::Disconnect,
+                start_us: 1,
+                end_us: 2,
+            });
+        assert_eq!(model.handle(Key::Char('K')), Effect::None);
+        assert!(model.status().contains("overlaps a gap"));
+        model.recordings[0].seal.gaps.clear();
+        model.note_disconnect(20_000, "fixture");
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Char('K')), Effect::None);
+        assert!(model.status().contains("not submitted"));
+    }
+
+    #[test]
+    fn shown_holds_keep_the_newest_eight_and_sentences_fit() {
+        let holds: Vec<sigy_service::storage::dvr::RecordingHold> = (0..9)
+            .map(|ordinal| sigy_service::storage::dvr::RecordingHold {
+                ordinal,
+                start_us: u64::from(ordinal),
+                end_us: u64::from(ordinal) + 1,
+                segments: vec![ordinal],
+                gaps: Vec::new(),
+            })
+            .collect();
+        let (total, shown) = super::shown_holds(&holds);
+        assert_eq!(total, 9);
+        assert_eq!(shown.len(), 8);
+        assert_eq!(shown[0].ordinal, 1);
+        assert_eq!(shown[7].ordinal, 8);
+        let confirmation = format!(
+            "Hold sealed interval [{}, {})? y confirms; n/Esc cancels. Capture keeps running.",
+            u64::MAX,
+            u64::MAX
+        );
+        let recorded = format!(
+            "Hold {ordinal} recorded on [{start}, {end}). Capture keeps running. Another confirmation records another hold.",
+            ordinal = u32::MAX,
+            start = u64::MAX,
+            end = u64::MAX
+        );
+        assert!(confirmation.len() <= 160, "{}", confirmation.len());
+        assert!(recorded.len() <= 160, "{}", recorded.len());
+        assert!(super::PROTECT_BUSY.len() <= 160);
+        assert!(super::PROTECT_UNRESOLVED.len() <= 160);
     }
 }

@@ -131,6 +131,16 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
             adopt_favorite(model, *generation, id, *favorite, result);
             Ok(())
         }
+        Effect::ProtectInterval {
+            generation,
+            id,
+            start_us,
+            end_us,
+        } => {
+            let result = fetch(directory, protect_operation(id, *start_us, *end_us)).await;
+            adopt_protect(model, *generation, id, *start_us, *end_us, result);
+            Ok(())
+        }
     }
 }
 
@@ -157,6 +167,12 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
         Effect::Search(query) => vec![search_operation(query)],
         Effect::ExploreRandom(query) => vec![random_operation(query)],
         Effect::SetFavorite { id, favorite, .. } => vec![favorite_operation(id, *favorite)],
+        Effect::ProtectInterval {
+            id,
+            start_us,
+            end_us,
+            ..
+        } => vec![protect_operation(id, *start_us, *end_us)],
         Effect::MonitorList => vec![monitor_operation(MonitorOperation::List {})],
         Effect::MonitorDetail { id } => monitor_reads(id, model.now_ms()),
         Effect::Finding { monitor, finding } => vec![finding_operation(monitor, finding)],
@@ -463,6 +479,69 @@ pub(super) fn adopt_favorite(
             }
         }
     }
+}
+
+pub(super) fn adopt_protect(
+    model: &mut Explorer,
+    generation: u64,
+    id: &str,
+    start_us: u64,
+    end_us: u64,
+    result: Result<(bool, Snapshot), Error>,
+) {
+    if !model.take_protect(generation) {
+        return;
+    }
+    match result {
+        Ok((via_service, snapshot)) => match listed_hold(&snapshot, id, start_us, end_us) {
+            Ok(ordinal) => {
+                let Some(record) = snapshot
+                    .recording_page
+                    .as_ref()
+                    .and_then(|page| page.entries.first())
+                else {
+                    model.note_message(
+                        "Unexpected recording page. The previous view was kept. Capture keeps running.",
+                    );
+                    return;
+                };
+                let line = recording_from(record);
+                if model.install_protected_recording(line) {
+                    model.note_link(link_from(via_service, &snapshot));
+                    model.note_message(&format!(
+                        "Hold {ordinal} recorded on [{start_us}, {end_us}). Capture keeps running. Another confirmation records another hold."
+                    ));
+                }
+            }
+            Err(message) => model.note_message(message),
+        },
+        Err(error) => report(model, &error),
+    }
+}
+
+fn listed_hold(
+    snapshot: &Snapshot,
+    id: &str,
+    start_us: u64,
+    end_us: u64,
+) -> Result<u32, &'static str> {
+    let Some(page) = snapshot.recording_page.as_ref() else {
+        return Err(
+            "Unexpected recording page. The previous view was kept. Capture keeps running.",
+        );
+    };
+    if page.entries.len() != 1 || page.entries[0].id != id {
+        return Err(
+            "Unexpected recording page. The previous view was kept. Capture keeps running.",
+        );
+    }
+    page.entries[0]
+        .holds
+        .iter()
+        .rev()
+        .find(|hold| hold.start_us == start_us && hold.end_us == end_us)
+        .map(|hold| hold.ordinal)
+        .ok_or("Hold reply did not list that interval. The previous recording view was kept. Capture keeps running.")
 }
 
 #[cfg(test)]
@@ -798,6 +877,7 @@ fn quota_from(status: &DvrStatus) -> QuotaView {
 }
 
 fn recording_from(record: &sigy_service::storage::dvr::Recording) -> RecordingLine {
+    let (hold_total, shown_holds) = super::state::shown_holds(&record.holds);
     RecordingLine {
         id: record.id.clone(),
         state: sanitize(&record.state, 32),
@@ -805,6 +885,8 @@ fn recording_from(record: &sigy_service::storage::dvr::Recording) -> RecordingLi
         format: record.format.as_deref().map(|format| sanitize(format, 16)),
         timeline: super::timeline::Timeline::from_recording(record),
         seal: super::state::SealMap::from_recording(record),
+        hold_total,
+        shown_holds,
     }
 }
 
@@ -847,6 +929,16 @@ pub(super) fn favorite_operation(id: &str, favorite: bool) -> Operation {
     }
 }
 
+pub(super) fn protect_operation(id: &str, start_us: u64, end_us: u64) -> Operation {
+    Operation::Record {
+        command: RecordingOperation::Hold {
+            id: id.to_owned(),
+            start_us,
+            end_us,
+        },
+    }
+}
+
 fn quota_operation() -> Operation {
     Operation::Dvr {
         command: DvrOperation::Status {},
@@ -864,7 +956,7 @@ fn recording_operation() -> Operation {
 
 #[cfg(test)]
 mod tests {
-    use super::{favorite_operation, operations_for, search_operation};
+    use super::{favorite_operation, operations_for, protect_operation, search_operation};
     use crate::explorer::state::{Effect, Explorer, Modes, SearchQuery};
     use sigy_service::control::{
         ClaimOperation, DirectoryOperation, DvrOperation, MonitorOperation, Operation,
@@ -912,7 +1004,9 @@ mod tests {
             ),
             Operation::Record { command } => !matches!(
                 command,
-                RecordingOperation::List { .. } | RecordingOperation::Show { .. }
+                RecordingOperation::List { .. }
+                    | RecordingOperation::Show { .. }
+                    | RecordingOperation::Hold { .. }
             ),
             Operation::Radio { command } => !matches!(
                 command,
@@ -1021,6 +1115,30 @@ mod tests {
             Operation::Radio {
                 command: DirectoryOperation::SetFavorite {
                     favorite: false,
+                    ..
+                }
+            }
+        ));
+    }
+
+    #[test]
+    fn interval_hold_is_one_existing_record_command() {
+        let explorer = model();
+        let effect = Effect::ProtectInterval {
+            generation: 1,
+            id: "rec".into(),
+            start_us: 0,
+            end_us: 5_000_000,
+        };
+        for operation in operations_for(&effect, &explorer) {
+            assert!(!forbidden(&operation), "{operation:?}");
+        }
+        assert!(matches!(
+            protect_operation("rec", 5_000_000, 9_000_000),
+            Operation::Record {
+                command: RecordingOperation::Hold {
+                    start_us: 5_000_000,
+                    end_us: 9_000_000,
                     ..
                 }
             }
