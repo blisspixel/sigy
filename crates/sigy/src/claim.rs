@@ -290,7 +290,7 @@ fn render_candidates(writer: &mut impl Write, page: &ClaimCandidatePage) -> io::
     if page.candidates.is_empty() {
         writeln!(
             writer,
-            "No stored finding matches this search. A passage that is not a finding is not a candidate."
+            "No stored finding or retained cue matches this search. A cue that is not retained is not a candidate."
         )?;
         return Ok(());
     }
@@ -318,6 +318,16 @@ fn render_candidates(writer: &mut impl Write, page: &ClaimCandidatePage) -> io::
         writeln!(writer, "  {}", sanitize(&candidate.original, 2_000))?;
         if let Some(english) = &candidate.english {
             writeln!(writer, "  English: {}", sanitize(english, 2_000))?;
+        }
+        if candidate.findings.is_empty() {
+            writeln!(
+                writer,
+                "Accept with: sigy claim sighting CLAIM SIGHTING --transcript {} --revision {} --translation {} --cue {}",
+                sanitize(&candidate.transcript_id, 128),
+                candidate.transcript_revision,
+                candidate.translation_revision,
+                candidate.cue_ordinal
+            )?;
         }
         for finding in &candidate.findings {
             writeln!(
@@ -635,7 +645,67 @@ mod tests {
         assert!(text.contains(
             "Accept with: sigy claim sighting CLAIM SIGHTING --monitor fair --finding world"
         ));
+        assert!(!text.contains("--transcript"));
         assert!(!text.contains("score"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_passage_candidate_names_the_cue_and_inserts_nothing() -> TestResult {
+        use sigy_service::archive::ArchiveQuery;
+        use sigy_service::claim::ClaimCandidate;
+        let passage = ClaimCandidatePage {
+            query: ArchiveQuery::new("feria").validate()?,
+            hits_read: 1,
+            stopped: None,
+            candidates: vec![ClaimCandidate {
+                source: "radio:v1".into(),
+                recording_id: "one".into(),
+                transcript_id: "pin".into(),
+                transcript_revision: 1,
+                translation_revision: 1,
+                cue_ordinal: 0,
+                start_us: 0,
+                end_us: 1_000_000,
+                original: "Una feria mundial".into(),
+                english: None,
+                stale_transcript: false,
+                stale_translation: false,
+                findings: Vec::new(),
+                more_findings: false,
+            }],
+        };
+        let mut cue_output = Vec::new();
+        render(
+            &mut cue_output,
+            &ClaimPage::Candidates {
+                page: Box::new(passage),
+            },
+        )?;
+        let cue = String::from_utf8(cue_output)?;
+        assert!(cue.contains(
+            "Accept with: sigy claim sighting CLAIM SIGHTING --transcript pin --revision 1 --translation 1 --cue 0"
+        ));
+        assert!(!cue.contains("--monitor"));
+        assert!(!cue.contains("finding"));
+
+        let empty = ClaimCandidatePage {
+            query: ArchiveQuery::new("zzzz").validate()?,
+            hits_read: 0,
+            stopped: None,
+            candidates: Vec::new(),
+        };
+        let mut none_output = Vec::new();
+        render(
+            &mut none_output,
+            &ClaimPage::Candidates {
+                page: Box::new(empty),
+            },
+        )?;
+        let none = String::from_utf8(none_output)?;
+        assert!(none.contains(
+            "No stored finding or retained cue matches this search. A cue that is not retained is not a candidate."
+        ));
         Ok(())
     }
 

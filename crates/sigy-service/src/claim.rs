@@ -301,10 +301,10 @@ pub struct ClaimCandidateFinding {
     pub original_state: String,
 }
 
-/// One analysis-search hit that at least one stored finding already cites.
+/// One analysis-search hit that a stored finding cites, or one retained cue.
 ///
-/// The join is exact: transcript, translation revision, cue, and recording.
-/// A passage with no finding is omitted. Nothing here is inserted.
+/// The finding join is exact: transcript, translation revision, cue, and recording.
+/// A hit with no finding is included only when that cue is retained. Nothing here is inserted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClaimCandidate {
@@ -333,12 +333,13 @@ pub struct ClaimCandidate {
     /// This hit is an older translation of the cited transcript revision.
     pub stale_translation: bool,
     /// Matching findings, in monitor and finding id order, at most [`CANDIDATE_FINDING_LIMIT`].
+    /// Empty when the hit is a retained cue and no finding cites it.
     pub findings: Vec<ClaimCandidateFinding>,
     /// Another matching finding exists beyond that limit.
     pub more_findings: bool,
 }
 
-/// The search page reduced to hits a stored finding already cites.
+/// The search page reduced to finding hits and retained cues. A listed row is not inserted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClaimCandidatePage {

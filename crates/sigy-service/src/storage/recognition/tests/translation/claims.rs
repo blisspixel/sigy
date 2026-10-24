@@ -893,10 +893,16 @@ fn feria() -> Result<ArchiveQuery> {
 fn a_search_hit_is_a_candidate_only_when_a_finding_cites_that_cue() -> TestResult {
     let directory = tempfile::tempdir()?;
     let mut store = desk(&directory.path().join("catalog"))?;
-    let empty = store.claim_candidates(feria()?)?;
-    assert_eq!(empty.candidates, []);
-    assert!(empty.hits_read >= 1);
+    let open = store.claim_candidates(feria()?)?;
+    assert!(open.hits_read >= 1);
+    assert_eq!(open.candidates.len(), 1);
+    assert_eq!(open.candidates[0].findings, Vec::new());
+    assert!(!open.candidates[0].more_findings);
+    assert_eq!(open.candidates[0].transcript_id, "pin");
+    assert_eq!(open.candidates[0].cue_ordinal, 0);
     assert_eq!(tally(&store)?, (0, 0, 0, 0, 0));
+    let listed = serde_json::to_value(&open)?;
+    assert!(!contains_key(&listed, "score"));
 
     store.publish_finding("fair", "world", &cite(FindingOriginal::Retained), 40)?;
     let page = store.claim_candidates(feria()?)?;
@@ -942,20 +948,41 @@ fn a_search_hit_is_a_candidate_only_when_a_finding_cites_that_cue() -> TestResul
 }
 
 #[test]
-fn a_newer_translation_stays_off_the_current_candidate_page() -> TestResult {
+fn a_cue_that_is_not_retained_is_not_a_candidate() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = desk(&directory.path().join("catalog"))?;
+    assert_eq!(store.claim_candidates(feria()?)?.candidates.len(), 1);
+    store.begin_delete("one", false)?;
+    let expired = store.claim_candidates(feria()?)?;
+    assert!(expired.hits_read >= 1);
+    assert_eq!(expired.candidates, []);
+    assert_eq!(tally(&store)?, (0, 0, 0, 0, 0));
+    Ok(())
+}
+
+#[test]
+fn a_newer_translation_without_a_finding_stays_a_passage_candidate() -> TestResult {
     let directory = tempfile::tempdir()?;
     let mut store = desk(&directory.path().join("catalog"))?;
     store.publish_finding("fair", "world", &cite(FindingOriginal::Retained), 40)?;
     translate_at(&mut store, "mt-2", 1, "A later fair", 50)?;
     let current = store.claim_candidates(feria()?)?;
     assert!(current.hits_read >= 1);
-    assert_eq!(current.candidates, []);
+    assert_eq!(current.candidates.len(), 1);
+    assert_eq!(current.candidates[0].findings, Vec::new());
+    assert!(current.candidates[0].translation_revision > 1);
+    assert_eq!(
+        current.candidates[0].english.as_deref(),
+        Some("A later fair")
+    );
+    assert!(!current.candidates[0].stale_translation);
 
     let mut history = feria()?;
     history.revisions = ArchiveRevisions::All;
     let same_term = store.claim_candidates(history)?;
     assert!(same_term.hits_read >= 1);
-    assert_eq!(same_term.candidates, []);
+    assert_eq!(same_term.candidates.len(), 1);
+    assert_eq!(same_term.candidates[0].findings, Vec::new());
 
     let mut older = ArchiveQuery::new("world").validate()?;
     older.revisions = ArchiveRevisions::All;

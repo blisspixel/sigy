@@ -66,6 +66,31 @@ fn findings_for_hit(
     Ok((findings, more_findings))
 }
 
+fn retained_hit(
+    connection: &rusqlite::Connection,
+    hit: &ArchiveHit,
+    translation_revision: i64,
+) -> Result<bool> {
+    let passage = match super::findings::require_retained_passage(
+        connection,
+        &hit.transcript_id,
+        hit.transcript_revision,
+        translation_revision,
+        hit.cue_ordinal,
+    ) {
+        Ok(passage) => passage,
+        Err(Error::InvalidInput(_) | Error::NotFound | Error::Analysis("finding-range")) => {
+            return Ok(false);
+        }
+        Err(error) => return Err(error),
+    };
+    let start = u64::try_from(passage.start_us).ok();
+    let end = u64::try_from(passage.end_us).ok();
+    Ok(passage.recording_id == hit.recording_id
+        && start == Some(hit.start_us)
+        && end == Some(hit.end_us))
+}
+
 /// Fields of one evidence link. The origin is always the user.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EvidenceRequest<'a> {
@@ -198,11 +223,11 @@ impl Store {
             .map_err(Error::from)
     }
 
-    /// Keep search hits that a stored finding already cites. This writes nothing.
+    /// Keep finding hits, and retained cues that have no finding. This writes nothing.
     ///
     /// # Errors
     /// Refuses an invalid query. A stored original state outside the finding check is
-    /// a catalog integrity failure.
+    /// a catalog integrity failure. A cue that is not retained is omitted.
     pub(crate) fn claim_candidates(&self, query: ArchiveQuery) -> Result<ClaimCandidatePage> {
         let searched = self.archive_search(query)?;
         let mut candidates = Vec::new();
@@ -212,7 +237,7 @@ impl Store {
             };
             let (findings, more_findings) =
                 findings_for_hit(&self.connection, hit, translation_revision)?;
-            if findings.is_empty() {
+            if findings.is_empty() && !retained_hit(&self.connection, hit, translation_revision)? {
                 continue;
             }
             candidates.push(ClaimCandidate {
