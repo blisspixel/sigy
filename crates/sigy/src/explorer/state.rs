@@ -372,6 +372,11 @@ enum PendingPlay {
         start_us: u64,
         end_us: u64,
     },
+    Interval {
+        id: String,
+        start_us: u64,
+        end_us: u64,
+    },
 }
 
 /// One explicit retained listen. It is independent of the live session receipt.
@@ -400,6 +405,12 @@ pub enum Effect {
         finding: String,
         request: String,
         recording: String,
+        start_us: u64,
+        end_us: u64,
+    },
+    PlayInterval {
+        id: String,
+        request: String,
         start_us: u64,
         end_us: u64,
     },
@@ -492,6 +503,8 @@ pub struct Explorer {
     directory: Option<DirectoryView>,
     recordings: Vec<RecordingLine>,
     recording_selection: usize,
+    /// Index into the selected recording's loaded sealed intervals.
+    interval_index: usize,
     captures_active: u64,
     quota: Option<QuotaView>,
     playback: Option<PlaybackView>,
@@ -575,6 +588,7 @@ impl Explorer {
             directory: None,
             recordings: Vec::new(),
             recording_selection: 0,
+            interval_index: 0,
             captures_active: 0,
             quota: None,
             playback: None,
@@ -898,8 +912,22 @@ impl Explorer {
         self.retain_live_station();
         self.recordings = desk.recordings;
         self.recording_selection = recording
+            .as_deref()
             .and_then(|id| self.recordings.iter().position(|record| record.id == id))
             .unwrap_or(0);
+        let same_recording = self
+            .selected_recording()
+            .is_some_and(|record| Some(record.id.as_str()) == recording.as_deref());
+        if same_recording {
+            let len = self
+                .selected_recording()
+                .map_or(0, |record| record.seal.intervals.len());
+            if self.interval_index >= len {
+                self.interval_index = 0;
+            }
+        } else {
+            self.interval_index = 0;
+        }
         self.rows = desk.stations;
         self.random_count = None;
         if let Some(catalog) = desk.catalog {
@@ -1272,6 +1300,24 @@ impl Explorer {
                     end_us,
                 }
             }
+            PendingPlay::Interval {
+                id,
+                start_us,
+                end_us,
+            } => {
+                let Some(request) = self.allocate_retained() else {
+                    return Effect::None;
+                };
+                self.note_message(&format!(
+                    "Starting retained listen {request}. Browsing stays independent."
+                ));
+                Effect::PlayInterval {
+                    id,
+                    request,
+                    start_us,
+                    end_us,
+                }
+            }
         }
     }
 
@@ -1331,9 +1377,45 @@ impl Explorer {
     fn recording_play_key(&mut self, key: &Key) -> Option<Effect> {
         match key {
             Key::Char('P') => Some(self.confirm_recording()),
+            Key::Char('I') => Some(self.confirm_interval()),
             Key::Char('S') => Some(Effect::StopRetained),
             _ => None,
         }
+    }
+
+    fn confirm_interval(&mut self) -> Effect {
+        let stored = self.selected_recording().map(|recording| {
+            (
+                recording.id.clone(),
+                recording.storage_state.clone(),
+                recording.seal.clone(),
+            )
+        });
+        let Some((id, storage, seal)) = stored else {
+            self.note_message(
+                "No selected recording. No interval was started. Capture keeps running.",
+            );
+            return Effect::None;
+        };
+        if !matches!(storage.as_str(), "reserved" | "retained") {
+            self.note_message(super::interval::UNSTORED);
+            return Effect::None;
+        }
+        match super::interval::select(&seal, self.interval_index) {
+            Ok(bounds) => {
+                self.play_confirmation = Some(PendingPlay::Interval {
+                    id,
+                    start_us: bounds.start_us,
+                    end_us: bounds.end_us,
+                });
+                self.note_message(&format!(
+                    "Play sealed interval [{}, {})? y confirms; n/Esc cancels. Capture keeps running.",
+                    bounds.start_us, bounds.end_us
+                ));
+            }
+            Err(refusal) => self.note_message(super::interval::sentence(refusal)),
+        }
+        Effect::None
     }
 
     fn confirm_recording(&mut self) -> Effect {
@@ -1654,18 +1736,63 @@ impl Explorer {
 
     fn recording_key(&mut self, key: &Key) -> bool {
         match key {
-            Key::Up => self.recording_selection = self.recording_selection.saturating_sub(1),
-            Key::Down => {
-                self.recording_selection = self
-                    .recording_selection
-                    .saturating_add(1)
-                    .min(self.recordings.len().saturating_sub(1));
-            }
+            Key::Up => self.move_recording(false),
+            Key::Down => self.move_recording(true),
+            Key::Char(',') => self.shift_interval(false),
+            Key::Char('.') => self.shift_interval(true),
             Key::Char('f' | 'v' | '/') => self
                 .note_message("Recording selection is read-only. r reloads the metadata snapshot."),
             _ => return false,
         }
         true
+    }
+
+    fn move_recording(&mut self, forward: bool) {
+        if forward {
+            self.recording_selection = self
+                .recording_selection
+                .saturating_add(1)
+                .min(self.recordings.len().saturating_sub(1));
+        } else {
+            self.recording_selection = self.recording_selection.saturating_sub(1);
+        }
+        self.interval_index = 0;
+    }
+
+    fn shift_interval(&mut self, forward: bool) {
+        let facts = self
+            .selected_recording()
+            .map(|recording| (recording.seal.truncated, recording.seal.intervals.len()));
+        let Some((truncated, len)) = facts else {
+            self.note_message(
+                "No selected recording. No interval was chosen. Capture keeps running.",
+            );
+            return;
+        };
+        if truncated {
+            self.note_message(super::interval::TRUNCATED);
+            return;
+        }
+        if len == 0 {
+            self.note_message(super::interval::MISSING);
+            return;
+        }
+        if forward {
+            self.interval_index = self.interval_index.saturating_add(1).min(len - 1);
+        } else {
+            self.interval_index = self.interval_index.saturating_sub(1);
+        }
+        let caption = self
+            .selected_recording()
+            .map(|recording| super::interval::caption(&recording.seal, self.interval_index));
+        if let Some(caption) = caption {
+            self.note_message(&caption);
+        }
+    }
+
+    #[must_use]
+    pub(super) fn interval_index(&self) -> usize {
+        self.interval_index
     }
 
     fn monitor_key(&mut self, key: &Key) -> Option<Effect> {
@@ -2631,5 +2758,95 @@ mod tests {
             model.selected().map(|item| item.directory_health),
             Some(Health::Succeeded)
         );
+    }
+
+    fn sealed_line(
+        storage: &str,
+        intervals: Vec<sigy_service::storage::dvr::RecordingInterval>,
+        open: Option<&str>,
+    ) -> RecordingLine {
+        RecordingLine {
+            id: "rec-sealed".into(),
+            state: "completed".into(),
+            storage_state: storage.into(),
+            format: Some("wav".into()),
+            timeline: super::super::timeline::Timeline::default(),
+            seal: super::SealMap {
+                state: "completed".into(),
+                open_ceiling: u64::from(open.is_some()),
+                open_object_key: open.map(|key| key.repeat(32)),
+                intervals,
+                gaps: Vec::new(),
+                truncated: false,
+            },
+        }
+    }
+
+    fn one_interval(
+        start: u64,
+        end: u64,
+        key: &str,
+    ) -> sigy_service::storage::dvr::RecordingInterval {
+        sigy_service::storage::dvr::RecordingInterval {
+            ordinal: 0,
+            decoded_start_us: start,
+            decoded_end_us: end,
+            byte_start: 0,
+            byte_end: 100,
+            object_key: key.repeat(32),
+            sha256: "ab".repeat(32),
+            format: "wav".into(),
+            ceiling_bytes: 100,
+            released: false,
+        }
+    }
+
+    #[test]
+    fn a_confirmed_sealed_interval_requests_one_bounded_listen() {
+        let mut model = loaded();
+        model.recordings[0] = sealed_line(
+            "retained",
+            vec![
+                one_interval(0, 5_000_000, "a"),
+                one_interval(5_000_000, 9_000_000, "b"),
+            ],
+            None,
+        );
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Char('.')), Effect::None);
+        assert!(model.status().contains("[5000000, 9000000)"));
+        assert_eq!(model.handle(Key::Char('I')), Effect::None);
+        assert!(model.status().contains("y confirms"));
+        let effect = model.handle(Key::Char('y'));
+        let Effect::PlayInterval {
+            id,
+            start_us,
+            end_us,
+            request,
+        } = effect
+        else {
+            panic!("expected one interval listen");
+        };
+        assert_eq!(id, "rec-sealed");
+        assert_eq!(start_us, 5_000_000);
+        assert_eq!(end_us, 9_000_000);
+        assert!(request.starts_with("reader-"));
+        assert!(model.playback().is_none());
+    }
+
+    #[test]
+    fn an_open_tail_and_a_whole_recording_play_stay_distinct() {
+        let mut model = loaded();
+        model.recordings[0] =
+            sealed_line("retained", vec![one_interval(0, 5_000_000, "a")], Some("a"));
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Char('I')), Effect::None);
+        assert!(model.status().contains("open tail"));
+        assert_eq!(model.handle(Key::Char('y')), Effect::None);
+        model.recordings[0].seal.open_object_key = None;
+        model.recordings[0].state = "completed".into();
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        let effect = model.handle(Key::Char('y'));
+        assert!(matches!(effect, Effect::PlayRecording { .. }));
     }
 }

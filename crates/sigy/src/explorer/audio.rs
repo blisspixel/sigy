@@ -21,6 +21,12 @@ enum Start {
         start_us: u64,
         end_us: u64,
     },
+    Interval {
+        id: String,
+        request: String,
+        start_us: u64,
+        end_us: u64,
+    },
 }
 
 struct Admission {
@@ -51,7 +57,9 @@ impl Start {
     fn request_id(&self) -> Option<&str> {
         match self {
             Self::Station(_) => None,
-            Self::Recording { request, .. } | Self::Finding { request, .. } => Some(request),
+            Self::Recording { request, .. }
+            | Self::Finding { request, .. }
+            | Self::Interval { request, .. } => Some(request),
         }
     }
 
@@ -135,6 +143,26 @@ impl Audio {
                         finding: finding.clone(),
                         request: request.clone(),
                         recording: recording.clone(),
+                        start_us: *start_us,
+                        end_us: *end_us,
+                    },
+                    runtime,
+                    directory,
+                    model,
+                );
+            }
+            Effect::PlayInterval {
+                id,
+                request,
+                start_us,
+                end_us,
+            } => {
+                self.end_hold(model);
+                model.begin_retained(request);
+                self.enqueue(
+                    Start::Interval {
+                        id: id.clone(),
+                        request: request.clone(),
                         start_us: *start_us,
                         end_us: *end_us,
                     },
@@ -248,6 +276,14 @@ impl Audio {
             } => self
                 .retained
                 .start_finding(directory, monitor, finding, request),
+            Start::Interval {
+                id,
+                request,
+                start_us,
+                end_us,
+            } => self
+                .retained
+                .start_file(directory, id, request, *start_us, Some(*end_us)),
         };
         match started {
             Ok(()) => {
@@ -863,6 +899,17 @@ impl Audio {
                 ..
             } => Some(Admission {
                 recording: recording.clone(),
+                origin_us: *start_us,
+                end_us: Some(*end_us),
+                request: request.clone(),
+            }),
+            Start::Interval {
+                id,
+                request,
+                start_us,
+                end_us,
+            } => Some(Admission {
+                recording: id.clone(),
                 origin_us: *start_us,
                 end_us: Some(*end_us),
                 request: request.clone(),

@@ -254,6 +254,7 @@ impl Reads {
             | Effect::Play { .. }
             | Effect::PlayRecording { .. }
             | Effect::PlayFinding { .. }
+            | Effect::PlayInterval { .. }
             | Effect::HoldRetained
             | Effect::SeekRetained { .. }
             | Effect::StopListen

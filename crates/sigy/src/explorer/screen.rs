@@ -1156,6 +1156,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             "  H pauses at the decoder time and the next H resumes",
             "  [ and ] seek 10 s inside this admitted listen",
             "  the next sealed segment starts once sealed; an open tail waits",
+            "  , and . choose a sealed interval    I then y plays that interval",
         ],
         Workspace::Monitors => {
             &["  arrows select or scroll    Enter inspects    Esc back    r reload"]
@@ -1645,6 +1646,10 @@ fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'s
         lines.push(plain(&timeline_cells(&recording.timeline, width, marks)));
         lines.push(plain(crate::explorer::timeline::Timeline::legend_for(
             marks, width,
+        )));
+        lines.push(plain(&super::interval::caption(
+            &recording.seal,
+            model.interval_index(),
         )));
         lines.push(plain(
             "No waveform or live samples. The open tail is not yet published; r reloads.",
@@ -2339,6 +2344,7 @@ mod tests {
         assert!(recordings.contains("seek 10 s"), "{recordings}");
         assert!(recordings.contains("next sealed segment"), "{recordings}");
         assert!(recordings.contains("open tail waits"), "{recordings}");
+        assert!(recordings.contains("I then y plays"), "{recordings}");
         model.handle(Key::Escape);
         model.handle(Key::Char('5'));
         model.handle(Key::Char('?'));

@@ -10,6 +10,7 @@ mod finding;
 mod follow;
 mod globe;
 mod handoff;
+mod interval;
 mod metadata;
 mod monitor;
 mod pause;
