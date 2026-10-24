@@ -466,6 +466,7 @@ fn hint_pairs(model: &Explorer) -> Vec<&'static str> {
                 "select row",
                 "r reload",
                 "P play",
+                "L latest",
                 "K hold",
                 "S stop",
                 "H pause",
@@ -1159,6 +1160,7 @@ fn workspace_keys(workspace: Workspace) -> &'static [&'static str] {
             "  the next sealed segment starts once sealed; an open tail waits",
             "  , and . choose a sealed interval    I then y plays that interval",
             "  K then y records one hold on that interval",
+            "  L then y plays the latest sealed interval",
         ],
         Workspace::Monitors => {
             &["  arrows select or scroll    Enter inspects    Esc back    r reload"]
@@ -2353,6 +2355,7 @@ mod tests {
         assert!(recordings.contains("open tail waits"), "{recordings}");
         assert!(recordings.contains("I then y plays"), "{recordings}");
         assert!(recordings.contains("K then y"), "{recordings}");
+        assert!(recordings.contains("L then y"), "{recordings}");
         model.handle(Key::Escape);
         model.handle(Key::Char('5'));
         model.handle(Key::Char('?'));

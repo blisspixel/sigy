@@ -50,6 +50,31 @@ pub(super) const fn sentence(refusal: Refusal) -> &'static str {
     }
 }
 
+/// Pick the newest playable interval. A truncated map never chooses a file.
+///
+/// An open object, a release, a gap, and an empty length are skipped when an
+/// earlier sealed interval can play. When none can, the newest interval's
+/// refusal is returned.
+pub(super) fn latest_playable(chart: &SealMap) -> Result<Bounds, Refusal> {
+    if chart.truncated {
+        return Err(Refusal::Truncated);
+    }
+    let mut newest_refusal = Refusal::Missing;
+    let mut saw_interval = false;
+    for index in (0..chart.intervals.len()).rev() {
+        match select(chart, index) {
+            Ok(bounds) => return Ok(bounds),
+            Err(refusal) => {
+                if !saw_interval {
+                    newest_refusal = refusal;
+                    saw_interval = true;
+                }
+            }
+        }
+    }
+    Err(newest_refusal)
+}
+
 /// Pick `index` from the loaded map. A truncated map never chooses a file.
 pub(super) fn select(chart: &SealMap, index: usize) -> Result<Bounds, Refusal> {
     if chart.truncated {
@@ -111,7 +136,7 @@ mod tests {
 
     use super::super::pause::file_listen_args;
     use super::super::state::SealMap;
-    use super::{Bounds, Refusal, TRUNCATED, select};
+    use super::{Bounds, Refusal, TRUNCATED, latest_playable, select};
 
     fn interval(start: u64, end: u64, key: &str, released: bool) -> RecordingInterval {
         RecordingInterval {
@@ -186,6 +211,62 @@ mod tests {
                 .and_then(|index| args.get(index + 1))
                 .map(String::as_str),
             Some("9000000")
+        );
+    }
+
+    #[test]
+    fn the_newest_playable_interval_skips_the_open_object_and_stores_no_end() {
+        let mut map = chart(
+            vec![
+                interval(0, 5_000_000, "a", false),
+                interval(5_000_000, 9_000_000, "b", false),
+                interval(9_000_000, 12_000_000, "c", false),
+            ],
+            Vec::new(),
+        );
+        map.open_object_key = Some("c".repeat(32));
+        let bounds = Bounds {
+            start_us: 5_000_000,
+            end_us: 9_000_000,
+        };
+        assert_eq!(latest_playable(&map), Ok(bounds));
+        let args = file_listen_args("rec", "reader-1", bounds.start_us, None);
+        assert_eq!(
+            args.iter()
+                .position(|arg| arg == "--seek-us")
+                .and_then(|index| args.get(index + 1))
+                .map(String::as_str),
+            Some("5000000")
+        );
+        assert!(!args.iter().any(|arg| arg == "--end-us"));
+        map.intervals.pop();
+        map.open_object_key = Some("b".repeat(32));
+        map.intervals[0].released = true;
+        assert_eq!(latest_playable(&map), Err(Refusal::Open));
+        map.truncated = true;
+        assert_eq!(latest_playable(&map), Err(Refusal::Truncated));
+        assert_eq!(
+            latest_playable(&chart(Vec::new(), Vec::new())),
+            Err(Refusal::Missing)
+        );
+        let gapped = chart(
+            vec![
+                interval(0, 4_000_000, "d", false),
+                interval(4_000_000, 8_000_000, "e", false),
+            ],
+            vec![RecordingGap {
+                ordinal: 0,
+                cause: GapCause::CapturePause,
+                start_us: 4_000_000,
+                end_us: 8_000_000,
+            }],
+        );
+        assert_eq!(
+            latest_playable(&gapped),
+            Ok(Bounds {
+                start_us: 0,
+                end_us: 4_000_000,
+            })
         );
     }
 

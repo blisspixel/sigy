@@ -27,7 +27,15 @@ enum Start {
         start_us: u64,
         end_us: u64,
     },
+    Latest {
+        id: String,
+        request: String,
+        start_us: u64,
+    },
 }
+
+const ALREADY_LATEST: &str =
+    "This listen is already on the latest sealed interval. Capture keeps running.";
 
 struct Admission {
     recording: String,
@@ -59,7 +67,8 @@ impl Start {
             Self::Station(_) => None,
             Self::Recording { request, .. }
             | Self::Finding { request, .. }
-            | Self::Interval { request, .. } => Some(request),
+            | Self::Interval { request, .. }
+            | Self::Latest { request, .. } => Some(request),
         }
     }
 
@@ -171,6 +180,11 @@ impl Audio {
                     model,
                 );
             }
+            Effect::PlayLatest {
+                id,
+                request,
+                start_us,
+            } => self.play_latest(runtime, directory, model, id, request, *start_us),
             Effect::HoldRetained => self.heard(runtime, directory, model),
             Effect::SeekRetained { forward } => self.nudge(runtime, directory, model, *forward),
             Effect::StopListen => self.stop(true, runtime, directory, model),
@@ -238,6 +252,33 @@ impl Audio {
         discarded || live || retained
     }
 
+    fn play_latest(
+        &mut self,
+        runtime: &Runtime,
+        directory: &Path,
+        model: &mut Explorer,
+        id: &str,
+        request: &str,
+        start_us: u64,
+    ) {
+        if already_on_latest(self.admission.as_ref(), id, start_us) {
+            model.note_message(ALREADY_LATEST);
+            return;
+        }
+        self.end_hold(model);
+        model.begin_retained(request);
+        self.enqueue(
+            Start::Latest {
+                id: id.to_owned(),
+                request: request.to_owned(),
+                start_us,
+            },
+            runtime,
+            directory,
+            model,
+        );
+    }
+
     fn enqueue(&mut self, start: Start, runtime: &Runtime, directory: &Path, model: &mut Explorer) {
         if self.foreground_occupied() {
             self.stop_foreground(runtime, directory, model);
@@ -285,6 +326,13 @@ impl Audio {
             } => self
                 .retained
                 .start_file(directory, id, request, *start_us, Some(*end_us)),
+            Start::Latest {
+                id,
+                request,
+                start_us,
+            } => self
+                .retained
+                .start_file(directory, id, request, *start_us, None),
         };
         match started {
             Ok(()) => {
@@ -915,8 +963,25 @@ impl Audio {
                 end_us: Some(*end_us),
                 request: request.clone(),
             }),
+            Start::Latest {
+                id,
+                request,
+                start_us,
+            } => Some(Admission {
+                recording: id.clone(),
+                origin_us: *start_us,
+                end_us: None,
+                request: request.clone(),
+            }),
         };
     }
+}
+
+fn already_on_latest(admission: Option<&Admission>, id: &str, start_us: u64) -> bool {
+    let Some(admission) = admission else {
+        return false;
+    };
+    admission.recording == id && admission.end_us.is_none() && admission.origin_us >= start_us
 }
 
 /// Operating-system spawn failures can contain a path. Keep those out of the status line.
@@ -925,5 +990,34 @@ fn start_failure(error: &std::io::Error) -> String {
         "The listen client could not start. No path is shown. Capture keeps running.".into()
     } else {
         error.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Admission, already_on_latest};
+
+    fn admission(origin_us: u64, end_us: Option<u64>) -> Admission {
+        Admission {
+            recording: "rec".into(),
+            origin_us,
+            end_us,
+            request: "reader-1".into(),
+        }
+    }
+
+    #[test]
+    fn a_whole_segment_listen_at_or_after_the_latest_start_is_already_there() {
+        let current = admission(5_000_000, None);
+        assert!(already_on_latest(Some(&current), "rec", 5_000_000));
+        let ahead = admission(6_000_000, None);
+        assert!(already_on_latest(Some(&ahead), "rec", 5_000_000));
+        let earlier = admission(0, None);
+        assert!(!already_on_latest(Some(&earlier), "rec", 5_000_000));
+        let cited = admission(5_000_000, Some(9_000_000));
+        assert!(!already_on_latest(Some(&cited), "rec", 5_000_000));
+        assert!(!already_on_latest(Some(&current), "other", 5_000_000));
+        assert!(!already_on_latest(None, "rec", 5_000_000));
+        assert!(super::ALREADY_LATEST.len() <= 160);
     }
 }

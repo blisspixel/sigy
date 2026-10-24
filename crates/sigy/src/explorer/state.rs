@@ -442,6 +442,10 @@ enum PendingPlay {
         start_us: u64,
         end_us: u64,
     },
+    Latest {
+        id: String,
+        start_us: u64,
+    },
 }
 
 /// A confirmed interval hold that is waiting for `y` or `n`. It starts no audio.
@@ -486,6 +490,12 @@ pub enum Effect {
         request: String,
         start_us: u64,
         end_us: u64,
+    },
+    /// Play the newest sealed interval on the loaded map. No end is stored.
+    PlayLatest {
+        id: String,
+        request: String,
+        start_us: u64,
     },
     /// Record one hold on a sealed interval. This starts no decoder.
     ProtectInterval {
@@ -1409,6 +1419,19 @@ impl Explorer {
                     end_us,
                 }
             }
+            PendingPlay::Latest { id, start_us } => {
+                let Some(request) = self.allocate_retained() else {
+                    return Effect::None;
+                };
+                self.note_message(&format!(
+                    "Starting retained listen {request}. Browsing stays independent."
+                ));
+                Effect::PlayLatest {
+                    id,
+                    request,
+                    start_us,
+                }
+            }
         }
     }
 
@@ -1469,6 +1492,7 @@ impl Explorer {
         match key {
             Key::Char('P') => Some(self.confirm_recording()),
             Key::Char('I') => Some(self.confirm_interval()),
+            Key::Char('L') => Some(self.confirm_latest()),
             Key::Char('K') => Some(self.ask_protect()),
             Key::Char('S') => Some(Effect::StopRetained),
             _ => None,
@@ -1502,6 +1526,40 @@ impl Explorer {
                 });
                 self.note_message(&format!(
                     "Play sealed interval [{}, {})? y confirms; n/Esc cancels. Capture keeps running.",
+                    bounds.start_us, bounds.end_us
+                ));
+            }
+            Err(refusal) => self.note_message(super::interval::sentence(refusal)),
+        }
+        Effect::None
+    }
+
+    fn confirm_latest(&mut self) -> Effect {
+        let stored = self.selected_recording().map(|recording| {
+            (
+                recording.id.clone(),
+                recording.storage_state.clone(),
+                recording.seal.clone(),
+            )
+        });
+        let Some((id, storage, seal)) = stored else {
+            self.note_message(
+                "No selected recording. No interval was started. Capture keeps running.",
+            );
+            return Effect::None;
+        };
+        if !matches!(storage.as_str(), "reserved" | "retained") {
+            self.note_message(super::interval::UNSTORED);
+            return Effect::None;
+        }
+        match super::interval::latest_playable(&seal) {
+            Ok(bounds) => {
+                self.play_confirmation = Some(PendingPlay::Latest {
+                    id,
+                    start_us: bounds.start_us,
+                });
+                self.note_message(&format!(
+                    "Play latest sealed interval [{}, {})? y confirms; n/Esc cancels. Capture keeps running.",
                     bounds.start_us, bounds.end_us
                 ));
             }
@@ -3195,5 +3253,69 @@ mod tests {
         assert!(recorded.len() <= 160, "{}", recorded.len());
         assert!(super::PROTECT_BUSY.len() <= 160);
         assert!(super::PROTECT_UNRESOLVED.len() <= 160);
+        let latest = format!(
+            "Play latest sealed interval [{}, {})? y confirms; n/Esc cancels. Capture keeps running.",
+            u64::MAX,
+            u64::MAX
+        );
+        assert!(latest.len() <= 160, "{}", latest.len());
+    }
+
+    #[test]
+    fn l_then_y_plays_the_latest_sealed_interval_and_stores_no_end() {
+        let mut model = loaded();
+        model.recordings[0] = sealed_line(
+            "reserved",
+            vec![
+                one_interval(0, 5_000_000, "a"),
+                one_interval(5_000_000, 9_000_000, "b"),
+                one_interval(9_000_000, 12_000_000, "c"),
+            ],
+            Some("c"),
+        );
+        model.recordings[0].state = "running".into();
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Char('l')), Effect::None);
+        assert_eq!(model.handle(Key::Char('L')), Effect::None);
+        assert!(
+            model
+                .status()
+                .contains("Play latest sealed interval [5000000, 9000000)")
+        );
+        assert_eq!(model.handle(Key::Char('H')), Effect::None);
+        assert_eq!(model.handle(Key::Char('.')), Effect::None);
+        let effect = model.handle(Key::Char('y'));
+        let Effect::PlayLatest {
+            id,
+            start_us,
+            request,
+        } = effect
+        else {
+            panic!("expected the latest sealed interval");
+        };
+        assert_eq!(id, "rec-sealed");
+        assert_eq!(start_us, 5_000_000);
+        assert!(request.starts_with("reader-"));
+        assert!(model.playback().is_none());
+        assert!(model.retained_label().is_none());
+    }
+
+    #[test]
+    fn an_open_tail_and_an_unstored_recording_do_not_start_the_latest_interval() {
+        let mut model = loaded();
+        model.recordings[0] =
+            sealed_line("retained", vec![one_interval(0, 5_000_000, "a")], Some("a"));
+        model.handle(Key::Char('3'));
+        assert_eq!(model.handle(Key::Char('L')), Effect::None);
+        assert!(model.status().contains("open tail"));
+        assert_eq!(model.handle(Key::Char('y')), Effect::None);
+        model.recordings[0].storage_state = "deleting".into();
+        model.recordings[0].seal.open_object_key = None;
+        assert_eq!(model.handle(Key::Char('L')), Effect::None);
+        assert!(model.status().contains("not reserved or retained"));
+        model.recordings[0].storage_state = "retained".into();
+        model.recordings[0].seal.truncated = true;
+        assert_eq!(model.handle(Key::Char('L')), Effect::None);
+        assert!(model.status().contains("partial"));
     }
 }

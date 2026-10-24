@@ -62,6 +62,7 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
         | Effect::PlayRecording { .. }
         | Effect::PlayFinding { .. }
         | Effect::PlayInterval { .. }
+        | Effect::PlayLatest { .. }
         | Effect::HoldRetained
         | Effect::SeekRetained { .. }
         | Effect::StopListen
@@ -153,6 +154,7 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
         | Effect::PlayRecording { .. }
         | Effect::PlayFinding { .. }
         | Effect::PlayInterval { .. }
+        | Effect::PlayLatest { .. }
         | Effect::HoldRetained
         | Effect::SeekRetained { .. }
         | Effect::StopListen
@@ -1119,6 +1121,17 @@ mod tests {
                 }
             }
         ));
+    }
+
+    #[test]
+    fn latest_interval_play_dispatches_no_catalog_command() {
+        let explorer = model();
+        let effect = Effect::PlayLatest {
+            id: "rec".into(),
+            request: "reader-1".into(),
+            start_us: 5_000_000,
+        };
+        assert!(operations_for(&effect, &explorer).is_empty());
     }
 
     #[test]
