@@ -7,7 +7,7 @@ use crate::{
     Result,
     archive::ArchiveQuery,
     claim::{ClaimCandidatePage, ClaimEvidenceKind, ClaimRelation, ClaimStatus, ClaimView},
-    storage::{Store, claims::EvidenceRequest, claims::StatusRequest},
+    storage::{Store, claims::EvidenceRequest, claims::PassageRequest, claims::StatusRequest},
 };
 
 /// One explicit claim command. A model proposal is not a variant.
@@ -26,12 +26,21 @@ pub enum ClaimOperation {
     List {},
     /// Read one claim, including stale citation flags.
     Show { id: String },
-    /// Link one stored finding. A passage that is not a finding is refused.
+    /// Link one stored finding. A cue that is not a finding uses [`Self::Passage`].
     Sighting {
         claim: String,
         sighting: String,
         monitor: String,
         finding: String,
+    },
+    /// Link one retained cue. This does not insert a finding.
+    Passage {
+        claim: String,
+        sighting: String,
+        transcript_id: String,
+        transcript_revision: i64,
+        translation_revision: i64,
+        cue_ordinal: u32,
     },
     /// Store one user evidence link.
     Evidence {
@@ -92,6 +101,26 @@ pub(super) fn apply(store: &mut Store, command: ClaimOperation) -> Result<Snapsh
             finding,
         } => ClaimPage::Claim {
             claim: Box::new(store.add_sighting(&claim, &sighting, &monitor, &finding, now)?),
+        },
+        ClaimOperation::Passage {
+            claim,
+            sighting,
+            transcript_id,
+            transcript_revision,
+            translation_revision,
+            cue_ordinal,
+        } => ClaimPage::Claim {
+            claim: Box::new(store.add_passage(
+                PassageRequest {
+                    claim: &claim,
+                    sighting: &sighting,
+                    transcript_id: &transcript_id,
+                    transcript_revision,
+                    translation_revision,
+                    cue_ordinal,
+                },
+                now,
+            )?),
         },
         ClaimOperation::Evidence {
             claim,

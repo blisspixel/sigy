@@ -203,6 +203,45 @@ fn monitor_exists(connection: &Connection, id: &str) -> Result<bool> {
     )?)
 }
 
+/// Resolve one retained cue. A missing cue is not found. Any other media state writes nothing.
+pub(super) fn require_retained_passage(
+    connection: &Connection,
+    transcript_id: &str,
+    transcript_revision: i64,
+    translation_revision: i64,
+    cue_ordinal: u32,
+) -> Result<RetainedPassage> {
+    validate_key(transcript_id, "transcript ID")?;
+    if !(1..=64).contains(&transcript_revision) || !(1..=64).contains(&translation_revision) {
+        return Err(Error::InvalidInput("claim passage revision"));
+    }
+    if cue_ordinal > 255 {
+        return Err(Error::InvalidInput("claim passage cue"));
+    }
+    let cite = FindingCite {
+        transcript_id: transcript_id.to_owned(),
+        transcript_revision,
+        translation_revision,
+        cue_ordinal,
+        original: FindingOriginal::Retained,
+    };
+    let facts = load_facts(connection, &cite)?;
+    if !matches!(media_truth(&facts), Truth::Retained) {
+        return Err(Error::InvalidInput("claim sighting; link a retained cue"));
+    }
+    Ok(RetainedPassage {
+        recording_id: facts.recording_id,
+        start_us: facts.start_us,
+        end_us: facts.end_us,
+    })
+}
+
+pub(super) struct RetainedPassage {
+    pub recording_id: String,
+    pub start_us: i64,
+    pub end_us: i64,
+}
+
 fn load_facts(connection: &Connection, cite: &FindingCite) -> Result<Facts> {
     let transcript = transcript(connection, cite)?;
     if !is_original_text(&transcript) {

@@ -182,7 +182,7 @@ enum Command {
         #[command(subcommand)]
         command: monitor::MonitorCommand,
     },
-    /// Write a claim and link a stored finding. Nothing is fetched and no score is set.
+    /// Write a claim and link a stored finding or one retained cue. Nothing is fetched and no score is set.
     Claim {
         #[command(subcommand)]
         command: claim::ClaimCommand,

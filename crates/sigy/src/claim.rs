@@ -1,4 +1,4 @@
-//! `sigy claim`: a claim you write, linked to a finding that is already stored.
+//! `sigy claim`: a claim you write, linked to a stored finding or one retained cue.
 
 use std::io::{self, Write};
 
@@ -99,16 +99,28 @@ pub enum ClaimCommand {
     List,
     /// Read one claim. The timeline is printed before any sighting.
     Show { id: String },
-    /// Link one stored finding. A passage that is not a finding is refused.
+    /// Link one stored finding, or one retained cue. Pass one citation, not both.
     Sighting {
         claim: String,
         sighting: String,
         /// Monitor that owns the finding.
         #[arg(long)]
-        monitor: String,
+        monitor: Option<String>,
         /// Stored finding id.
         #[arg(long)]
-        finding: String,
+        finding: Option<String>,
+        /// Transcript that holds the cue.
+        #[arg(long)]
+        transcript: Option<String>,
+        /// Transcript revision, from 1 to 64.
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..=64))]
+        revision: Option<i64>,
+        /// Translation revision, from 1 to 64.
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..=64))]
+        translation: Option<i64>,
+        /// Cue ordinal, from 0 to 255.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(0..=255))]
+        cue: Option<u32>,
     },
     /// Record what you say a sighting does. This does not set a status.
     Evidence {
@@ -174,11 +186,42 @@ impl ClaimCommand {
                 sighting,
                 monitor,
                 finding,
-            } => ClaimOperation::Sighting {
-                claim: claim.clone(),
-                sighting: sighting.clone(),
-                monitor: monitor.clone(),
-                finding: finding.clone(),
+                transcript,
+                revision,
+                translation,
+                cue,
+            } => match (
+                monitor.as_deref(),
+                finding.as_deref(),
+                transcript.as_deref(),
+                *revision,
+                *translation,
+                *cue,
+            ) {
+                (Some(monitor), Some(finding), None, None, None, None) => {
+                    ClaimOperation::Sighting {
+                        claim: claim.clone(),
+                        sighting: sighting.clone(),
+                        monitor: monitor.to_owned(),
+                        finding: finding.to_owned(),
+                    }
+                }
+                (None, None, Some(transcript), Some(revision), Some(translation), Some(cue)) => {
+                    ClaimOperation::Passage {
+                        claim: claim.clone(),
+                        sighting: sighting.clone(),
+                        transcript_id: transcript.to_owned(),
+                        transcript_revision: revision,
+                        translation_revision: translation,
+                        cue_ordinal: cue,
+                    }
+                }
+                _ => {
+                    return Err(
+                        "A sighting cites one stored finding or one retained cue. Pass --monitor and --finding, or --transcript, --revision, --translation, and --cue."
+                            .into(),
+                    );
+                }
             },
             Self::Evidence {
                 claim,
@@ -406,14 +449,35 @@ fn render_sighting(writer: &mut impl Write, sighting: &ClaimSighting) -> io::Res
     };
     writeln!(
         writer,
-        "  {} monitor {} finding {} | {} | {} | {} | {transcript}; {translation}",
+        "  {} {} | {} | {} | {} | {transcript}; {translation}",
         sanitize(&sighting.id, 128),
-        sanitize(&sighting.monitor_id, 128),
-        sanitize(&sighting.finding_id, 128),
+        citation(sighting),
         sanitize(&sighting.time_basis, 80),
         sanitize(&sighting.source_revision, 128),
         interval
     )
+}
+
+fn citation(sighting: &ClaimSighting) -> String {
+    match (
+        sighting.monitor_id.as_deref(),
+        sighting.finding_id.as_deref(),
+        sighting.transcript_id.as_deref(),
+        sighting.transcript_revision,
+        sighting.translation_revision,
+        sighting.cue_ordinal,
+    ) {
+        (Some(monitor), Some(finding), None, None, None, None) => format!(
+            "monitor {} finding {}",
+            sanitize(monitor, 128),
+            sanitize(finding, 128)
+        ),
+        (None, None, Some(transcript), Some(revision), Some(translation), Some(cue)) => format!(
+            "transcript {transcript} revision {revision} translation {translation} cue {cue}",
+            transcript = sanitize(transcript, 128)
+        ),
+        _ => "unreadable citation".to_owned(),
+    }
 }
 
 fn render_evidence(writer: &mut impl Write, evidence: &ClaimEvidenceLink) -> io::Result<()> {
@@ -572,6 +636,97 @@ mod tests {
             "Accept with: sigy claim sighting CLAIM SIGHTING --monitor fair --finding world"
         ));
         assert!(!text.contains("score"));
+        Ok(())
+    }
+
+    #[test]
+    fn sighting_operation_accepts_one_complete_citation() -> TestResult {
+        let finding = ClaimCommand::Sighting {
+            claim: "dam".into(),
+            sighting: "see".into(),
+            monitor: Some("fair".into()),
+            finding: Some("world".into()),
+            transcript: None,
+            revision: None,
+            translation: None,
+            cue: None,
+        };
+        assert!(matches!(
+            finding.operation()?,
+            Operation::Claim {
+                command: ClaimOperation::Sighting { .. }
+            }
+        ));
+        let cue = ClaimCommand::Sighting {
+            claim: "dam".into(),
+            sighting: "see".into(),
+            monitor: None,
+            finding: None,
+            transcript: Some("pin".into()),
+            revision: Some(1),
+            translation: Some(1),
+            cue: Some(0),
+        };
+        match cue.operation()? {
+            Operation::Claim {
+                command:
+                    ClaimOperation::Passage {
+                        transcript_id,
+                        cue_ordinal,
+                        ..
+                    },
+            } => {
+                assert_eq!(transcript_id, "pin");
+                assert_eq!(cue_ordinal, 0);
+            }
+            _ => return Err("passage operation was not built".into()),
+        }
+        let mixed = ClaimCommand::Sighting {
+            claim: "dam".into(),
+            sighting: "see".into(),
+            monitor: Some("fair".into()),
+            finding: Some("world".into()),
+            transcript: Some("pin".into()),
+            revision: Some(1),
+            translation: Some(1),
+            cue: Some(0),
+        };
+        let Err(error) = mixed.operation() else {
+            return Err("a mixed citation was accepted".into());
+        };
+        assert!(error.to_string().contains("Pass --monitor and --finding"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_passage_line_names_the_cue() -> TestResult {
+        let mut claim = view("unverified", None, ClaimBasis::unverified());
+        claim.sightings.push(ClaimSighting {
+            id: "see".into(),
+            monitor_id: None,
+            finding_id: None,
+            recording_id: "one".into(),
+            source_revision: "radio:v1".into(),
+            source_name: None,
+            original: sigy_service::monitor::FindingOriginal::Retained,
+            start_us: Some(0),
+            end_us: Some(1_000_000),
+            time_basis: "recording media clock".into(),
+            stale_transcript: None,
+            stale_translation: None,
+            transcript_id: Some("pin".into()),
+            transcript_revision: Some(1),
+            translation_revision: Some(1),
+            cue_ordinal: Some(0),
+        });
+        let text = rendered(claim.clone())?;
+        assert!(text.contains(
+            "see transcript pin revision 1 translation 1 cue 0 | recording media clock | radio:v1 | 0 us to 1000000 us | transcript current; translation current"
+        ));
+        assert!(!text.contains("monitor "));
+        claim.sightings[0].monitor_id = Some("fair".into());
+        let mixed = rendered(claim)?;
+        assert!(mixed.contains("unreadable citation"));
         Ok(())
     }
 }

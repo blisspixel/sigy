@@ -128,7 +128,7 @@ impl ClaimStatus {
 pub struct ClaimTimeline {
     /// The only material this page searched.
     pub searched: String,
-    /// Phase 1 does not search the library beyond the linked findings.
+    /// This page does not search the library beyond the linked findings and stored cues.
     pub library_search: bool,
     /// Language coverage outside the cited cues.
     pub languages: String,
@@ -140,11 +140,12 @@ pub struct ClaimTimeline {
 
 impl ClaimTimeline {
     /// Searched-sources sentence for this phase.
-    pub const SEARCHED: &'static str = "linked findings only";
+    pub const SEARCHED: &'static str = "linked findings and stored cues";
     /// Language sentence. Cited cues are not a library language survey.
     pub const LANGUAGES: &'static str = "not assessed outside the cited cues";
     /// Gap sentence. It is printed before the first sighting.
-    pub const GAPS: &'static str = "Material outside the linked findings was not examined.";
+    pub const GAPS: &'static str =
+        "Material outside the linked findings and stored cues was not examined.";
 }
 
 /// One append-only wording of the claim.
@@ -159,16 +160,18 @@ pub struct ClaimTextRevision {
     pub created_ms: i64,
 }
 
-/// One link to a stored finding. The cited range is that finding, not a new range.
+/// One link to a stored finding or one retained cue. The cited range is not a new range.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClaimSighting {
     /// Sighting id, unique within the claim.
     pub id: String,
-    /// Monitor that owns the finding.
-    pub monitor_id: String,
-    /// Stored finding id.
-    pub finding_id: String,
+    /// Monitor that owns the finding. Absent when this sighting cites a cue directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor_id: Option<String>,
+    /// Stored finding id. Absent when this sighting cites a cue directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_id: Option<String>,
     /// Recording cited by the finding.
     pub recording_id: String,
     /// Source revision of that recording, or `unknown` when the job is gone.
@@ -189,6 +192,18 @@ pub struct ClaimSighting {
     /// A newer translation of the cited revision exists. The sighting is not rewritten.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stale_translation: Option<bool>,
+    /// Transcript that holds the cue. Absent when this sighting cites a finding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_id: Option<String>,
+    /// Transcript revision of that cue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_revision: Option<i64>,
+    /// Translation revision cited with that cue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation_revision: Option<i64>,
+    /// Cue ordinal inside that transcript revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cue_ordinal: Option<u32>,
 }
 
 /// One user evidence link. Origin is always `user`.
@@ -253,7 +268,7 @@ pub struct ClaimBasis {
     /// Sighting that evidence cites. Absent while unverified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sighting_id: Option<String>,
-    /// Finding that sighting cites. Absent while unverified.
+    /// Finding that sighting cites. Absent while unverified, and absent when the sighting cites a cue.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finding_id: Option<String>,
     /// Changes that apply to that finding, in a fixed order. Empty when none apply.

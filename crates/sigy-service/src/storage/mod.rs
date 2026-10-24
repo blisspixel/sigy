@@ -47,7 +47,7 @@ mod widen;
 mod widen_tests;
 pub(crate) mod withdrawals;
 
-pub const SCHEMA_VERSION: u32 = 53;
+pub const SCHEMA_VERSION: u32 = 54;
 const APPLICATION_ID: i64 = 1_397_311_321;
 
 #[derive(Debug)]
@@ -341,6 +341,9 @@ fn migrate_recent(transaction: &rusqlite::Transaction<'_>, version: i64) -> Resu
     }
     if (0..=52).contains(&version) {
         transaction.execute_batch(include_str!("053-completion-holds.sql"))?;
+    }
+    if (0..=53).contains(&version) {
+        transaction.execute_batch(include_str!("054-claim-passages.sql"))?;
     } else if version != i64::from(SCHEMA_VERSION) {
         return Err(Error::FutureSchema {
             found: version,

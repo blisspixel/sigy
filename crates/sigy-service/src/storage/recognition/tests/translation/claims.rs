@@ -1,4 +1,4 @@
-//! Manual claims cite stored findings. Transcript text does not create one.
+//! Manual claims cite stored findings or one retained cue. Transcript text does not create one.
 
 use std::path::Path;
 
@@ -10,7 +10,7 @@ use crate::claim::{
 };
 use crate::control::Operation;
 use crate::monitor::{ActionOrigin, FindingCite, FindingOriginal, Proposal};
-use crate::storage::claims::{EvidenceRequest, StatusRequest};
+use crate::storage::claims::{EvidenceRequest, PassageRequest, StatusRequest};
 use crate::translation::{TranslationOutcome, TranslationResult};
 
 fn cite(original: FindingOriginal) -> FindingCite {
@@ -194,7 +194,7 @@ fn a_sighting_requires_a_stored_finding_and_reports_staleness() -> TestResult {
     );
     store.finish_translation(&work.ok_or(Error::StorageIntegrity)?, &outcome, 71)?;
     let stale = store.claim("dam")?;
-    assert_eq!(stale.sightings[0].finding_id, "world");
+    assert_eq!(stale.sightings[0].finding_id.as_deref(), Some("world"));
     assert_eq!(stale.sightings[0].stale_transcript, Some(true));
     assert_eq!(stale.sightings[0].stale_translation, Some(true));
     let kept: i64 =
@@ -353,7 +353,7 @@ fn timeline_and_carriers_precede_sightings_without_a_score() -> TestResult {
     let directory = tempfile::tempdir()?;
     let store = paired(&directory.path().join("catalog"))?;
     let page = store.claim("dam")?;
-    assert_eq!(page.timeline.searched, "linked findings only");
+    assert_eq!(page.timeline.searched, "linked findings and stored cues");
     assert!(!page.timeline.library_search);
     assert_eq!(
         page.timeline.languages,
@@ -365,7 +365,7 @@ fn timeline_and_carriers_precede_sightings_without_a_score() -> TestResult {
     );
     assert_eq!(
         page.timeline.gaps,
-        "Material outside the linked findings was not examined."
+        "Material outside the linked findings and stored cues was not examined."
     );
     assert_eq!(page.carriers.len(), 1);
     assert_eq!(
@@ -965,5 +965,213 @@ fn a_newer_translation_stays_off_the_current_candidate_page() -> TestResult {
     assert!(page.candidates[0].stale_translation);
     assert_eq!(page.candidates[0].findings[0].finding_id, "world");
     assert_eq!(tally(&store)?, (0, 0, 0, 0, 0));
+    Ok(())
+}
+
+fn passage<'a>(claim: &'a str, sighting: &'a str, revision: i64, cue: u32) -> PassageRequest<'a> {
+    PassageRequest {
+        claim,
+        sighting,
+        transcript_id: "pin",
+        transcript_revision: revision,
+        translation_revision: 1,
+        cue_ordinal: cue,
+    }
+}
+
+#[test]
+fn a_retained_cue_links_without_a_finding() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = desk(&directory.path().join("catalog"))?;
+    store.create_claim("dam", "The bulletin named the fair.", 40)?;
+    assert!(matches!(
+        store.add_passage(passage("dam", "see", 1, 9), 41),
+        Err(Error::NotFound)
+    ));
+    assert_eq!(tally(&store)?.2, 0);
+    let linked = store.add_passage(passage("dam", "see", 1, 0), 42)?;
+    let sighting = &linked.sightings[0];
+    assert!(sighting.monitor_id.is_none() && sighting.finding_id.is_none());
+    assert_eq!(sighting.transcript_id.as_deref(), Some("pin"));
+    assert_eq!(
+        (
+            sighting.transcript_revision,
+            sighting.translation_revision,
+            sighting.cue_ordinal
+        ),
+        (Some(1), Some(1), Some(0))
+    );
+    assert_eq!(sighting.original, FindingOriginal::Retained);
+    assert_eq!(sighting.time_basis, "recording media clock");
+    assert_eq!(
+        (sighting.start_us, sighting.end_us),
+        (Some(0), Some(1_000_000))
+    );
+    let findings: i64 =
+        store
+            .connection
+            .query_row("SELECT count(*) FROM monitor_findings", [], |row| {
+                row.get(0)
+            })?;
+    assert_eq!(findings, 0);
+    let created: i64 = store.connection.query_row(
+        "SELECT created_ms FROM claim_sightings WHERE claim_id = 'dam' AND id = 'see'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(
+        store
+            .add_passage(passage("dam", "see", 1, 0), 43)?
+            .sightings
+            .len(),
+        1
+    );
+    let replayed: i64 = store.connection.query_row(
+        "SELECT created_ms FROM claim_sightings WHERE claim_id = 'dam' AND id = 'see'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(replayed, created);
+    assert!(matches!(
+        store.add_passage(passage("dam", "see", 2, 0), 44),
+        Err(Error::Analysis("claim-conflict"))
+    ));
+    assert!(matches!(
+        store.add_sighting("dam", "see", "fair", "world", 45),
+        Err(Error::Analysis("claim-conflict"))
+    ));
+    match store.connection.execute(
+        "INSERT INTO claim_sightings(claim_id, id, monitor_id, finding_id, transcript_id, transcript_revision, translation_revision, cue_ordinal, recording_id, original_state, start_us, end_us, created_ms) VALUES ('dam', 'bad', NULL, NULL, 'pin', 1, 1, 0, 'one', 'retained', 0, 2, 46)",
+        [],
+    ) {
+        Err(error) => assert!(error.to_string().contains("claim passage citation")),
+        Ok(_) => return Err("a mismatched passage was stored".into()),
+    }
+    assert_eq!(tally(&store)?.2, 1);
+    let value = serde_json::to_value(store.claim("dam")?)?;
+    assert!(!contains_key(&value, "score"));
+    assert!(!contains_key(&value, "anomaly"));
+    assert!(!contains_key(&value, "monitor_id"));
+    assert!(!contains_key(&value, "finding_id"));
+    assert!(contains_key(&value, "transcript_id"));
+    let anomaly: i64 = store.connection.query_row(
+        "SELECT count(*) FROM sqlite_schema WHERE name LIKE '%anomaly%'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(anomaly, 0);
+    Ok(())
+}
+
+#[test]
+fn a_passage_keeps_user_status_and_its_frozen_retained_state() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut store = desk(&directory.path().join("catalog"))?;
+    store.create_claim("dam", "The bulletin named the fair.", 40)?;
+    store.add_passage(passage("dam", "see", 1, 0), 42)?;
+    let corroborated = corroborate(&mut store, "dam", "note", "see", 45)?;
+    assert_eq!(corroborated.status, "corroborated");
+    assert_eq!(corroborated.basis.state, "current");
+    assert!(corroborated.basis.finding_id.is_none());
+    store.publish_finding("fair", "world", &cite(FindingOriginal::Retained), 50)?;
+    store.create_claim("other", "A second wording.", 51)?;
+    store.add_sighting("other", "see", "fair", "world", 52)?;
+    assert!(matches!(
+        store.add_passage(passage("other", "see", 1, 0), 53),
+        Err(Error::Analysis("claim-conflict"))
+    ));
+    store.correct_transcript("pin", 1, 0, "Una feria local", 60)?;
+    let (job, work) = store.admit_translation(&super::request("mt-2")?, 70)?;
+    let outcome = TranslationOutcome::synthetic_fixture(
+        &job,
+        TranslationResult::Succeeded(vec![super::translated(0, "A local fair")]),
+    );
+    store.finish_translation(&work.ok_or(Error::StorageIntegrity)?, &outcome, 71)?;
+    let stale = store.claim("dam")?;
+    assert_eq!(stale.status, "corroborated");
+    assert_eq!(stale.sightings[0].stale_transcript, Some(true));
+    assert_eq!(stale.sightings[0].stale_translation, Some(true));
+    assert_eq!(stale.basis.finding_id, None);
+    assert_eq!(stale.basis.state, "review");
+    assert_eq!(
+        stale.basis.reasons,
+        vec![ClaimBasisReason::Correction, ClaimBasisReason::Superseded]
+    );
+    assert_eq!(tally(&store)?.2, 2);
+    store.begin_delete("one", false)?;
+    let frozen: String = store.connection.query_row(
+        "SELECT original_state FROM claim_sightings WHERE claim_id = 'dam' AND id = 'see'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(frozen, "retained");
+    assert_eq!(
+        store.claim("dam")?.sightings[0].time_basis,
+        "recording media clock"
+    );
+    assert!(matches!(
+        store.add_passage(passage("dam", "late", 1, 0), 80),
+        Err(Error::InvalidInput("claim sighting; link a retained cue"))
+    ));
+    assert_eq!(tally(&store)?.2, 2);
+    Ok(())
+}
+
+#[test]
+fn a_v53_finding_sighting_keeps_its_evidence_and_status() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("catalog");
+    let mut store = desk(&path)?;
+    store.publish_finding("fair", "world", &cite(FindingOriginal::Retained), 40)?;
+    store.connection.execute_batch(
+        "DROP TABLE claim_status;
+         DROP TABLE claim_evidence;
+         DROP TABLE claim_sightings;
+         DROP TABLE claim_revisions;
+         DROP TABLE claims;",
+    )?;
+    store
+        .connection
+        .execute_batch(include_str!("../../../052-claims.sql"))?;
+    store
+        .connection
+        .execute("INSERT INTO claims(id, created_ms) VALUES ('dam', 41)", [])?;
+    store.connection.execute(
+        "INSERT INTO claim_revisions(claim_id, revision, text, created_ms) VALUES ('dam', 1, 'The bulletin named the fair.', 41)",
+        [],
+    )?;
+    store.connection.execute(
+        "INSERT INTO claim_sightings(claim_id, id, monitor_id, finding_id, created_ms) VALUES ('dam', 'see', 'fair', 'world', 42)",
+        [],
+    )?;
+    store.connection.execute(
+        "INSERT INTO claim_evidence(claim_id, id, sighting_id, kind, origin, note, relation, created_ms) VALUES ('dam', 'note', 'see', 'supports', 'user', 'The user stored this relation.', 'unspecified', 45)",
+        [],
+    )?;
+    store.connection.execute(
+        "INSERT INTO claim_status(claim_id, revision, status, evidence_id, setter, created_ms) VALUES ('dam', 1, 'corroborated', 'note', 'user', 46)",
+        [],
+    )?;
+    store.connection.pragma_update(None, "user_version", 53)?;
+    drop(store);
+    let store = Store::open(&path)?;
+    let page = store.claim("dam")?;
+    assert_eq!(page.text, "The bulletin named the fair.");
+    assert_eq!(page.status, "corroborated");
+    assert_eq!(page.evidence.len(), 1);
+    assert_eq!(page.sightings[0].monitor_id.as_deref(), Some("fair"));
+    assert_eq!(page.sightings[0].finding_id.as_deref(), Some("world"));
+    assert!(page.sightings[0].transcript_id.is_none());
+    let version: i64 = store
+        .connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))?;
+    assert_eq!(version, i64::from(crate::storage::SCHEMA_VERSION));
+    let holds: i64 =
+        store
+            .connection
+            .query_row("SELECT count(*) FROM completion_holds", [], |row| {
+                row.get(0)
+            })?;
+    assert_eq!(holds, 0);
     Ok(())
 }

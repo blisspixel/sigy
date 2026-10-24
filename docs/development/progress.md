@@ -4,6 +4,12 @@ Updated: 2026-10-23. Status: active implementation toward the first complete rel
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
 
+## 2026-10-23 claim passage
+
+[Decision 0116](../decisions/0116-claim-passage.md) links one retained stored cue as a claim sighting and does not create a finding. The same citation changes nothing. A missing cue, or a cue that is not retained, writes nothing. The stored original state stays `retained` if the recording later expires. `show` labels a newer transcript or translation stale and does not rewrite the row. Evidence and status still require that sighting and still set no score. `claim candidates` still lists only a hit that a stored finding already cites. Catalog schema is v54. Local IPC is v57. Issues 13 and 14 stay open. S-03B stays open. No stage exit is claimed.
+
+`cargo verify` exited 0 in 427.44 seconds. The `sigy` binary tests passed 406, with 7 ignored, in 23.58 seconds. The `sigy-service` library tests passed 773, with 2 ignored, in 178.44 seconds. `cargo audit --deny warnings` loaded 1352 advisories and scanned 382 dependencies. This slice does not change playback admission, recording publication, or HTTP acquisition, so `cargo verify-media` was not run. Coverage and `cargo visual-qa` were not run. External spend is USD 0. This receipt was written after those commands. Hosted verify of this commit is not recorded here.
+
 ## 2026-10-23 latest sealed interval
 
 [Decision 0115](../decisions/0115-latest-sealed-interval.md) plays the newest playable sealed interval on the loaded recording map. `L` then `y` starts one `listen file` at that interval's start and passes no `--end-us`, so the existing handoff can continue. The open object, a released interval, an overlapping gap, and an empty length are skipped when an earlier sealed interval can play. When none can, nothing starts. A whole-segment listen already at or after that start is not restarted. A cited listen is replaced. The exclusive end is not a seek target. The open tail is not read. Capital `H` still pauses. Prefetch and a free-form interior editor stay later. Catalog schema stays v53. Local IPC stays v56. Issues 13 and 14 stay open. S-03B stays open. No stage exit is claimed.

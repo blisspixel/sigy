@@ -86,6 +86,17 @@ pub(crate) struct StatusRequest<'a> {
     pub evidence: &'a str,
 }
 
+/// One retained cue. This does not insert a finding.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PassageRequest<'a> {
+    pub claim: &'a str,
+    pub sighting: &'a str,
+    pub transcript_id: &'a str,
+    pub transcript_revision: i64,
+    pub translation_revision: i64,
+    pub cue_ordinal: u32,
+}
+
 impl Store {
     /// Store a new claim, or return it when the same first text is repeated.
     ///
@@ -241,8 +252,9 @@ impl Store {
     /// Link one stored finding. The same finding for the same sighting id writes nothing.
     ///
     /// # Errors
-    /// A missing claim or finding writes nothing. A passage that is not a stored finding
-    /// is refused. The same sighting id with a different finding conflicts.
+    /// A missing claim or finding writes nothing. A cue that is not that finding is refused
+    /// here. One retained cue uses [`Self::add_passage`]. The same sighting id with a
+    /// different citation conflicts.
     pub(crate) fn add_sighting(
         &mut self,
         claim: &str,
@@ -262,8 +274,10 @@ impl Store {
         if load_created(&tx, claim)?.is_none() {
             return Err(Error::NotFound);
         }
-        if let Some((stored_monitor, stored_finding)) = sighting_link(&tx, claim, sighting)? {
-            if stored_monitor == monitor && stored_finding == finding {
+        if let Some(stored) = sighting_link(&tx, claim, sighting)? {
+            if stored.monitor_id.as_deref() == Some(monitor)
+                && stored.finding_id.as_deref() == Some(finding)
+            {
                 return commit_page(tx, claim);
             }
             return Err(Error::Analysis("claim-conflict"));
@@ -285,6 +299,65 @@ impl Store {
         )
         .map_err(claim_error)?;
         commit_page(tx, claim)
+    }
+
+    /// Link one retained cue. The same cue for the same sighting id writes nothing.
+    ///
+    /// # Errors
+    /// A missing claim, transcript, cue, or translation writes nothing. A cue that is not
+    /// retained writes nothing. The same sighting id with a different citation conflicts.
+    pub(crate) fn add_passage(
+        &mut self,
+        request: PassageRequest<'_>,
+        now: i64,
+    ) -> Result<ClaimView> {
+        validate_key(request.claim, "claim ID")?;
+        validate_key(request.sighting, "sighting ID")?;
+        clock(now)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if load_created(&tx, request.claim)?.is_none() {
+            return Err(Error::NotFound);
+        }
+        if let Some(stored) = sighting_link(&tx, request.claim, request.sighting)? {
+            if same_passage(&stored, &request) {
+                return commit_page(tx, request.claim);
+            }
+            return Err(Error::Analysis("claim-conflict"));
+        }
+        let passage = super::findings::require_retained_passage(
+            &tx,
+            request.transcript_id,
+            request.transcript_revision,
+            request.translation_revision,
+            request.cue_ordinal,
+        )?;
+        let count: i64 = tx.query_row(
+            "SELECT count(*) FROM claim_sightings WHERE claim_id = ?1",
+            [request.claim],
+            |row| row.get(0),
+        )?;
+        if count >= SIGHTING_LIMIT {
+            return Err(Error::Analysis("claim-sighting-limit"));
+        }
+        tx.execute(
+            "INSERT INTO claim_sightings(claim_id, id, monitor_id, finding_id, transcript_id, transcript_revision, translation_revision, cue_ordinal, recording_id, original_state, start_us, end_us, created_ms) VALUES (?1, ?2, NULL, NULL, ?3, ?4, ?5, ?6, ?7, 'retained', ?8, ?9, ?10)",
+            params![
+                request.claim,
+                request.sighting,
+                request.transcript_id,
+                request.transcript_revision,
+                request.translation_revision,
+                request.cue_ordinal,
+                passage.recording_id,
+                passage.start_us,
+                passage.end_us,
+                now
+            ],
+        )
+        .map_err(claim_error)?;
+        commit_page(tx, request.claim)
     }
 
     /// Store one evidence link. The same id and fields write nothing.
@@ -483,16 +556,43 @@ fn sighting_exists(connection: &rusqlite::Connection, claim: &str, sighting: &st
     )?)
 }
 
+struct StoredLink {
+    monitor_id: Option<String>,
+    finding_id: Option<String>,
+    transcript_id: Option<String>,
+    transcript_revision: Option<i64>,
+    translation_revision: Option<i64>,
+    cue_ordinal: Option<i64>,
+}
+
+fn same_passage(stored: &StoredLink, request: &PassageRequest<'_>) -> bool {
+    stored.monitor_id.is_none()
+        && stored.finding_id.is_none()
+        && stored.transcript_id.as_deref() == Some(request.transcript_id)
+        && stored.transcript_revision == Some(request.transcript_revision)
+        && stored.translation_revision == Some(request.translation_revision)
+        && stored.cue_ordinal == Some(i64::from(request.cue_ordinal))
+}
+
 fn sighting_link(
     connection: &rusqlite::Connection,
     claim: &str,
     sighting: &str,
-) -> Result<Option<(String, String)>> {
+) -> Result<Option<StoredLink>> {
     Ok(connection
         .query_row(
-            "SELECT monitor_id, finding_id FROM claim_sightings WHERE claim_id = ?1 AND id = ?2",
+            "SELECT monitor_id, finding_id, transcript_id, transcript_revision, translation_revision, cue_ordinal FROM claim_sightings WHERE claim_id = ?1 AND id = ?2",
             params![claim, sighting],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| {
+                Ok(StoredLink {
+                    monitor_id: row.get(0)?,
+                    finding_id: row.get(1)?,
+                    transcript_id: row.get(2)?,
+                    transcript_revision: row.get(3)?,
+                    translation_revision: row.get(4)?,
+                    cue_ordinal: row.get(5)?,
+                })
+            },
         )
         .optional()?)
 }
@@ -564,11 +664,11 @@ fn load(connection: &rusqlite::Connection, id: &str) -> Result<ClaimView> {
     })
 }
 
-const BASIS_SQL: &str = "SELECT e.sighting_id, s.finding_id, f.original_state, EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = f.transcript_id AND n.revision > f.transcript_revision AND n.kind = 'correction' AND n.outcome = 'text'), EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = f.transcript_id AND n.revision > f.transcript_revision AND n.kind = 'recognition' AND n.outcome = 'text'), EXISTS (SELECT 1 FROM translations AS tr WHERE tr.transcript_id = f.transcript_id AND tr.transcript_revision = f.transcript_revision AND tr.revision > f.translation_revision) FROM claim_evidence AS e JOIN claim_sightings AS s ON s.claim_id = e.claim_id AND s.id = e.sighting_id JOIN monitor_findings AS f ON f.monitor_id = s.monitor_id AND f.id = s.finding_id WHERE e.claim_id = ?1 AND e.id = ?2";
+const BASIS_SQL: &str = "SELECT e.sighting_id, s.finding_id, COALESCE(f.original_state, s.original_state), CASE WHEN s.finding_id IS NOT NULL THEN EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = f.transcript_id AND n.revision > f.transcript_revision AND n.kind = 'correction' AND n.outcome = 'text') ELSE EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = s.transcript_id AND n.revision > s.transcript_revision AND n.kind = 'correction' AND n.outcome = 'text') END, CASE WHEN s.finding_id IS NOT NULL THEN EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = f.transcript_id AND n.revision > f.transcript_revision AND n.kind = 'recognition' AND n.outcome = 'text') ELSE EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = s.transcript_id AND n.revision > s.transcript_revision AND n.kind = 'recognition' AND n.outcome = 'text') END, CASE WHEN s.finding_id IS NOT NULL THEN EXISTS (SELECT 1 FROM translations AS tr WHERE tr.transcript_id = f.transcript_id AND tr.transcript_revision = f.transcript_revision AND tr.revision > f.translation_revision) ELSE EXISTS (SELECT 1 FROM translations AS tr WHERE tr.transcript_id = s.transcript_id AND tr.transcript_revision = s.transcript_revision AND tr.revision > s.translation_revision) END FROM claim_evidence AS e JOIN claim_sightings AS s ON s.claim_id = e.claim_id AND s.id = e.sighting_id LEFT JOIN monitor_findings AS f ON f.monitor_id = s.monitor_id AND f.id = s.finding_id WHERE e.claim_id = ?1 AND e.id = ?2";
 
 struct BasisFacts {
     sighting_id: String,
-    finding_id: String,
+    finding_id: Option<String>,
     original_state: String,
     correction: bool,
     recognition: bool,
@@ -599,7 +699,7 @@ fn basis_of(
         state: state.to_owned(),
         evidence_id: Some(cited.to_owned()),
         sighting_id: Some(found.sighting_id),
-        finding_id: Some(found.finding_id),
+        finding_id: found.finding_id,
         reasons,
     })
 }
@@ -608,7 +708,7 @@ fn read_basis(row: &rusqlite::Row<'_>) -> rusqlite::Result<BasisFacts> {
     Ok(BasisFacts {
         sighting_id: row.get(0)?,
         finding_id: row.get(1)?,
-        original_state: row.get(2)?,
+        original_state: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
         correction: row.get(3)?,
         recognition: row.get(4)?,
         translation: row.get(5)?,
@@ -649,7 +749,7 @@ fn load_revisions(connection: &rusqlite::Connection, id: &str) -> Result<Vec<Cla
 
 fn load_sightings(connection: &rusqlite::Connection, id: &str) -> Result<Vec<ClaimSighting>> {
     let mut statement = connection.prepare(
-        "SELECT s.id, s.monitor_id, s.finding_id, f.recording_id, f.original_state, f.start_us, f.end_us, j.source_revision, src.name, EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = f.transcript_id AND n.revision > f.transcript_revision AND n.kind IN ('recognition', 'correction') AND n.outcome = 'text'), EXISTS (SELECT 1 FROM translations AS tr WHERE tr.transcript_id = f.transcript_id AND tr.transcript_revision = f.transcript_revision AND tr.revision > f.translation_revision) FROM claim_sightings AS s JOIN monitor_findings AS f ON f.monitor_id = s.monitor_id AND f.id = s.finding_id LEFT JOIN capture_jobs AS j ON j.id = f.recording_id LEFT JOIN source_revisions AS src ON src.id = j.source_revision WHERE s.claim_id = ?1 ORDER BY s.created_ms, s.id",
+        "SELECT s.id, s.monitor_id, s.finding_id, COALESCE(f.recording_id, s.recording_id), COALESCE(f.original_state, s.original_state), COALESCE(f.start_us, s.start_us), COALESCE(f.end_us, s.end_us), j.source_revision, src.name, CASE WHEN s.finding_id IS NOT NULL THEN EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = f.transcript_id AND n.revision > f.transcript_revision AND n.kind IN ('recognition', 'correction') AND n.outcome = 'text') ELSE EXISTS (SELECT 1 FROM transcripts AS n WHERE n.id = s.transcript_id AND n.revision > s.transcript_revision AND n.kind IN ('recognition', 'correction') AND n.outcome = 'text') END, CASE WHEN s.finding_id IS NOT NULL THEN EXISTS (SELECT 1 FROM translations AS tr WHERE tr.transcript_id = f.transcript_id AND tr.transcript_revision = f.transcript_revision AND tr.revision > f.translation_revision) ELSE EXISTS (SELECT 1 FROM translations AS tr WHERE tr.transcript_id = s.transcript_id AND tr.transcript_revision = s.transcript_revision AND tr.revision > s.translation_revision) END, s.transcript_id, s.transcript_revision, s.translation_revision, s.cue_ordinal FROM claim_sightings AS s LEFT JOIN monitor_findings AS f ON f.monitor_id = s.monitor_id AND f.id = s.finding_id LEFT JOIN capture_jobs AS j ON j.id = COALESCE(f.recording_id, s.recording_id) LEFT JOIN source_revisions AS src ON src.id = j.source_revision WHERE s.claim_id = ?1 ORDER BY s.created_ms, s.id",
     )?;
     let rows = statement.query_map([id], stored_sighting)?;
     rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -657,18 +757,26 @@ fn load_sightings(connection: &rusqlite::Connection, id: &str) -> Result<Vec<Cla
 }
 
 fn stored_sighting(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClaimSighting> {
-    let original_state: String = row.get(4)?;
+    let original_state: String = row
+        .get::<_, Option<String>>(4)?
+        .ok_or(rusqlite::Error::InvalidQuery)?;
     let original = original_from(&original_state).ok_or(rusqlite::Error::InvalidQuery)?;
     let start: Option<i64> = row.get(5)?;
     let end: Option<i64> = row.get(6)?;
     let source: Option<String> = row.get(7)?;
     let stale_transcript: bool = row.get(9)?;
     let stale_translation: bool = row.get(10)?;
+    let cue_ordinal = match row.get::<_, Option<i64>>(14)? {
+        None => None,
+        Some(value) => Some(u32::try_from(value).map_err(|_| rusqlite::Error::InvalidQuery)?),
+    };
     Ok(ClaimSighting {
         id: row.get(0)?,
         monitor_id: row.get(1)?,
         finding_id: row.get(2)?,
-        recording_id: row.get(3)?,
+        recording_id: row
+            .get::<_, Option<String>>(3)?
+            .ok_or(rusqlite::Error::InvalidQuery)?,
         source_revision: source.unwrap_or_else(|| UNKNOWN_SOURCE.to_owned()),
         source_name: row.get(8)?,
         original,
@@ -677,6 +785,10 @@ fn stored_sighting(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClaimSighting> {
         time_basis: time_basis(original).to_owned(),
         stale_transcript: stale_transcript.then_some(true),
         stale_translation: stale_translation.then_some(true),
+        transcript_id: row.get(11)?,
+        transcript_revision: row.get(12)?,
+        translation_revision: row.get(13)?,
+        cue_ordinal,
     })
 }
 
@@ -853,6 +965,8 @@ fn claim_error(error: rusqlite::Error) -> Error {
     let message = error.to_string();
     if message.contains("claim revision limit") {
         Error::Analysis("claim-revision-limit")
+    } else if message.contains("claim passage citation") {
+        Error::StorageIntegrity
     } else if message.contains("claim sighting limit") {
         Error::Analysis("claim-sighting-limit")
     } else if message.contains("claim evidence limit") {
