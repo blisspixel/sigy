@@ -32,7 +32,7 @@ At 80 by 24 the gallery shows the Find stations action menu and the play dialog.
 
 ## Evidence
 
-Warnings-denied Clippy for `sigy` exited 0. The `sigy` binary tests passed 417, with 5 ignored, in 13.96 seconds. `cargo visual-qa` exited 0. The gallery test finished in 3.81 seconds and wrote 86 synthetic frames, including the action menu and the play dialog at 80 by 24. The command wall time, including compile, was 10.10 seconds. Full `cargo verify` was not re-run. Coverage was not run. `cargo verify-media` was not run. This slice does not change playback admission, recording publication, or HTTP acquisition. External spend is USD 0. This receipt was written after those commands. Hosted verify of this commit is not recorded here.
+Warnings-denied Clippy for `sigy` exited 0. The `sigy` binary tests passed 417, with 5 ignored, in 13.96 seconds. `cargo visual-qa` exited 0. The gallery test finished in 3.81 seconds and wrote 86 synthetic frames, including the action menu and the play dialog at 80 by 24. The command wall time, including compile, was 10.10 seconds. Full `cargo verify` was not re-run. Coverage was not run. `cargo verify-media` was not run. This slice does not change playback admission, recording publication, or HTTP acquisition. External spend is USD 0. This receipt was written after those commands. Hosted verify of `0bb7e39` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/41702837146.
 
 ## Limits
 
