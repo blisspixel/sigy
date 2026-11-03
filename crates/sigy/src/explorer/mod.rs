@@ -93,7 +93,11 @@ pub fn run(
     let now = now_ms()?;
     let mut model = Explorer::new(presentation, now);
     let explicit = explicit_data_dir.then(|| text::sanitize(&data_dir.display().to_string(), 4096));
+    let open_home = startup_shows_home(&filter);
     model.initialize_search(filter, explicit.as_deref())?;
+    if open_home {
+        model.show_home();
+    }
     let desk = runtime.block_on(client::load_desk(data_dir, &model.current_search(), now))?;
     model.apply_desk(desk);
     terminal::drive(&runtime, data_dir, &mut model, inspect)?;
@@ -105,6 +109,16 @@ pub fn run(
         )?;
     }
     Ok(())
+}
+
+/// A blank filter opens Home. A name, country, language, tag, or health filter does not.
+#[must_use]
+pub(crate) fn startup_shows_home(filter: &sigy_service::discovery::StationFilter) -> bool {
+    filter.name.is_empty()
+        && filter.country.is_empty()
+        && filter.language.is_empty()
+        && filter.tag.is_empty()
+        && !filter.healthy_only
 }
 
 fn now_ms() -> Result<i64, Box<dyn std::error::Error>> {

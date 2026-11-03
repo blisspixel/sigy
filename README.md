@@ -51,6 +51,8 @@ sigy init --radio
 sigy tui
 ```
 
+`sigy tui` opens on Home unless a country, name, language, tag, or health filter is set.
+
 For a more useful first page, choose a country and tag: `sigy init --radio --country Canada --tag jazz`. Later, `sigy radio search --country CA --tag jazz --fetch` searches the cache and explicitly requests one matching directory page when needed. `sigy radio refresh --wait` requests a fresh page with an automatic request ID.
 
 Configure your own decoder before listening, then check the local platform:

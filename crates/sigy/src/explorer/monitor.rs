@@ -54,9 +54,25 @@ impl Browser {
         };
     }
 
-    pub fn back(&mut self) {
+    /// Leaves a monitor detail page. `false` means the list is already showing.
+    pub fn leave_detail(&mut self) -> bool {
+        if !self.showing_detail {
+            return false;
+        }
         self.showing_detail = false;
         self.offset = 0;
+        true
+    }
+
+    #[cfg(test)]
+    pub fn back(&mut self) {
+        let _ = self.leave_detail();
+    }
+
+    /// Monitor ids loaded for the Home summary. An empty list has not been read.
+    #[must_use]
+    pub const fn listed(&self) -> usize {
+        self.ids.len()
     }
 
     pub fn reload(&self) -> Effect {

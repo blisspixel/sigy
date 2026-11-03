@@ -1,8 +1,14 @@
 # Implementation progress
 
-Updated: 2026-10-24. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
+Updated: 2026-11-03. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
+
+## 2026-11-03 home and lean chrome
+
+[Decision 0119](../decisions/0119-home-and-lean-chrome.md) opens `sigy tui` on Home unless a name, country, language, tag, or upstream-health filter is set. Home lists Find stations, Listen, Recordings, Watch topics, Findings, System, and Globe. Enter opens the selected task. Digits `1` through `7` jump. `0` returns Home. Esc or Backspace goes up one level, and from a task it returns Home. The breadcrumb replaces the tab row. Below 60 columns or below 16 rows the connection line names Home or the task. The shared listen strip names the state and, when known, the station, and it omits the session id. The Listen workspace still shows that receipt. Catalog schema stays v54. Local IPC stays v58. Issues 38, 40, and 42 through 49 stay open. No stage exit is claimed.
+
+`cargo verify` exited 1 in 251.47 seconds on this Linux host. Formatting and warnings-denied Clippy passed. The `sigy` binary tests passed 388, with 5 ignored, in 14.81 seconds. The `sigy` integration tests, and the `sigy-core` library tests (39), passed. The `sigy-service` library tests passed 762, with 3 ignored, and 13 failed in 131.89 seconds. Each failure is native admission while this process is outside the delegated `sigy-control` cgroup. The Windows hosted `cargo verify` job runs this library suite with Job Object admission. This slice does not change playback admission, recording publication, or HTTP acquisition, so `cargo verify-media` was not run. The workspace build step did not run, because verify stops on the first failed check. Coverage was not run. After that stop, `cargo audit --deny warnings` loaded 1403 advisories, scanned 382 dependencies, and exited 0. `cargo visual-qa` exited 0 in 3.87 seconds and wrote 84 synthetic frames, including Home and Home offline. `cargo readme-hero` exited 0 in 0.35 seconds. The hero strip names North Coast, the breadcrumb says `Home / Globe`, and the frame has no `play-1842`. External spend is USD 0. This receipt was written after those commands. Hosted verify of this commit is not recorded here.
 
 ## 2026-10-24 source checkpoint heading
 

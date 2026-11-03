@@ -75,6 +75,7 @@ fn section_rects(area: Rect, sections: &[Section]) -> std::rc::Rc<[Rect]> {
 pub(super) fn globe_visible(model: &Explorer, area: Rect) -> bool {
     if area.width < 60
         || area.height < 16
+        || model.at_home()
         || model.workspace() != Workspace::Globe
         || model.keys_open()
         || model.context.is_some()
@@ -96,7 +97,8 @@ pub(super) fn globe_visible(model: &Explorer, area: Rect) -> bool {
 /// Canvas size for the one-session flourish. `None` waits: an overlay or another workspace
 /// is up, or the terminal is still the recovery screen. A small canvas is still `Some`.
 pub(super) fn globe_flourish_canvas(model: &Explorer, area: Rect) -> Option<(u16, u16)> {
-    if model.workspace() != Workspace::Globe
+    if model.at_home()
+        || model.workspace() != Workspace::Globe
         || model.keys_open()
         || model.context.is_some()
         || model.search.picker.is_some()
@@ -134,8 +136,9 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], mode
             render_beside(frame, *rect, section, model);
             continue;
         }
-        let mut lines = if model.workspace() == Workspace::Explore
-            && matches!(section.height, Height::Fill)
+        let mut lines = if model.at_home() && matches!(section.height, Height::Fill) {
+            home_lines(model, usize::from(rect.height))
+        } else if model.workspace() == Workspace::Explore && matches!(section.height, Height::Fill)
         {
             let prefix = if section.linear_focus {
                 FOCUS_PREFIX.len()
@@ -311,23 +314,37 @@ enum Height {
 fn full_sections(model: &Explorer, area: Rect) -> Vec<Section> {
     let width = usize::from(area.width);
     let mut sections = chrome(model, width);
-    sections.push(one(cache_line(model), false, model));
-    sections.push(many(
-        search_lines(model),
-        model.focus() == Focus::Search,
-        model,
-    ));
+    if model.at_home() {
+        sections.push(fill(
+            home_lines(model, 12),
+            model.focus() == Focus::Results,
+            model,
+        ));
+        push_status(&mut sections, model, width, 2);
+        return sections;
+    }
+    if shows_directory(model) {
+        sections.push(one(cache_line(model), false, model));
+        sections.push(many(
+            search_lines(model),
+            model.focus() == Focus::Search,
+            model,
+        ));
+    }
     let mut body_section = fill(body(model, 12), model.focus() == Focus::Results, model);
-    if area.width >= 120 && area.height >= 40 && model.workspace() != Workspace::Globe {
+    let identity = identity_lines(model);
+    if area.width >= 120
+        && area.height >= 40
+        && model.workspace() != Workspace::Globe
+        && !identity.is_empty()
+    {
         body_section.beside = true;
         sections.push(body_section);
     } else {
         sections.push(body_section);
-        sections.push(many(
-            identity_lines(model),
-            model.focus() == Focus::Detail,
-            model,
-        ));
+        if !identity.is_empty() {
+            sections.push(many(identity, model.focus() == Focus::Detail, model));
+        }
     }
     push_status(&mut sections, model, width, 2);
     sections
@@ -342,16 +359,20 @@ fn compact_sections(model: &Explorer, area: Rect) -> Vec<Section> {
     if let Some(retained) = retained_strip(model, columns) {
         sections.push(one(retained, false, model));
     }
-    sections.push(many(
-        search_lines(model),
-        model.focus() == Focus::Search,
-        model,
-    ));
-    sections.push(one(
-        identity_primary(model),
-        model.focus() == Focus::Detail,
-        model,
-    ));
+    if shows_directory(model) {
+        sections.push(many(
+            search_lines(model),
+            model.focus() == Focus::Search,
+            model,
+        ));
+    }
+    if shows_identity(model) {
+        sections.push(one(
+            identity_primary(model),
+            model.focus() == Focus::Detail,
+            model,
+        ));
+    }
     sections.push(one(
         plain(&hint_text(model, columns)),
         model.focus() == Focus::Help,
@@ -385,7 +406,7 @@ fn chrome(model: &Explorer, width: usize) -> Vec<Section> {
     let mut sections = vec![
         one(connection_line(model, false), false, model),
         one(
-            workspace_line(model, width),
+            breadcrumb_line(model),
             model.focus() == Focus::Workspaces,
             model,
         ),
@@ -496,7 +517,7 @@ fn many(lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
 
 fn fill(lines: Vec<Line<'static>>, focused: bool, model: &Explorer) -> Section {
     let mut section = section(Height::Fill, lines, focused, model);
-    section.globe = model.workspace() == Workspace::Globe;
+    section.globe = !model.at_home() && model.workspace() == Workspace::Globe;
     section
 }
 
@@ -638,16 +659,13 @@ fn connection_line(model: &Explorer, compact: bool) -> Line<'static> {
     };
     let mut spans = vec![paint(model, Tone::Accent, "Sigy")];
     if compact {
-        // The compact layout has no tab bar, so the title names the workspace.
-        spans.push(paint(
-            model,
-            Tone::Accent,
-            format!(
-                " [{} {}]",
-                model.workspace().digit(),
-                model.workspace().label()
-            ),
-        ));
+        // The compact layout has no breadcrumb row, so the title names the task.
+        let title = if model.at_home() {
+            "Home"
+        } else {
+            model.workspace().task()
+        };
+        spans.push(paint(model, Tone::Accent, format!(" {title}")));
     }
     spans.extend([paint(model, Tone::Plain, " | "), paint(model, tone, link)]);
     let suffix = mode_suffix(model);
@@ -695,43 +713,30 @@ fn on_off(enabled: bool) -> &'static str {
     if enabled { "on" } else { "off" }
 }
 
-fn workspace_line(model: &Explorer, width: usize) -> Line<'static> {
-    let short = width < 80;
-    let mut spans = Vec::new();
-    for (index, workspace) in Workspace::ALL.into_iter().enumerate() {
-        if index > 0 {
-            spans.push(paint(model, Tone::Plain, " "));
-        }
-        let current = workspace == model.workspace();
-        let name = if short {
-            short_tab(workspace)
-        } else {
-            workspace.label()
-        };
-        let label = format!("{} {name}", workspace.digit());
-        let label = if current { format!("[{label}]") } else { label };
-        let tone = if current {
-            Tone::Accent
-        } else if workspace.available() {
-            Tone::Plain
-        } else {
-            Tone::Muted
-        };
-        spans.push(paint(model, tone, label));
+fn breadcrumb_line(model: &Explorer) -> Line<'static> {
+    if model.at_home() {
+        return Line::from(paint(model, Tone::Accent, "Home"));
     }
-    Line::from(spans)
+    Line::from(vec![
+        paint(model, Tone::Plain, "Home / "),
+        paint(model, Tone::Accent, model.workspace().task()),
+    ])
 }
 
-fn short_tab(workspace: Workspace) -> &'static str {
-    match workspace {
-        Workspace::Explore => "Exp",
-        Workspace::Live => "Live",
-        Workspace::Recordings => "Rec",
-        Workspace::Monitors => "Mon",
-        Workspace::Findings => "Find",
-        Workspace::System => "Sys",
-        Workspace::Globe => "Globe",
-    }
+fn shows_directory(model: &Explorer) -> bool {
+    !model.at_home() && matches!(model.workspace(), Workspace::Explore | Workspace::Globe)
+}
+
+fn shows_identity(model: &Explorer) -> bool {
+    !model.at_home()
+        && matches!(
+            model.workspace(),
+            Workspace::Explore
+                | Workspace::Globe
+                | Workspace::Recordings
+                | Workspace::Monitors
+                | Workspace::Findings
+        )
 }
 
 fn cache_line(model: &Explorer) -> Line<'static> {
@@ -816,6 +821,9 @@ fn search_lines(model: &Explorer) -> Vec<Line<'static>> {
 }
 
 fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
+    if !shows_identity(model) {
+        return Vec::new();
+    }
     if model.workspace() == Workspace::Findings {
         return vec![
             plain("Stored citations: named lookup, / edits MONITOR FINDING."),
@@ -945,21 +953,17 @@ fn live_strip(model: &Explorer, width: usize) -> Option<Line<'static>> {
     }
 }
 
-fn live_spans(model: &Explorer, session_id: bool) -> Vec<Span<'static>> {
+fn live_spans(model: &Explorer, named: bool) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     if let Some(session) = model.playback() {
         let state = sanitize(&session.state, 16);
-        spans.push(paint(model, Tone::Plain, "Listen session: "));
+        spans.push(paint(model, Tone::Plain, "Listen: "));
         if let Some(marker) = live_prefix(model, &state) {
             spans.push(marker);
         }
         spans.push(paint(model, tone_for_state(&state), state));
-        if session_id {
-            spans.push(paint(
-                model,
-                Tone::Plain,
-                format!(" {}", sanitize(&session.id, 24)),
-            ));
+        if named && let Some(subject) = model.listen_subject() {
+            spans.push(paint(model, Tone::Plain, format!(" {subject}")));
         }
     }
     if let Some(recording) = model
@@ -1068,6 +1072,9 @@ fn key_lines(model: &Explorer) -> Vec<Line<'static>> {
 }
 
 fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
+    if model.at_home() {
+        return home_lines(model, limit);
+    }
     let lines = if model.workspace().available() {
         match model.workspace() {
             Workspace::Explore => explore_lines(model, 80, limit),
@@ -1448,8 +1455,92 @@ fn visible_start(selection: usize, len: usize, window: usize) -> usize {
     selection.saturating_sub(window.saturating_sub(1))
 }
 
+fn home_lines(model: &Explorer, height: usize) -> Vec<Line<'static>> {
+    let rows: Vec<Line<'static>> = Workspace::ALL
+        .into_iter()
+        .enumerate()
+        .map(|(index, workspace)| {
+            let selected = index == model.home_index();
+            let mut spans = vec![
+                paint(model, Tone::Plain, if selected { "> " } else { "  " }),
+                paint(
+                    model,
+                    Tone::Plain,
+                    format!(
+                        "{} {}  {}",
+                        workspace.digit(),
+                        workspace.task(),
+                        home_summary(model, workspace)
+                    ),
+                ),
+            ];
+            if selected && model.focus() == Focus::Results && !model.modes().linear {
+                for span in &mut spans {
+                    span.style = Style::default().add_modifier(Modifier::REVERSED);
+                }
+            }
+            Line::from(spans)
+        })
+        .collect();
+    let window = height.max(1);
+    let start = visible_start(model.home_index(), rows.len(), window);
+    rows.into_iter().skip(start).take(window).collect()
+}
+
+fn home_summary(model: &Explorer, workspace: Workspace) -> String {
+    match workspace {
+        Workspace::Explore => {
+            if model.rows().is_empty() {
+                "No stations cached".to_owned()
+            } else {
+                model.selected().map_or_else(
+                    || "No station selected".to_owned(),
+                    |row| sanitize(&row.name, 32),
+                )
+            }
+        }
+        Workspace::Live => match model.playback() {
+            Some(session) => {
+                let state = sanitize(&session.state, 16);
+                model
+                    .listen_subject()
+                    .map_or_else(|| state.clone(), |subject| format!("{state} {subject}"))
+            }
+            None => "No listen".to_owned(),
+        },
+        Workspace::Recordings => {
+            let count = model.recordings().len();
+            let noun = if count == 1 {
+                "recording"
+            } else {
+                "recordings"
+            };
+            format!("{count} {noun}, {} active", model.captures_active())
+        }
+        Workspace::Monitors => {
+            let count = model.monitors.listed();
+            if count == 0 {
+                "Not loaded".to_owned()
+            } else {
+                let noun = if count == 1 { "topic" } else { "topics" };
+                format!("{count} {noun}")
+            }
+        }
+        Workspace::Findings => {
+            if model.findings.query().is_empty() {
+                "Named lookup".to_owned()
+            } else {
+                sanitize(model.findings.query(), 32)
+            }
+        }
+        Workspace::System => "Service, storage, and budgets".to_owned(),
+        Workspace::Globe => "Directory map".to_owned(),
+    }
+}
+
 fn live_lines(model: &Explorer) -> Vec<Line<'static>> {
     let mut lines = vec![
+        playback_line(model),
         plain(
             "The listen session is the receipt for a play, not directory health and not a recording.",
         ),
@@ -1920,8 +2011,8 @@ mod tests {
         assert!(text.contains("Selected station:"), "{text}");
         assert!(text.contains("Directory health: succeeded"), "{text}");
         assert!(text.contains("Directory languages: navajo"), "{text}");
-        assert!(text.contains("Listen session:"), "{text}");
-        assert!(text.contains("listen-1"), "{text}");
+        assert!(text.contains("Listen: (live) running"), "{text}");
+        assert!(!text.contains("listen-1"), "{text}");
         assert!(text.contains("? more"), "{text}");
         assert!(!text.contains(HELP_SELECTION), "{text}");
         assert!(!text.contains("Quota:"), "{text}");
@@ -1933,10 +2024,7 @@ mod tests {
         assert!(text.contains("Recording: rec-1 running"), "{text}");
         assert!(text.contains("service 42"), "{text}");
         assert!(text.contains("reduced motion on"), "{text}");
-        assert!(
-            text.contains("[1 Explore] 2 Live 3 Recordings 4 Monitors 5 Findings 6 System 7 Globe"),
-            "{text}"
-        );
+        assert!(text.contains("Home / Find stations"), "{text}");
         assert!(
             text.contains("Stations, page 1") && text.contains("| Directory health"),
             "{text}"
@@ -1946,7 +2034,7 @@ mod tests {
         assert!(!colored);
         let playback = text
             .lines()
-            .find(|line| line.contains("Listen session:"))
+            .find(|line| line.contains("Listen:"))
             .unwrap_or("");
         assert!(!playback.contains("directory health"));
         assert!(!text.contains("Retained:"), "{text}");
@@ -1977,7 +2065,7 @@ mod tests {
         assert!(text.contains("Focus Search:"), "{text}");
         let search = text.find("Search:").unwrap_or(usize::MAX);
         let identity = text.find("Selected station:").unwrap_or(0);
-        let playback = text.find("Listen session:").unwrap_or(usize::MAX);
+        let playback = text.find("Listen:").unwrap_or(usize::MAX);
         let help = text.find("Help:").unwrap_or(usize::MAX);
         assert!(help < search, "{text}");
         assert!(playback < search, "{text}");
@@ -2108,7 +2196,7 @@ mod tests {
         assert!(large.contains('~'), "{large}");
         let (compact, _) = frame(&model, 59, 20);
         assert!(
-            compact.starts_with("Sigy [1 Explore] | service 42"),
+            compact.starts_with("Sigy Find stations | service 42"),
             "{compact}"
         );
         assert!(rows(&compact) >= 9, "{compact}");
@@ -2198,13 +2286,13 @@ mod tests {
         let model = sample();
         let (absent, _) = frame(&model, 80, 24);
         assert!(!absent.contains("Retained:"), "{absent}");
-        assert!(absent.contains("Listen session:"), "{absent}");
+        assert!(absent.contains("Listen: (live) running"), "{absent}");
         let mut playing = sample();
         playing.begin_retained("reader-0123456789abcdef0123456789abcdef");
         let (text, _) = frame(&playing, 80, 24);
         assert!(text.contains("Retained: pending reader-"), "{text}");
         assert!(!text.contains("decoder "), "{text}");
-        assert!(text.contains("Listen session:"), "{text}");
+        assert!(text.contains("Listen: (live) running"), "{text}");
         assert!(playing.set_decoder_output("reader-0123456789abcdef0123456789abcdef", 1_500_000));
         let (timed, _) = frame(&playing, 100, 24);
         assert!(
@@ -2226,11 +2314,11 @@ mod tests {
         let mut model = sample();
         model.handle(Key::Char('?'));
         let (text, _) = frame(&model, 80, 24);
-        assert!(text.contains("Keys: Explore"), "{text}");
+        assert!(text.contains("Keys: Find stations"), "{text}");
         assert!(text.contains("R then y fetch"), "{text}");
         model.handle(Key::Escape);
         let (closed, _) = frame(&model, 80, 24);
-        assert!(!closed.contains("Keys: Explore"), "{closed}");
+        assert!(!closed.contains("Keys: Find stations"), "{closed}");
         model.handle(Key::Char('7'));
         model.handle(Key::Char('?'));
         let (globe, _) = frame(&model, 80, 24);
@@ -2488,10 +2576,7 @@ mod tests {
     #[test]
     fn sixty_columns_show_every_workspace_and_status_keeps_its_tail() {
         let tabs = frame(&sample(), 60, 20).0;
-        assert!(
-            tabs.contains("[1 Exp] 2 Live 3 Rec 4 Mon 5 Find 6 Sys 7 Globe"),
-            "{tabs}"
-        );
+        assert!(tabs.contains("Home / Find stations"), "{tabs}");
         let mut model = sample();
         model.note_message(
             "Disconnected. Capture was not stopped. Last snapshot kept. r reconnects. Cause: upstream closed the socket",
@@ -2777,7 +2862,7 @@ mod tests {
                 }
                 let (text, _) = frame(&model, width, height);
                 assert!(text.contains("Help:"));
-                assert!(text.contains("Monitors"));
+                assert!(text.contains("Home / Watch topics"), "{text}");
                 assert!(!text.contains('\u{1b}'));
                 if let Some(directory) = std::env::var_os("SIGY_TUI_SNAPSHOT_DIR") {
                     let directory = std::path::PathBuf::from(directory);
@@ -3022,7 +3107,7 @@ mod tests {
         assert_eq!(fg_of(&model, "Sigy"), Some(Color::Reset));
         assert_eq!(fg_of(&model, "succeeded"), Some(Color::Reset));
         assert_eq!(
-            fg_of_within(&model, "Listen session:", "running"),
+            fg_of_within(&model, "Listen:", "running"),
             Some(Color::Green)
         );
         assert_eq!(
@@ -3169,6 +3254,245 @@ mod tests {
         globe.place_for_actions(Workspace::Globe, Focus::Results);
         assert_eq!(globe.handle(Key::Char('r')), Effect::Reload);
         assert!(!globe.spin_requested());
+    }
+
+    #[test]
+    fn home_action_table_matches_dispatch() {
+        let mut model = action_fixture();
+        model.show_home();
+        model.handle(Key::Down);
+        model.handle(Key::Down);
+        model.handle(Key::Down);
+        assert_eq!(model.home_index(), 3);
+        assert!(model.at_home());
+        let help = hint_text(&model, 80);
+        assert!(help.ends_with("? more"), "{help}");
+        assert!(help.contains("Enter open"), "{help}");
+        assert!(!help.contains("Esc back"), "{help}");
+        for key in crate::explorer::actions::home_keys() {
+            assert!(handled(&model, key.clone()), "home does not handle {key:?}");
+        }
+        for key in probe_keys() {
+            if reacts(&model, key.clone()) {
+                assert!(
+                    crate::explorer::actions::covers_home(&key),
+                    "home handles {key:?} with no table row"
+                );
+            }
+        }
+        let before = model.clone();
+        assert_eq!(model.handle(Key::Escape), Effect::None);
+        assert_eq!(model.handle(Key::Backspace), Effect::None);
+        assert_eq!(model.handle(Key::Char('0')), Effect::None);
+        assert!(model.at_home());
+        assert_eq!(model.home_index(), before.home_index());
+        assert_eq!(model.workspace(), before.workspace());
+        assert_eq!(model.status(), before.status());
+    }
+
+    #[test]
+    fn home_opens_tasks_and_escape_returns_one_level() {
+        home_menu_opens_each_task();
+        escape_returns_one_level();
+    }
+
+    fn home_menu_opens_each_task() {
+        let mut home = sample();
+        home.show_home();
+        let (text, _) = frame(&home, 80, 24);
+        for task in [
+            "Find stations",
+            "Listen",
+            "Recordings",
+            "Watch topics",
+            "Findings",
+            "System",
+            "Globe",
+        ] {
+            assert!(text.contains(task), "{task} missing from {text}");
+        }
+        assert!(!text.contains("Jobs"), "{text}");
+        assert!(!text.contains("Cache:"), "{text}");
+        assert!(!text.contains("Search:"), "{text}");
+        let selected = row_cells(&home, 80, 24, ">");
+        assert!(
+            selected
+                .iter()
+                .take(8)
+                .all(|cell| cell.modifier.contains(ratatui::style::Modifier::REVERSED)),
+            "home selection is reversed"
+        );
+
+        assert_eq!(home.handle(Key::Char('7')), Effect::None);
+        assert!(!home.at_home());
+        assert_eq!(home.workspace(), Workspace::Globe);
+        let globe = frame(&home, 80, 24).0;
+        assert!(globe.contains("Home / Globe"), "{globe}");
+        assert!(globe.contains("Cache:"), "{globe}");
+        assert!(globe.contains("Esc back"), "{globe}");
+        assert_eq!(home.handle(Key::Escape), Effect::None);
+        assert!(home.at_home());
+        assert!(frame(&home, 80, 24).0.contains("> 7 Globe"));
+
+        let mut live = sample();
+        live.show_home();
+        live.handle(Key::Down);
+        assert_eq!(live.handle(Key::Enter), Effect::None);
+        assert_eq!(live.workspace(), Workspace::Live);
+        assert!(!live.at_home());
+        let live_text = frame(&live, 80, 24).0;
+        assert!(live_text.contains("Home / Listen"), "{live_text}");
+        assert!(live_text.contains("listen-1"), "{live_text}");
+        assert!(!live_text.contains("Cache:"), "{live_text}");
+        assert!(!live_text.contains("Search:"), "{live_text}");
+        assert!(!live_text.contains("Selected station:"), "{live_text}");
+
+        let mut monitors = sample();
+        monitors.show_home();
+        for _ in 0..3 {
+            monitors.handle(Key::Down);
+        }
+        assert_eq!(monitors.handle(Key::Enter), Effect::MonitorList);
+        assert_eq!(monitors.workspace(), Workspace::Monitors);
+
+        let mut random = sample();
+        random.show_home();
+        assert!(matches!(
+            random.handle(Key::Char('e')),
+            Effect::ExploreRandom(_)
+        ));
+        assert!(!random.at_home());
+        assert_eq!(random.workspace(), Workspace::Globe);
+
+        for digit in ['2', '3', '4', '5', '6'] {
+            let mut model = sample();
+            model.handle(Key::Char(digit));
+            let text = frame(&model, 80, 24).0;
+            assert!(!text.contains("Cache:"), "{digit} {text}");
+            assert!(!text.contains("Search:"), "{digit} {text}");
+        }
+    }
+
+    fn escape_returns_one_level() {
+        let mut context = sample();
+        let search = context.current_search();
+        assert_eq!(context.handle(Key::Enter), Effect::None);
+        assert!(context.context.is_some());
+        assert_eq!(context.handle(Key::Escape), Effect::None);
+        assert!(context.context.is_none());
+        assert!(!context.at_home());
+        assert_eq!(context.current_search(), search);
+        assert_eq!(context.handle(Key::Escape), Effect::None);
+        assert!(context.at_home());
+        assert_eq!(context.current_search(), search);
+
+        let mut confirm = sample();
+        confirm.handle(Key::Char('P'));
+        assert_eq!(confirm.handle(Key::Escape), Effect::None);
+        assert!(!confirm.at_home());
+        assert!(
+            confirm.status().contains("discarded"),
+            "{}",
+            confirm.status()
+        );
+
+        let mut editing = sample();
+        editing.handle(Key::Char('/'));
+        editing.handle(Key::Char('a'));
+        assert_eq!(editing.handle(Key::Escape), Effect::None);
+        assert!(!editing.at_home());
+        assert_eq!(editing.focus(), Focus::Results);
+
+        let mut keys = sample();
+        keys.handle(Key::Char('?'));
+        assert!(keys.keys_open());
+        assert_eq!(keys.handle(Key::Escape), Effect::None);
+        assert!(!keys.keys_open());
+        assert!(!keys.at_home());
+
+        let mut detail = sample();
+        detail.handle(Key::Char('4'));
+        detail.monitors = crate::explorer::monitor::passage_fixture();
+        assert!(
+            detail
+                .monitors
+                .lines(12)
+                .join("\n")
+                .contains("Classification"),
+            "monitor detail fixture"
+        );
+        assert_eq!(detail.handle(Key::Escape), Effect::None);
+        assert!(!detail.at_home());
+        assert!(detail.monitors.lines(4).join("\n").contains('>'));
+        assert_eq!(detail.handle(Key::Backspace), Effect::None);
+        assert!(detail.at_home());
+
+        let mut claims = sample();
+        claims.handle(Key::Char('5'));
+        claims.claims.open_list();
+        assert!(claims.claims.open());
+        assert_eq!(claims.handle(Key::Escape), Effect::None);
+        assert!(!claims.claims.open());
+        assert!(!claims.at_home());
+        assert_eq!(claims.handle(Key::Escape), Effect::None);
+        assert!(claims.at_home());
+
+        let mut recordings = sample();
+        recordings.handle(Key::Char('3'));
+        assert_eq!(recordings.handle(Key::Char('0')), Effect::None);
+        assert!(recordings.at_home());
+        assert!(frame(&recordings, 80, 24).0.contains("> 3 Recordings"));
+
+        let mut linear = Explorer::new(
+            Modes {
+                reduced_motion: true,
+                linear: true,
+                monochrome: true,
+                emphasis: crate::explorer::state::Emphasis::Standard,
+            },
+            10_000,
+        );
+        linear.apply_desk(sample_desk());
+        linear.show_home();
+        let (linear_text, colored) = frame(&linear, 80, 24);
+        assert!(!colored);
+        assert!(linear_text.contains("1 Find stations"), "{linear_text}");
+        assert!(linear_text.contains("4 Watch topics"), "{linear_text}");
+    }
+
+    #[test]
+    fn blank_filter_opens_home_and_a_startup_filter_does_not() {
+        use sigy_service::discovery::StationFilter;
+        assert!(crate::explorer::startup_shows_home(
+            &StationFilter::default()
+        ));
+        for filter in [
+            StationFilter {
+                country: "CA".into(),
+                ..StationFilter::default()
+            },
+            StationFilter {
+                name: "news".into(),
+                ..StationFilter::default()
+            },
+            StationFilter {
+                language: "fr".into(),
+                ..StationFilter::default()
+            },
+            StationFilter {
+                tag: "jazz".into(),
+                ..StationFilter::default()
+            },
+            StationFilter {
+                healthy_only: true,
+                ..StationFilter::default()
+            },
+        ] {
+            assert!(
+                !crate::explorer::startup_shows_home(&filter),
+                "{filter:?} should skip Home"
+            );
+        }
     }
 
     const FOCI: [Focus; 6] = [

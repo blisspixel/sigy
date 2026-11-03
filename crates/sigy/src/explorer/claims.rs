@@ -56,7 +56,7 @@ impl Browser {
 
     pub(super) fn handle(&mut self, key: &Key) -> Effect {
         match key {
-            Key::Escape => {
+            Key::Escape | Key::Backspace => {
                 if self.page.take().is_some() {
                     self.offset = 0;
                     return Effect::None;

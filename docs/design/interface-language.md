@@ -76,8 +76,8 @@ Light box drawing (`─` and `│`) is for at most one rule between regions.
 
 | Size | Layout |
 | --- | --- |
-| under 80 columns, including 60 | compact: short tab labels, stacked labelled values, all seven workspaces reachable |
-| 80x24 | one focused pane plus a persistent strip of at most 3 to 4 rows: header (connection and anything live), tabs, one hint line |
+| below 60 columns or below 16 rows | compact: the connection line names Home or the task, stacked labelled values, digits 1-7 still reach every workspace, and there is no separate breadcrumb row |
+| 60 columns and at least 16 rows, including 80x24 | connection, one breadcrumb (`Home`, or `Home /` plus the task), a live row when a listen or recording is active, a retained row when a retained listen exists, one hint line |
 | around 120x40 | results beside detail |
 | around 160x50 | results, geography and evidence together |
 
@@ -89,7 +89,7 @@ The hint line is `key action` pairs, two spaces apart, most useful first, ending
 
 CLI help wraps to the real width. CLI reports use one summary line, a fixed-width state column, grouped idle checks, and `Next:` last.
 
-Issue 27 applies that layout. Below 80 columns, the recording hint says `select row` and the monitor hint says `inspect row`, so `? more` still fits at 20 columns. The workspace body still says arrows select and Enter inspects. Issue 26 applies help wrapping and the `?` overlay. The overlay lists the keys this workspace uses now. On the Globe canvas, arrows turn. Elsewhere, Left and Right change workspace. `h`, `j`, `k` and `l` remain globe aliases. `s` toggles slow turning on that canvas when motion is allowed. `r` reloads in every workspace, including Globe. The hint still ends in `? more`.
+Issue 27 applies that layout. At 60 columns and at least 16 rows the breadcrumb names Home or `Home /` plus the task. Below 60 columns or below 16 rows that name moves onto the connection line. The recording hint says `select row` and the monitor hint says `inspect row`, so `? more` still fits at 20 columns. On a task, `Esc back` is the second hint pair. Home's hint starts with `Enter open`. The workspace body still says arrows select and Enter inspects. Issue 26 applies help wrapping and the `?` overlay. The overlay title is `Keys: Home` or `Keys:` plus the task name, and it lists the keys that surface uses now. On the Globe canvas, arrows turn. Elsewhere, Left and Right change workspace. `h`, `j`, `k` and `l` remain globe aliases. `s` toggles slow turning on that canvas when motion is allowed. `r` reloads in every workspace, including Globe. `0` returns Home. The hint still ends in `? more`.
 
 ## States
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `sigy tui` opens on Home unless a country, name, language, tag, or health filter is set. Home lists Find stations, Listen, Recordings, Watch topics, Findings, System, and Globe. Enter opens the selected task. Digits `1` through `7` jump. `0` returns Home. Esc or Backspace goes up one level. The breadcrumb replaces the tab row. Below 60 columns or below 16 rows the connection line names Home or the task. The shared listen strip names the state and, when known, the station, and it omits the session id. The Listen workspace still shows that receipt. Catalog schema stays v54. Local IPC stays v58. Issues 38, 40, and 45 stay open.
+
 ## 0.1.0-dev.20261024 (development prerelease, source only)
 
 Source-only checkpoint for retained listening, claim passages, and one explorer action table per workspace. Catalog schema is v54. Local IPC is v58. No binaries or models are distributed, and no roadmap stage exit or supported release is claimed.

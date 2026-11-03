@@ -33,6 +33,8 @@ pub enum Workspace {
 }
 
 impl Workspace {
+    /// Gallery name. Production chrome uses [`Workspace::task`].
+    #[cfg(test)]
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -60,7 +62,7 @@ impl Workspace {
         )
     }
 
-    /// The number key that selects this workspace. The tab bar uses the same order.
+    /// The number key that selects this workspace. Home lists the same order.
     #[must_use]
     pub const fn digit(self) -> char {
         match self {
@@ -71,6 +73,32 @@ impl Workspace {
             Self::Findings => '5',
             Self::System => '6',
             Self::Globe => '7',
+        }
+    }
+
+    /// Task name on Home, the breadcrumb, and the key overlay.
+    #[must_use]
+    pub const fn task(self) -> &'static str {
+        match self {
+            Self::Explore => "Find stations",
+            Self::Live => "Listen",
+            Self::Recordings => "Recordings",
+            Self::Monitors => "Watch topics",
+            Self::Findings => "Findings",
+            Self::System => "System",
+            Self::Globe => "Globe",
+        }
+    }
+
+    const fn menu_index(self) -> usize {
+        match self {
+            Self::Explore => 0,
+            Self::Live => 1,
+            Self::Recordings => 2,
+            Self::Monitors => 3,
+            Self::Findings => 4,
+            Self::System => 5,
+            Self::Globe => 6,
         }
     }
 
@@ -563,6 +591,13 @@ pub enum Key {
     Redraw,
 }
 
+/// Home is drawn over a workspace. `Explorer::new` stays on a workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum View {
+    Home,
+    Workspace,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Explorer {
     fetch_confirmation: Option<super::search::Scope>,
@@ -574,6 +609,9 @@ pub struct Explorer {
     context_generation: u64,
     focus: Focus,
     workspace: Workspace,
+    view: View,
+    /// Selected Home row, in `Workspace::ALL` order.
+    home_index: usize,
     modes: Modes,
     pub(super) search: Search,
     rows: Vec<StationRow>,
@@ -664,6 +702,8 @@ impl Explorer {
             context_generation: 0,
             focus: Focus::Results,
             workspace: Workspace::Explore,
+            view: View::Workspace,
+            home_index: 0,
             modes,
             search: Search::default(),
             rows: Vec::new(),
@@ -765,6 +805,44 @@ impl Explorer {
     #[must_use]
     pub const fn workspace(&self) -> Workspace {
         self.workspace
+    }
+
+    /// The menu is covering the workspaces. Digits and deep links leave it.
+    #[must_use]
+    pub const fn at_home(&self) -> bool {
+        matches!(self.view, View::Home)
+    }
+
+    /// Selected Home row. Zero is Find stations.
+    #[must_use]
+    pub const fn home_index(&self) -> usize {
+        self.home_index
+    }
+
+    /// Opens Home without dropping a search that has not started.
+    pub(crate) fn show_home(&mut self) {
+        self.view = View::Home;
+        self.home_index = 0;
+        self.keys = KeyList::Closed;
+        self.focus = Focus::Results;
+        self.context = None;
+        self.fetch_confirmation = None;
+        self.play_confirmation = None;
+        self.protect_confirmation = None;
+        self.claims.close();
+        self.note_message("Enter opens the selected task. Digits jump. Esc returns here.");
+    }
+
+    /// Station name for a confirmed listen. The selected row is not playing.
+    #[must_use]
+    pub(crate) fn listen_subject(&self) -> Option<String> {
+        let id = self.live_station.as_deref()?;
+        let label = self
+            .rows
+            .iter()
+            .find(|row| row.id == id)
+            .map_or(id, |row| row.name.as_str());
+        Some(sanitize(label, 32))
     }
 
     /// The key overlay is open. It lists the focused workspace and starts no work.
@@ -1279,6 +1357,12 @@ impl Explorer {
         {
             return effect;
         }
+        if self.at_home() {
+            return self.home_key(&key);
+        }
+        if !self.text_entry() && matches!(key, Key::Char('0')) {
+            return self.go_home();
+        }
         if let Some(effect) = self.station_play_key(&key) {
             return effect;
         }
@@ -1287,11 +1371,15 @@ impl Explorer {
         }
         if self.workspace == Workspace::Findings {
             if self.claims.open() {
+                if matches!(key, Key::Char('0')) {
+                    self.claims.close();
+                    return self.go_home();
+                }
                 if leaves_claim_page(&key) {
                     self.claims.close();
                 } else {
                     let effect = self.claims.handle(&key);
-                    if matches!(key, Key::Escape) {
+                    if matches!(key, Key::Escape | Key::Backspace) {
                         self.invalidate_reads();
                     }
                     return effect;
@@ -1953,16 +2041,70 @@ impl Explorer {
                 self.workspace = workspace_from_digit(*character);
                 self.workspace_effect()
             }
-            Key::Paste(_)
-            | Key::Char(_)
-            | Key::Backspace
-            | Key::ClearInput
-            | Key::Escape
-            | Key::Redraw => Effect::None,
+            Key::Escape | Key::Backspace | Key::Char('0') => self.go_home(),
+            Key::Paste(_) | Key::Char(_) | Key::ClearInput | Key::Redraw => Effect::None,
         }
     }
 
+    fn home_key(&mut self, key: &Key) -> Effect {
+        match key {
+            Key::Up => {
+                self.home_index = self.home_index.saturating_sub(1);
+                Effect::None
+            }
+            Key::Down => {
+                let last = Workspace::ALL.len().saturating_sub(1);
+                self.home_index = self.home_index.saturating_add(1).min(last);
+                Effect::None
+            }
+            Key::Enter => {
+                self.workspace = self.selected_home_workspace();
+                self.workspace_effect()
+            }
+            Key::Char(character @ '1'..='7') => {
+                self.workspace = workspace_from_digit(*character);
+                self.workspace_effect()
+            }
+            Key::Char('e') => {
+                // Leave Home before the random read. `workspace_effect` would drop it.
+                self.workspace = Workspace::Globe;
+                self.view = View::Workspace;
+                self.home_index = self.workspace.menu_index();
+                self.focus = Focus::Results;
+                self.keys = KeyList::Closed;
+                self.explore_random()
+            }
+            Key::Char('q') | Key::Quit => Effect::Detach,
+            Key::Char('r') => self.reload(),
+            _ => Effect::None,
+        }
+    }
+
+    fn selected_home_workspace(&self) -> Workspace {
+        Workspace::ALL
+            .get(self.home_index)
+            .copied()
+            .unwrap_or(Workspace::Explore)
+    }
+
+    fn go_home(&mut self) -> Effect {
+        self.home_index = self.workspace.menu_index();
+        self.view = View::Home;
+        self.keys = KeyList::Closed;
+        self.context = None;
+        self.fetch_confirmation = None;
+        self.play_confirmation = None;
+        self.protect_confirmation = None;
+        self.claims.close();
+        self.focus = Focus::Results;
+        self.invalidate_reads();
+        self.note_message("Returned home. The service and any recording keep running.");
+        Effect::None
+    }
+
     fn workspace_effect(&mut self) -> Effect {
+        self.view = View::Workspace;
+        self.home_index = self.workspace.menu_index();
         if self.workspace != Workspace::Findings {
             self.claims.close();
         }
@@ -2001,6 +2143,8 @@ impl Explorer {
             self.recording_selection = 0;
         }
         self.workspace = Workspace::Recordings;
+        self.view = View::Workspace;
+        self.home_index = Workspace::Recordings.menu_index();
         self.focus = Focus::Results;
         self.note_message("Cited recording metadata selected. No playback or processing started.");
     }
@@ -2069,9 +2213,12 @@ impl Explorer {
     fn monitor_key(&mut self, key: &Key) -> Option<Effect> {
         match key {
             Key::Up | Key::Down => self.monitors.move_selection(*key == Key::Down),
-            Key::Escape => {
-                self.monitors.back();
-                self.invalidate_reads();
+            Key::Escape | Key::Backspace => {
+                if self.monitors.leave_detail() {
+                    self.invalidate_reads();
+                } else {
+                    return None;
+                }
             }
             Key::Enter => return Some(self.monitors.open()),
             Key::Char('r') => return Some(self.monitors.reload()),
@@ -2236,6 +2383,8 @@ impl Explorer {
     #[cfg(test)]
     pub(crate) fn place_for_actions(&mut self, workspace: Workspace, focus: Focus) {
         self.workspace = workspace;
+        self.view = View::Workspace;
+        self.home_index = workspace.menu_index();
         self.focus = focus;
         self.keys = KeyList::Closed;
         self.context = None;

@@ -37,15 +37,34 @@ fn spin_visibility_tracks_canvas_and_modal_ownership() {
             Rect::new(0, 0, width, height)
         ));
     }
-    for key in [Key::Char('F'), Key::Char('C'), Key::Enter] {
+    for key in [Key::Char('F'), Key::Enter] {
+        let label = format!("{key:?}");
         let mut overlay = model.clone();
         overlay.handle(key);
         assert!(!super::super::globe_visible(&overlay, area));
         overlay.handle(Key::Escape);
-        // The country picker returns to its draft filter editor first.
+        assert!(
+            super::super::globe_visible(&overlay, area),
+            "{label} returns to the globe"
+        );
         overlay.handle(Key::Escape);
-        assert!(super::super::globe_visible(&overlay, area));
+        assert!(
+            !super::super::globe_visible(&overlay, area) && overlay.at_home(),
+            "{label} then returns home"
+        );
     }
+    let mut picker = model.clone();
+    picker.handle(Key::Char('C'));
+    assert!(!super::super::globe_visible(&picker, area));
+    picker.handle(Key::Escape);
+    assert!(
+        !super::super::globe_visible(&picker, area),
+        "the country picker returns to its draft filter editor first"
+    );
+    picker.handle(Key::Escape);
+    assert!(super::super::globe_visible(&picker, area));
+    picker.handle(Key::Escape);
+    assert!(!super::super::globe_visible(&picker, area) && picker.at_home());
 }
 
 #[test]
@@ -163,7 +182,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        78
+        84
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -200,6 +219,8 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
         "random-empty",
         "random-monochrome",
         "globe-turn",
+        "Home",
+        "Home offline",
     ] {
         assert!(cases.iter().any(|(name, _, _)| *name == expected));
     }
@@ -238,19 +259,13 @@ fn gallery_accent_stays_on_brand_workspace_and_focused_filters() -> Result<()> {
             if !accent {
                 continue;
             }
-            let workspace = text.contains("[1 ")
-                || text.contains("[2 ")
-                || text.contains("[3 ")
-                || text.contains("[4 ")
-                || text.contains("[5 ")
-                || text.contains("[6 ")
-                || text.contains("[7 ");
             let focused_editor = name.starts_with("filters") || name == "countries";
             // The globe selected marker uses the accent slot. It is the `@` on the map.
+            // The breadcrumb and the Home title use the accent slot and start with Home.
             let selected_marker = text.contains('@');
             assert!(
-                text.contains("Sigy") || workspace || focused_editor || selected_marker,
-                "{name} accent outside brand, workspace, focused filters, or the selected map marker: {text}"
+                text.contains("Sigy") || text.contains("Home") || focused_editor || selected_marker,
+                "{name} accent outside brand, the breadcrumb, focused filters, or the selected map marker: {text}"
             );
             assert!(
                 !text.contains("Help:"),
@@ -512,7 +527,7 @@ fn visual_qa_gallery() -> Result<()> {
             manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome,"high_contrast":model.modes().emphasis.high()}));
         }
     }
-    assert!(manifest.len() <= 78);
+    assert!(manifest.len() <= 84);
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
@@ -560,6 +575,7 @@ fn cases() -> Result<Vec<Case>> {
         }
         cases.push((workspace.label(), model, sizes.clone()));
     }
+    append_home_cases(&mut cases, &sizes);
     let mut empty = gallery_sample();
     let mut desk = sample_desk();
     desk.stations.clear();
@@ -636,6 +652,16 @@ fn cases() -> Result<Vec<Case>> {
     cases.push(("layout", gallery_sample(), vec![(60, 20), (90, 30)]));
     append_globe_turn(&mut cases);
     Ok(cases)
+}
+
+fn append_home_cases(cases: &mut Vec<Case>, sizes: &[(u16, u16)]) {
+    let mut home = gallery_sample();
+    home.show_home();
+    cases.push(("Home", home, sizes.to_vec()));
+    let mut offline = gallery_sample();
+    offline.note_disconnect(20_000, "synthetic unavailable service");
+    offline.show_home();
+    cases.push(("Home offline", offline, sizes.to_vec()));
 }
 
 fn append_globe_turn(cases: &mut Vec<Case>) {
@@ -1030,17 +1056,17 @@ fn readme_hero_shows_a_connected_globe_without_fixture_ids() {
     let (text, colored) = super::frame(&model, 100, 32);
     assert!(colored, "{text}");
     assert!(text.contains("service 1842"), "{text}");
-    assert!(text.contains("Listen session:"), "{text}");
+    assert!(text.contains("Listen:"), "{text}");
     assert!(text.contains("playing"), "{text}");
-    assert!(text.contains("play-1842"), "{text}");
     assert!(text.contains("North Coast"), "{text}");
+    assert!(!text.contains("play-1842"), "{text}");
     assert!(text.contains("Globe centered 2W 48N"), "{text}");
     assert!(
         text.contains("geometric night at 2026-10-21 16:00 UTC"),
         "{text}"
     );
     assert!(text.contains("3 of 3 stations"), "{text}");
-    assert!(text.contains("[7 Globe]"), "{text}");
+    assert!(text.contains("Home / Globe"), "{text}");
     assert!(text.contains("name order"), "{text}");
     assert!(text.contains("arrows turn"), "{text}");
     assert!(text.contains('●'), "{text}");

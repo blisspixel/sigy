@@ -1,8 +1,8 @@
-//! One action table per workspace.
+//! One action table per workspace, and one for Home.
 //!
 //! The footer and the `?` overlay read this table. Dispatch match arms stay in
-//! `state`. Home is recorded as the parent of every workspace so a later home
-//! menu can read it. This module does not draw Home or change a service.
+//! `state`. Home is the parent of every workspace. This module does not change
+//! a service.
 
 use super::state::{Explorer, Workspace};
 
@@ -68,6 +68,7 @@ enum Act {
     BackTab,
     Enter,
     Escape,
+    Backspace,
     Up,
     Down,
     Left,
@@ -119,7 +120,8 @@ const INTERVAL: &[Act] = &[Act::Char('I')];
 const PROTECT: &[Act] = &[Act::Char('K')];
 const LATEST: &[Act] = &[Act::Char('L')];
 const STEP: &[Act] = &[Act::Char(','), Act::Char('.')];
-const ESCAPE: &[Act] = &[Act::Escape];
+const BACK: &[Act] = &[Act::Escape, Act::Backspace];
+const HOME_KEY: &[Act] = &[Act::Char('0')];
 const SELECT: &[Act] = &[Act::Up, Act::Down];
 const DIGITS: &[Act] = &[
     Act::Char('1'),
@@ -140,7 +142,7 @@ const FILE_CLI: &str = "sigy listen file RECORDING";
 const HOLD_CLI: &str = "sigy record hold RECORDING";
 const SPIN_OFF: &str = "Globe turning is off in this presentation mode.";
 
-/// Parent screen for one workspace. Home has no parent and is not drawn here.
+/// Parent screen for one workspace. Home has no parent.
 #[cfg(test)]
 #[must_use]
 pub(crate) const fn screen_for(workspace: Workspace) -> ScreenId {
@@ -155,7 +157,7 @@ pub(crate) const fn screen_for(workspace: Workspace) -> ScreenId {
     }
 }
 
-/// `None` for Home. Every current workspace names Home, which this slice does not open.
+/// `None` for Home. Every current workspace names Home.
 #[cfg(test)]
 #[must_use]
 pub(crate) const fn parent(screen: ScreenId) -> Option<ScreenId> {
@@ -174,7 +176,23 @@ pub(crate) const fn parent(screen: ScreenId) -> Option<ScreenId> {
 /// Footer pairs in priority order. The hint fitter keeps the prefix that fits.
 #[must_use]
 pub(crate) fn footer_pairs(model: &Explorer) -> Vec<&'static str> {
-    workspace_actions(model.workspace())
+    let actions = if model.at_home() {
+        home()
+    } else {
+        workspace_actions(model.workspace())
+    };
+    let mut pairs = visible_pairs(&actions, model);
+    // Keep the workspace's first pair at 20 columns, and show Back as soon as a second pair fits.
+    if let Some(index) = pairs.iter().position(|pair| *pair == "Esc back") {
+        let pair = pairs.remove(index);
+        let at = usize::from(!pairs.is_empty());
+        pairs.insert(at, pair);
+    }
+    pairs
+}
+
+fn visible_pairs(actions: &[Action], model: &Explorer) -> Vec<&'static str> {
+    actions
         .iter()
         .filter(|action| !action.pair.is_empty() && shown(model, action))
         .map(|action| action.pair)
@@ -184,11 +202,17 @@ pub(crate) fn footer_pairs(model: &Explorer) -> Vec<&'static str> {
 /// Grouped overlay text, including a disabled reason and a copyable command.
 #[must_use]
 pub(crate) fn overlay_lines(model: &Explorer) -> Vec<String> {
-    let mut lines = vec![
-        format!("Keys: {}", model.workspace().label()),
-        String::new(),
-    ];
-    let actions = workspace_actions(model.workspace());
+    let title = if model.at_home() {
+        "Home"
+    } else {
+        model.workspace().task()
+    };
+    let mut lines = vec![format!("Keys: {title}"), String::new()];
+    let actions = if model.at_home() {
+        home()
+    } else {
+        workspace_actions(model.workspace())
+    };
     for group in Group::ALL {
         let mut started = false;
         for action in &actions {
@@ -226,8 +250,30 @@ pub(crate) fn covers(workspace: Workspace, key: &Key) -> bool {
 #[cfg(test)]
 #[must_use]
 pub(crate) fn keys_for(workspace: Workspace) -> Vec<Key> {
+    listed_keys(&workspace_actions(workspace))
+}
+
+/// Whether the Home table lists the key.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn covers_home(key: &Key) -> bool {
+    let Some(act) = act_of(key) else {
+        return false;
+    };
+    home().iter().any(|action| action.keys.contains(&act))
+}
+
+/// Every key the Home table lists, in table order.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn home_keys() -> Vec<Key> {
+    listed_keys(&home())
+}
+
+#[cfg(test)]
+fn listed_keys(actions: &[Action]) -> Vec<Key> {
     let mut keys = Vec::new();
-    for action in workspace_actions(workspace) {
+    for action in actions {
         for act in action.keys {
             keys.push(key_of(*act));
         }
@@ -536,7 +582,13 @@ fn monitors() -> Vec<Action> {
             Show::Always,
         ),
         row(RELOAD, "r reload", Group::View, "  r reload", Show::Always),
-        row(ESCAPE, "Esc back", Group::Move, "  Esc back", Show::Always),
+        row(
+            BACK,
+            "Esc back",
+            Group::Move,
+            "  Esc or Backspace returns home",
+            Show::Always,
+        ),
         row(
             QUIT,
             "q quit",
@@ -702,11 +754,75 @@ fn globe() -> Vec<Action> {
     ]
 }
 
+fn home() -> Vec<Action> {
+    vec![
+        row(
+            SELECT,
+            "",
+            Group::Move,
+            "  Up and Down select",
+            Show::Always,
+        ),
+        row(DIGITS, "", Group::Move, "  1-7 open a task", Show::Always),
+        row(
+            ENTER,
+            "Enter open",
+            Group::View,
+            "  Enter opens the selected task",
+            Show::Always,
+        ),
+        row(
+            EXPLORE_KEY,
+            "e explore",
+            Group::Find,
+            "  e explore",
+            Show::Always,
+        ),
+        row(RELOAD, "r reload", Group::View, "  r reload", Show::Always),
+        row(
+            QUIT,
+            "q quit",
+            Group::View,
+            "  q quits this client",
+            Show::Always,
+        ),
+        row(
+            QUESTION,
+            "",
+            Group::View,
+            "  ? opens this list",
+            Show::Always,
+        ),
+        row(
+            HOLD,
+            "",
+            Group::Listen,
+            "  H pauses at the decoder time and the next H resumes",
+            Show::Always,
+        ),
+        row(
+            SEEK,
+            "",
+            Group::Listen,
+            "  [ and ] seek 10 s inside this admitted listen",
+            Show::Always,
+        ),
+    ]
+}
+
 fn common() -> &'static [Action] {
     &COMMON
 }
 
-const COMMON: [Action; 15] = [
+const COMMON: [Action; 17] = [
+    row_const(HOME_KEY, "", Group::Move, "  0 returns home", Show::Always),
+    row_const(
+        BACK,
+        "Esc back",
+        Group::Move,
+        "  Esc or Backspace returns home",
+        Show::Always,
+    ),
     row_const(DIGITS, "", Group::Move, "  1-7 workspace", Show::Always),
     row_const(
         ACROSS,
@@ -786,11 +902,12 @@ fn act_of(key: &Key) -> Option<Act> {
         Key::BackTab => Act::BackTab,
         Key::Enter => Act::Enter,
         Key::Escape => Act::Escape,
+        Key::Backspace => Act::Backspace,
         Key::Up => Act::Up,
         Key::Down => Act::Down,
         Key::Left => Act::Left,
         Key::Right => Act::Right,
-        Key::Backspace | Key::ClearInput | Key::Paste(_) | Key::Quit | Key::Redraw => return None,
+        Key::ClearInput | Key::Paste(_) | Key::Quit | Key::Redraw => return None,
     })
 }
 
@@ -802,6 +919,7 @@ fn key_of(act: Act) -> Key {
         Act::BackTab => Key::BackTab,
         Act::Enter => Key::Enter,
         Act::Escape => Key::Escape,
+        Act::Backspace => Key::Backspace,
         Act::Up => Key::Up,
         Act::Down => Key::Down,
         Act::Left => Key::Left,
