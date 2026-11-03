@@ -2065,15 +2065,7 @@ impl Explorer {
                 self.workspace = workspace_from_digit(*character);
                 self.workspace_effect()
             }
-            Key::Char('e') => {
-                // Leave Home before the random read. `workspace_effect` would drop it.
-                self.workspace = Workspace::Globe;
-                self.view = View::Workspace;
-                self.home_index = self.workspace.menu_index();
-                self.focus = Focus::Results;
-                self.keys = KeyList::Closed;
-                self.explore_random()
-            }
+            Key::Char('e') => self.explore_from_home(),
             Key::Char('q') | Key::Quit => Effect::Detach,
             Key::Char('r') => self.reload(),
             _ => Effect::None,
@@ -2096,10 +2088,25 @@ impl Explorer {
         self.play_confirmation = None;
         self.protect_confirmation = None;
         self.claims.close();
+        let _ = self.monitors.leave_detail();
         self.focus = Focus::Results;
         self.invalidate_reads();
         self.note_message("Returned home. The service and any recording keep running.");
         Effect::None
+    }
+
+    /// Globe only after a random read is accepted. A refusal stays on Home.
+    fn explore_from_home(&mut self) -> Effect {
+        let effect = self.explore_random();
+        if matches!(effect, Effect::ExploreRandom(_)) {
+            // `workspace_effect` would drop the read it just accepted.
+            self.workspace = Workspace::Globe;
+            self.view = View::Workspace;
+            self.home_index = self.workspace.menu_index();
+            self.focus = Focus::Results;
+            self.keys = KeyList::Closed;
+        }
+        effect
     }
 
     fn workspace_effect(&mut self) -> Effect {
@@ -2108,6 +2115,8 @@ impl Explorer {
         if self.workspace != Workspace::Findings {
             self.claims.close();
         }
+        // Opening a task shows its root. A parked monitor detail is not that root.
+        let _ = self.monitors.leave_detail();
         self.invalidate_reads();
         if self.workspace == Workspace::Monitors {
             Effect::MonitorList

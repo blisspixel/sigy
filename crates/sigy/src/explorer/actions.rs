@@ -586,7 +586,7 @@ fn monitors() -> Vec<Action> {
             BACK,
             "Esc back",
             Group::Move,
-            "  Esc or Backspace returns home",
+            "  Esc or Backspace goes up one level",
             Show::Always,
         ),
         row(
@@ -820,7 +820,7 @@ const COMMON: [Action; 17] = [
         BACK,
         "Esc back",
         Group::Move,
-        "  Esc or Backspace returns home",
+        "  Esc or Backspace goes up one level",
         Show::Always,
     ),
     row_const(DIGITS, "", Group::Move, "  1-7 workspace", Show::Always),

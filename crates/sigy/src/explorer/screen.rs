@@ -1518,12 +1518,12 @@ fn home_summary(model: &Explorer, workspace: Workspace) -> String {
             format!("{count} {noun}, {} active", model.captures_active())
         }
         Workspace::Monitors => {
-            let count = model.monitors.listed();
-            if count == 0 {
-                "Not loaded".to_owned()
-            } else {
+            if model.monitors.list_read() {
+                let count = model.monitors.listed();
                 let noun = if count == 1 { "topic" } else { "topics" };
                 format!("{count} {noun}")
+            } else {
+                "Not loaded".to_owned()
             }
         }
         Workspace::Findings => {
@@ -3493,6 +3493,215 @@ mod tests {
                 "{filter:?} should skip Home"
             );
         }
+    }
+
+    #[test]
+    fn zero_from_a_monitor_detail_closes_it_before_the_next_visit() {
+        let mut detail = sample();
+        assert_eq!(detail.handle(Key::Char('4')), Effect::MonitorList);
+        detail.monitors = crate::explorer::monitor::passage_fixture();
+        let open = detail.monitors.lines(12).join("\n");
+        assert!(open.contains("Classification"), "{open}");
+        assert!(matches!(
+            detail.handle(Key::Char('r')),
+            Effect::MonitorDetail { .. }
+        ));
+        assert_eq!(detail.handle(Key::Char('0')), Effect::None);
+        assert!(detail.at_home());
+        let home = frame(&detail, 80, 24).0;
+        assert!(home.contains("> 4 Watch topics"), "{home}");
+        let parked = detail.monitors.lines(8).join("\n");
+        assert!(
+            parked.contains("Monitors:") && !parked.contains("Read-only snapshot"),
+            "0 leaves the detail {parked}"
+        );
+        assert_eq!(detail.handle(Key::Char('4')), Effect::MonitorList);
+        let list = detail.monitors.lines(8).join("\n");
+        assert!(list.contains("> news"), "{list}");
+        assert!(
+            !list.contains("Read-only snapshot"),
+            "the next visit is the list {list}"
+        );
+        assert_eq!(detail.handle(Key::Char('r')), Effect::MonitorList);
+        assert_eq!(detail.handle(Key::Escape), Effect::None);
+        assert!(detail.at_home());
+    }
+
+    #[test]
+    fn returning_to_watch_topics_shows_the_list_not_a_parked_detail() {
+        let mut detail = sample();
+        detail.handle(Key::Char('4'));
+        detail.monitors = crate::explorer::monitor::passage_fixture();
+        assert_eq!(detail.handle(Key::Char('1')), Effect::None);
+        assert_eq!(detail.workspace(), Workspace::Explore);
+        assert_eq!(detail.handle(Key::Char('4')), Effect::MonitorList);
+        let list = detail.monitors.lines(8).join("\n");
+        assert!(list.contains("Monitors:"), "{list}");
+        assert!(
+            !list.contains("Read-only snapshot"),
+            "the list is showing {list}"
+        );
+        assert_eq!(detail.handle(Key::Char('r')), Effect::MonitorList);
+    }
+
+    #[test]
+    fn explore_from_home_stays_when_the_random_read_is_refused() {
+        let mut home = Explorer::new(
+            Modes {
+                reduced_motion: true,
+                linear: false,
+                monochrome: true,
+                emphasis: crate::explorer::state::Emphasis::Standard,
+            },
+            10_000,
+        );
+        home.show_home();
+        assert_eq!(home.handle(Key::Char('e')), Effect::None);
+        assert!(home.at_home());
+        assert_eq!(home.workspace(), Workspace::Explore);
+        assert!(home.status().contains("not submitted"), "{}", home.status());
+    }
+
+    #[test]
+    fn an_empty_topic_list_is_counted_after_it_is_read() {
+        let mut home = sample();
+        home.show_home();
+        let unread = frame(&home, 80, 24).0;
+        assert!(unread.contains("Not loaded"), "{unread}");
+        home.monitors.load_ids(Vec::new());
+        let empty = frame(&home, 80, 24).0;
+        assert!(empty.contains("0 topics"), "{empty}");
+        assert!(!empty.contains("Not loaded"), "{empty}");
+        home.monitors.load_ids(vec!["news".into()]);
+        let one = frame(&home, 80, 24).0;
+        assert!(one.contains("1 topic"), "{one}");
+        assert!(!one.contains("1 topics"), "{one}");
+        home.monitors
+            .load_ids(vec!["news".into(), "weather".into()]);
+        let two = frame(&home, 80, 24).0;
+        assert!(two.contains("2 topics"), "{two}");
+    }
+
+    #[test]
+    fn key_overlay_says_back_goes_up_one_level() {
+        let mut model = sample();
+        model.handle(Key::Char('?'));
+        assert_overlay_back(&crate::explorer::actions::overlay_lines(&model));
+        model.place_for_actions(Workspace::Monitors, Focus::Results);
+        model.monitors = crate::explorer::monitor::passage_fixture();
+        model.handle(Key::Char('?'));
+        assert_overlay_back(&crate::explorer::actions::overlay_lines(&model));
+    }
+
+    fn assert_overlay_back(lines: &[String]) {
+        assert!(
+            lines.iter().any(|line| line.contains("goes up one level")),
+            "{lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("0 returns home")),
+            "{lines:?}"
+        );
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.contains("Esc") && line.contains("returns home")),
+            "{lines:?}"
+        );
+    }
+
+    #[test]
+    fn zero_in_a_field_or_confirmation_does_not_jump_home() {
+        let mut search = sample();
+        search.handle(Key::Char('/'));
+        assert_eq!(search.handle(Key::Char('0')), Effect::None);
+        assert!(!search.at_home());
+        assert_eq!(search.focus(), Focus::Search);
+        assert_eq!(search.query(), "0");
+
+        let mut filters = sample();
+        filters.handle(Key::Char('F'));
+        filters.handle(Key::Char('z'));
+        assert_eq!(filters.handle(Key::Backspace), Effect::None);
+        assert!(!filters.at_home());
+        assert_eq!(filters.query(), "");
+        assert_eq!(filters.focus(), Focus::Search);
+
+        let mut countries = sample();
+        countries.handle(Key::Char('C'));
+        assert!(countries.search.picker.is_some());
+        assert_eq!(countries.handle(Key::Char('0')), Effect::None);
+        assert!(!countries.at_home());
+        assert!(countries.search.picker.is_some());
+
+        let mut confirm = sample();
+        confirm.handle(Key::Char('P'));
+        assert!(
+            confirm.status().contains("confirms"),
+            "{}",
+            confirm.status()
+        );
+        assert_eq!(confirm.handle(Key::Char('0')), Effect::None);
+        assert!(!confirm.at_home());
+        assert!(
+            confirm.status().contains("confirms"),
+            "{}",
+            confirm.status()
+        );
+        assert_eq!(confirm.handle(Key::Escape), Effect::None);
+        assert!(
+            confirm.status().contains("discarded"),
+            "{}",
+            confirm.status()
+        );
+    }
+
+    #[test]
+    fn zero_from_context_claims_and_the_key_list_follows_the_open_level() {
+        let mut context = sample();
+        let search = context.current_search();
+        assert_eq!(context.handle(Key::Enter), Effect::None);
+        assert!(context.context.is_some());
+        assert_eq!(context.handle(Key::Char('0')), Effect::None);
+        assert!(context.at_home());
+        assert!(context.context.is_none());
+        assert_eq!(context.current_search(), search);
+        assert_eq!(context.handle(Key::Enter), Effect::None);
+        assert!(!context.at_home());
+        assert!(context.context.is_none());
+
+        let mut claims = sample();
+        claims.handle(Key::Char('5'));
+        claims.claims.open_list();
+        assert_eq!(claims.handle(Key::Char('0')), Effect::None);
+        assert!(claims.at_home());
+        assert!(!claims.claims.open());
+        assert_eq!(claims.handle(Key::Enter), Effect::None);
+        assert_eq!(claims.workspace(), Workspace::Findings);
+        assert!(!claims.claims.open());
+
+        let mut keys = sample();
+        keys.handle(Key::Char('?'));
+        assert_eq!(keys.handle(Key::Char('0')), Effect::None);
+        assert!(keys.keys_open());
+        assert!(!keys.at_home());
+        assert_eq!(keys.handle(Key::Escape), Effect::None);
+        assert!(!keys.keys_open());
+        assert_eq!(keys.handle(Key::Char('0')), Effect::None);
+        assert!(keys.at_home());
+    }
+
+    #[test]
+    fn home_play_and_stop_do_not_dispatch() {
+        let mut home = sample();
+        home.show_home();
+        let playing = home.playback().map(|session| session.id.clone());
+        assert_eq!(home.handle(Key::Char('P')), Effect::None);
+        assert_eq!(home.handle(Key::Char('S')), Effect::None);
+        assert!(home.at_home());
+        assert_eq!(home.playback().map(|session| session.id.clone()), playing);
+        assert!(!home.status().contains("confirms"), "{}", home.status());
+        assert!(!home.status().contains("stopped"), "{}", home.status());
     }
 
     const FOCI: [Focus; 6] = [

@@ -16,6 +16,7 @@ pub struct Browser {
     detail_id: Option<String>,
     offset: usize,
     showing_detail: bool,
+    list_read: bool,
     observed_ms: Option<i64>,
     viewport_width: Cell<usize>,
 }
@@ -37,6 +38,7 @@ impl Browser {
             self.observed_ms = None;
         }
         self.showing_detail = false;
+        self.list_read = true;
         self.offset = 0;
     }
 
@@ -69,10 +71,16 @@ impl Browser {
         let _ = self.leave_detail();
     }
 
-    /// Monitor ids loaded for the Home summary. An empty list has not been read.
+    /// Monitor ids from the latest applied list. Zero can be an empty read.
     #[must_use]
     pub const fn listed(&self) -> usize {
         self.ids.len()
+    }
+
+    /// A list read has been applied. An empty browser before that is unread.
+    #[must_use]
+    pub const fn list_read(&self) -> bool {
+        self.list_read
     }
 
     pub fn reload(&self) -> Effect {
@@ -500,8 +508,13 @@ mod tests {
         browser.load_ids(vec!["second".into(), "third".into()]);
         assert_eq!(browser.selected(), Some("second"));
         browser.load_ids(vec![]);
+        assert!(browser.list_read());
+        assert_eq!(browser.listed(), 0);
         assert_eq!(browser.open(), Effect::None);
         assert_eq!(browser.reload(), Effect::MonitorList);
+        let unread = Browser::default();
+        assert!(!unread.list_read());
+        assert_eq!(unread.listed(), 0);
         browser.load_ids((0..300).map(|index| format!("monitor-{index}")).collect());
         for _ in 0..300 {
             browser.move_selection(true);
