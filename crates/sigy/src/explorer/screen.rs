@@ -12,7 +12,7 @@ mod popup;
 
 use crate::style::{Tone, tone_for_state};
 
-use crate::explorer::state::{Explorer, Focus, Workspace};
+use crate::explorer::state::{Explorer, Focus, RecordingLine, Workspace};
 use crate::explorer::text::{age_label, bytes_label, known, sanitize};
 
 #[cfg(test)]
@@ -379,7 +379,7 @@ fn compact_sections(model: &Explorer, area: Rect) -> Vec<Section> {
         model,
     ));
     // Two status rows are allowed only when four body rows remain. The narrow
-    // recording timeline needs those four rows for its axis, cells and legend.
+    // recording timeline, shown after Enter, needs those four rows.
     let chrome = fixed_rows(&sections);
     let remaining = area.height.saturating_sub(chrome);
     let status_rows = if remaining >= 6 {
@@ -1546,97 +1546,145 @@ fn listen_rows(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
         .collect()
 }
 
+const RECORDING_LIST_HEADER: &str =
+    "Recordings: arrows select; Enter opens the timeline. P then y plays.";
+const RECORDING_DETAIL_HEADER: &str =
+    "Timeline: Metadata snapshot. Esc returns to the list. P then y plays.";
+const RECORDING_WAVEFORM: &str =
+    "No waveform or live samples. The open tail is not yet published; r reloads.";
+
 fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static>> {
     if model.recordings().is_empty() {
-        return vec![
-            plain("No recordings yet. This view never starts one."),
-            plain("Record from the command line: sigy record start ID --source REVISION."),
-            plain("radio add registers a station as a source revision first."),
-        ];
+        return recording_empty();
     }
-    if height <= 5
-        && let Some(recording) = model.selected_recording()
-    {
-        if recording.timeline.is_truncated() {
-            return vec![
-                plain(&recording.timeline.compact_axis()),
-                plain(&recording.timeline.summary()),
-            ];
-        }
-        let marks = timeline_marks(model);
-        return vec![
-            plain(&format!(
-                "Recording {}: metadata",
-                sanitize(&recording.id, 16)
-            )),
-            plain(&recording.timeline.compact_axis()),
-            plain(&timeline_cells(&recording.timeline, width, marks)),
-            plain(crate::explorer::timeline::Timeline::legend_for(
-                marks, width,
-            )),
-        ];
+    if model.recording_detail() {
+        recording_detail_lines(model, width, height)
+    } else {
+        recording_list_lines(model, height)
     }
-    let mut lines = vec![plain(
-        "Recordings: arrows select; r reloads. Metadata snapshot. P then y plays; S stops.",
-    )];
-    let limit = height.saturating_sub(6).clamp(1, 8);
+}
+
+fn recording_empty() -> Vec<Line<'static>> {
+    vec![
+        plain("No recordings yet. This view never starts one."),
+        plain("Record from the command line: sigy record start ID --source REVISION."),
+        plain("radio add registers a station as a source revision first."),
+    ]
+}
+
+fn recording_list_lines(model: &Explorer, height: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    if height > 1 {
+        lines.push(plain(RECORDING_LIST_HEADER));
+    }
+    let room = height.saturating_sub(lines.len()).max(1);
     let start = model
         .recording_selection()
-        .saturating_sub(limit.saturating_sub(1));
+        .saturating_sub(room.saturating_sub(1));
     lines.extend(
         model
             .recordings()
             .iter()
             .enumerate()
             .skip(start)
-            .take(limit)
-            .map(|(index, recording)| {
-                let format = recording.format.as_deref().unwrap_or("unknown");
-                let state = sanitize(&recording.state, 16);
-                let storage = sanitize(&recording.storage_state, 16);
-                Line::from(vec![
-                    paint(
-                        model,
-                        Tone::Plain,
-                        if index == model.recording_selection() {
-                            "> "
-                        } else {
-                            "  "
-                        },
-                    ),
-                    paint(model, Tone::Muted, sanitize(&recording.id, 24)),
-                    paint(model, Tone::Plain, " "),
-                    paint(model, tone_for_state(&state), state),
-                    paint(model, Tone::Plain, " "),
-                    paint(model, tone_for_state(&storage), storage),
-                    paint(model, Tone::Plain, format!(" format {format}")),
-                ])
-            }),
+            .take(room)
+            .map(|(index, recording)| recording_row(model, recording, index)),
     );
-    if let Some(recording) = model.selected_recording() {
-        let marks = timeline_marks(model);
-        lines.push(plain(&recording.timeline.summary()));
-        lines.push(plain(&recording.timeline.axis()));
-        if recording.timeline.is_truncated() {
-            return lines;
-        }
-        lines.push(plain(&recording.timeline.detail()));
-        lines.push(plain(&timeline_cells(&recording.timeline, width, marks)));
-        lines.push(plain(crate::explorer::timeline::Timeline::legend_for(
-            marks, width,
-        )));
-        lines.push(plain(&super::interval::caption(
-            &recording.seal,
-            model.interval_index(),
-        )));
-        if let Some(caption) = recording.hold_caption() {
-            lines.push(plain(&caption));
-        }
-        lines.push(plain(
-            "No waveform or live samples. The open tail is not yet published; r reloads.",
-        ));
-    }
     lines
+}
+
+fn recording_row(model: &Explorer, recording: &RecordingLine, index: usize) -> Line<'static> {
+    let marker = if index == model.recording_selection() {
+        "> "
+    } else {
+        "  "
+    };
+    Line::from(vec![
+        paint(model, Tone::Plain, marker),
+        paint(model, Tone::Muted, recording_row_identity(recording)),
+        paint(model, Tone::Plain, "  "),
+        paint(
+            model,
+            tone_for_state(&recording.state),
+            recording_row_state(recording),
+        ),
+        paint(model, Tone::Plain, "  "),
+        paint(model, Tone::Plain, recording.timeline.length_label()),
+    ])
+}
+
+fn recording_row_identity(recording: &RecordingLine) -> String {
+    let revision = sanitize(&recording.source_revision, 32);
+    if revision.is_empty() {
+        sanitize(&recording.id, 32)
+    } else {
+        revision
+    }
+}
+
+fn recording_row_state(recording: &RecordingLine) -> String {
+    if recording.active() {
+        "REC".to_owned()
+    } else {
+        sanitize(&recording.state, 16)
+    }
+}
+
+fn recording_detail_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static>> {
+    let Some(recording) = model.selected_recording() else {
+        return recording_empty();
+    };
+    if height <= 5 {
+        return recording_compact(model, recording, width);
+    }
+    let marks = timeline_marks(model);
+    let mut lines = vec![
+        plain(RECORDING_DETAIL_HEADER),
+        plain(&recording.timeline.summary()),
+        plain(&recording.timeline.axis()),
+    ];
+    if recording.timeline.is_truncated() {
+        return lines;
+    }
+    lines.push(plain(&recording.timeline.detail()));
+    lines.push(plain(&timeline_cells(&recording.timeline, width, marks)));
+    lines.push(plain(crate::explorer::timeline::Timeline::legend_for(
+        marks, width,
+    )));
+    lines.push(plain(&super::interval::caption(
+        &recording.seal,
+        model.interval_index(),
+    )));
+    if let Some(caption) = recording.hold_caption() {
+        lines.push(plain(&caption));
+    }
+    lines.push(plain(RECORDING_WAVEFORM));
+    lines
+}
+
+fn recording_compact(
+    model: &Explorer,
+    recording: &RecordingLine,
+    width: usize,
+) -> Vec<Line<'static>> {
+    if recording.timeline.is_truncated() {
+        return vec![
+            plain(&recording.timeline.compact_axis()),
+            plain(&recording.timeline.summary()),
+        ];
+    }
+    let marks = timeline_marks(model);
+    vec![
+        plain(&format!(
+            "Recording {}: metadata",
+            sanitize(&recording.id, 16)
+        )),
+        plain(&recording.timeline.compact_axis()),
+        plain(&timeline_cells(&recording.timeline, width, marks)),
+        plain(crate::explorer::timeline::Timeline::legend_for(
+            marks, width,
+        )),
+    ]
 }
 
 fn timeline_marks(model: &Explorer) -> bool {
@@ -1779,6 +1827,7 @@ mod tests {
     mod listen;
     mod popup;
     mod raster;
+    mod recordings;
     mod visual_qa;
     use super::{HELP_PRIMARY, HELP_SELECTION, editing, hint_pairs, hint_text, render};
     use crate::explorer::state::{
@@ -1854,6 +1903,7 @@ mod tests {
             }),
             recordings: vec![RecordingLine {
                 id: "rec-1".into(),
+                source_revision: String::new(),
                 state: "running".into(),
                 storage_state: "reserved".into(),
                 format: None,
@@ -2968,22 +3018,39 @@ mod tests {
         );
         for (width, height) in [(80, 24), (132, 40), (40, 10)] {
             let (text, _) = frame(&model, width, height);
+            assert!(!model.recording_detail());
+            assert!(!text.contains(")us"), "{text}");
+            assert!(!text.contains("Recording rec-1: metadata"), "{text}");
+            assert!(!text.contains("[0,"), "{text}");
             if width >= 80 {
-                assert!(text.contains("Recordings: arrows select"));
-            } else {
-                assert!(text.contains("Recording rec-1: metadata"));
-                assert!(text.contains("# retained x unavail ! gap . open +mix"));
-                assert!(text.contains("########xxxxxxxx!!!!!!!!"));
+                assert!(text.contains("Enter opens the timeline"), "{text}");
+                assert!(text.contains("Selected recording: rec-1"), "{text}");
             }
+        }
+        assert_eq!(model.handle(Key::Enter), Effect::None);
+        assert!(model.recording_detail());
+        for (width, height) in [(80, 24), (132, 40), (40, 10)] {
+            let (text, _) = frame(&model, width, height);
             if width >= 80 {
-                assert!(text.contains("Published intervals: 1 available, 1 unavailable; gaps 2"));
                 assert!(
-                    text.contains("# retained, x unavailable, ! gap, . not yet published, + mixed")
+                    text.contains("Published intervals: 1 available, 1 unavailable; gaps 2"),
+                    "{text}"
                 );
-                assert!(text.contains("[0,"));
-                assert!(text.contains(")us"));
-                assert!(text.contains("Selected recording: rec-1"));
-                assert!(text.contains("Metadata snapshot"));
+                assert!(
+                    text.contains("# retained, x unavailable, ! gap, . not yet published, + mixed"),
+                    "{text}"
+                );
+                assert!(text.contains("[0,"), "{text}");
+                assert!(text.contains(")us"), "{text}");
+                assert!(text.contains("Selected recording: rec-1"), "{text}");
+                assert!(text.contains("Metadata snapshot"), "{text}");
+            } else {
+                assert!(text.contains("Recording rec-1: metadata"), "{text}");
+                assert!(
+                    text.contains("# retained x unavail ! gap . open +mix"),
+                    "{text}"
+                );
+                assert!(text.contains("########xxxxxxxx!!!!!!!!"), "{text}");
             }
             if let Some(directory) = std::env::var_os("SIGY_TUI_SNAPSHOT_DIR") {
                 let directory = std::path::PathBuf::from(directory);
@@ -3009,6 +3076,14 @@ mod tests {
         let mut model = sample();
         model.apply_desk(desk);
         model.handle(Key::Char('3'));
+        for (width, height) in [(80, 24), (132, 40), (40, 10)] {
+            let (list, _) = frame(&model, width, height);
+            assert!(!list.contains("0:10"), "{list}");
+            assert!(!list.contains("10000000"), "{list}");
+            assert!(!list.contains(")us"), "{list}");
+            assert!(!list.contains("Timeline unavailable"), "{list}");
+        }
+        assert_eq!(model.handle(Key::Enter), Effect::None);
         for (width, height) in [(80, 24), (132, 40), (40, 10)] {
             let (text, _) = frame(&model, width, height);
             assert!(text.contains("Timeline unavailable: metadata"));

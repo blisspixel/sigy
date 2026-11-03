@@ -181,6 +181,10 @@ impl Explorer {
             self.note_message(&command);
             return Effect::None;
         }
+        if item.slot == Slot::Seek {
+            self.menu = Menu::Closed;
+            return self.handle(Key::Char('['));
+        }
         let Some(replay) = replay_key(item.shortcut) else {
             return Effect::None;
         };
@@ -255,7 +259,7 @@ impl Explorer {
 
     fn menu_block(&self, slot: Slot) -> Option<String> {
         match slot {
-            Slot::None | Slot::Copy => None,
+            Slot::None | Slot::Copy | Slot::Pause | Slot::Seek => None,
             Slot::Play => self.play_block(),
             Slot::Fetch => self.fetch_block(),
             Slot::Inspect => self.inspect_block(),

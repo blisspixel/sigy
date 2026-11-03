@@ -106,6 +106,15 @@ impl Timeline {
         format!("{} to {}", clock_label(0), clock_label(self.extent_us()))
     }
 
+    /// Human length for one list row. A truncated map does not invent a clock.
+    pub fn length_label(&self) -> String {
+        if self.truncated {
+            "unavailable".to_owned()
+        } else {
+            clock_label(self.extent_us())
+        }
+    }
+
     pub fn cells(&self, requested_width: usize) -> String {
         self.cells_marked(requested_width, false)
     }
@@ -311,6 +320,8 @@ mod tests {
         );
         assert_eq!(timeline.axis(), "0:00 to 0:10  planned 0:10");
         assert_eq!(timeline.detail(), "[0, 10000000)us; planned 10000000us");
+        assert_eq!(timeline.length_label(), "0:10");
+        assert_eq!(truncated_fixture().length_label(), "unavailable");
         assert_eq!(timeline.cells_marked(10, true), "╳╳██░░╳╳··");
         assert_eq!(
             timeline.cells(10).chars().map(class_of).collect::<Vec<_>>(),

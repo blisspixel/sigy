@@ -182,7 +182,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        89
+        94
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -226,6 +226,11 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
         "listen-playing",
         "listen-idle",
         "listen-empty",
+        "recordings-list",
+        "recordings-detail",
+        "recordings-menu",
+        "recordings-linear",
+        "recordings-monochrome",
     ] {
         assert!(cases.iter().any(|(name, _, _)| *name == expected));
     }
@@ -532,7 +537,7 @@ fn visual_qa_gallery() -> Result<()> {
             manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome,"high_contrast":model.modes().emphasis.high()}));
         }
     }
-    assert!(manifest.len() <= 89);
+    assert!(manifest.len() <= 94);
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
@@ -658,7 +663,56 @@ fn cases() -> Result<Vec<Case>> {
     append_globe_turn(&mut cases);
     append_popup_cases(&mut cases);
     append_listen_cases(&mut cases);
+    append_recording_cases(&mut cases);
     Ok(cases)
+}
+
+fn append_recording_cases(cases: &mut Vec<Case>) {
+    let mut list = gallery_sample();
+    let mut desk = sample_desk();
+    let seed = desk.recordings[0].clone();
+    desk.recordings = (0..16)
+        .map(|index| {
+            let mut line = seed.clone();
+            line.id = format!("row-{index:02}");
+            line.source_revision = format!("rev-{index:02}");
+            line.state = if index % 2 == 0 {
+                "running".to_owned()
+            } else {
+                "completed".to_owned()
+            };
+            line
+        })
+        .collect();
+    list.apply_desk(desk);
+    list.place_for_actions(Workspace::Recordings, Focus::Results);
+    cases.push(("recordings-list", list, vec![(80, 24)]));
+
+    let mut detail = gallery_sample();
+    detail.place_for_actions(Workspace::Recordings, Focus::Results);
+    detail.handle(Key::Enter);
+    cases.push(("recordings-detail", detail.clone(), vec![(80, 24)]));
+    detail.handle(Key::Char(' '));
+    cases.push(("recordings-menu", detail, vec![(80, 24)]));
+
+    for (name, linear, monochrome) in [
+        ("recordings-linear", true, false),
+        ("recordings-monochrome", false, true),
+    ] {
+        let mut model = Explorer::new(
+            Modes {
+                reduced_motion: true,
+                linear,
+                monochrome,
+                emphasis: crate::explorer::state::Emphasis::Standard,
+            },
+            10_000,
+        );
+        model.apply_desk(sample_desk());
+        model.place_for_actions(Workspace::Recordings, Focus::Results);
+        model.handle(Key::Enter);
+        cases.push((name, model, vec![(80, 24)]));
+    }
 }
 
 fn append_listen_cases(cases: &mut Vec<Case>) {

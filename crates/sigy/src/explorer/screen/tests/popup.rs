@@ -544,10 +544,16 @@ fn hold_dialog_strips_controls_and_keeps_the_real_id() {
 fn copy_names_the_recording_and_a_finding_without_a_citation_stays_put() {
     let mut recordings = sealed();
     recordings.handle(Key::Char(' '));
-    for _ in 0..4 {
+    let Some(copy) = crate::explorer::actions::menu_items(&recordings)
+        .iter()
+        .position(|item| item.slot == crate::explorer::actions::Slot::Copy)
+    else {
+        panic!("recordings menu has no copy row");
+    };
+    for _ in 0..copy {
         recordings.handle(Key::Down);
     }
-    assert_eq!(recordings.menu_cursor(), Some(4));
+    assert_eq!(recordings.menu_cursor(), Some(copy));
     assert_eq!(recordings.handle(Key::Enter), Effect::None);
     assert!(!recordings.menu_open());
     assert_eq!(recordings.status(), "sigy listen file rec-sealed");
@@ -701,6 +707,7 @@ fn popup_line(model: &Explorer, label: &str) -> String {
 fn sealed_line() -> RecordingLine {
     RecordingLine {
         id: "rec-sealed".into(),
+        source_revision: String::new(),
         state: "running".into(),
         storage_state: "reserved".into(),
         format: Some("wav".into()),

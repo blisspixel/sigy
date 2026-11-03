@@ -78,6 +78,8 @@ pub(crate) enum Slot {
     Interval,
     Metadata,
     Copy,
+    Pause,
+    Seek,
 }
 
 impl Slot {
@@ -95,6 +97,8 @@ impl Slot {
             Self::Interval => "Interval",
             Self::Metadata => "Metadata",
             Self::Copy => "Copy CLI command",
+            Self::Pause => "Pause",
+            Self::Seek => "[ ] Seek",
         }
     }
 }
@@ -685,7 +689,7 @@ fn system() -> Vec<Action> {
 }
 
 fn recordings() -> Vec<Action> {
-    vec![
+    let mut actions = vec![
         row(
             SELECT,
             "select row",
@@ -698,6 +702,13 @@ fn recordings() -> Vec<Action> {
             "r reload",
             Group::View,
             "  r reloads its metadata",
+            Show::Always,
+        ),
+        row(
+            ENTER,
+            "",
+            Group::View,
+            "  Enter opens the timeline",
             Show::Always,
         ),
         slot(
@@ -739,20 +750,33 @@ fn recordings() -> Vec<Action> {
             ),
             Slot::Hold,
         ),
+    ];
+    actions.extend(recording_transport());
+    actions
+}
+
+fn recording_transport() -> Vec<Action> {
+    vec![
         row(STOP, "S stop", Group::Listen, "  S stops", Show::Always),
-        row(
-            HOLD,
-            "H pause",
-            Group::Listen,
-            "  H pauses at the decoder time and the next H resumes",
-            Show::Always,
+        slot(
+            row(
+                HOLD,
+                "H pause",
+                Group::Listen,
+                "  H pauses at the decoder time and the next H resumes",
+                Show::Always,
+            ),
+            Slot::Pause,
         ),
-        row(
-            SEEK,
-            "[/] 10s",
-            Group::Listen,
-            "  [ and ] seek 10 s inside this admitted listen",
-            Show::Always,
+        slot(
+            row(
+                SEEK,
+                "[/] 10s",
+                Group::Listen,
+                "  [ and ] seek 10 s inside this admitted listen",
+                Show::Always,
+            ),
+            Slot::Seek,
         ),
         row(
             QUIT,

@@ -882,6 +882,7 @@ fn recording_from(record: &sigy_service::storage::dvr::Recording) -> RecordingLi
     let (hold_total, shown_holds) = super::state::shown_holds(&record.holds);
     RecordingLine {
         id: record.id.clone(),
+        source_revision: sanitize(&record.source_revision, 64),
         state: sanitize(&record.state, 32),
         storage_state: sanitize(&record.storage_state, 32),
         format: record.format.as_deref().map(|format| sanitize(format, 16)),

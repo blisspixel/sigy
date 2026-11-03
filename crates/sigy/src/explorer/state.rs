@@ -317,6 +317,8 @@ pub struct HoldSpan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordingLine {
     pub id: String,
+    /// Source revision id already on the recording page. That page has no source label.
+    pub source_revision: String,
     pub state: String,
     pub storage_state: String,
     pub format: Option<String>,
@@ -607,6 +609,13 @@ enum View {
     Workspace,
 }
 
+/// Recordings opens on the list. Enter opens one timeline and Esc returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordingPlace {
+    List,
+    Detail,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Explorer {
     fetch_confirmation: Option<super::search::Scope>,
@@ -646,6 +655,8 @@ pub struct Explorer {
     recording_selection: usize,
     /// Index into the selected recording's loaded sealed intervals.
     interval_index: usize,
+    /// List is the recordings root. Detail is the timeline for the selection.
+    recording_place: RecordingPlace,
     captures_active: u64,
     quota: Option<QuotaView>,
     playback: Option<PlaybackView>,
@@ -747,6 +758,7 @@ impl Explorer {
             recordings: Vec::new(),
             recording_selection: 0,
             interval_index: 0,
+            recording_place: RecordingPlace::List,
             captures_active: 0,
             quota: None,
             playback: None,
@@ -856,6 +868,7 @@ impl Explorer {
         self.play_confirmation = None;
         self.protect_confirmation = None;
         self.claims.close();
+        self.recording_place = RecordingPlace::List;
         self.note_message("Enter opens the selected task. Digits jump. Esc returns here.");
     }
 
@@ -958,6 +971,12 @@ impl Explorer {
     #[must_use]
     pub const fn recording_selection(&self) -> usize {
         self.recording_selection
+    }
+
+    /// The timeline is open. The list is the recordings root.
+    #[must_use]
+    pub(super) const fn recording_detail(&self) -> bool {
+        matches!(self.recording_place, RecordingPlace::Detail)
     }
 
     #[must_use]
@@ -1130,6 +1149,9 @@ impl Explorer {
             }
         } else {
             self.interval_index = 0;
+        }
+        if self.recordings.is_empty() {
+            self.recording_place = RecordingPlace::List;
         }
         self.rows = desk.stations;
         self.random_count = None;
@@ -2145,6 +2167,7 @@ impl Explorer {
         self.protect_confirmation = None;
         self.claims.close();
         let _ = self.monitors.leave_detail();
+        self.recording_place = RecordingPlace::List;
         self.focus = Focus::Results;
         self.invalidate_reads();
         self.note_message("Returned home. The service and any recording keep running.");
@@ -2184,8 +2207,9 @@ impl Explorer {
         if self.workspace != Workspace::Findings {
             self.claims.close();
         }
-        // Opening a task shows its root. A parked monitor detail is not that root.
+        // Opening a task shows its root. A parked monitor or recording detail is not that root.
         let _ = self.monitors.leave_detail();
+        self.recording_place = RecordingPlace::List;
         self.invalidate_reads();
         if self.workspace == Workspace::Monitors {
             Effect::MonitorList
@@ -2225,7 +2249,10 @@ impl Explorer {
         self.workspace = Workspace::Recordings;
         self.view = View::Workspace;
         self.home_index = Workspace::Recordings.menu_index();
+        // The timeline is the body. Linear mode marks that body, not the identity line.
         self.focus = Focus::Results;
+        self.recording_place = RecordingPlace::Detail;
+        self.menu = Menu::Closed;
         self.note_message("Cited recording metadata selected. No playback or processing started.");
     }
 
@@ -2237,9 +2264,28 @@ impl Explorer {
             Key::Char('.') => self.shift_interval(true),
             Key::Char('f' | 'v' | '/') => self
                 .note_message("Recording selection is read-only. r reloads the metadata snapshot."),
+            Key::Enter => self.open_recording_timeline(),
+            Key::Escape | Key::Backspace => {
+                if self.recording_place != RecordingPlace::Detail {
+                    return false;
+                }
+                self.recording_place = RecordingPlace::List;
+                self.menu = Menu::Closed;
+                self.focus = Focus::Results;
+            }
             _ => return false,
         }
         true
+    }
+
+    fn open_recording_timeline(&mut self) {
+        if self.selected_recording().is_none() {
+            self.note_message("No recordings yet. This view never starts one.");
+            return;
+        }
+        self.recording_place = RecordingPlace::Detail;
+        self.menu = Menu::Closed;
+        self.focus = Focus::Results;
     }
 
     fn move_recording(&mut self, forward: bool) {
@@ -2482,6 +2528,7 @@ impl Explorer {
         self.play_confirmation = None;
         self.protect_confirmation = None;
         self.claims.close();
+        self.recording_place = RecordingPlace::List;
         self.draw = Draw::Needed;
     }
 
@@ -2602,6 +2649,7 @@ mod tests {
             vec![row("station-a", "Alpha"), row("station-b", "Beta")],
             vec![RecordingLine {
                 id: "rec-1".into(),
+                source_revision: String::new(),
                 state: "running".into(),
                 storage_state: "reserved".into(),
                 format: None,
@@ -2920,6 +2968,7 @@ mod tests {
     fn kept_recording(id: &str, state: &str, storage: &str) -> RecordingLine {
         RecordingLine {
             id: id.into(),
+            source_revision: String::new(),
             state: state.into(),
             storage_state: storage.into(),
             format: None,
@@ -3330,6 +3379,7 @@ mod tests {
     ) -> RecordingLine {
         RecordingLine {
             id: "rec-sealed".into(),
+            source_revision: String::new(),
             state: "completed".into(),
             storage_state: storage.into(),
             format: Some("wav".into()),
