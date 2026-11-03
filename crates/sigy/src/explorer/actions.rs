@@ -52,6 +52,8 @@ enum Show {
     Restart,
     /// Footer pair only when slow turning is available.
     Spin,
+    /// Footer pair only while a retained listen is active.
+    Retained,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -259,6 +261,9 @@ pub(crate) fn overlay_lines(model: &Explorer) -> Vec<String> {
             if action.group != group || action.line.is_empty() {
                 continue;
             }
+            if action.show == Show::Retained && !shown(model, action) {
+                continue;
+            }
             if !started {
                 lines.push(group.label().to_owned());
                 started = true;
@@ -326,6 +331,7 @@ fn shown(model: &Explorer, action: &Action) -> bool {
         Show::Always => true,
         Show::Restart => model.restart_required(),
         Show::Spin => model.spin_label().is_some(),
+        Show::Retained => model.retained_active(),
     }
 }
 
@@ -623,8 +629,37 @@ fn live() -> Vec<Action> {
             row(STOP, "S stop", Group::Listen, "  S stop", Show::Always),
             STOP_CLI,
         ),
+        row(
+            FAVORITE,
+            "f favorite",
+            Group::Keep,
+            "  f favorite",
+            Show::Always,
+        ),
+        row(
+            EXPLORE_KEY,
+            "",
+            Group::Find,
+            "  e surprise me",
+            Show::Always,
+        ),
+        row(
+            FAVORITES,
+            "",
+            Group::Find,
+            "  v refreshes this favorites list",
+            Show::Always,
+        ),
+        row(
+            ENTER,
+            "",
+            Group::Listen,
+            "  Enter confirms play",
+            Show::Always,
+        ),
+        row(HOLD, "H pause", Group::Listen, "  H pause", Show::Retained),
+        row(SEEK, "[/] 10s", Group::Listen, "  [ ] seek", Show::Retained),
         row(RELOAD, "r reload", Group::View, "  r reload", Show::Always),
-        row(TAB, "Tab focus", Group::Move, "  Tab focus", Show::Always),
         row(
             QUIT,
             "q quit",

@@ -294,7 +294,15 @@ fn a_tight_window_uses_the_status_line_and_does_not_trap_escape() {
     assert_eq!(model.handle(Key::Escape), Effect::None);
     assert!(!model.at_home());
     assert_eq!(model.workspace(), Workspace::Explore);
-    assert_eq!(model.handle(Key::Char('2')), Effect::None);
+    let Effect::Search(query) = model.handle(Key::Char('2')) else {
+        panic!("Listen reads cached favorites");
+    };
+    assert!(query.favorites_only);
+    assert!(query.after.is_none());
+    assert_eq!(
+        query.filter,
+        sigy_service::discovery::StationFilter::default()
+    );
     assert_eq!(model.workspace(), Workspace::Live);
 }
 

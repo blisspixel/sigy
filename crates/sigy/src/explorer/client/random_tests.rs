@@ -64,6 +64,8 @@ fn random_jump_is_passive_and_cuts_to_coordinates_in_both_motion_modes() -> Test
             format: None,
             source_revision: "existing:v1".into(),
             failure: None,
+            started_ms: 0,
+            completed_ms: None,
         });
         let query = query(&mut model);
         assert!(matches!(

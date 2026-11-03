@@ -9,7 +9,10 @@ use sigy_service::storage::dvr::{Recording, RecordingGap, RecordingHold, Recordi
 use sigy_service::{control::DirectoryCatalog, discovery::StationFilter};
 mod catalog;
 mod context;
+mod listen;
 mod menu;
+#[cfg(test)]
+pub(crate) use listen::EMPTY_LISTEN;
 pub(crate) use menu::DialogCopy;
 #[cfg(test)]
 mod ordered_tests;
@@ -397,6 +400,10 @@ pub struct PlaybackView {
     pub format: Option<String>,
     pub source_revision: String,
     pub failure: Option<String>,
+    /// Service clock when this listen started. Elapsed display is not a measured playhead.
+    pub started_ms: i64,
+    /// Service clock when this listen left the running state.
+    pub completed_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -646,6 +653,8 @@ pub struct Explorer {
     retained: Option<RetainedView>,
     /// Station whose play was confirmed. Cleared when that listen is not running.
     live_station: Option<String>,
+    /// Cached favorites and stations this client started. Not a catalog write.
+    listen: listen::ListenDesk,
     schema_version: u32,
     sqlite_version: String,
     provider_dispatch_available: bool,
@@ -743,6 +752,7 @@ impl Explorer {
             playback: None,
             retained: None,
             live_station: None,
+            listen: listen::ListenDesk::default(),
             schema_version: 0,
             sqlite_version: String::new(),
             provider_dispatch_available: false,
@@ -857,7 +867,9 @@ impl Explorer {
             .rows
             .iter()
             .find(|row| row.id == id)
-            .map_or(id, |row| row.name.as_str());
+            .map(|row| row.name.as_str())
+            .or_else(|| self.listen_name(id))
+            .unwrap_or(id);
         Some(sanitize(label, 32))
     }
 
@@ -1080,6 +1092,7 @@ impl Explorer {
         self.search_generation = self.search_generation.saturating_add(1);
         self.applied_search = self.search_generation;
         self.pending_search = None;
+        self.cancel_listen_read();
         self.search.interrupt();
         self.pending_page = None;
         self.pending_favorite = None;
@@ -1211,6 +1224,11 @@ impl Explorer {
     /// A failed request cannot change the applied scope or strand its pending page.
     #[must_use]
     pub fn fail_search(&mut self, generation: u64, message: &str) -> bool {
+        if self.listen_pending(generation) {
+            self.cancel_listen_read();
+            self.note_message(message);
+            return true;
+        }
         if self.pending_search != Some(generation) {
             return false;
         }
@@ -1239,6 +1257,7 @@ impl Explorer {
         if let Some(row) = self.rows.iter_mut().find(|row| row.id == id) {
             row.favorite = favorite;
         }
+        self.note_listen_favorite(id, favorite);
         self.status = if favorite {
             "Saved favorite. The station was not tuned.".into()
         } else {
@@ -1326,6 +1345,7 @@ impl Explorer {
         self.pending_search = None;
         self.pending_page = None;
         self.pending_random = None;
+        self.cancel_listen_read();
         self.search.interrupt();
     }
 
@@ -1471,6 +1491,7 @@ impl Explorer {
         };
         match pending {
             PendingPlay::Station(station) => {
+                self.remember_played(&station);
                 self.live_station = Some(station.clone());
                 self.note_message(
                     "Starting the explicitly selected station. Browsing stays independent.",
@@ -1564,20 +1585,26 @@ impl Explorer {
         }
         match key {
             Key::Char('S') => {
-                self.live_station = None;
-                Some(Effect::StopListen)
+                if self.workspace == Workspace::Live && self.retained.is_some() {
+                    Some(Effect::StopRetained)
+                } else {
+                    self.live_station = None;
+                    Some(Effect::StopListen)
+                }
             }
             Key::Char('P') => {
-                let row = self
-                    .context
-                    .as_ref()
-                    .map(|context| &context.row)
-                    .or_else(|| self.selected());
-                if let Some(row) = row {
-                    let station = row.id.clone();
-                    let name = sanitize(&row.name, 32);
-                    self.play_confirmation = Some(PendingPlay::Station(station));
-                    self.note_message(&format!("Play {name}? y confirms; n/Esc cancels. Contacts the station; may register its first revision."));
+                let chosen = if self.workspace == Workspace::Live {
+                    self.listen_selected()
+                        .map(|row| (row.id.clone(), sanitize(&row.name, 32)))
+                } else {
+                    self.context
+                        .as_ref()
+                        .map(|context| &context.row)
+                        .or_else(|| self.selected())
+                        .map(|row| (row.id.clone(), sanitize(&row.name, 32)))
+                };
+                if let Some((station, name)) = chosen {
+                    self.arm_station_play(station, &name);
                 } else {
                     self.note_message("No selected station to play.");
                 }
@@ -1585,6 +1612,14 @@ impl Explorer {
             }
             _ => None,
         }
+    }
+
+    fn arm_station_play(&mut self, station: String, name: &str) -> Effect {
+        self.play_confirmation = Some(PendingPlay::Station(station));
+        self.note_message(&format!(
+            "Play {name}? y confirms; n/Esc cancels. Contacts the station; may register its first revision."
+        ));
+        Effect::None
     }
 
     fn finding_play_key(&mut self, key: &Key) -> Option<Effect> {
@@ -1908,6 +1943,11 @@ impl Explorer {
     }
 
     #[must_use]
+    pub(crate) const fn retained_active(&self) -> bool {
+        self.retained.is_some()
+    }
+
+    #[must_use]
     pub(super) fn retained_label(&self) -> Option<(&str, &str)> {
         self.retained
             .as_ref()
@@ -1979,6 +2019,9 @@ impl Explorer {
         if let Some(effect) = self.globe_results_arrow(key) {
             return effect;
         }
+        if let Some(effect) = self.listen_key(key) {
+            return effect;
+        }
         match key {
             Key::Char('e') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
                 self.explore_random()
@@ -2031,14 +2074,8 @@ impl Explorer {
                 }
                 Effect::None
             }
-            Key::Left => {
-                self.workspace = self.workspace.cycle(false);
-                self.workspace_effect()
-            }
-            Key::Right => {
-                self.workspace = self.workspace.cycle(true);
-                self.workspace_effect()
-            }
+            Key::Left => self.open_workspace(self.workspace.cycle(false)),
+            Key::Right => self.open_workspace(self.workspace.cycle(true)),
             Key::Up => self.move_selection(-1),
             Key::Down => self.move_selection(1),
             Key::Enter => {
@@ -2061,8 +2098,7 @@ impl Explorer {
             }
             Key::Char(direction @ ('n' | 'p')) => self.turn_page(*direction == 'n'),
             Key::Char(character @ '1'..='7') => {
-                self.workspace = workspace_from_digit(*character);
-                self.workspace_effect()
+                self.open_workspace(workspace_from_digit(*character))
             }
             Key::Escape | Key::Backspace | Key::Char('0') => self.go_home(),
             Key::Paste(_) | Key::Char(_) | Key::ClearInput | Key::Redraw => Effect::None,
@@ -2080,13 +2116,9 @@ impl Explorer {
                 self.home_index = self.home_index.saturating_add(1).min(last);
                 Effect::None
             }
-            Key::Enter => {
-                self.workspace = self.selected_home_workspace();
-                self.workspace_effect()
-            }
+            Key::Enter => self.open_workspace(self.selected_home_workspace()),
             Key::Char(character @ '1'..='7') => {
-                self.workspace = workspace_from_digit(*character);
-                self.workspace_effect()
+                self.open_workspace(workspace_from_digit(*character))
             }
             Key::Char('e') => self.explore_from_home(),
             Key::Char('q') | Key::Quit => Effect::Detach,
@@ -2133,7 +2165,19 @@ impl Explorer {
         effect
     }
 
-    fn workspace_effect(&mut self) -> Effect {
+    fn open_workspace(&mut self, next: Workspace) -> Effect {
+        if self.view == View::Workspace && self.workspace == next && next == Workspace::Live {
+            self.note_message("Listen is already open.");
+            return Effect::None;
+        }
+        if next == Workspace::Live {
+            self.context = None;
+        }
+        self.workspace = next;
+        self.workspace_effect(next == Workspace::Live)
+    }
+
+    fn workspace_effect(&mut self, opening_listen: bool) -> Effect {
         self.view = View::Workspace;
         self.menu = Menu::Closed;
         self.home_index = self.workspace.menu_index();
@@ -2145,6 +2189,8 @@ impl Explorer {
         self.invalidate_reads();
         if self.workspace == Workspace::Monitors {
             Effect::MonitorList
+        } else if opening_listen {
+            self.request_listen_favorites()
         } else {
             Effect::None
         }
@@ -2309,7 +2355,7 @@ impl Explorer {
             self.status = "Disconnected; the favorite was not submitted. r reconnects.".into();
             return Effect::None;
         }
-        let Some(row) = self.selected() else {
+        let Some(row) = self.favorite_target() else {
             self.status = "No station is selected.".into();
             return Effect::None;
         };
@@ -2323,6 +2369,14 @@ impl Explorer {
             generation,
             id,
             favorite,
+        }
+    }
+
+    fn favorite_target(&self) -> Option<&StationRow> {
+        if self.workspace == Workspace::Live && !self.at_home() {
+            self.listen_selected()
+        } else {
+            self.selected()
         }
     }
 
@@ -2362,6 +2416,7 @@ impl Explorer {
     }
 
     fn submit_search(&mut self, movement: PageMove) -> Effect {
+        self.cancel_listen_read();
         self.pending_random = None;
         if matches!(self.link, Link::Disconnected) {
             self.status = "Disconnected; the search was not submitted. r reconnects.".into();
@@ -2579,14 +2634,22 @@ mod tests {
         assert_eq!(model.handle(Key::Escape), Effect::None);
         assert_eq!(model.handle(Key::Char('y')), Effect::None);
         assert_eq!(model.handle(Key::Char('S')), Effect::StopListen);
-        model.handle(Key::Char('2'));
+        let Effect::Search(query) = model.handle(Key::Char('2')) else {
+            panic!("Listen reads cached favorites");
+        };
+        assert!(query.favorites_only);
+        // The confirmed play above is remembered. Listen offers that station.
+        assert_eq!(model.recent_ids(), vec!["station-a"]);
+        assert_eq!(
+            model.selected().map(|row| row.id.as_str()),
+            Some("station-a")
+        );
         assert_eq!(model.handle(Key::Char('P')), Effect::None);
         assert_eq!(
-            model.handle(Key::Char('y')),
-            Effect::Play {
-                station: "station-a".into()
-            }
+            model.status(),
+            "Play Alpha? y confirms; n/Esc cancels. Contacts the station; may register its first revision."
         );
+        assert_eq!(model.handle(Key::Escape), Effect::None);
         assert_eq!(model.handle(Key::Char('/')), Effect::None);
         assert_eq!(model.handle(Key::Char('P')), Effect::None);
         assert_eq!(model.handle(Key::Char('S')), Effect::None);
@@ -2606,6 +2669,8 @@ mod tests {
             format: Some("mp3".into()),
             source_revision: "station:v1".into(),
             failure: None,
+            started_ms: 0,
+            completed_ms: None,
         });
         assert_eq!(
             model.playback().map(|view| view.id.as_str()),
@@ -3243,6 +3308,8 @@ mod tests {
                 format: Some("wav".into()),
                 source_revision: "rev-1".into(),
                 failure: None,
+                started_ms: 0,
+                completed_ms: None,
             }),
             ..desk(vec![row("station-a", "Alpha")], Vec::new())
         });

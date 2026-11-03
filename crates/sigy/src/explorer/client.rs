@@ -902,6 +902,8 @@ pub(super) fn playback_from(listen: &ListenView) -> PlaybackView {
             .failure
             .as_deref()
             .map(|detail| sanitize(detail, 120)),
+        started_ms: listen.started_ms,
+        completed_ms: listen.completed_ms,
     }
 }
 

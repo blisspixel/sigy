@@ -256,6 +256,8 @@ impl Explorer {
             format: None,
             source_revision: "revision".to_owned(),
             failure: None,
+            started_ms: 0,
+            completed_ms: None,
         });
     }
 

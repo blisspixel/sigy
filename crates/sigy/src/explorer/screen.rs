@@ -265,7 +265,7 @@ fn pane_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static
     }
     match model.workspace() {
         Workspace::Explore => explore_lines(model, width, height),
-        Workspace::Live => live_lines(model),
+        Workspace::Live => listen_rows(model, height),
         Workspace::Recordings => recording_lines(model, width, height),
         Workspace::System => system_lines(model),
         Workspace::Globe => Vec::new(),
@@ -1078,7 +1078,7 @@ fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
     let lines = if model.workspace().available() {
         match model.workspace() {
             Workspace::Explore => explore_lines(model, 80, limit),
-            Workspace::Live => live_lines(model),
+            Workspace::Live => listen_rows(model, limit),
             Workspace::Recordings => recording_lines(model, 60, limit),
             Workspace::System => system_lines(model),
             // Drawn as a canvas by `render_sections`; see `explorer::globe`.
@@ -1538,20 +1538,12 @@ fn home_summary(model: &Explorer, workspace: Workspace) -> String {
     }
 }
 
-fn live_lines(model: &Explorer) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        playback_line(model),
-        plain(
-            "The listen session is the receipt for a play, not directory health and not a recording.",
-        ),
-        plain("P then y plays a selected station; S stops."),
-    ];
-    if model.playback().is_none() {
-        lines.push(plain("No listen receipt is loaded in this client."));
-        lines.push(plain("Play a recording: sigy listen file RECORDING"));
-        lines.push(plain("Hear a station: sigy play STATION_UUID"));
-    }
-    lines
+fn listen_rows(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
+    model
+        .listen_body(limit)
+        .into_iter()
+        .map(|line| plain(&line))
+        .collect()
 }
 
 fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static>> {
@@ -1784,6 +1776,7 @@ fn budget_lines(model: &Explorer) -> Vec<Line<'static>> {
 #[cfg(test)]
 mod tests {
     mod linked;
+    mod listen;
     mod popup;
     mod raster;
     mod visual_qa;
@@ -1875,6 +1868,8 @@ mod tests {
                 format: Some("wav".into()),
                 source_revision: "rev-1".into(),
                 failure: None,
+                started_ms: 4_000,
+                completed_ms: None,
             }),
         });
         model
@@ -2279,7 +2274,10 @@ mod tests {
         desk.playback = None;
         model.apply_desk(desk);
         let (text, _) = frame(&model, 80, 24);
-        assert!(text.contains("sigy listen file RECORDING"), "{text}");
+        assert!(
+            text.contains(crate::explorer::state::EMPTY_LISTEN),
+            "{text}"
+        );
     }
 
     #[test]
@@ -3338,7 +3336,11 @@ mod tests {
         let mut live = sample();
         live.show_home();
         live.handle(Key::Down);
-        assert_eq!(live.handle(Key::Enter), Effect::None);
+        let Effect::Search(query) = live.handle(Key::Enter) else {
+            panic!("Listen reads cached favorites");
+        };
+        assert!(query.favorites_only);
+        assert!(query.after.is_none());
         assert_eq!(live.workspace(), Workspace::Live);
         assert!(!live.at_home());
         let live_text = frame(&live, 80, 24).0;
@@ -3347,6 +3349,7 @@ mod tests {
         assert!(!live_text.contains("Cache:"), "{live_text}");
         assert!(!live_text.contains("Search:"), "{live_text}");
         assert!(!live_text.contains("Selected station:"), "{live_text}");
+        assert!(!live_text.contains("y confirms"), "{live_text}");
 
         let mut monitors = sample();
         monitors.show_home();
@@ -3751,6 +3754,8 @@ mod tests {
         if workspace == Workspace::Live {
             assert!(help.contains("P play"), "{help}");
             assert!(help.contains("S stop"), "{help}");
+            assert!(help.contains("f favorite"), "{help}");
+            assert!(!help.contains("H pause"), "{help}");
         }
         if workspace == Workspace::Globe {
             assert!(help.contains("P play"), "{help}");

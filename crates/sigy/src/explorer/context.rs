@@ -334,6 +334,8 @@ mod tests {
                 source_revision: "unrelated-source".into(),
                 format: None,
                 failure: None,
+                started_ms: 0,
+                completed_ms: None,
             }),
         )
     }

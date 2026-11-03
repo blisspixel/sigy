@@ -182,7 +182,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        86
+        89
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -223,6 +223,9 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
         "Home offline",
         "action-menu",
         "play-dialog",
+        "listen-playing",
+        "listen-idle",
+        "listen-empty",
     ] {
         assert!(cases.iter().any(|(name, _, _)| *name == expected));
     }
@@ -529,11 +532,11 @@ fn visual_qa_gallery() -> Result<()> {
             manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome,"high_contrast":model.modes().emphasis.high()}));
         }
     }
-    assert!(manifest.len() <= 86);
+    assert!(manifest.len() <= 89);
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
-            &serde_json::json!({"format":1,"method":"production Ratatui TestBackend","synthetic":true,"source_hashes":{"renderer":sha256(include_bytes!("../../screen.rs")),"state":sha256(include_bytes!("../../state.rs")),"monitor":sha256(include_bytes!("../../monitor.rs")),"context":sha256(include_bytes!("../../context.rs")),"context_state":sha256(include_bytes!("../../state/context.rs")),"context_renderer":sha256(include_bytes!("../context.rs")),"globe":sha256(include_bytes!("../../globe.rs")),"spin":sha256(include_bytes!("../../state/spin.rs")),"popup":sha256(include_bytes!("../popup.rs")),"menu":sha256(include_bytes!("../../state/menu.rs")),"actions":sha256(include_bytes!("../../actions.rs")),"gallery":sha256(include_bytes!("visual_qa.rs"))},"frames":manifest}),
+            &serde_json::json!({"format":1,"method":"production Ratatui TestBackend","synthetic":true,"source_hashes":{"renderer":sha256(include_bytes!("../../screen.rs")),"state":sha256(include_bytes!("../../state.rs")),"monitor":sha256(include_bytes!("../../monitor.rs")),"context":sha256(include_bytes!("../../context.rs")),"context_state":sha256(include_bytes!("../../state/context.rs")),"context_renderer":sha256(include_bytes!("../context.rs")),"globe":sha256(include_bytes!("../../globe.rs")),"spin":sha256(include_bytes!("../../state/spin.rs")),"popup":sha256(include_bytes!("../popup.rs")),"menu":sha256(include_bytes!("../../state/menu.rs")),"listen":sha256(include_bytes!("../../state/listen.rs")),"actions":sha256(include_bytes!("../../actions.rs")),"gallery":sha256(include_bytes!("visual_qa.rs"))},"frames":manifest}),
         )?,
     )?;
     std::fs::write(directory.join("index.html"), html)?;
@@ -654,7 +657,47 @@ fn cases() -> Result<Vec<Case>> {
     cases.push(("layout", gallery_sample(), vec![(60, 20), (90, 30)]));
     append_globe_turn(&mut cases);
     append_popup_cases(&mut cases);
+    append_listen_cases(&mut cases);
     Ok(cases)
+}
+
+fn append_listen_cases(cases: &mut Vec<Case>) {
+    let station_id = "00000000-0000-4000-8000-000000000001";
+    let mut playing = gallery_sample();
+    let station = playing.rows().first().cloned();
+    playing.show_playing_station_for_test(station_id);
+    playing.observe_playback(crate::explorer::state::PlaybackView {
+        id: "listen-1".into(),
+        state: "running".into(),
+        format: Some("wav".into()),
+        source_revision: "rev-1".into(),
+        failure: None,
+        started_ms: 0,
+        completed_ms: None,
+    });
+    if let Some(station) = station {
+        playing.install_listen_favorites_for_test(vec![station]);
+    }
+    playing.place_for_actions(Workspace::Live, Focus::Results);
+    cases.push(("listen-playing", playing, vec![(80, 24)]));
+
+    let mut idle = gallery_sample();
+    let station = idle.rows().first().cloned();
+    let mut desk = sample_desk();
+    desk.playback = None;
+    idle.apply_desk(desk);
+    if let Some(station) = station {
+        idle.install_listen_favorites_for_test(vec![station]);
+    }
+    idle.place_for_actions(Workspace::Live, Focus::Results);
+    cases.push(("listen-idle", idle, vec![(80, 24)]));
+
+    let mut empty = gallery_sample();
+    let mut desk = sample_desk();
+    desk.playback = None;
+    empty.apply_desk(desk);
+    empty.place_for_actions(Workspace::Live, Focus::Results);
+    cases.push(("listen-empty", empty, vec![(80, 24)]));
 }
 
 fn append_popup_cases(cases: &mut Vec<Case>) {
@@ -986,6 +1029,8 @@ fn hero_explorer() -> Explorer {
         format: Some("mp3".into()),
         source_revision: "north-coast-audio".into(),
         failure: None,
+        started_ms: 0,
+        completed_ms: None,
     });
     model.configure_motion(true, false, Instant::now());
     model.note_message("");

@@ -83,6 +83,10 @@ impl Explorer {
         next: Option<String>,
         catalog: &DirectoryCatalog,
     ) -> bool {
+        // A Listen favorites read keeps the Find stations page and its cursor.
+        if self.listen_pending(generation) {
+            return self.finish_listen_search(generation, rows, directory, catalog);
+        }
         if self.pending_search != Some(generation) || generation < self.applied_search {
             return false;
         }

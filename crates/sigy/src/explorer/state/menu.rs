@@ -486,6 +486,7 @@ impl Explorer {
                     .find(|row| row.id == id)
                     .map(|row| row.name.as_str())
             })
+            .or_else(|| self.listen_name(id))
             .unwrap_or(id)
     }
 

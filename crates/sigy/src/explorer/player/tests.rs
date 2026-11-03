@@ -41,6 +41,8 @@ fn view(id: &str, state: &str) -> Update {
             format: None,
             source_revision: "revision".into(),
             failure: None,
+            started_ms: 0,
+            completed_ms: None,
         }),
     )
 }

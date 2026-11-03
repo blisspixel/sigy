@@ -267,6 +267,8 @@ fn stale_success_and_failure_leave_the_newer_view() -> TestResult {
         format: None,
         source_revision: "revision".into(),
         failure: None,
+        started_ms: 0,
+        completed_ms: None,
     });
     let effect = model.handle(Key::Char('r'));
     present(&mut reads, &runtime, &path, &mut model, &effect)?;
@@ -531,6 +533,8 @@ fn reload_keeps_player_status_and_service_reads_stay_local_to_ipc() -> TestResul
         format: None,
         source_revision: "revision".into(),
         failure: None,
+        started_ms: 0,
+        completed_ms: None,
     });
     let mut reads = Reads::default();
     let effect = model.handle(Key::Char('r'));
