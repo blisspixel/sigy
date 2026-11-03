@@ -1560,7 +1560,7 @@ fn recording_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'s
     if model.recording_detail() {
         recording_detail_lines(model, width, height)
     } else {
-        recording_list_lines(model, height)
+        recording_list_lines(model, width, height)
     }
 }
 
@@ -1572,7 +1572,7 @@ fn recording_empty() -> Vec<Line<'static>> {
     ]
 }
 
-fn recording_list_lines(model: &Explorer, height: usize) -> Vec<Line<'static>> {
+fn recording_list_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     if height > 1 {
         lines.push(plain(RECORDING_LIST_HEADER));
@@ -1588,29 +1588,111 @@ fn recording_list_lines(model: &Explorer, height: usize) -> Vec<Line<'static>> {
             .enumerate()
             .skip(start)
             .take(room)
-            .map(|(index, recording)| recording_row(model, recording, index)),
+            .map(|(index, recording)| recording_row(model, recording, index, width)),
     );
     lines
 }
 
-fn recording_row(model: &Explorer, recording: &RecordingLine, index: usize) -> Line<'static> {
+fn recording_row(
+    model: &Explorer,
+    recording: &RecordingLine,
+    index: usize,
+    width: usize,
+) -> Line<'static> {
     let marker = if index == model.recording_selection() {
         "> "
     } else {
         "  "
     };
-    Line::from(vec![
-        paint(model, Tone::Plain, marker),
-        paint(model, Tone::Muted, recording_row_identity(recording)),
-        paint(model, Tone::Plain, "  "),
-        paint(
+    // A cut clock or a cut state word would name a different fact. The revision id can shorten.
+    let (identity, state, length) = fit_recording_row(
+        marker,
+        &recording_row_identity(recording),
+        &recording_row_state(recording),
+        &recording.timeline.length_label(),
+        width,
+    );
+    if width > 0 && recording_row_width(marker, &identity, &state, &length) > width {
+        return Line::from(paint(
             model,
-            tone_for_state(&recording.state),
-            recording_row_state(recording),
-        ),
-        paint(model, Tone::Plain, "  "),
-        paint(model, Tone::Plain, recording.timeline.length_label()),
-    ])
+            Tone::Plain,
+            marker.chars().take(width).collect::<String>(),
+        ));
+    }
+    let mut spans = vec![paint(model, Tone::Plain, marker)];
+    if !identity.is_empty() {
+        spans.push(paint(model, Tone::Muted, identity));
+    }
+    if !state.is_empty() {
+        spans.push(paint(model, Tone::Plain, "  "));
+        spans.push(paint(model, tone_for_state(&recording.state), state));
+    }
+    if !length.is_empty() {
+        spans.push(paint(model, Tone::Plain, "  "));
+        spans.push(paint(model, Tone::Plain, length));
+    }
+    Line::from(spans)
+}
+
+/// Shortens the revision id so the state word and the human length stay whole.
+fn fit_recording_row(
+    marker: &str,
+    identity: &str,
+    state: &str,
+    length: &str,
+    width: usize,
+) -> (String, String, String) {
+    if width == 0 || recording_row_width(marker, identity, state, length) <= width {
+        return (identity.to_owned(), state.to_owned(), length.to_owned());
+    }
+    if let Some(fitted) = fit_identity(marker, identity, state, length, width) {
+        return fitted;
+    }
+    if let Some(fitted) = fit_identity(marker, identity, state, "", width) {
+        return fitted;
+    }
+    if let Some(fitted) = fit_identity(marker, identity, "", "", width) {
+        return fitted;
+    }
+    let budget = width.saturating_sub(marker.chars().count());
+    (
+        identity.chars().take(budget).collect(),
+        String::new(),
+        String::new(),
+    )
+}
+
+fn fit_identity(
+    marker: &str,
+    identity: &str,
+    state: &str,
+    length: &str,
+    width: usize,
+) -> Option<(String, String, String)> {
+    let tail = recording_row_width(marker, "", state, length);
+    if tail > width {
+        return None;
+    }
+    let budget = width.saturating_sub(tail);
+    if budget == 0 && !identity.is_empty() {
+        return None;
+    }
+    Some((
+        identity.chars().take(budget).collect(),
+        state.to_owned(),
+        length.to_owned(),
+    ))
+}
+
+fn recording_row_width(marker: &str, identity: &str, state: &str, length: &str) -> usize {
+    let mut width = marker.chars().count() + identity.chars().count();
+    if !state.is_empty() {
+        width = width.saturating_add(2 + state.chars().count());
+    }
+    if !length.is_empty() {
+        width = width.saturating_add(2 + length.chars().count());
+    }
+    width
 }
 
 fn recording_row_identity(recording: &RecordingLine) -> String {

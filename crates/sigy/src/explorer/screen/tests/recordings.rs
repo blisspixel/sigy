@@ -135,6 +135,84 @@ fn a_cited_recording_opens_on_its_timeline() {
 }
 
 #[test]
+fn a_different_cited_recording_starts_at_its_first_interval() {
+    let mut model = playable();
+    assert_eq!(model.handle(Key::Char('.')), Effect::None);
+    assert_eq!(model.interval_index(), 1);
+    let mut cited = model.recordings()[0].clone();
+    cited.id = "rec-other".into();
+    cited.source_revision = "rev-other".into();
+    model.open_finding_recording(cited);
+    assert!(model.recording_detail());
+    assert_eq!(model.interval_index(), 0);
+    let rows = body(&model, 80, 16);
+    assert!(rows.contains("Sealed interval 1 of 2"), "{rows}");
+    assert!(!rows.contains("Sealed interval 2 of 2"), "{rows}");
+    model.handle(Key::Char(' '));
+    move_menu(&mut model, Slot::Interval, "Interval");
+    assert_eq!(model.handle(Key::Enter), Effect::None);
+    assert!(
+        model.status().contains("[0, 5000000)"),
+        "{}",
+        model.status()
+    );
+    assert!(
+        !model.status().contains("No sealed interval is selected"),
+        "{}",
+        model.status()
+    );
+}
+
+#[test]
+fn a_cited_refresh_keeps_an_interval_the_map_still_contains() {
+    let mut model = playable();
+    assert_eq!(model.handle(Key::Char('.')), Effect::None);
+    let record = model.recordings()[0].clone();
+    model.open_finding_recording(record);
+    assert_eq!(model.interval_index(), 1);
+    let rows = body(&model, 80, 16);
+    assert!(rows.contains("Sealed interval 2 of 2"), "{rows}");
+    assert_eq!(model.handle(Key::Char('I')), Effect::None);
+    assert!(
+        model.status().contains("[5000000, 9000000)"),
+        "{}",
+        model.status()
+    );
+}
+
+#[test]
+fn a_cited_refresh_drops_an_interval_the_map_no_longer_has() {
+    let mut model = playable();
+    assert_eq!(model.handle(Key::Char('.')), Effect::None);
+    assert_eq!(model.interval_index(), 1);
+    let mut record = model.recordings()[0].clone();
+    record.seal.intervals.pop();
+    model.open_finding_recording(record);
+    assert_eq!(model.interval_index(), 0);
+    let rows = body(&model, 80, 16);
+    assert!(rows.contains("Sealed interval 1 of 1"), "{rows}");
+    assert!(!rows.contains("Sealed interval 2 of"), "{rows}");
+    assert_eq!(model.handle(Key::Char('I')), Effect::None);
+    assert!(
+        model.status().contains("[0, 5000000)"),
+        "{}",
+        model.status()
+    );
+    assert!(
+        !model.status().contains("No sealed interval is selected"),
+        "{}",
+        model.status()
+    );
+    assert_eq!(model.handle(Key::Char('n')), Effect::None);
+    assert_eq!(model.handle(Key::Char('K')), Effect::None);
+    assert!(
+        model.status().contains("[0, 5000000)"),
+        "{}",
+        model.status()
+    );
+}
+
+#[test]
 fn the_list_uses_the_revision_id_and_strips_controls() {
     let mut model = sample();
     let mut desk = sample_desk();
@@ -425,6 +503,39 @@ fn a_long_revision_stays_on_one_row() {
 }
 
 #[test]
+fn a_narrow_row_shortens_the_revision_and_keeps_the_state_whole() {
+    let mut model = sample();
+    let mut desk = sample_desk();
+    desk.recordings[0].source_revision = "r".repeat(80);
+    desk.recordings[0].state = "completed-and-then-some".into();
+    desk.recordings[0].id = "rec-narrow".into();
+    model.apply_desk(desk);
+    model.handle(Key::Char('3'));
+    let wide = row_text(&model, 80);
+    assert!(wide.chars().count() <= 80, "{wide}");
+    assert!(wide.contains(&"r".repeat(32)), "{wide}");
+    let narrow = row_text(&model, 40);
+    assert!(narrow.chars().count() <= 40, "{narrow}");
+    assert!(narrow.contains(&"r".repeat(14)), "{narrow}");
+    assert!(!narrow.contains(&"r".repeat(15)), "{narrow}");
+    assert!(narrow.contains("completed-and-th"), "{narrow}");
+    assert!(narrow.contains("0:10"), "{narrow}");
+    assert!(!narrow.contains("0:1 "), "{narrow}");
+    let tighter = row_text(&model, 20);
+    assert!(tighter.chars().count() <= 20, "{tighter}");
+    assert!(tighter.contains(&"r".repeat(18)), "{tighter}");
+    assert!(!tighter.contains(&"r".repeat(19)), "{tighter}");
+    assert!(
+        !tighter.contains("completed"),
+        "a state word must stay whole or be omitted: {tighter}"
+    );
+    assert!(
+        !tighter.contains("0:"),
+        "a clock must stay whole or be omitted: {tighter}"
+    );
+}
+
+#[test]
 fn a_truncated_row_does_not_invent_a_clock() {
     let mut model = sample();
     let mut desk = sample_desk();
@@ -588,6 +699,20 @@ fn move_menu(model: &mut Explorer, slot: Slot, name: &str) {
         model.handle(Key::Down);
     }
     assert_eq!(model.menu_cursor(), Some(index), "{name}");
+}
+
+fn row_text(model: &Explorer, width: usize) -> String {
+    let lines = super::super::recording_lines(model, width, 8);
+    let Some(line) = lines
+        .into_iter()
+        .find(|line| line.spans.iter().any(|span| span.content.contains("rrrr")))
+    else {
+        panic!("revision row missing at width {width}");
+    };
+    line.spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect()
 }
 
 fn body(model: &Explorer, width: usize, height: usize) -> String {

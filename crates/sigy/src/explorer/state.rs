@@ -1137,19 +1137,7 @@ impl Explorer {
             .as_deref()
             .and_then(|id| self.recordings.iter().position(|record| record.id == id))
             .unwrap_or(0);
-        let same_recording = self
-            .selected_recording()
-            .is_some_and(|record| Some(record.id.as_str()) == recording.as_deref());
-        if same_recording {
-            let len = self
-                .selected_recording()
-                .map_or(0, |record| record.seal.intervals.len());
-            if self.interval_index >= len {
-                self.interval_index = 0;
-            }
-        } else {
-            self.interval_index = 0;
-        }
+        self.keep_interval_for(recording.as_deref());
         if self.recordings.is_empty() {
             self.recording_place = RecordingPlace::List;
         }
@@ -2237,6 +2225,7 @@ impl Explorer {
 
     pub fn open_finding_recording(&mut self, record: RecordingLine) {
         self.claims.close();
+        let previous = self.selected_recording().map(|item| item.id.clone());
         if let Some(index) = self.recordings.iter().position(|item| item.id == record.id) {
             self.recordings[index] = record;
             self.recording_selection = index;
@@ -2246,6 +2235,8 @@ impl Explorer {
                 .truncate(usize::try_from(PAGE_LIMIT).unwrap_or(16));
             self.recording_selection = 0;
         }
+        // The timeline names this index. `I` and `K` must use that same interval.
+        self.keep_interval_for(previous.as_deref());
         self.workspace = Workspace::Recordings;
         self.view = View::Workspace;
         self.home_index = Workspace::Recordings.menu_index();
@@ -2254,6 +2245,19 @@ impl Explorer {
         self.recording_place = RecordingPlace::Detail;
         self.menu = Menu::Closed;
         self.note_message("Cited recording metadata selected. No playback or processing started.");
+    }
+
+    /// Keeps a chosen interval only when that same recording's map still contains it.
+    fn keep_interval_for(&mut self, previous_id: Option<&str>) {
+        let same = self
+            .selected_recording()
+            .is_some_and(|record| Some(record.id.as_str()) == previous_id);
+        let len = self
+            .selected_recording()
+            .map_or(0, |record| record.seal.intervals.len());
+        if !same || self.interval_index >= len {
+            self.interval_index = 0;
+        }
     }
 
     fn recording_key(&mut self, key: &Key) -> bool {
