@@ -28,7 +28,7 @@ At 80 by 24 the gallery shows the recordings list, the timeline, the menu, and t
 
 ## Evidence
 
-Warnings-denied Clippy for `sigy` exited 0. The `sigy` binary tests passed 448, with 5 ignored, in 14.08 seconds. `cargo visual-qa` exited 0. The compile finished in 1.73 seconds. The gallery test finished in 4.11 seconds and wrote 94 synthetic frames, including the recordings list, timeline, menu, and plain linear and monochrome timelines at 80 by 24. The command wall time was 5.91 seconds. Full `cargo verify` was not re-run. Coverage was not run. `cargo verify-media` was not run. This slice does not change playback admission, recording publication, or HTTP acquisition. External spend is USD 0. This receipt was written after those commands. Hosted verify of this commit is not recorded here.
+Warnings-denied Clippy for `sigy` exited 0. The `sigy` binary tests passed 448, with 5 ignored, in 14.08 seconds. `cargo visual-qa` exited 0. The compile finished in 1.73 seconds. The gallery test finished in 4.11 seconds and wrote 94 synthetic frames, including the recordings list, timeline, menu, and plain linear and monochrome timelines at 80 by 24. The command wall time was 5.91 seconds. Full `cargo verify` was not re-run. Coverage was not run. `cargo verify-media` was not run. This slice does not change playback admission, recording publication, or HTTP acquisition. External spend is USD 0. This receipt was written after those commands. Hosted verify of `293b7c7` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/41732593967.
 
 ## Limits
 
