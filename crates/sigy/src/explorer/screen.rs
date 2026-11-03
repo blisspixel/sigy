@@ -8,6 +8,7 @@ use ratatui::widgets::Paragraph;
 mod context;
 mod countries;
 mod filters;
+mod popup;
 
 use crate::style::{Tone, tone_for_state};
 
@@ -41,23 +42,18 @@ pub fn render(frame: &mut Frame<'_>, model: &Explorer) {
     }
     if model.context.is_some() {
         context::render(frame, area, model);
-        return;
-    }
-    if let Some(picker) = &model.search.picker {
+    } else if let Some(picker) = &model.search.picker {
         countries::render(frame, area, picker);
-        return;
-    }
-    if model.search.editing_filters() {
+    } else if model.search.editing_filters() {
         filters::render(frame, area, model);
-        return;
-    }
-    if area.height < 16 || area.width < 60 {
+    } else if area.height < 16 || area.width < 60 {
         let sections = compact_sections(model, area);
         render_sections(frame, area, &sections, model);
-        return;
+    } else {
+        let sections = full_sections(model, area);
+        render_sections(frame, area, &sections, model);
     }
-    let sections = full_sections(model, area);
-    render_sections(frame, area, &sections, model);
+    popup::render(frame, area, model);
 }
 
 fn section_rects(area: Rect, sections: &[Section]) -> std::rc::Rc<[Rect]> {
@@ -78,6 +74,8 @@ pub(super) fn globe_visible(model: &Explorer, area: Rect) -> bool {
         || model.at_home()
         || model.workspace() != Workspace::Globe
         || model.keys_open()
+        || model.menu_open()
+        || model.confirming()
         || model.context.is_some()
         || model.search.picker.is_some()
         || model.search.editing_filters()
@@ -100,6 +98,8 @@ pub(super) fn globe_flourish_canvas(model: &Explorer, area: Rect) -> Option<(u16
     if model.at_home()
         || model.workspace() != Workspace::Globe
         || model.keys_open()
+        || model.menu_open()
+        || model.confirming()
         || model.context.is_some()
         || model.search.picker.is_some()
         || model.search.editing_filters()
@@ -1784,6 +1784,7 @@ fn budget_lines(model: &Explorer) -> Vec<Line<'static>> {
 #[cfg(test)]
 mod tests {
     mod linked;
+    mod popup;
     mod raster;
     mod visual_qa;
     use super::{HELP_PRIMARY, HELP_SELECTION, editing, hint_pairs, hint_text, render};

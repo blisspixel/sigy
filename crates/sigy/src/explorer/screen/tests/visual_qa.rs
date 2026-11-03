@@ -182,7 +182,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        84
+        86
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -221,6 +221,8 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
         "globe-turn",
         "Home",
         "Home offline",
+        "action-menu",
+        "play-dialog",
     ] {
         assert!(cases.iter().any(|(name, _, _)| *name == expected));
     }
@@ -527,11 +529,11 @@ fn visual_qa_gallery() -> Result<()> {
             manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome,"high_contrast":model.modes().emphasis.high()}));
         }
     }
-    assert!(manifest.len() <= 84);
+    assert!(manifest.len() <= 86);
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
-            &serde_json::json!({"format":1,"method":"production Ratatui TestBackend","synthetic":true,"source_hashes":{"renderer":sha256(include_bytes!("../../screen.rs")),"state":sha256(include_bytes!("../../state.rs")),"monitor":sha256(include_bytes!("../../monitor.rs")),"context":sha256(include_bytes!("../../context.rs")),"context_state":sha256(include_bytes!("../../state/context.rs")),"context_renderer":sha256(include_bytes!("../context.rs")),"globe":sha256(include_bytes!("../../globe.rs")),"spin":sha256(include_bytes!("../../state/spin.rs")),"gallery":sha256(include_bytes!("visual_qa.rs"))},"frames":manifest}),
+            &serde_json::json!({"format":1,"method":"production Ratatui TestBackend","synthetic":true,"source_hashes":{"renderer":sha256(include_bytes!("../../screen.rs")),"state":sha256(include_bytes!("../../state.rs")),"monitor":sha256(include_bytes!("../../monitor.rs")),"context":sha256(include_bytes!("../../context.rs")),"context_state":sha256(include_bytes!("../../state/context.rs")),"context_renderer":sha256(include_bytes!("../context.rs")),"globe":sha256(include_bytes!("../../globe.rs")),"spin":sha256(include_bytes!("../../state/spin.rs")),"popup":sha256(include_bytes!("../popup.rs")),"menu":sha256(include_bytes!("../../state/menu.rs")),"actions":sha256(include_bytes!("../../actions.rs")),"gallery":sha256(include_bytes!("visual_qa.rs"))},"frames":manifest}),
         )?,
     )?;
     std::fs::write(directory.join("index.html"), html)?;
@@ -651,7 +653,17 @@ fn cases() -> Result<Vec<Case>> {
     cases.push(("keys", keys, vec![(80, 24)]));
     cases.push(("layout", gallery_sample(), vec![(60, 20), (90, 30)]));
     append_globe_turn(&mut cases);
+    append_popup_cases(&mut cases);
     Ok(cases)
+}
+
+fn append_popup_cases(cases: &mut Vec<Case>) {
+    let mut menu = gallery_sample();
+    menu.handle(Key::Char(' '));
+    cases.push(("action-menu", menu, vec![(80, 24)]));
+    let mut play = gallery_sample();
+    play.handle(Key::Char('P'));
+    cases.push(("play-dialog", play, vec![(80, 24)]));
 }
 
 fn append_home_cases(cases: &mut Vec<Case>, sizes: &[(u16, u16)]) {

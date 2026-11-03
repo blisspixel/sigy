@@ -110,6 +110,9 @@ fn run_loop(
         if !matches!(key, Key::Redraw) {
             model.motion_input(std::time::Instant::now());
         }
+        if let Ok((width, height)) = session.size() {
+            model.note_window(width, height);
+        }
         let effect = model.handle(key);
         audio.apply(runtime, directory, model, &effect);
         if matches!(effect, Effect::Detach) {

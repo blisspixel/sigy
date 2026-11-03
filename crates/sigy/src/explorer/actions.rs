@@ -61,6 +61,42 @@ enum Cli {
     Fetch,
 }
 
+/// One selection-menu row. Empty means the action stays off that menu.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Slot {
+    None,
+    Play,
+    Fetch,
+    Inspect,
+    Favorite,
+    Linked,
+    Center,
+    Latest,
+    Hold,
+    Interval,
+    Metadata,
+    Copy,
+}
+
+impl Slot {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Play => "Play",
+            Self::Fetch => "Fetch",
+            Self::Inspect => "Inspect",
+            Self::Favorite => "Favorite",
+            Self::Linked => "Linked history",
+            Self::Center => "Center on globe",
+            Self::Latest => "Latest",
+            Self::Hold => "Hold",
+            Self::Interval => "Interval",
+            Self::Metadata => "Metadata",
+            Self::Copy => "Copy CLI command",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Act {
     Char(char),
@@ -84,6 +120,7 @@ struct Action {
     show: Show,
     cli: Cli,
     reason: &'static str,
+    slot: Slot,
 }
 
 const G: &[Act] = &[Act::Char('g')];
@@ -135,6 +172,9 @@ const DIGITS: &[Act] = &[
 const ACROSS: &[Act] = &[Act::Left, Act::Right];
 const BACK_TAB: &[Act] = &[Act::BackTab];
 const QUESTION: &[Act] = &[Act::Char('?')];
+const LINKED: &[Act] = &[Act::Char('i')];
+const SPACE: &[Act] = &[Act::Char(' ')];
+const COPY_KEYS: &[Act] = &[];
 
 const PLAY_CLI: &str = "sigy play STATION_UUID";
 const STOP_CLI: &str = "sigy stop";
@@ -353,7 +393,13 @@ fn row(
         show,
         cli: Cli::None,
         reason: "",
+        slot: Slot::None,
     }
+}
+
+fn slot(mut action: Action, slot: Slot) -> Action {
+    action.slot = slot;
+    action
 }
 
 fn fixed(mut action: Action, command: &'static str) -> Action {
@@ -369,6 +415,104 @@ fn fetch(mut action: Action) -> Action {
 fn because(mut action: Action, reason: &'static str) -> Action {
     action.reason = reason;
     action
+}
+
+fn space_row() -> Action {
+    row(
+        SPACE,
+        "",
+        Group::View,
+        "  Space opens actions for the selection",
+        Show::Always,
+    )
+}
+
+fn copy_row() -> Action {
+    slot(
+        row(
+            COPY_KEYS,
+            "",
+            Group::View,
+            "  Copy CLI command writes it on the status line",
+            Show::Always,
+        ),
+        Slot::Copy,
+    )
+}
+
+/// How a menu row is activated from the keyboard.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Shortcut {
+    Char(char),
+    Enter,
+    None,
+}
+
+/// One row of the selection menu, in action-table order.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MenuItem {
+    pub slot: Slot,
+    pub shortcut: Shortcut,
+    pub label: &'static str,
+}
+
+/// Selection-menu rows for the workspace on screen. Home has none.
+#[must_use]
+pub(crate) fn menu_items(model: &Explorer) -> Vec<MenuItem> {
+    if model.at_home() {
+        return Vec::new();
+    }
+    workspace_actions(model.workspace())
+        .into_iter()
+        .filter(|action| action.slot != Slot::None)
+        .map(|action| MenuItem {
+            slot: action.slot,
+            shortcut: shortcut_of(action.keys),
+            label: action.slot.label(),
+        })
+        .collect()
+}
+
+fn shortcut_of(keys: &[Act]) -> Shortcut {
+    match keys {
+        [Act::Char(character)] => Shortcut::Char(*character),
+        [Act::Enter] => Shortcut::Enter,
+        _ => Shortcut::None,
+    }
+}
+
+/// `sigy play` for one station, or the placeholder when no id is known.
+#[must_use]
+pub(crate) fn play_command(station: Option<&str>) -> String {
+    substitute(PLAY_CLI, "STATION_UUID", station)
+}
+
+/// `sigy listen file` for one recording, or the placeholder when no id is known.
+#[must_use]
+pub(crate) fn file_command(recording: Option<&str>) -> String {
+    substitute(FILE_CLI, "RECORDING", recording)
+}
+
+/// Visible menu text, including the direct key when the row has one.
+#[must_use]
+pub(crate) fn menu_label(item: &MenuItem) -> String {
+    match item.shortcut {
+        Shortcut::Char(character) => format!("{character} {}", item.label),
+        Shortcut::Enter => format!("Enter {}", item.label),
+        Shortcut::None => item.label.to_owned(),
+    }
+}
+
+fn substitute(template: &str, token: &str, value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return template.to_owned();
+    };
+    let clean = super::text::sanitize(value, 128);
+    if clean.is_empty() {
+        template.to_owned()
+    } else {
+        template.replace(token, &clean)
+    }
 }
 
 fn explore() -> Vec<Action> {
@@ -402,19 +546,25 @@ fn explore() -> Vec<Action> {
             "  e explore",
             Show::Always,
         ),
-        fetch(row(
-            FETCH,
-            "R fetch",
-            Group::Find,
-            "  R then y fetch    Enter inspect",
-            Show::Always,
-        )),
-        row(
-            FAVORITE,
-            "f favorite",
-            Group::Keep,
-            "  f favorite",
-            Show::Always,
+        slot(
+            fetch(row(
+                FETCH,
+                "R fetch",
+                Group::Find,
+                "  R then y fetch    Enter inspect",
+                Show::Always,
+            )),
+            Slot::Fetch,
+        ),
+        slot(
+            row(
+                FAVORITE,
+                "f favorite",
+                Group::Keep,
+                "  f favorite",
+                Show::Always,
+            ),
+            Slot::Favorite,
         ),
         row(PAGE, "n/p page", Group::Move, "  n/p page", Show::Always),
         row(
@@ -424,15 +574,18 @@ fn explore() -> Vec<Action> {
             "  q quits this client",
             Show::Always,
         ),
-        fixed(
-            row(
-                PLAY,
-                "",
-                Group::Listen,
-                "  P then y plays    S stops",
-                Show::Always,
+        slot(
+            fixed(
+                row(
+                    PLAY,
+                    "",
+                    Group::Listen,
+                    "  P then y plays    S stops",
+                    Show::Always,
+                ),
+                PLAY_CLI,
             ),
-            PLAY_CLI,
+            Slot::Play,
         ),
         fixed(
             row(STOP, "", Group::Listen, "  S stops", Show::Always),
@@ -447,7 +600,16 @@ fn explore() -> Vec<Action> {
             Show::Always,
         ),
         row(CLEAR, "", Group::Find, "  x clears filters", Show::Always),
-        row(ENTER, "", Group::View, "  Enter inspect", Show::Always),
+        slot(
+            row(ENTER, "", Group::View, "  Enter inspect", Show::Always),
+            Slot::Inspect,
+        ),
+        slot(
+            row(LINKED, "", Group::View, "  i linked history", Show::Always),
+            Slot::Linked,
+        ),
+        space_row(),
+        copy_row(),
     ]
 }
 
@@ -503,35 +665,44 @@ fn recordings() -> Vec<Action> {
             "  r reloads its metadata",
             Show::Always,
         ),
-        fixed(
-            row(
-                PLAY,
-                "P play",
-                Group::Listen,
-                "  P then y plays a retained recording    S stops",
-                Show::Always,
+        slot(
+            fixed(
+                row(
+                    PLAY,
+                    "P play",
+                    Group::Listen,
+                    "  P then y plays a retained recording    S stops",
+                    Show::Always,
+                ),
+                FILE_CLI,
             ),
-            FILE_CLI,
+            Slot::Play,
         ),
-        fixed(
-            row(
-                LATEST,
-                "L latest",
-                Group::Listen,
-                "  L then y plays the latest sealed interval",
-                Show::Always,
+        slot(
+            fixed(
+                row(
+                    LATEST,
+                    "L latest",
+                    Group::Listen,
+                    "  L then y plays the latest sealed interval",
+                    Show::Always,
+                ),
+                FILE_CLI,
             ),
-            FILE_CLI,
+            Slot::Latest,
         ),
-        fixed(
-            row(
-                PROTECT,
-                "K hold",
-                Group::Keep,
-                "  K then y records one hold on that interval",
-                Show::Always,
+        slot(
+            fixed(
+                row(
+                    PROTECT,
+                    "K hold",
+                    Group::Keep,
+                    "  K then y records one hold on that interval",
+                    Show::Always,
+                ),
+                HOLD_CLI,
             ),
-            HOLD_CLI,
+            Slot::Hold,
         ),
         row(STOP, "S stop", Group::Listen, "  S stops", Show::Always),
         row(
@@ -562,13 +733,18 @@ fn recordings() -> Vec<Action> {
             "  the next sealed segment starts once sealed; an open tail waits",
             Show::Always,
         ),
-        row(
-            INTERVAL,
-            "",
-            Group::Listen,
-            "  , and . choose a sealed interval    I then y plays that interval",
-            Show::Always,
+        slot(
+            row(
+                INTERVAL,
+                "",
+                Group::Listen,
+                "  , and . choose a sealed interval    I then y plays that interval",
+                Show::Always,
+            ),
+            Slot::Interval,
         ),
+        space_row(),
+        copy_row(),
     ]
 }
 
@@ -615,12 +791,15 @@ fn findings() -> Vec<Action> {
             "  / edit IDs",
             Show::Always,
         ),
-        row(
-            ENTER,
-            "Enter inspect",
-            Group::View,
-            "  Enter inspects",
-            Show::Always,
+        slot(
+            row(
+                ENTER,
+                "Enter inspect",
+                Group::View,
+                "  Enter inspects",
+                Show::Always,
+            ),
+            Slot::Inspect,
         ),
         row(
             CLAIMS,
@@ -629,22 +808,28 @@ fn findings() -> Vec<Action> {
             "  c opens stored claims, read-only",
             Show::Always,
         ),
-        row(
-            ORIGINAL,
-            "o metadata",
-            Group::View,
-            "  o recording metadata",
-            Show::Always,
-        ),
-        fixed(
+        slot(
             row(
-                PLAY,
-                "P play",
-                Group::Listen,
-                "  P then y plays a cited interval",
+                ORIGINAL,
+                "o metadata",
+                Group::View,
+                "  o recording metadata",
                 Show::Always,
             ),
-            FILE_CLI,
+            Slot::Metadata,
+        ),
+        slot(
+            fixed(
+                row(
+                    PLAY,
+                    "P play",
+                    Group::Listen,
+                    "  P then y plays a cited interval",
+                    Show::Always,
+                ),
+                FILE_CLI,
+            ),
+            Slot::Play,
         ),
         row(STOP, "S stop", Group::Listen, "  S stops", Show::Always),
         row(
@@ -675,6 +860,8 @@ fn findings() -> Vec<Action> {
             "  a cited listen does not continue into the next segment",
             Show::Always,
         ),
+        space_row(),
+        copy_row(),
     ]
 }
 
@@ -687,22 +874,28 @@ fn globe() -> Vec<Action> {
             "  g first page",
             Show::Restart,
         ),
-        fixed(
+        slot(
+            fixed(
+                row(
+                    PLAY,
+                    "P play",
+                    Group::Listen,
+                    "  P then y plays",
+                    Show::Always,
+                ),
+                PLAY_CLI,
+            ),
+            Slot::Play,
+        ),
+        slot(
             row(
-                PLAY,
-                "P play",
-                Group::Listen,
-                "  P then y plays",
+                ENTER,
+                "Enter inspect",
+                Group::View,
+                "  Enter inspect",
                 Show::Always,
             ),
-            PLAY_CLI,
-        ),
-        row(
-            ENTER,
-            "Enter inspect",
-            Group::View,
-            "  Enter inspect",
-            Show::Always,
+            Slot::Inspect,
         ),
         row(
             ARROWS,
@@ -717,13 +910,16 @@ fn globe() -> Vec<Action> {
         ),
         row(MAP, "m map", Group::View, "  m map", Show::Always),
         row(RELOAD, "r reload", Group::View, "  r reload", Show::Always),
-        fetch(row(
-            FETCH,
-            "R fetch",
-            Group::Find,
-            "  R then y fetch",
-            Show::Always,
-        )),
+        slot(
+            fetch(row(
+                FETCH,
+                "R fetch",
+                Group::Find,
+                "  R then y fetch",
+                Show::Always,
+            )),
+            Slot::Fetch,
+        ),
         row(
             QUIT,
             "q quit",
@@ -732,13 +928,19 @@ fn globe() -> Vec<Action> {
             Show::Always,
         ),
         row(TURN, "", Group::Move, "  h l j k turn", Show::Always),
-        row(CENTER, "", Group::Move, "  c center", Show::Always),
+        slot(
+            row(CENTER, "", Group::Move, "  c center", Show::Always),
+            Slot::Center,
+        ),
         row(SLASH, "", Group::Find, "  / search", Show::Always),
         row(FILTERS, "", Group::Find, "  F filters", Show::Always),
         row(COUNTRY, "", Group::Find, "  C country", Show::Always),
         row(EXPLORE_KEY, "", Group::Find, "  e explore", Show::Always),
         row(PAGE, "", Group::Move, "  n/p page", Show::Always),
-        row(FAVORITE, "", Group::Keep, "  f favorite", Show::Always),
+        slot(
+            row(FAVORITE, "", Group::Keep, "  f favorite", Show::Always),
+            Slot::Favorite,
+        ),
         fixed(
             row(STOP, "", Group::Listen, "  S stops", Show::Always),
             STOP_CLI,
@@ -751,6 +953,12 @@ fn globe() -> Vec<Action> {
             Show::Always,
         ),
         row(CLEAR, "", Group::Find, "  x clears filters", Show::Always),
+        slot(
+            row(LINKED, "", Group::View, "  i linked history", Show::Always),
+            Slot::Linked,
+        ),
+        space_row(),
+        copy_row(),
     ]
 }
 
@@ -891,6 +1099,7 @@ const fn row_const(
         show,
         cli: Cli::None,
         reason: "",
+        slot: Slot::None,
     }
 }
 

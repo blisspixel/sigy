@@ -58,7 +58,7 @@ Leaving a monitor detail, including with `0` or by opening another task, closes 
 
 Schema stays v54. Local IPC stays v58. Issues 38, 40, and 45 stay open. This repair does not change playback admission, recording publication, or HTTP acquisition.
 
-Hosted verify of the Home commit `8196d10` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/41680476406. The five repair tests failed on the previous behavior, then passed with these changes. Warnings-denied Clippy for `sigy` exited 0. The `sigy` binary tests passed 396, with 5 ignored, in 17.25 seconds. Full `cargo verify` was not re-run. The service library failures recorded above are unchanged and are this host's missing delegated unit. `cargo verify-media` and coverage were not run. `cargo visual-qa` was not re-run. The repair does not change the README heroes. External spend is USD 0. Hosted verify of this repair is not recorded here.
+Hosted verify of the Home commit `8196d10` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/41680476406. The five repair tests failed on the previous behavior, then passed with these changes. Warnings-denied Clippy for `sigy` exited 0. The `sigy` binary tests passed 396, with 5 ignored, in 17.25 seconds. Full `cargo verify` was not re-run. The service library failures recorded above are unchanged and are this host's missing delegated unit. `cargo verify-media` and coverage were not run. `cargo visual-qa` was not re-run. The repair does not change the README heroes. External spend is USD 0. Hosted verify of the repair `85d102c` passed on Windows, Ubuntu, and macOS: https://github.com/blisspixel/sigy/actions/runs/41688660420.
 
 ## Limits
 

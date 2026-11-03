@@ -9,6 +9,8 @@ use sigy_service::storage::dvr::{Recording, RecordingGap, RecordingHold, Recordi
 use sigy_service::{control::DirectoryCatalog, discovery::StationFilter};
 mod catalog;
 mod context;
+mod menu;
+pub(crate) use menu::DialogCopy;
 #[cfg(test)]
 mod ordered_tests;
 mod random;
@@ -602,6 +604,9 @@ enum View {
 pub struct Explorer {
     fetch_confirmation: Option<super::search::Scope>,
     keys: KeyList,
+    menu: Menu,
+    /// Last noted terminal size. A popup opens when this is at least 40 by 12.
+    window: (u16, u16),
     explicit_directory: Option<String>,
     play_confirmation: Option<PendingPlay>,
     protect_confirmation: Option<PendingProtect>,
@@ -689,12 +694,22 @@ enum KeyList {
     Open,
 }
 
+/// Selection menu. `Collapsed` is an open menu whose terminal became too small.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Menu {
+    Closed,
+    Open(usize),
+    Collapsed,
+}
+
 impl Explorer {
     #[must_use]
     pub fn new(modes: Modes, now_ms: i64) -> Self {
         Self {
             fetch_confirmation: None,
             keys: KeyList::Closed,
+            menu: Menu::Closed,
+            window: (80, 24),
             explicit_directory: None,
             play_confirmation: None,
             protect_confirmation: None,
@@ -824,6 +839,7 @@ impl Explorer {
         self.view = View::Home;
         self.home_index = 0;
         self.keys = KeyList::Closed;
+        self.menu = Menu::Closed;
         self.focus = Focus::Results;
         self.context = None;
         self.fetch_confirmation = None;
@@ -1350,6 +1366,9 @@ impl Explorer {
             return self.confirm_protect(&key);
         }
         if let Some(effect) = self.keys_key(&key) {
+            return effect;
+        }
+        if let Some(effect) = self.menu_key(&key) {
             return effect;
         }
         if !self.text_entry()
@@ -2036,6 +2055,10 @@ impl Explorer {
                 self.search.draft = self.search.applied.clone();
                 self.submit_search(PageMove::First)
             }
+            Key::Char('i') if matches!(self.workspace, Workspace::Explore | Workspace::Globe) => {
+                self.note_message("Enter inspects this station before linked history.");
+                Effect::None
+            }
             Key::Char(direction @ ('n' | 'p')) => self.turn_page(*direction == 'n'),
             Key::Char(character @ '1'..='7') => {
                 self.workspace = workspace_from_digit(*character);
@@ -2083,6 +2106,7 @@ impl Explorer {
         self.home_index = self.workspace.menu_index();
         self.view = View::Home;
         self.keys = KeyList::Closed;
+        self.menu = Menu::Closed;
         self.context = None;
         self.fetch_confirmation = None;
         self.play_confirmation = None;
@@ -2111,6 +2135,7 @@ impl Explorer {
 
     fn workspace_effect(&mut self) -> Effect {
         self.view = View::Workspace;
+        self.menu = Menu::Closed;
         self.home_index = self.workspace.menu_index();
         if self.workspace != Workspace::Findings {
             self.claims.close();
@@ -2396,6 +2421,7 @@ impl Explorer {
         self.home_index = workspace.menu_index();
         self.focus = focus;
         self.keys = KeyList::Closed;
+        self.menu = Menu::Closed;
         self.context = None;
         self.fetch_confirmation = None;
         self.play_confirmation = None;

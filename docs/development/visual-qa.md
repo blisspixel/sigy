@@ -16,12 +16,12 @@ The command selects one explicitly ignored renderer test. It creates a unique
 directory under `target/visual-qa/` and prints the path to `index.html`. Existing
 artifacts are preserved. Open that index locally to review the grouped SVG
 screenshots. `manifest.json` records each case, dimensions, plain-mode flags and
-hashes of the compiled renderer, state, globe, spin, monitor, context and gallery sources;
+hashes of the compiled renderer, state, popup, menu, actions, globe, spin, monitor, context and gallery sources;
 each adjacent JSON file preserves every terminal cell's symbol, foreground,
 background, modifiers, display width and wide-character continuation flag.
 
-The bounded matrix contains 84 frames. The shared sizes are 20 by 8, 80 by 24 and 132 by 40 cells. A layout case also renders 60 by 20 and 90 by 30. One globe frame is a deterministic mid-turn at 80 by 24.
-The matrix covers Home and an offline Home; Explore, Live, Recordings, Monitors, Findings, System and Globe; the key overlay at 80 by 24; filter
+The bounded matrix contains 86 frames. The shared sizes are 20 by 8, 80 by 24 and 132 by 40 cells. A layout case also renders 60 by 20 and 90 by 30. One globe frame is a deterministic mid-turn at 80 by 24.
+The matrix covers Home and an offline Home; Explore, Live, Recordings, Monitors, Findings, System and Globe; the action menu and the play dialog at 80 by 24; the key overlay at 80 by 24; filter
 and country editors; frozen station context; linked pending, loaded and failed
 reads; empty and unobserved cache; disconnected state; pending search; changed
 catalog; monochrome, linear, linear-with-color, and high-contrast presentation; and random selected, empty and monochrome results. Random views use immediate reduced-motion jumps and label approximate directory coordinates and eligible cache counts. Podcast and job controls remain
@@ -67,7 +67,7 @@ This writes twenty full color production-render timing samples and a final SVG
 at each of 80 by 24 and 200 by 60 cells, under a unique gallery's `spin/` directory.
 The clock is advanced explicitly by 100 ms per sample, keeping the image
 deterministic. Timing includes TestBackend drawing and diffing and excludes
-terminal I/O. The ordinary 84-frame gallery stays static.
+terminal I/O. The ordinary 86-frame gallery stays static.
 
 Ordinary terminal metadata reads still await each service response synchronously. Painting pending
 intent before that read improves feedback but does not make quit, resize or

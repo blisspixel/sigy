@@ -38,6 +38,21 @@ impl Browser {
         &self.query
     }
 
+    pub(super) const fn has_page(&self) -> bool {
+        self.page.is_some()
+    }
+
+    /// Recording id of the loaded citation, when that id is present.
+    pub(super) fn cited_recording(&self) -> Option<&str> {
+        self.page.as_ref().and_then(|page| {
+            if page.recording_id.is_empty() {
+                None
+            } else {
+                Some(page.recording_id.as_str())
+            }
+        })
+    }
+
     pub const fn editing(&self) -> bool {
         self.editing
     }
