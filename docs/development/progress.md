@@ -1,8 +1,19 @@
 # Implementation progress
 
-Updated: 2026-11-03. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
+Updated: 2026-11-04. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
+
+## 2026-11-04 research archive dependency
+
+The isolated local-MT judge runner uses zip 9.2.2 and propagates fallible archive
+entry names. Its lock also resolves Tokio 1.53.3. Nine focused tests passed;
+the native asset fixture remains intentionally ignored. Formatting,
+warnings-denied Clippy, and `cargo audit --deny warnings` passed for the nested
+runner. Hosted verification of program commit `978c848` passed on Windows,
+Ubuntu, and macOS in [run 41860608528](https://github.com/blisspixel/sigy/actions/runs/41860608528).
+This dependency repair does not qualify a model, a language-quality result,
+or a supported release. External spend is USD 0.
 
 ## 2026-11-03 home and lean chrome
 
