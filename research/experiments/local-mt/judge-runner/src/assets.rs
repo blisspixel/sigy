@@ -219,7 +219,7 @@ fn verify_archive(archive: &Asset, files: &[Asset]) -> Result<()> {
     let mut total = 0_u64;
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index)?;
-        let name = entry.name().to_owned();
+        let name = entry.name()?.into_owned();
         if entry.is_dir()
             || Path::new(&name).components().count() != 1
             || name.contains(['\\', ':'])
