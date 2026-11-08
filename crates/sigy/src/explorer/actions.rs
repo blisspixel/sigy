@@ -4,7 +4,7 @@
 //! `state`. Home is the parent of every workspace. This module does not change
 //! a service.
 
-use super::state::{Explorer, Workspace};
+use super::state::{Explorer, Focus, Workspace};
 
 #[cfg(test)]
 use super::state::Key;
@@ -179,6 +179,7 @@ const ACROSS: &[Act] = &[Act::Left, Act::Right];
 const BACK_TAB: &[Act] = &[Act::BackTab];
 const QUESTION: &[Act] = &[Act::Char('?')];
 const LINKED: &[Act] = &[Act::Char('i')];
+const ZOOM: &[Act] = &[Act::Char('z')];
 const SPACE: &[Act] = &[Act::Char(' ')];
 const COPY_KEYS: &[Act] = &[];
 
@@ -228,6 +229,14 @@ pub(crate) fn footer_pairs(model: &Explorer) -> Vec<&'static str> {
         workspace_actions(model.workspace())
     };
     let mut pairs = visible_pairs(&actions, model);
+    if model.workspace() == Workspace::Globe {
+        let tab_pair = if model.focus() == Focus::Detail {
+            "Tab turn"
+        } else {
+            "Tab stations"
+        };
+        pairs.insert(1.min(pairs.len()), tab_pair);
+    }
     // Keep the workspace's first pair at 20 columns, and show Back as soon as a second pair fits.
     if let Some(index) = pairs.iter().position(|pair| *pair == "Esc back") {
         let pair = pairs.remove(index);
@@ -968,6 +977,7 @@ fn globe() -> Vec<Action> {
             SPIN_OFF,
         ),
         row(MAP, "m map", Group::View, "  m map", Show::Always),
+        row(ZOOM, "z zoom", Group::View, "  z zoom", Show::Always),
         row(RELOAD, "r reload", Group::View, "  r reload", Show::Always),
         slot(
             fetch(row(

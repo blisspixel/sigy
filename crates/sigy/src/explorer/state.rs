@@ -699,6 +699,7 @@ struct GlobeView {
     center: (f64, f64),
     flat: bool,
     spin: spin::Spin,
+    zoomed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -790,6 +791,7 @@ impl Explorer {
                 center: (0.0, 20.0),
                 flat: false,
                 spin: spin::Spin::default(),
+                zoomed: false,
             },
             monitors: super::monitor::Browser::default(),
             findings: super::finding::Browser::default(),
@@ -801,6 +803,11 @@ impl Explorer {
     #[must_use]
     pub const fn globe_center(&self) -> (f64, f64) {
         self.globe.center
+    }
+
+    #[must_use]
+    pub const fn globe_zoomed(&self) -> bool {
+        self.globe.zoomed
     }
 
     #[must_use]
@@ -816,6 +823,14 @@ impl Explorer {
             'k' => self.turn_by(0.0, 15.0),
             'j' => self.turn_by(0.0, -15.0),
             'm' => self.globe.flat = !self.globe.flat,
+            'z' => {
+                self.globe.zoomed = !self.globe.zoomed;
+                self.status = if self.globe.zoomed {
+                    "Globe zoomed. z or Esc returns.".into()
+                } else {
+                    "Globe zoom restored.".into()
+                };
+            }
             'c' => {
                 self.stop_spin();
                 match self.selected().and_then(|row| row.coordinates) {
@@ -2110,7 +2125,17 @@ impl Explorer {
             Key::Char(character @ '1'..='7') => {
                 self.open_workspace(workspace_from_digit(*character))
             }
-            Key::Escape | Key::Backspace | Key::Char('0') => self.go_home(),
+            Key::Escape | Key::Backspace | Key::Char('0') => {
+                if *key == Key::Char('0') {
+                    return self.go_home();
+                }
+                if self.workspace == Workspace::Globe && self.globe.zoomed {
+                    self.globe.zoomed = false;
+                    self.status = "Globe zoom restored.".into();
+                    return Effect::None;
+                }
+                self.go_home()
+            }
             Key::Paste(_) | Key::Char(_) | Key::ClearInput | Key::Redraw => Effect::None,
         }
     }
@@ -2209,8 +2234,16 @@ impl Explorer {
     }
 
     fn cycle_focus(&mut self, forward: bool) {
+        if self.workspace == Workspace::Globe {
+            self.focus = if self.focus == Focus::Results {
+                Focus::Detail
+            } else {
+                Focus::Results
+            };
+            return;
+        }
         self.focus = self.focus.cycle(forward);
-        if self.focus == Focus::Search
+        while self.focus == Focus::Search
             && matches!(
                 self.workspace,
                 Workspace::Monitors
@@ -2387,6 +2420,11 @@ impl Explorer {
             .saturating_add(delta);
         let last = isize::try_from(self.rows.len().saturating_sub(1)).unwrap_or(0);
         self.selection = usize::try_from(next.clamp(0, last)).unwrap_or(0);
+        if self.workspace == Workspace::Globe
+            && let Some(place) = self.selected().and_then(|row| row.coordinates)
+        {
+            self.glide_toward(place.longitude, place.latitude);
+        }
         Effect::None
     }
 

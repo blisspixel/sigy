@@ -107,30 +107,17 @@ pub fn header_lines(model: &Explorer) -> Vec<Line<'static>> {
             degrees(lat, 'N', 'S')
         )
     };
-    let controls = model.spin_label().map_or_else(
-        || {
-            "arrows or h/l/j/k turn, m map, c center | 2-9 count, + 10 or more in one cell"
-                .to_owned()
-        },
-        |spin| format!("arrows turn, s spin {spin}, m map, c center | 2-9 count, + 10+"),
-    );
-    vec![
-        Line::from(format!(
-            "{view} | geometric night at {}",
-            utc_label(model.now_ms())
-        )),
-        Line::from(format!(
-            "{} of {} stations {} have directory coordinates (approximate)",
-            counts.mapped,
-            counts.total,
-            if model.random_count().is_some() {
-                "in this random result"
-            } else {
-                "on this page"
-            },
-        )),
-        Line::from(controls),
-    ]
+    let context = if model.random_count().is_some() {
+        "in this random result"
+    } else {
+        "on this page"
+    };
+    vec![Line::from(format!(
+        "{view} | geometric night at {} | {} of {} stations {context} have directory coordinates (approximate)",
+        utc_label(model.now_ms()),
+        counts.mapped,
+        counts.total,
+    ))]
 }
 
 /// The drawing area. Bounds keep one unit square in data space square on screen,

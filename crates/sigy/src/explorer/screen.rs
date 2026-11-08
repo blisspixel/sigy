@@ -206,7 +206,7 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], mode
 }
 
 fn globe_rects(area: Rect) -> std::rc::Rc<[Rect]> {
-    let header_height = if area.height >= 6 { 3 } else { 2 };
+    let header_height = 1;
     Layout::vertical([Constraint::Length(header_height), Constraint::Min(1)]).split(area)
 }
 
@@ -219,13 +219,51 @@ fn render_globe(frame: &mut Frame<'_>, area: Rect, section: &Section, model: &Ex
         first.spans.insert(0, Span::raw(FOCUS_PREFIX));
     }
     if let Some(first) = header.first_mut() {
-        first.style = first.style.patch(section.style);
+        let style = focus_style(
+            model,
+            model.focus() == Focus::Results && !model.modes().linear,
+        );
+        first.style = first.style.patch(style);
     }
     frame.render_widget(Paragraph::new(header), rows[0]);
-    frame.render_widget(
-        super::globe::GlobeWidget::new(model, color_on(model)),
-        rows[1],
-    );
+    let canvas_area = rows[1];
+    if model.globe_zoomed() {
+        frame.render_widget(
+            super::globe::GlobeWidget::new(model, color_on(model)),
+            canvas_area,
+        );
+    } else if canvas_area.width >= 100 {
+        let cols =
+            Layout::horizontal([Constraint::Min(60), Constraint::Length(38)]).split(canvas_area);
+        frame.render_widget(
+            super::globe::GlobeWidget::new(model, color_on(model)),
+            cols[0],
+        );
+        let station_lines = explore_lines(
+            model,
+            usize::from(cols[1].width),
+            usize::from(cols[1].height),
+        );
+        frame.render_widget(Paragraph::new(station_lines), cols[1]);
+    } else if canvas_area.height >= 18 {
+        let splits =
+            Layout::vertical([Constraint::Min(15), Constraint::Length(3)]).split(canvas_area);
+        frame.render_widget(
+            super::globe::GlobeWidget::new(model, color_on(model)),
+            splits[0],
+        );
+        let drawer_lines = explore_lines(
+            model,
+            usize::from(splits[1].width),
+            usize::from(splits[1].height),
+        );
+        frame.render_widget(Paragraph::new(drawer_lines), splits[1]);
+    } else {
+        frame.render_widget(
+            super::globe::GlobeWidget::new(model, color_on(model)),
+            canvas_area,
+        );
+    }
 }
 
 fn render_beside(frame: &mut Frame<'_>, area: Rect, section: &Section, model: &Explorer) {
@@ -321,6 +359,11 @@ fn full_sections(model: &Explorer, area: Rect) -> Vec<Section> {
             model,
         ));
         push_status(&mut sections, model, width, 2);
+        sections.push(one(
+            plain(&hint_text(model, width)),
+            model.focus() == Focus::Help,
+            model,
+        ));
         return sections;
     }
     if shows_directory(model) {
@@ -347,6 +390,11 @@ fn full_sections(model: &Explorer, area: Rect) -> Vec<Section> {
         }
     }
     push_status(&mut sections, model, width, 2);
+    sections.push(one(
+        plain(&hint_text(model, width)),
+        model.focus() == Focus::Help,
+        model,
+    ));
     sections
 }
 
@@ -403,25 +451,28 @@ fn fixed_rows(sections: &[Section]) -> u16 {
 }
 
 fn chrome(model: &Explorer, width: usize) -> Vec<Section> {
-    let mut sections = vec![
-        one(connection_line(model, false), false, model),
-        one(
-            breadcrumb_line(model),
+    let mut sections = if width >= 80 {
+        vec![one(
+            top_bar_line(model, width),
             model.focus() == Focus::Workspaces,
             model,
-        ),
-    ];
+        )]
+    } else {
+        vec![
+            one(connection_line(model, false), false, model),
+            one(
+                breadcrumb_line(model),
+                model.focus() == Focus::Workspaces,
+                model,
+            ),
+        ]
+    };
     if let Some(live) = live_strip(model, width) {
         sections.push(one(live, model.focus() == Focus::Playback, model));
     }
     if let Some(retained) = retained_strip(model, width) {
         sections.push(one(retained, false, model));
     }
-    sections.push(one(
-        plain(&hint_text(model, width)),
-        model.focus() == Focus::Help,
-        model,
-    ));
     sections
 }
 
@@ -713,14 +764,37 @@ fn on_off(enabled: bool) -> &'static str {
     if enabled { "on" } else { "off" }
 }
 
+fn top_bar_line(model: &Explorer, _width: usize) -> Line<'static> {
+    let mut line = connection_line(model, false);
+    line.spans.push(paint(model, Tone::Plain, " | "));
+    line.spans.extend(breadcrumb_line(model).spans);
+    line
+}
+
 fn breadcrumb_line(model: &Explorer) -> Line<'static> {
     if model.at_home() {
         return Line::from(paint(model, Tone::Accent, "Home"));
     }
-    Line::from(vec![
+    let mut spans = vec![
         paint(model, Tone::Plain, "Home / "),
         paint(model, Tone::Accent, model.workspace().task()),
-    ])
+    ];
+    match model.workspace() {
+        Workspace::Explore | Workspace::Globe => {
+            if let Some(row) = model.selected() {
+                spans.push(paint(model, Tone::Plain, " / "));
+                spans.push(paint(model, Tone::Muted, sanitize(&row.name, 28)));
+            }
+        }
+        Workspace::Recordings => {
+            if let Some(rec) = model.selected_recording() {
+                spans.push(paint(model, Tone::Plain, " / "));
+                spans.push(paint(model, Tone::Muted, sanitize(&rec.id, 28)));
+            }
+        }
+        _ => {}
+    }
+    Line::from(spans)
 }
 
 fn shows_directory(model: &Explorer) -> bool {
@@ -860,51 +934,42 @@ fn identity_lines(model: &Explorer) -> Vec<Line<'static>> {
     }
     let Some(row) = model.selected() else {
         return vec![
-            Line::from(vec![
-                paint(model, Tone::Plain, "Selected station: "),
-                paint(model, Tone::Plain, "none"),
-            ]),
-            Line::from(vec![
-                paint(model, Tone::Plain, "Directory health: "),
-                paint(model, tone_for_state("unknown"), "unknown"),
-            ]),
-            Line::from(vec![
-                paint(model, Tone::Plain, "Directory languages: "),
-                paint(model, Tone::Plain, "unknown"),
-            ]),
+            Line::from(vec![paint(model, Tone::Plain, "Selected station: none")]),
+            Line::from(vec![paint(
+                model,
+                Tone::Plain,
+                "Directory health: unknown | Directory languages: unknown",
+            )]),
         ];
     };
-    let mut health = vec![
-        paint(model, Tone::Plain, "Directory health: "),
-        paint(
-            model,
-            tone_for_state(row.directory_health.label()),
-            row.directory_health.label(),
-        ),
-        paint(
-            model,
-            Tone::Plain,
-            match age_label(row.observed_ms, model.now_ms()).as_str() {
-                "unknown" => " | observed at an unknown time".to_owned(),
-                age => format!(" | observed {age} ago"),
-            },
-        ),
-    ];
-    if row.hls {
-        health.push(paint(model, Tone::Plain, " | directory marks HLS"));
-    }
+    let age = match age_label(row.observed_ms, model.now_ms()).as_str() {
+        "unknown" => "observed at an unknown time".to_owned(),
+        age => format!("observed {age} ago"),
+    };
+    let hls = if row.hls {
+        " | directory marks HLS"
+    } else {
+        ""
+    };
+    let lang_raw = sanitize(&row.directory_languages, 60);
+    let lang = known(&lang_raw);
     vec![
         Line::from(vec![
             paint(model, Tone::Plain, "Selected station: "),
-            paint(model, Tone::Plain, sanitize(&row.name, 60)),
+            paint(model, Tone::Plain, sanitize(&row.name, 40)),
+            paint(model, Tone::Plain, format!(" | {age}{hls}")),
         ]),
-        Line::from(health),
         Line::from(vec![
-            paint(model, Tone::Plain, "Directory languages: "),
+            paint(model, Tone::Plain, "Directory health: "),
+            paint(
+                model,
+                tone_for_state(row.directory_health.label()),
+                row.directory_health.label(),
+            ),
             paint(
                 model,
                 Tone::Plain,
-                known(&sanitize(&row.directory_languages, 60)).to_owned(),
+                format!(" | Directory languages: {lang}"),
             ),
         ]),
     ]
@@ -1144,7 +1209,9 @@ fn explore_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'sta
     let mut lines = vec![Line::from(paint(model, Tone::Muted, header))];
     let window = height.saturating_sub(1).max(1);
     let start = visible_start(model.selection(), model.rows().len(), window);
-    let focused = model.focus() == Focus::Results && !model.modes().linear;
+    let focused = (model.focus() == Focus::Results
+        || (model.workspace() == Workspace::Globe && model.focus() == Focus::Detail))
+        && !model.modes().linear;
     for (offset, row) in model.rows().iter().enumerate().skip(start).take(window) {
         let selected = offset == model.selection();
         let mut spans = vec![
@@ -2195,7 +2262,7 @@ mod tests {
         let identity = text.find("Selected station:").unwrap_or(0);
         let playback = text.find("Listen:").unwrap_or(usize::MAX);
         let help = text.find("Help:").unwrap_or(usize::MAX);
-        assert!(help < search, "{text}");
+        assert!(search < help, "{text}");
         assert!(playback < search, "{text}");
         assert!(search < identity, "{text}");
         assert!(!colored);
@@ -2297,7 +2364,7 @@ mod tests {
                 .filter(|line| line.contains(" | succeeded"))
                 .count()
         };
-        assert_eq!(rows(&small), 13, "{small}");
+        assert_eq!(rows(&small), 15, "{small}");
         assert_eq!(rows(&large), 16, "{large}");
         assert_eq!(rows(&huge), 16, "{huge}");
         assert!(small.contains("Stations, page 1 (n more)"), "{small}");

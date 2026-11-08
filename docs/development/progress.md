@@ -1,8 +1,14 @@
 # Implementation progress
 
-Updated: 2026-11-04. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
+Updated: 2026-11-08. Status: active implementation toward the first complete release (roadmap stage 7). No roadmap stage is exited and there is no supported release.
 
 This record holds current state only. The detailed narrative from 2026-09-20 to 2026-09-24, including every earlier verification run, pilot and fault note, is preserved in [September 2026 history](progress-history-2026-09.md). Decision records hold each operation's contract. Research records hold dated external evidence.
+
+## 2026-11-08 TUI navigation and chrome consolidation
+
+[Decision 0123](../decisions/0123-tui-navigation-and-chrome-consolidation.md) consolidates top chrome into a single top status bar when terminal width permits (>= 80 columns), keeping connection details, active playback/recording states, and hierarchical breadcrumbs whole. Keyboard shortcuts and hint pairs are relocated to the bottom of the screen in standard full-screen views. Station identity blocks are aligned into 2 lines displaying station name, directory health, observed age, HLS markers, and directory languages, allowing 15 station rows at standard 80x24. The Globe header is compressed to 1 line. The Globe station list renders as an alongside panel (>= 100 columns) or a 3-row compact bottom drawer (< 100 columns), providing at least 15 canvas rows at 80x24. Full zoom (`z`) toggles full canvas view (18-19 rows). Direct station selection auto-glides coordinates toward the selected station. Tab toggles focus between globe turn and stations list. Catalog schema stays v54. Local IPC stays v58. Issues 40, 41, and 45 checklists are met. Issues 13, 14, 38, 43, 44, 48, 49, and 53 stay open. No stage exit is claimed.
+
+Warnings-denied Clippy for `sigy` exited 0. The `sigy` binary tests passed 452, with 5 ignored, in 86.19 seconds. `cargo visual-qa` exited 0 and rendered all 94 frames. Full `cargo verify` was not re-run. Coverage was not run. `cargo verify-media` was not run. This slice does not change playback admission, recording publication, or HTTP acquisition. External spend is USD 0.
 
 ## 2026-11-04 research archive dependency
 
