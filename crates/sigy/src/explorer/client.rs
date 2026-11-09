@@ -6,11 +6,14 @@ use sigy_service::{
     Error,
     control::{
         self, ClaimOperation, ClaimPage, DirectoryOperation, DvrOperation, ListenView,
-        MonitorOperation, MonitorPage, Operation, RecordingOperation, Snapshot,
+        MonitorOperation, MonitorPage, Operation, RecordingOperation, ScheduleOperation, Snapshot,
+        TaskOperation, TaskPage,
     },
     library::Library,
     storage::dvr::DvrStatus,
 };
+
+use crate::explorer::jobs::{CaptureJob, PageCursors, ScheduleJob, TaskJob};
 
 #[cfg(test)]
 use crate::explorer::state::Effect;
@@ -107,6 +110,10 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
             adopt_claim_show(model, id, result);
             Ok(())
         }
+        Effect::JobsList
+        | Effect::JobCaptureShow { .. }
+        | Effect::JobScheduleShow { .. }
+        | Effect::JobTaskShow { .. } => perform_job(directory, model, effect).await,
         Effect::Search(query) => {
             adopt_search(
                 model,
@@ -146,6 +153,51 @@ pub async fn perform(directory: &Path, model: &mut Explorer, effect: &Effect) ->
 }
 
 #[cfg(test)]
+async fn perform_job(directory: &Path, model: &mut Explorer, effect: &Effect) -> Result<(), Error> {
+    match effect {
+        Effect::JobsList => {
+            let pages = load_jobs(directory, &model.jobs.cursors()).await;
+            adopt_jobs_list(model, pages);
+            Ok(())
+        }
+        Effect::JobCaptureShow { id } => {
+            let result = fetch(
+                directory,
+                Operation::Record {
+                    command: RecordingOperation::Show { id: id.clone() },
+                },
+            )
+            .await;
+            adopt_job_capture_show(model, id, result);
+            Ok(())
+        }
+        Effect::JobScheduleShow { id } => {
+            let result = fetch(
+                directory,
+                Operation::Schedule {
+                    command: ScheduleOperation::Show { id: id.clone() },
+                },
+            )
+            .await;
+            adopt_job_schedule_show(model, id, result);
+            Ok(())
+        }
+        Effect::JobTaskShow { id } => {
+            let result = fetch(
+                directory,
+                Operation::Task {
+                    command: TaskOperation::Show { id: id.clone() },
+                },
+            )
+            .await;
+            adopt_job_task_show(model, id, result);
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
 pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
     match effect {
         Effect::None
@@ -181,6 +233,38 @@ pub fn operations_for(effect: &Effect, model: &Explorer) -> Vec<Operation> {
         Effect::FindingOriginal { recording } => vec![original_operation(recording)],
         Effect::ClaimList => vec![claim_list_operation()],
         Effect::ClaimShow { id } => vec![claim_show_operation(id)],
+        Effect::JobsList => {
+            let cursors = model.jobs.cursors();
+            vec![
+                Operation::Record {
+                    command: RecordingOperation::List {
+                        after: cursors.captures,
+                        limit: u32::try_from(crate::explorer::jobs::PAGE_LIMIT).unwrap_or(16),
+                    },
+                },
+                Operation::Schedule {
+                    command: ScheduleOperation::List {
+                        after: cursors.schedules,
+                        limit: u32::try_from(crate::explorer::jobs::PAGE_LIMIT).unwrap_or(16),
+                    },
+                },
+                Operation::Task {
+                    command: TaskOperation::List {
+                        after: cursors.tasks,
+                        limit: u32::try_from(crate::explorer::jobs::PAGE_LIMIT).unwrap_or(16),
+                    },
+                },
+            ]
+        }
+        Effect::JobCaptureShow { id } => vec![Operation::Record {
+            command: RecordingOperation::Show { id: id.clone() },
+        }],
+        Effect::JobScheduleShow { id } => vec![Operation::Schedule {
+            command: ScheduleOperation::Show { id: id.clone() },
+        }],
+        Effect::JobTaskShow { id } => vec![Operation::Task {
+            command: TaskOperation::Show { id: id.clone() },
+        }],
         Effect::Reload => vec![
             Operation::Status {},
             radio_status(),
@@ -446,6 +530,285 @@ pub(super) fn adopt_original(
                 model.open_finding_recording(recording_from(&page.entries[0]));
             } else {
                 model.note_message("Unexpected recording page; previous citation kept.");
+            }
+        }
+        Err(error) => report(model, &error),
+    }
+}
+
+pub(super) struct JobsPages {
+    pub records: Result<(bool, Snapshot), Error>,
+    pub schedules: Result<(bool, Snapshot), Error>,
+    pub tasks: Result<(bool, Snapshot), Error>,
+    pub task_views: Vec<sigy_service::task::TaskView>,
+}
+
+pub(super) async fn load_jobs(directory: &Path, cursors: &PageCursors) -> JobsPages {
+    let limit = u32::try_from(crate::explorer::jobs::PAGE_LIMIT).unwrap_or(16);
+    let records = fetch(
+        directory,
+        Operation::Record {
+            command: RecordingOperation::List {
+                after: cursors.captures.clone(),
+                limit,
+            },
+        },
+    )
+    .await;
+    let schedules = fetch(
+        directory,
+        Operation::Schedule {
+            command: ScheduleOperation::List {
+                after: cursors.schedules.clone(),
+                limit,
+            },
+        },
+    )
+    .await;
+    let tasks = fetch(
+        directory,
+        Operation::Task {
+            command: TaskOperation::List {
+                after: cursors.tasks.clone(),
+                limit,
+            },
+        },
+    )
+    .await;
+    let task_views = task_views(directory, &tasks).await;
+    JobsPages {
+        records,
+        schedules,
+        tasks,
+        task_views,
+    }
+}
+
+async fn task_views(
+    directory: &Path,
+    tasks: &Result<(bool, Snapshot), Error>,
+) -> Vec<sigy_service::task::TaskView> {
+    let Ok((_, snapshot)) = tasks else {
+        return Vec::new();
+    };
+    let Some(TaskPage::List { ids, .. }) = snapshot.task.as_deref() else {
+        return Vec::new();
+    };
+    let mut views = Vec::new();
+    for id in ids.iter().take(crate::explorer::jobs::PAGE_LIMIT) {
+        let Ok((_, shown)) = fetch(
+            directory,
+            Operation::Task {
+                command: TaskOperation::Show { id: id.clone() },
+            },
+        )
+        .await
+        else {
+            continue;
+        };
+        if let Some(TaskPage::Task { task, .. }) = shown.task.as_deref() {
+            views.push(task.as_ref().clone());
+        }
+    }
+    views
+}
+
+fn keep_jobs_snapshot(model: &mut Explorer) {
+    model.jobs.mark_disconnected();
+    model.note_message("Jobs read failed. The last snapshot stays. r retries.");
+}
+
+pub(super) fn adopt_jobs_list(model: &mut Explorer, pages: JobsPages) {
+    let directory = model.explicit_data_dir().map(str::to_owned);
+    let Ok((via_records, records)) = pages.records else {
+        keep_jobs_snapshot(model);
+        return;
+    };
+    let Ok((via_schedules, schedules)) = pages.schedules else {
+        keep_jobs_snapshot(model);
+        return;
+    };
+    let Ok((via_tasks, tasks)) = pages.tasks else {
+        keep_jobs_snapshot(model);
+        return;
+    };
+    let link = link_from(via_records || via_schedules || via_tasks, &records);
+    let Some(record_page) = records.recording_page else {
+        keep_jobs_snapshot(model);
+        return;
+    };
+    let Some(schedule_page) = schedules.schedule else {
+        keep_jobs_snapshot(model);
+        return;
+    };
+    let Some(TaskPage::List { ids, next_after }) = tasks.task.map(|page| *page) else {
+        keep_jobs_snapshot(model);
+        return;
+    };
+    model.note_link(link);
+    let captures = record_page
+        .entries
+        .iter()
+        .map(|record| capture_job(record, directory.as_deref()))
+        .collect();
+    let schedule_rows = schedule_page
+        .rules
+        .iter()
+        .map(|rule| schedule_job(rule, directory.as_deref()))
+        .collect();
+    let task_rows = ids
+        .iter()
+        .map(|id| {
+            let view = pages.task_views.iter().find(|view| view.id == *id);
+            task_job(id, view, directory.as_deref())
+        })
+        .collect();
+    let capture_next = record_page.next_after;
+    let schedule_next = schedule_page.next_after;
+    model
+        .jobs
+        .load_data(captures, schedule_rows, task_rows, model.now_ms());
+    model
+        .jobs
+        .commit_page(capture_next, schedule_next, next_after);
+}
+
+fn capture_job(
+    record: &sigy_service::storage::dvr::Recording,
+    directory: Option<&str>,
+) -> CaptureJob {
+    CaptureJob {
+        id: record.id.clone(),
+        source: record.source_revision.clone(),
+        elapsed_seconds: record
+            .decoded_microseconds
+            .map_or(0, |microseconds| microseconds / 1_000_000),
+        bound_seconds: record.duration_seconds,
+        max_bytes: record.maximum_bytes,
+        running: matches!(
+            record.state.as_str(),
+            "scheduled" | "starting" | "running" | "retrying" | "stopping"
+        ),
+        management_cmd: manage(directory, "record show", &record.id),
+    }
+}
+
+fn schedule_job(
+    rule: &sigy_service::control::ScheduleRuleView,
+    directory: Option<&str>,
+) -> ScheduleJob {
+    let clock = format!("{:02}:{:02}", rule.hour, rule.minute);
+    let rule_time = match rule.recurrence.as_str() {
+        "once" => format!("once {}", rule.civil_date.as_deref().unwrap_or("unknown")),
+        "weekly" => format!(
+            "weekly {} {clock}",
+            rule.weekday.as_deref().unwrap_or("unknown")
+        ),
+        other => format!("{other} {clock}"),
+    };
+    ScheduleJob {
+        id: rule.id.clone(),
+        source: rule.source_revision.clone(),
+        zone: rule.zone.clone(),
+        rule_time,
+        management_cmd: manage(directory, "schedule show", &rule.id),
+    }
+}
+
+fn task_job(
+    id: &str,
+    view: Option<&sigy_service::task::TaskView>,
+    directory: Option<&str>,
+) -> TaskJob {
+    let (goal, scope_window, state_or_checkpoint) = view.map_or_else(
+        || {
+            (
+                String::new(),
+                "scope unread".to_owned(),
+                "checkpoint unread".to_owned(),
+            )
+        },
+        |task| {
+            let state = task.latest_checkpoint.as_ref().map_or_else(
+                || format!("checkpoint {}", task.checkpoint),
+                |checkpoint| format!("checkpoint {}", checkpoint.ordinal),
+            );
+            (
+                task.spec.goal.clone(),
+                format!(
+                    "{} to {}",
+                    super::globe::utc_label(task.spec.from_ms),
+                    super::globe::utc_label(task.spec.to_ms)
+                ),
+                state,
+            )
+        },
+    );
+    TaskJob {
+        id: id.to_owned(),
+        goal,
+        scope_window,
+        state_or_checkpoint,
+        management_cmd: manage(directory, "task show", id),
+    }
+}
+
+fn manage(directory: Option<&str>, verb: &str, id: &str) -> String {
+    sigy_service::guidance::with_data_dir(
+        &format!("sigy {verb} {}", sigy_service::guidance::shell_quote(id)),
+        directory,
+    )
+}
+
+pub(super) fn adopt_job_capture_show(
+    model: &mut Explorer,
+    id: &str,
+    result: Result<(bool, Snapshot), Error>,
+) {
+    match result {
+        Ok((via_service, snapshot)) => {
+            model.note_link(link_from(via_service, &snapshot));
+            if let Some(page) = snapshot.recording_page
+                && let Some(record) = page.entries.into_iter().find(|r| r.id == id)
+            {
+                model.jobs.load_capture_detail(record);
+            }
+        }
+        Err(error) => report(model, &error),
+    }
+}
+
+pub(super) fn adopt_job_schedule_show(
+    model: &mut Explorer,
+    id: &str,
+    result: Result<(bool, Snapshot), Error>,
+) {
+    match result {
+        Ok((via_service, snapshot)) => {
+            model.note_link(link_from(via_service, &snapshot));
+            if let Some(page) = snapshot.schedule
+                && let Some(rule) = page.rules.into_iter().find(|r| r.id == id)
+            {
+                model.jobs.load_schedule_detail(rule, page.occurrences);
+            }
+        }
+        Err(error) => report(model, &error),
+    }
+}
+
+pub(super) fn adopt_job_task_show(
+    model: &mut Explorer,
+    id: &str,
+    result: Result<(bool, Snapshot), Error>,
+) {
+    match result {
+        Ok((via_service, snapshot)) => {
+            model.note_link(link_from(via_service, &snapshot));
+            if let Some(task_page) = snapshot.task
+                && let TaskPage::Task { task, .. } = *task_page
+                && task.id == id
+            {
+                model.jobs.load_task_detail(*task);
             }
         }
         Err(error) => report(model, &error),
@@ -1325,10 +1688,16 @@ mod tests {
         assert_eq!(status.captures.active, 0);
         assert_eq!(status.captures.scheduled, 0);
         assert!(explorer.playback().is_none());
+        assert_eq!(
+            explorer
+                .findings
+                .handle(&crate::explorer::state::Key::Char('d')),
+            Some(crate::explorer::state::Effect::None)
+        );
         assert!(
             explorer
                 .findings
-                .lines(20, 132, 0)
+                .lines(40, 132, 0)
                 .join("\n")
                 .contains("Current media unread")
         );

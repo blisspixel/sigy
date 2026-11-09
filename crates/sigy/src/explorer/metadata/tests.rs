@@ -293,7 +293,7 @@ fn stale_success_and_failure_leave_the_newer_view() -> TestResult {
         &mut model,
         &effect,
     )?;
-    assert_eq!(model.handle(Key::Left), Effect::None);
+    assert_eq!(model.handle(Key::Left), Effect::JobsList);
     let status = model.status().to_owned();
     cleanup.release(1);
     drain(

@@ -218,7 +218,7 @@ impl Timeline {
 }
 
 /// `m:ss`, or `h:mm:ss` once the duration reaches an hour. Integer seconds, rounded down.
-fn clock_label(us: u64) -> String {
+pub(crate) fn clock_label(us: u64) -> String {
     let seconds = us / 1_000_000;
     let minutes = seconds / 60;
     let secs = seconds % 60;

@@ -233,7 +233,7 @@ impl Explorer {
             }
             Workspace::Recordings => self.selected_recording().is_some(),
             Workspace::Findings => self.findings.has_page() || !self.findings.query().is_empty(),
-            Workspace::Live | Workspace::Monitors | Workspace::System => false,
+            Workspace::Live | Workspace::Monitors | Workspace::System | Workspace::Jobs => false,
         }
     }
 
@@ -246,7 +246,9 @@ impl Explorer {
             Workspace::Explore | Workspace::Globe | Workspace::Live => {
                 actions::play_command(self.station_id())
             }
-            Workspace::Monitors | Workspace::System => actions::play_command(None),
+            Workspace::Monitors | Workspace::System | Workspace::Jobs => {
+                actions::play_command(None)
+            }
         }
     }
 
@@ -278,7 +280,7 @@ impl Explorer {
             Workspace::Recordings => self.recording_play_block(),
             Workspace::Findings => self.finding_play_block(),
             Workspace::Explore | Workspace::Globe | Workspace::Live => self.station_play_block(),
-            Workspace::Monitors | Workspace::System => None,
+            Workspace::Monitors | Workspace::System | Workspace::Jobs => None,
         }
     }
 

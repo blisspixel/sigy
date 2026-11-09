@@ -26,6 +26,7 @@ pub struct Browser {
     query: String,
     editing: bool,
     page: Option<FindingPage>,
+    detailed: bool,
     offset: usize,
     current_media: Option<String>,
     message: Option<String>,
@@ -38,8 +39,26 @@ impl Browser {
         &self.query
     }
 
-    pub(super) const fn has_page(&self) -> bool {
+    #[must_use]
+    pub const fn has_page(&self) -> bool {
         self.page.is_some()
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub const fn is_detailed(&self) -> bool {
+        self.detailed
+    }
+
+    /// Leaves finding detail back to the landing page. `false` if already on landing.
+    pub fn leave_page(&mut self) -> bool {
+        if self.page.take().is_some() {
+            self.detailed = false;
+            self.offset = 0;
+            self.message = None;
+            return true;
+        }
+        false
     }
 
     /// Recording id of the loaded citation, when that id is present.
@@ -53,6 +72,7 @@ impl Browser {
         })
     }
 
+    #[must_use]
     pub const fn editing(&self) -> bool {
         self.editing
     }
@@ -63,6 +83,18 @@ impl Browser {
         }
         match key {
             Key::Char('/') => self.editing = true,
+            Key::Char('d') => {
+                if self.page.is_some() {
+                    self.detailed = !self.detailed;
+                    self.offset = 0;
+                }
+            }
+            Key::Escape | Key::Backspace => {
+                if self.leave_page() {
+                    return Some(Effect::None);
+                }
+                return None;
+            }
             Key::Enter | Key::Char('r') => return Some(self.lookup()),
             Key::Char('o') => {
                 return Some(self.page.as_ref().map_or(Effect::None, |page| {
@@ -159,6 +191,7 @@ impl Browser {
             return false;
         }
         self.page = Some(page.clone());
+        self.detailed = false;
         self.offset = 0;
         self.current_media = None;
         self.message = None;
@@ -213,7 +246,7 @@ impl Browser {
         lines
     }
 
-    fn query_line(&self, width: usize) -> String {
+    pub(crate) fn query_line(&self, width: usize) -> String {
         let prefix = if width < 28 {
             "IDs: ["
         } else if self.editing {
@@ -237,8 +270,13 @@ impl Browser {
 
     fn wrapped_detail(&self) -> Vec<String> {
         let width = self.viewport_width.get().max(2);
+        let content = if self.detailed {
+            self.detail()
+        } else {
+            self.summary(width)
+        };
         let mut rows = Vec::new();
-        for text in self.detail() {
+        for text in content {
             let line = ratatui::text::Line::raw(text);
             let mut row = String::new();
             let mut cells = 0;
@@ -256,7 +294,64 @@ impl Browser {
         rows
     }
 
-    fn detail(&self) -> Vec<String> {
+    /// Concise summary shown first for a loaded finding.
+    pub fn summary(&self, width: usize) -> Vec<String> {
+        let mut lines: Vec<_> = self.message.iter().cloned().collect();
+        let Some(page) = &self.page else {
+            lines.push("Named lookup only. No finding enumeration. Classification off.".into());
+            return lines;
+        };
+        let interval = page.start_us.zip(page.end_us).map_or_else(
+            || "none".into(),
+            |(start, end)| {
+                let duration = end.saturating_sub(start) / 1_000_000;
+                format!(
+                    "{}-{} ({duration}s)",
+                    super::timeline::clock_label(start),
+                    super::timeline::clock_label(end)
+                )
+            },
+        );
+        let transcript = format!(
+            "Transcript: {} revision {} cue {} | translation revision {}{}",
+            sanitize(&page.transcript_id, 128),
+            page.transcript_revision,
+            page.cue_ordinal,
+            page.translation_revision,
+            if page.stale_transcript == Some(true) {
+                " | stale"
+            } else {
+                ""
+            }
+        );
+        lines.push(format!(
+            "Finding: {} / {}",
+            sanitize(&page.monitor_id, 128),
+            sanitize(&page.id, 128)
+        ));
+        lines.push(transcript);
+        lines.push(format!(
+            "Cited interval: {interval} in recording {}",
+            sanitize(&page.recording_id, 128)
+        ));
+        lines.extend(fit_line(
+            "Original:",
+            &sanitize(&page.original_script, 160),
+            width,
+        ));
+        lines.extend(fit_line(
+            "English:",
+            &sanitize(page.english.as_deref().unwrap_or("untranslated"), 160),
+            width,
+        ));
+        lines.push(
+            "d shows full text and boundary notes. P plays the cited interval. Esc returns.".into(),
+        );
+        lines
+    }
+
+    /// Full detailed view with exact microsecond interval, script, translation, and boundary notes.
+    pub fn detail(&self) -> Vec<String> {
         let mut lines: Vec<_> = self.message.iter().cloned().collect();
         let Some(page) = &self.page else {
             lines.push("Named lookup only. No finding enumeration. Classification off.".into());
@@ -315,6 +410,16 @@ impl Browser {
             "Reads are separate snapshots. Selection admits no work.".into(),
         ]);
         lines
+    }
+}
+
+/// Keeps a short label and its text on one line when the pane can hold both.
+fn fit_line(label: &str, text: &str, width: usize) -> Vec<String> {
+    let combined = format!("{label} {text}");
+    if ratatui::text::Line::raw(&combined).width() <= width {
+        vec![combined]
+    } else {
+        vec![label.to_owned(), text.to_owned()]
     }
 }
 

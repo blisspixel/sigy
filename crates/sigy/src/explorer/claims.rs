@@ -11,6 +11,7 @@ use super::{
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Browser {
     open: bool,
+    list_read: bool,
     ids: Vec<String>,
     selection: usize,
     page: Option<ClaimView>,
@@ -19,8 +20,15 @@ pub struct Browser {
 }
 
 impl Browser {
+    #[must_use]
     pub const fn open(&self) -> bool {
         self.open
+    }
+
+    /// A claim-id read has been applied. An empty list before that is unread.
+    #[must_use]
+    pub const fn list_read(&self) -> bool {
+        self.list_read
     }
 
     pub(super) fn open_list(&mut self) {
@@ -39,6 +47,7 @@ impl Browser {
 
     pub(super) fn load_ids(&mut self, ids: Vec<String>) {
         self.ids = ids;
+        self.list_read = true;
         self.selection = self.selection.min(self.ids.len().saturating_sub(1));
         self.page = None;
         self.offset = 0;
@@ -88,6 +97,8 @@ impl Browser {
     pub(super) fn lines(&self, limit: usize) -> Vec<String> {
         let body = if let Some(claim) = &self.page {
             rendered(claim)
+        } else if !self.list_read {
+            vec!["Stored claims unread. This screen reads them and writes nothing.".into()]
         } else if self.ids.is_empty() {
             vec!["No claims. Create one with sigy claim create ID --text TEXT.".into()]
         } else {

@@ -203,7 +203,11 @@ impl Audio {
             | Effect::Finding { .. }
             | Effect::FindingOriginal { .. }
             | Effect::ClaimList
-            | Effect::ClaimShow { .. } => {}
+            | Effect::ClaimShow { .. }
+            | Effect::JobsList
+            | Effect::JobCaptureShow { .. }
+            | Effect::JobScheduleShow { .. }
+            | Effect::JobTaskShow { .. } => {}
         }
     }
 

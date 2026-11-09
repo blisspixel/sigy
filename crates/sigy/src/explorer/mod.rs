@@ -12,6 +12,7 @@ mod follow;
 mod globe;
 mod handoff;
 mod interval;
+pub(crate) mod jobs;
 mod metadata;
 mod monitor;
 mod pause;
@@ -100,6 +101,10 @@ pub fn run(
     }
     let desk = runtime.block_on(client::load_desk(data_dir, &model.current_search(), now))?;
     model.apply_desk(desk);
+    if open_home {
+        let pages = runtime.block_on(client::load_jobs(data_dir, &model.jobs.cursors()));
+        client::adopt_jobs_list(&mut model, pages);
+    }
     terminal::drive(&runtime, data_dir, &mut model, inspect)?;
     if inspect.is_none() && model.rows().is_empty() {
         writeln!(

@@ -51,7 +51,7 @@ sigy init --radio
 sigy tui
 ```
 
-`sigy tui` opens on Home unless a country, name, language, tag, or health filter is set.
+`sigy tui` opens on Home unless a country, name, language, tag, or health filter is set. Home lists eight tasks. Digit `4` opens Watch topics, digit `5` opens Findings, and digit `8` opens the read-only Jobs screen.
 
 For a more useful first page, choose a country and tag: `sigy init --radio --country Canada --tag jazz`. Later, `sigy radio search --country CA --tag jazz --fetch` searches the cache and explicitly requests one matching directory page when needed. `sigy radio refresh --wait` requests a fresh page with an automatic request ID.
 

@@ -33,8 +33,9 @@ pub enum Workspace {
     Recordings,
     Monitors,
     Findings,
-    Globe,
     System,
+    Globe,
+    Jobs,
 }
 
 impl Workspace {
@@ -48,8 +49,9 @@ impl Workspace {
             Self::Recordings => "Recordings",
             Self::Monitors => "Monitors",
             Self::Findings => "Findings",
-            Self::Globe => "Globe",
             Self::System => "System",
+            Self::Globe => "Globe",
+            Self::Jobs => "Jobs",
         }
     }
 
@@ -62,8 +64,9 @@ impl Workspace {
                 | Self::Recordings
                 | Self::Monitors
                 | Self::Findings
-                | Self::Globe
                 | Self::System
+                | Self::Globe
+                | Self::Jobs
         )
     }
 
@@ -78,6 +81,7 @@ impl Workspace {
             Self::Findings => '5',
             Self::System => '6',
             Self::Globe => '7',
+            Self::Jobs => '8',
         }
     }
 
@@ -92,6 +96,7 @@ impl Workspace {
             Self::Findings => "Findings",
             Self::System => "System",
             Self::Globe => "Globe",
+            Self::Jobs => "Jobs",
         }
     }
 
@@ -104,11 +109,12 @@ impl Workspace {
             Self::Findings => 4,
             Self::System => 5,
             Self::Globe => 6,
+            Self::Jobs => 7,
         }
     }
 
     /// Every workspace in number-key order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Explore,
         Self::Live,
         Self::Recordings,
@@ -116,6 +122,7 @@ impl Workspace {
         Self::Findings,
         Self::System,
         Self::Globe,
+        Self::Jobs,
     ];
 
     const fn cycle(self, forward: bool) -> Self {
@@ -125,8 +132,9 @@ impl Workspace {
             (Self::Recordings, true) | (Self::Findings, false) => Self::Monitors,
             (Self::Monitors, true) | (Self::System, false) => Self::Findings,
             (Self::Findings, true) | (Self::Globe, false) => Self::System,
-            (Self::System, true) | (Self::Explore, false) => Self::Globe,
-            (Self::Globe, true) | (Self::Live, false) => Self::Explore,
+            (Self::System, true) | (Self::Jobs, false) => Self::Globe,
+            (Self::Globe, true) | (Self::Explore, false) => Self::Jobs,
+            (Self::Jobs, true) | (Self::Live, false) => Self::Explore,
         }
     }
 }
@@ -582,6 +590,20 @@ pub enum Effect {
     ClaimShow {
         id: String,
     },
+    /// Read jobs list (captures, schedules, tasks).
+    JobsList,
+    /// Read one capture detail.
+    JobCaptureShow {
+        id: String,
+    },
+    /// Read one schedule detail.
+    JobScheduleShow {
+        id: String,
+    },
+    /// Read one task detail.
+    JobTaskShow {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -691,6 +713,7 @@ pub struct Explorer {
     pub monitors: super::monitor::Browser,
     pub findings: super::finding::Browser,
     pub claims: super::claims::Browser,
+    pub jobs: super::jobs::Browser,
 }
 
 /// What the Globe workspace shows. Changing it never contacts a station.
@@ -796,6 +819,7 @@ impl Explorer {
             monitors: super::monitor::Browser::default(),
             findings: super::finding::Browser::default(),
             claims: super::claims::Browser::default(),
+            jobs: super::jobs::Browser::default(),
         }
     }
 
@@ -1177,6 +1201,7 @@ impl Explorer {
         self.pending_favorite = None;
         self.pending_protect = None;
         self.protect_confirmation = None;
+        self.jobs.mark_disconnected();
         self.status = sanitize(
             &format!(
                 "Disconnected. Capture was not stopped. Last snapshot kept. r reconnects. Cause: {reason}."
@@ -1312,6 +1337,10 @@ impl Explorer {
         Ok(())
     }
 
+    pub(super) fn explicit_data_dir(&self) -> Option<&str> {
+        self.explicit_directory.as_deref()
+    }
+
     pub(crate) fn discovery_command(&self) -> String {
         let hint = sigy_service::guidance::DirectoryHint {
             filter: self.search.applied.filter.clone(),
@@ -1416,7 +1445,7 @@ impl Explorer {
         if let Some(effect) = self.menu_key(&key) {
             return effect;
         }
-        if !self.text_entry()
+        if self.transport_applies()
             && let Some(effect) = Self::transport_key(&key)
         {
             return effect;
@@ -1433,36 +1462,8 @@ impl Explorer {
         if self.context.is_some() {
             return self.context_key(&key);
         }
-        if self.workspace == Workspace::Findings {
-            if self.claims.open() {
-                if matches!(key, Key::Char('0')) {
-                    self.claims.close();
-                    return self.go_home();
-                }
-                if leaves_claim_page(&key) {
-                    self.claims.close();
-                } else {
-                    let effect = self.claims.handle(&key);
-                    if matches!(key, Key::Escape | Key::Backspace) {
-                        self.invalidate_reads();
-                    }
-                    return effect;
-                }
-            } else if matches!(key, Key::Char('c')) {
-                self.invalidate_reads();
-                self.claims.open_list();
-                return Effect::ClaimList;
-            }
-            let previous_query = self.findings.query().to_owned();
-            if let Some(effect) = self.findings.handle(&key) {
-                if self.findings.query() != previous_query {
-                    self.invalidate_reads();
-                }
-                return effect;
-            }
-            if let Some(effect) = self.finding_play_key(&key) {
-                return effect;
-            }
+        if let Some(effect) = self.findings_key(&key) {
+            return effect;
         }
         if self.focus == Focus::Search {
             return self.edit_search(key);
@@ -1478,6 +1479,11 @@ impl Explorer {
         {
             return effect;
         }
+        if self.workspace == Workspace::Jobs
+            && let Some(effect) = self.jobs_key(&key)
+        {
+            return effect;
+        }
         if self.workspace == Workspace::Recordings {
             if let Some(effect) = self.recording_play_key(&key) {
                 return effect;
@@ -1487,6 +1493,77 @@ impl Explorer {
             }
         }
         self.handle_browser(&key)
+    }
+
+    fn transport_applies(&self) -> bool {
+        !self.text_entry() && (self.at_home() || self.workspace != Workspace::Jobs)
+    }
+
+    fn findings_key(&mut self, key: &Key) -> Option<Effect> {
+        if self.workspace != Workspace::Findings {
+            return None;
+        }
+        if self.claims.open() {
+            if matches!(key, Key::Char('0')) {
+                self.claims.close();
+                return Some(self.go_home());
+            }
+            if leaves_claim_page(key) {
+                self.claims.close();
+            } else {
+                let effect = self.claims.handle(key);
+                if matches!(key, Key::Escape | Key::Backspace) {
+                    self.invalidate_reads();
+                }
+                return Some(effect);
+            }
+        } else if matches!(key, Key::Char('c')) {
+            self.invalidate_reads();
+            self.claims.open_list();
+            return Some(Effect::ClaimList);
+        }
+        if self.findings.has_page() {
+            let previous_query = self.findings.query().to_owned();
+            if let Some(effect) = self.findings.handle(key) {
+                if self.findings.query() != previous_query {
+                    self.invalidate_reads();
+                }
+                return Some(effect);
+            }
+            if let Some(effect) = self.finding_play_key(key) {
+                return Some(effect);
+            }
+        } else if self.findings.editing() {
+            let previous_query = self.findings.query().to_owned();
+            if let Some(effect) = self.findings.handle(key) {
+                if self.findings.query() != previous_query {
+                    self.invalidate_reads();
+                }
+                return Some(effect);
+            }
+        } else {
+            match key {
+                Key::Char('/') => {
+                    let _ = self.findings.handle(key);
+                    return Some(Effect::None);
+                }
+                Key::Up | Key::Down => {
+                    return Some(self.claims.handle(key));
+                }
+                Key::Enter => {
+                    if !self.findings.query().trim().is_empty() {
+                        let effect = self.findings.handle(key);
+                        return Some(effect.unwrap_or(Effect::None));
+                    }
+                    return Some(self.claims.handle(key));
+                }
+                Key::Escape | Key::Backspace => {
+                    return Some(self.go_home());
+                }
+                _ => {}
+            }
+        }
+        None
     }
 
     fn transport_key(key: &Key) -> Option<Effect> {
@@ -2122,7 +2199,7 @@ impl Explorer {
                 Effect::None
             }
             Key::Char(direction @ ('n' | 'p')) => self.turn_page(*direction == 'n'),
-            Key::Char(character @ '1'..='7') => {
+            Key::Char(character @ '1'..='8') => {
                 self.open_workspace(workspace_from_digit(*character))
             }
             Key::Escape | Key::Backspace | Key::Char('0') => {
@@ -2152,7 +2229,7 @@ impl Explorer {
                 Effect::None
             }
             Key::Enter => self.open_workspace(self.selected_home_workspace()),
-            Key::Char(character @ '1'..='7') => {
+            Key::Char(character @ '1'..='8') => {
                 self.open_workspace(workspace_from_digit(*character))
             }
             Key::Char('e') => self.explore_from_home(),
@@ -2179,7 +2256,8 @@ impl Explorer {
         self.play_confirmation = None;
         self.protect_confirmation = None;
         self.claims.close();
-        let _ = self.monitors.leave_detail();
+        self.monitors.close_detail();
+        let _ = self.jobs.leave_detail();
         self.recording_place = RecordingPlace::List;
         self.focus = Focus::Results;
         self.invalidate_reads();
@@ -2206,6 +2284,10 @@ impl Explorer {
             self.note_message("Listen is already open.");
             return Effect::None;
         }
+        if self.view == View::Workspace && self.workspace == next && next == Workspace::Findings {
+            self.note_message("Findings is already open.");
+            return Effect::None;
+        }
         if next == Workspace::Live {
             self.context = None;
         }
@@ -2221,11 +2303,16 @@ impl Explorer {
             self.claims.close();
         }
         // Opening a task shows its root. A parked monitor or recording detail is not that root.
-        let _ = self.monitors.leave_detail();
+        self.monitors.close_detail();
+        let _ = self.jobs.leave_detail();
         self.recording_place = RecordingPlace::List;
         self.invalidate_reads();
         if self.workspace == Workspace::Monitors {
             Effect::MonitorList
+        } else if self.workspace == Workspace::Jobs {
+            Effect::JobsList
+        } else if self.workspace == Workspace::Findings && !self.claims.list_read() {
+            Effect::ClaimList
         } else if opening_listen {
             self.request_listen_favorites()
         } else {
@@ -2250,6 +2337,7 @@ impl Explorer {
                     | Workspace::Recordings
                     | Workspace::Findings
                     | Workspace::System
+                    | Workspace::Jobs
             )
         {
             self.focus = self.focus.cycle(forward);
@@ -2375,15 +2463,42 @@ impl Explorer {
 
     fn monitor_key(&mut self, key: &Key) -> Option<Effect> {
         match key {
+            Key::Tab | Key::BackTab | Key::Left | Key::Right => {
+                if self.monitors.showing_detail() && !self.monitors.showing_passage_detail() {
+                    self.monitors.switch_tab();
+                    return Some(Effect::None);
+                }
+                return None;
+            }
             Key::Up | Key::Down => self.monitors.move_selection(*key == Key::Down),
             Key::Escape | Key::Backspace => {
                 if self.monitors.leave_detail() {
                     self.invalidate_reads();
-                } else {
-                    return None;
+                    return Some(Effect::None);
                 }
+                return None;
             }
-            Key::Enter => return Some(self.monitors.open()),
+            Key::Enter => {
+                if self.monitors.showing_detail()
+                    && self.monitors.active_tab() == super::monitor::MonitorTab::Passages
+                    && !self.monitors.showing_passage_detail()
+                    && self.monitors.open_passage()
+                {
+                    return Some(Effect::None);
+                }
+                return Some(self.monitors.open());
+            }
+            Key::Char('o') => {
+                if self.monitors.showing_detail()
+                    && self.monitors.active_tab() == super::monitor::MonitorTab::Passages
+                    && let Some(recording) = self.monitors.selected_passage_recording()
+                {
+                    return Some(Effect::FindingOriginal {
+                        recording: recording.to_owned(),
+                    });
+                }
+                self.note_message("Open a passage before o. That opens its recording.");
+            }
             Key::Char('r') => return Some(self.monitors.reload()),
             Key::Char('f' | 'v' | '/') => self.note_message(
                 "Monitor navigation is read-only. Enter inspects coverage and passages.",
@@ -2391,6 +2506,10 @@ impl Explorer {
             _ => return None,
         }
         Some(Effect::None)
+    }
+
+    fn jobs_key(&mut self, key: &Key) -> Option<Effect> {
+        self.jobs.handle(key)
     }
 
     fn edit_search(&mut self, key: Key) -> Effect {
@@ -2599,7 +2718,7 @@ impl Explorer {
 }
 
 fn leaves_claim_page(key: &Key) -> bool {
-    matches!(key, Key::Left | Key::Right | Key::Char('1'..='7'))
+    matches!(key, Key::Left | Key::Right | Key::Char('1'..='8'))
 }
 
 fn workspace_from_digit(character: char) -> Workspace {
@@ -2610,6 +2729,7 @@ fn workspace_from_digit(character: char) -> Workspace {
         '5' => Workspace::Findings,
         '6' => Workspace::System,
         '7' => Workspace::Globe,
+        '8' => Workspace::Jobs,
         _ => Workspace::Explore,
     }
 }
@@ -2949,17 +3069,17 @@ mod tests {
         }
         model.handle(Key::Char('1'));
         for expected in Workspace::ALL.into_iter().skip(1) {
+            if model.workspace() == Workspace::Globe {
+                model.handle(Key::Tab);
+            }
             model.handle(Key::Right);
             assert_eq!(model.workspace(), expected);
         }
-        assert_eq!(model.workspace(), Workspace::Globe);
-        assert_eq!(model.focus(), Focus::Results);
-        model.handle(Key::Tab);
-        assert_eq!(model.focus(), Focus::Detail);
+        assert_eq!(model.workspace(), Workspace::Jobs);
         model.handle(Key::Right);
         assert_eq!(model.workspace(), Workspace::Explore);
         model.handle(Key::Left);
-        assert_eq!(model.workspace(), Workspace::Globe);
+        assert_eq!(model.workspace(), Workspace::Jobs);
     }
 
     #[test]
@@ -3097,7 +3217,7 @@ mod tests {
                 .findings
                 .load("world-news", "one", &finding_page(Some(100), Some(900)))
         );
-        assert_eq!(model.handle(Key::Char('5')), Effect::None);
+        assert_eq!(model.handle(Key::Char('5')), Effect::ClaimList);
         assert!(!matches!(
             model.handle(Key::Enter),
             Effect::PlayFinding { .. }
@@ -3135,7 +3255,7 @@ mod tests {
                 .findings
                 .load("world-news", "one", &finding_page(None, Some(900)))
         );
-        assert_eq!(missing.handle(Key::Char('5')), Effect::None);
+        assert_eq!(missing.handle(Key::Char('5')), Effect::ClaimList);
         assert_eq!(missing.handle(Key::Char('/')), Effect::None);
         assert_eq!(missing.handle(Key::Char('P')), Effect::None);
         assert_eq!(missing.findings.query(), "P");
@@ -3294,7 +3414,7 @@ mod tests {
     #[test]
     fn findings_claim_page_is_read_only_and_closes_when_the_workspace_changes() {
         let mut model = loaded();
-        assert_eq!(model.handle(Key::Char('5')), Effect::None);
+        assert_eq!(model.handle(Key::Char('5')), Effect::ClaimList);
         assert_eq!(model.handle(Key::Char('c')), Effect::ClaimList);
         assert!(model.claims.open());
         assert_eq!(model.handle(Key::Char('P')), Effect::None);
@@ -3306,6 +3426,164 @@ mod tests {
         assert_eq!(model.handle(Key::Char('3')), Effect::None);
         assert_eq!(model.workspace(), Workspace::Recordings);
         assert!(!model.claims.open());
+    }
+
+    #[test]
+    fn findings_landing_lists_claims_before_a_lookup() {
+        let mut model = loaded();
+        assert_eq!(model.handle(Key::Char('5')), Effect::ClaimList);
+        assert!(!model.claims.list_read());
+        let landing = model.claims.lines(8).join("\n");
+        assert!(landing.contains("Stored claims unread"));
+        assert!(!landing.contains("No claims"));
+        assert_eq!(model.handle(Key::Char('5')), Effect::None);
+        assert_eq!(model.handle(Key::Char('/')), Effect::None);
+        model.handle(Key::Paste("world-news one".into()));
+        assert_eq!(model.findings.query(), "world-news one");
+        assert!(model.playback().is_none());
+        assert_eq!(model.captures_active(), 1);
+    }
+
+    #[test]
+    fn watch_topic_reaches_a_passage_by_tab_and_back_leaves_each_level() {
+        let mut model = loaded();
+        assert_eq!(model.handle(Key::Char('4')), Effect::MonitorList);
+        model.monitors = crate::explorer::monitor::passage_fixture();
+        model.monitors.close_detail();
+        let Effect::MonitorDetail { id } = model.handle(Key::Enter) else {
+            panic!("Enter opens the selected topic");
+        };
+        assert_eq!(id, "news");
+        model.monitors = crate::explorer::monitor::passage_fixture();
+        assert_eq!(
+            model.monitors.active_tab(),
+            crate::explorer::monitor::MonitorTab::Coverage
+        );
+        let coverage = model.monitors.lines(24).join("\n");
+        assert!(coverage.contains("[Coverage]"));
+        assert!(!coverage.contains(")us"));
+        assert_eq!(model.handle(Key::Tab), Effect::None);
+        assert_eq!(
+            model.monitors.active_tab(),
+            crate::explorer::monitor::MonitorTab::Passages
+        );
+        let passages = model.monitors.lines(24).join("\n");
+        assert!(passages.contains("[Passages]"));
+        assert!(passages.contains("Reports about a dam"));
+        assert!(!passages.contains(")us"));
+        assert_eq!(model.handle(Key::Enter), Effect::None);
+        assert!(model.monitors.showing_passage_detail());
+        assert!(
+            model
+                .monitors
+                .lines(24)
+                .join("\n")
+                .contains("[1000000, 3000000)us")
+        );
+        assert_eq!(
+            model.handle(Key::Char('o')),
+            Effect::FindingOriginal {
+                recording: "recording".into(),
+            }
+        );
+        assert_eq!(model.handle(Key::Escape), Effect::None);
+        assert!(!model.monitors.showing_passage_detail());
+        assert!(model.monitors.showing_detail());
+        assert_eq!(model.handle(Key::Backspace), Effect::None);
+        assert!(!model.monitors.showing_detail());
+        let list = model.monitors.lines(8).join("\n");
+        assert!(list.contains("> Reports  v1  active  1 passage"));
+        assert!(!list.contains(")us"));
+        assert!(model.playback().is_none());
+        assert_eq!(model.captures_active(), 1);
+    }
+
+    #[test]
+    fn every_jobs_key_is_a_read_and_leaves_capture_unchanged() {
+        let keys = jobs_keys();
+        for key in keys {
+            let mut model = loaded();
+            let captures = model.captures_active();
+            let recordings = model.recordings().len();
+            assert_eq!(model.handle(Key::Char('8')), Effect::JobsList);
+            assert_eq!(model.workspace(), Workspace::Jobs);
+            let effect = model.handle(key.clone());
+            assert!(jobs_effect_is_read(&effect), "{key:?} returned {effect:?}");
+            assert_eq!(model.captures_active(), captures);
+            assert_eq!(model.recordings().len(), recordings);
+            assert!(model.playback().is_none());
+            assert!(model.retained_label().is_none());
+        }
+
+        let mut model = loaded();
+        model.jobs.load_data(
+            vec![crate::explorer::jobs::CaptureJob {
+                id: "rec-morning".into(),
+                source: "radio:v1".into(),
+                elapsed_seconds: 45,
+                bound_seconds: 300,
+                max_bytes: 64 * 1024 * 1024,
+                running: true,
+                management_cmd: "sigy record show 'rec-morning'".into(),
+            }],
+            Vec::new(),
+            Vec::new(),
+            10_000,
+        );
+        assert_eq!(model.handle(Key::Char('8')), Effect::JobsList);
+        assert_eq!(
+            model.handle(Key::Enter),
+            Effect::JobCaptureShow {
+                id: "rec-morning".into(),
+            }
+        );
+        assert_eq!(model.handle(Key::Char('f')), Effect::None);
+        assert_eq!(model.handle(Key::Char('P')), Effect::None);
+        assert_eq!(model.handle(Key::Char('H')), Effect::None);
+        assert_eq!(model.handle(Key::Char('[')), Effect::None);
+        assert_eq!(model.captures_active(), 1);
+        assert!(model.playback().is_none());
+    }
+
+    fn jobs_keys() -> Vec<Key> {
+        let mut keys = vec![
+            Key::Up,
+            Key::Down,
+            Key::Left,
+            Key::Right,
+            Key::Tab,
+            Key::BackTab,
+            Key::Enter,
+            Key::Escape,
+            Key::Backspace,
+            Key::Quit,
+            Key::Redraw,
+            Key::ClearInput,
+            Key::Paste("station".into()),
+        ];
+        for character in ' '..='~' {
+            keys.push(Key::Char(character));
+        }
+        keys
+    }
+
+    fn jobs_effect_is_read(effect: &Effect) -> bool {
+        !matches!(
+            effect,
+            Effect::Play { .. }
+                | Effect::PlayRecording { .. }
+                | Effect::PlayFinding { .. }
+                | Effect::PlayInterval { .. }
+                | Effect::PlayLatest { .. }
+                | Effect::ProtectInterval { .. }
+                | Effect::HoldRetained
+                | Effect::SeekRetained { .. }
+                | Effect::StopListen
+                | Effect::StopRetained
+                | Effect::Fetch(_)
+                | Effect::SetFavorite { .. }
+                | Effect::ExploreRandom(_)
+        )
     }
 
     #[test]

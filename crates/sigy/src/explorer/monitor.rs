@@ -3,17 +3,53 @@
 use sigy_service::monitor::{MonitorCoverage, MonitorMatches, MonitorView};
 use std::cell::Cell;
 
-use super::{state::Effect, text::sanitize};
+use super::{state::Effect, text::sanitize, timeline::clock_label};
 
 #[cfg(test)]
 pub(super) use tests::{fixture, passage_fixture};
+
+/// Coverage or passages on an open topic. The list is neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MonitorTab {
+    #[default]
+    Coverage,
+    Passages,
+}
+
+impl MonitorTab {
+    #[must_use]
+    pub const fn switch(self) -> Self {
+        match self {
+            Self::Coverage => Self::Passages,
+            Self::Passages => Self::Coverage,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TopicSummary {
+    name: String,
+    version: u32,
+    paused: bool,
+    passages: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct TopicDetail {
+    monitor: MonitorView,
+    coverage: MonitorCoverage,
+    matches: MonitorMatches,
+}
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Browser {
     ids: Vec<String>,
     selected: usize,
-    detail: Vec<String>,
-    detail_id: Option<String>,
+    summaries: Vec<(String, TopicSummary)>,
+    stored: Option<TopicDetail>,
+    tab: MonitorTab,
+    passage: usize,
+    passage_open: bool,
     offset: usize,
     showing_detail: bool,
     list_read: bool,
@@ -32,38 +68,116 @@ impl Browser {
         self.selected = previous
             .and_then(|id| self.ids.iter().position(|item| *item == id))
             .unwrap_or(0);
-        if self.detail_id.as_deref() != self.selected() {
-            self.detail.clear();
-            self.detail_id = None;
+        if self
+            .stored
+            .as_ref()
+            .map(|detail| detail.monitor.id.as_str())
+            != self.selected()
+        {
+            self.stored = None;
             self.observed_ms = None;
         }
         self.showing_detail = false;
+        self.passage_open = false;
         self.list_read = true;
         self.offset = 0;
     }
 
     pub fn move_selection(&mut self, forward: bool) {
-        let (position, length) = if self.showing_detail {
+        if self.passage_open {
             let length = self.wrapped_detail().len();
-            (&mut self.offset, length)
-        } else {
-            (&mut self.selected, self.ids.len())
-        };
-        *position = if forward {
-            position.saturating_add(1).min(length.saturating_sub(1))
-        } else {
-            position.saturating_sub(1)
-        };
+            self.offset = step(self.offset, length, forward);
+            return;
+        }
+        if self.showing_detail && self.tab == MonitorTab::Passages {
+            let length = self
+                .stored
+                .as_ref()
+                .map_or(0, |detail| detail.matches.matches.len());
+            self.passage = step(self.passage, length, forward);
+            return;
+        }
+        if self.showing_detail {
+            let length = self.wrapped_detail().len();
+            self.offset = step(self.offset, length, forward);
+            return;
+        }
+        self.selected = step(self.selected, self.ids.len(), forward);
     }
 
-    /// Leaves a monitor detail page. `false` means the list is already showing.
+    /// Leaves one level: a passage, then the tabs, then the list.
     pub fn leave_detail(&mut self) -> bool {
+        if self.passage_open {
+            self.passage_open = false;
+            self.offset = 0;
+            return true;
+        }
         if !self.showing_detail {
             return false;
         }
         self.showing_detail = false;
         self.offset = 0;
         true
+    }
+
+    /// Drops an open topic when the workspace changes. The list summaries stay.
+    pub fn close_detail(&mut self) {
+        self.showing_detail = false;
+        self.passage_open = false;
+        self.offset = 0;
+    }
+
+    #[must_use]
+    pub const fn showing_detail(&self) -> bool {
+        self.showing_detail
+    }
+
+    #[must_use]
+    pub const fn showing_passage_detail(&self) -> bool {
+        self.passage_open
+    }
+
+    #[must_use]
+    pub const fn active_tab(&self) -> MonitorTab {
+        self.tab
+    }
+
+    pub fn switch_tab(&mut self) {
+        if self.showing_detail && !self.passage_open {
+            self.tab = self.tab.switch();
+            self.offset = 0;
+        }
+    }
+
+    /// Opens the selected passage. `false` when the topic has no passage.
+    pub fn open_passage(&mut self) -> bool {
+        let Some(count) = self
+            .stored
+            .as_ref()
+            .map(|detail| detail.matches.matches.len())
+        else {
+            return false;
+        };
+        if count == 0 {
+            return false;
+        }
+        self.tab = MonitorTab::Passages;
+        self.showing_detail = true;
+        self.passage = self.passage.min(count - 1);
+        self.passage_open = true;
+        self.offset = 0;
+        true
+    }
+
+    #[must_use]
+    pub fn selected_passage_recording(&self) -> Option<&str> {
+        let detail = self.stored.as_ref()?;
+        let passage = detail.matches.matches.get(self.passage)?;
+        if passage.recording_id.is_empty() {
+            None
+        } else {
+            Some(passage.recording_id.as_str())
+        }
     }
 
     #[cfg(test)]
@@ -114,8 +228,30 @@ impl Browser {
         {
             return false;
         }
-        self.detail = detail_lines(monitor, coverage, matches);
-        self.detail_id = Some(monitor.id.clone());
+        let name = if monitor.version.spec.name.is_empty() {
+            monitor.id.clone()
+        } else {
+            monitor.version.spec.name.clone()
+        };
+        let summary = TopicSummary {
+            name,
+            version: monitor.version.version,
+            paused: monitor.paused,
+            passages: matches.matches.len(),
+        };
+        if let Some(existing) = self.summaries.iter_mut().find(|(id, _)| id == &monitor.id) {
+            existing.1 = summary;
+        } else {
+            self.summaries.push((monitor.id.clone(), summary));
+        }
+        self.stored = Some(TopicDetail {
+            monitor: monitor.clone(),
+            coverage: coverage.clone(),
+            matches: matches.clone(),
+        });
+        self.tab = MonitorTab::Coverage;
+        self.passage = 0;
+        self.passage_open = false;
         self.showing_detail = true;
         self.observed_ms = Some(coverage.to_ms);
         self.offset = 0;
@@ -143,8 +279,9 @@ impl Browser {
             let offset = self.offset.min(rows.len().saturating_sub(1));
             return rows.into_iter().skip(offset).take(limit).collect();
         }
-        let mut lines =
-            vec!["Monitors: arrows select, Enter inspects, r reloads. Classification off.".into()];
+        let mut lines = vec![
+            "Watch topics: arrows select, Enter opens, Tab switches Coverage and Passages.".into(),
+        ];
         if self.ids.is_empty() {
             lines.push("No monitors. Create one with sigy monitor create.".into());
         }
@@ -155,15 +292,32 @@ impl Browser {
                 .enumerate()
                 .skip(start)
                 .take(limit.saturating_sub(1))
-                .map(|(index, id)| {
-                    format!(
-                        "{} {}",
-                        if index == self.selected { ">" } else { " " },
-                        sanitize(id, 64)
-                    )
-                }),
+                .map(|(index, id)| self.list_row(index, id)),
         );
         lines
+    }
+
+    fn list_row(&self, index: usize, id: &str) -> String {
+        let marker = if index == self.selected { ">" } else { " " };
+        let Some(summary) = self
+            .summaries
+            .iter()
+            .find(|(stored, _)| stored == id)
+            .map(|(_, summary)| summary)
+        else {
+            return format!("{marker} {}", sanitize(id, 64));
+        };
+        let state = if summary.paused { "paused" } else { "active" };
+        let passages = if summary.passages == 1 {
+            "1 passage".to_owned()
+        } else {
+            format!("{} passages", summary.passages)
+        };
+        format!(
+            "{marker} {}  v{}  {state}  {passages}",
+            sanitize(&summary.name, 48),
+            summary.version
+        )
     }
 
     pub fn lines_at_width(&self, limit: usize, width: usize) -> Vec<String> {
@@ -173,168 +327,169 @@ impl Browser {
 
     fn wrapped_detail(&self) -> Vec<String> {
         let width = self.viewport_width.get();
-        crate::explorer::context::wrap(
-            self.detail.clone(),
-            if width == 0 { usize::MAX } else { width },
-        )
+        let rows = self.detail_rows();
+        crate::explorer::context::wrap(rows, if width == 0 { usize::MAX } else { width })
+    }
+
+    fn detail_rows(&self) -> Vec<String> {
+        let Some(detail) = &self.stored else {
+            return vec!["Topic detail is unread. Enter loads it.".into()];
+        };
+        if self.passage_open {
+            return passage_detail(detail, self.passage);
+        }
+        match self.tab {
+            MonitorTab::Coverage => coverage_rows(detail),
+            MonitorTab::Passages => passage_rows(detail, self.passage),
+        }
     }
 }
 
-fn detail_lines(
-    monitor: &MonitorView,
-    coverage: &MonitorCoverage,
-    matches: &MonitorMatches,
-) -> Vec<String> {
+fn step(position: usize, length: usize, forward: bool) -> usize {
+    if length == 0 {
+        return 0;
+    }
+    if forward {
+        position.saturating_add(1).min(length - 1)
+    } else {
+        position.saturating_sub(1)
+    }
+}
+
+fn coverage_rows(detail: &TopicDetail) -> Vec<String> {
+    let monitor = &detail.monitor;
+    let coverage = &detail.coverage;
     let spec = &monitor.version.spec;
     let mut lines = vec![
+        tab_heading(MonitorTab::Coverage),
         format!(
             "Monitor {} v{}: processing {}. Classification off.",
             sanitize(&monitor.id, 64),
             monitor.version.version,
             if monitor.paused { "paused" } else { "active" }
         ),
-        "Arrows scroll; Esc returns; r reloads. Read-only snapshot.".into(),
+        "Arrows scroll. Tab switches to passages. Esc returns. Read-only.".into(),
         format!("Goal: {}", sanitize(&spec.goal, 160)),
         format!(
-            "Profiles: recognition {}; translation {}",
-            spec.recognition_profile
-                .as_deref()
-                .map_or_else(|| "none".into(), |profile| sanitize(profile, 64)),
-            spec.translation_profile
-                .as_deref()
-                .map_or_else(|| "none".into(), |profile| sanitize(profile, 64))
-        ),
-        format!(
-            "Caps: {}s/day, {}s total. Used {}ms today, {}ms total.",
-            spec.daily_audio_seconds,
-            spec.total_audio_seconds,
-            monitor.processing.used_today_us / 1000,
-            monitor.processing.used_total_us / 1000
-        ),
-        format!(
-            "Coverage: capture starts in [{}, {}).",
+            "Window: capture starts in [{}, {}).",
             super::globe::utc_label(coverage.from_ms),
             super::globe::utc_label(coverage.to_ms)
         ),
     ];
-    if let Some(capture) = &spec.capture {
-        lines.push(format!(
-            "Capture caps: {}s/UTC day, {}s lifetime, {} bytes lifetime.",
-            capture.daily_seconds, capture.total_seconds, capture.total_bytes
-        ));
-    } else {
-        lines.push(
-            "Owned capture admissions disabled. Independent schedules keep their policy.".into(),
-        );
+    if coverage.sources.is_empty() {
+        lines.push("No sources in this window.".into());
     }
-    let usage = &monitor.capture_usage;
-    lines.push(format!(
-        "Capture use: {}s today, {}s lifetime, {} bytes reserved lifetime; {} admissions.",
-        usage.used_today_seconds,
-        usage.used_total_seconds,
-        usage.reserved_total_bytes,
-        usage.admissions
-    ));
-    for (reason, count) in &usage.refusals {
-        lines.push(format!(
-            "Capture refused: {} ({count})",
-            sanitize(reason, 80)
-        ));
-    }
-    append_coverage(&mut lines, coverage);
-    append_passages(&mut lines, matches);
-    lines.push(
-        "Wording is uncertain. A literal match misses paraphrases; check the original.".into(),
-    );
-    lines
-}
-
-fn append_coverage(lines: &mut Vec<String>, coverage: &MonitorCoverage) {
     for source in &coverage.sources {
         lines.push(format!(
-            "Source {}: captures {}, published {}, audio {}ms",
-            sanitize(&source.source, 64),
+            "Source {}: captures {}, published {}, audio {}ms, gaps {} ({}ms), untranslated {}",
+            sanitize(&source.source, 48),
             source.captures,
             source.published,
-            source.recorded_us / 1000
-        ));
-        lines.push(format!(
-            "  Gaps {} ({}ms), pinned {}, transcribed {} ({}ms), no text {}",
+            source.recorded_us / 1000,
             source.gaps,
             source.gap_us / 1000,
-            source.pinned,
-            source.transcribed,
-            source.transcribed_us / 1000,
-            source.no_text
+            source.untranslated_cues
         ));
-        lines.push(format!(
-            "  Cues: translated {}, untranslated {}, no translation {}{}",
-            source.translated_cues,
-            source.untranslated_cues,
-            source.cues_without_translation,
-            if source.truncated {
-                "; capture limit reached"
-            } else {
-                ""
-            }
-        ));
-        for (reason, count) in &source.untranslated_reasons {
-            lines.push(format!("  Untranslated {}: {count}", sanitize(reason, 64)));
-        }
     }
     for schedule in &coverage.schedules {
         lines.push(format!(
             "Schedule {}: admitted {}, elapsed {}, spring-forward {}, waiting {}",
-            sanitize(&schedule.schedule, 64),
+            sanitize(&schedule.schedule, 48),
             schedule.admitted,
             schedule.missed_elapsed,
             schedule.missed_spring_forward,
             schedule.waiting
         ));
     }
+    lines.push(
+        "Wording is uncertain. A literal match misses paraphrases; check the original.".into(),
+    );
+    lines
 }
 
-fn append_passages(lines: &mut Vec<String>, matches: &MonitorMatches) {
-    lines.push(format!(
-        "Literal passages: {} in {} transcripts{}. These are not stored findings.",
-        matches.matches.len(),
-        matches.transcripts_scanned,
-        if matches.more {
-            "; result limit reached"
-        } else {
-            ""
-        }
-    ));
-    for passage in &matches.matches {
+fn passage_rows(detail: &TopicDetail, selected: usize) -> Vec<String> {
+    let matches = &detail.matches;
+    let mut lines = vec![
+        tab_heading(MonitorTab::Passages),
+        format!(
+            "Literal passages: {} in {} transcripts{}. These are not stored findings.",
+            matches.matches.len(),
+            matches.transcripts_scanned,
+            if matches.more {
+                "; result limit reached"
+            } else {
+                ""
+            }
+        ),
+        "Enter shows revisions and the exact interval. o opens the recording.".into(),
+    ];
+    if matches.matches.is_empty() {
+        lines.push("No literal passages in this window.".into());
+        return lines;
+    }
+    for (index, passage) in matches.matches.iter().enumerate() {
+        let marker = if index == selected { ">" } else { " " };
+        let english = passage
+            .english
+            .as_deref()
+            .map_or_else(|| "untranslated".into(), passage_preview);
         lines.push(format!(
-            "{} r{} cue {}: [{}, {})us",
-            sanitize(&passage.transcript_id, 64),
-            passage.transcript_revision,
-            passage.cue_ordinal,
-            passage.start_us,
-            passage.end_us
-        ));
-        lines.push(format!(
-            "  Recording {}; {} term {}",
-            sanitize(&passage.recording_id, 64),
-            sanitize(&passage.field, 16),
-            sanitize(&passage.term, 64)
-        ));
-        lines.push(format!(
-            "  Original: {}",
-            passage_preview(&passage.original)
-        ));
-        lines.push(format!(
-            "  English r{}: {}",
-            passage
-                .translation_revision
-                .map_or_else(|| "none".into(), |revision| revision.to_string()),
-            passage
-                .english
-                .as_deref()
-                .map_or_else(|| "not available".into(), passage_preview)
+            "{marker} {} | {english} | {}",
+            passage_preview(&passage.original),
+            clock_label(passage.start_us)
         ));
     }
+    lines.push(
+        "Wording is uncertain. A literal match misses paraphrases; check the original.".into(),
+    );
+    lines
+}
+
+fn passage_detail(detail: &TopicDetail, index: usize) -> Vec<String> {
+    let Some(passage) = detail.matches.matches.get(index) else {
+        return vec!["No passage is selected.".into()];
+    };
+    let english = passage
+        .english
+        .as_deref()
+        .map_or_else(|| "not available".into(), |text| sanitize(text, 4096));
+    vec![
+        format!(
+            "Passage {} r{} cue {}",
+            sanitize(&passage.transcript_id, 64),
+            passage.transcript_revision,
+            passage.cue_ordinal
+        ),
+        format!(
+            "Translation revision {}",
+            passage
+                .translation_revision
+                .map_or_else(|| "none".into(), |revision| revision.to_string())
+        ),
+        format!("Recording {}", sanitize(&passage.recording_id, 64)),
+        format!(
+            "Exact interval: [{}, {})us",
+            passage.start_us, passage.end_us
+        ),
+        format!("Original: {}", sanitize(&passage.original, 4096)),
+        format!("English: {english}"),
+        "Esc returns to the passage list. o opens this recording. Read-only.".into(),
+        "Wording is uncertain. A literal match misses paraphrases; check the original.".into(),
+    ]
+}
+
+fn tab_heading(active: MonitorTab) -> String {
+    let coverage = if active == MonitorTab::Coverage {
+        "[Coverage]"
+    } else {
+        "Coverage"
+    };
+    let passages = if active == MonitorTab::Passages {
+        "[Passages]"
+    } else {
+        "Passages"
+    };
+    format!("{coverage}  {passages}  Tab switches")
 }
 
 /// Display a bounded preview without splitting an original grapheme.
@@ -380,6 +535,7 @@ mod tests {
     fn wrapped_passage_suffix_and_original_graphemes_are_reachable_after_resize() {
         let text = passage_text();
         let mut browser = passage_fixture();
+        assert!(browser.open_passage());
         let rows = browser.lines_at_width(200, 20);
         assert!(rows.concat().contains(&text));
         assert!(
@@ -525,19 +681,32 @@ mod tests {
     #[test]
     fn details_scroll_and_keep_stage_counts_and_uncertainty_separate() {
         let mut browser = fixture();
-        let lines = browser.lines(64).join("\n");
-        assert!(lines.contains("Classification off"));
-        assert!(lines.contains("captures 2, published 1, audio 30000ms"));
-        assert!(lines.contains("Gaps 1 (5000ms)"));
-        assert!(lines.contains("untranslated 1"));
-        assert!(lines.contains("These are not stored findings"));
-        assert!(lines.contains("تقارير عن سد"));
-        assert!(lines.contains("English r1: Reports about a dam"));
-        assert!(!lines.contains('\u{1b}'));
-        browser.move_selection(true);
-        assert!(browser.lines(1)[0].contains("Arrows scroll"));
+        let coverage = browser.lines(64).join("\n");
+        assert!(coverage.contains("Classification off"));
+        assert!(coverage.contains("[Coverage]"));
+        assert!(coverage.contains("captures 2, published 1, audio 30000ms"));
+        assert!(coverage.contains("gaps 1 (5000ms)"));
+        assert!(coverage.contains("untranslated 1"));
+        assert!(coverage.contains("Wording is uncertain"));
+        assert!(!coverage.contains(")us"));
+        browser.switch_tab();
+        assert_eq!(browser.active_tab(), MonitorTab::Passages);
+        let passages = browser.lines(64).join("\n");
+        assert!(passages.contains("[Passages]"));
+        assert!(passages.contains("These are not stored findings"));
+        assert!(passages.contains("تقارير عن سد"));
+        assert!(passages.contains("Reports about a dam"));
+        assert!(!passages.contains(")us"));
+        assert!(browser.open_passage());
+        let exact = browser.lines(64).join("\n");
+        assert!(exact.contains("[1000000, 3000000)us"));
+        assert!(exact.contains("English: Reports about a dam"));
+        assert!(!exact.contains('\u{1b}'));
         browser.back();
-        assert!(browser.lines(3).join("\n").contains("> news"));
+        browser.back();
+        let list = browser.lines(8).join("\n");
+        assert!(list.contains("> Reports  v1  active  1 passage"));
+        assert!(!list.contains(")us"));
     }
 
     #[test]

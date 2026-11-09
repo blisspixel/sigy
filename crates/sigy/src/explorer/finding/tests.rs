@@ -7,6 +7,7 @@ fn wrapped_script_is_scrollable_without_splitting_graphemes() {
     let mut page = fixture();
     page.original_script = "明日e\u{301}の会議".repeat(20);
     assert!(browser.load("world-news", "one", &page));
+    assert_eq!(browser.handle(&Key::Char('d')), Some(Effect::None));
     browser.lines(4, 20, 0);
     let rows = browser.wrapped_detail();
     assert!(
@@ -195,4 +196,41 @@ fn current_interval_requires_one_available_segment_and_no_gap() -> Result<(), se
     }
     assert_eq!(browser.offset, 0);
     Ok(())
+}
+
+#[test]
+fn five_line_summary_leads_and_d_toggles_detail_and_esc_returns_to_landing() {
+    let mut browser = Browser::default();
+    let page = fixture();
+    assert!(browser.load("world-news", "one", &page));
+    assert!(browser.has_page());
+    assert!(!browser.is_detailed());
+
+    // 5-line summary leads, no microsecond range
+    let summary = browser.lines(10, 80, 0).join("\n");
+    assert!(summary.contains("Finding: world-news / one"));
+    assert!(summary.contains("Transcript: original revision 2 cue 0 | translation revision 3"));
+    assert!(summary.contains("Cited interval: 0:00-0:00 (0s) in recording recording-one"));
+    assert!(summary.contains("Original: 明日の会議です。"));
+    assert!(summary.contains("English: The meeting is tomorrow."));
+    assert!(summary.contains("d shows full text and boundary notes"));
+    assert!(!summary.contains("100, 900)us"));
+
+    // 'd' toggles full detail
+    assert_eq!(browser.handle(&Key::Char('d')), Some(Effect::None));
+    assert!(browser.is_detailed());
+    let detail = browser.lines(15, 80, 0).join("\n");
+    assert!(detail.contains("[100, 900)us"));
+    assert!(detail.contains("Stale transcript: yes; translation: no"));
+
+    // 'd' toggles back to summary
+    assert_eq!(browser.handle(&Key::Char('d')), Some(Effect::None));
+    assert!(!browser.is_detailed());
+
+    // Esc returns to landing page
+    assert_eq!(browser.handle(&Key::Escape), Some(Effect::None));
+    assert!(!browser.has_page());
+
+    // Esc from landing page returns None (goes home)
+    assert_eq!(browser.handle(&Key::Escape), None);
 }

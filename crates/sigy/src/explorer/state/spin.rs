@@ -619,6 +619,8 @@ mod tests {
         model.handle(Key::Tab);
         assert_eq!(model.focus(), crate::explorer::state::Focus::Detail);
         model.handle(Key::Right);
+        assert_eq!(model.workspace(), crate::explorer::state::Workspace::Jobs);
+        model.handle(Key::Right);
         assert_eq!(
             model.workspace(),
             crate::explorer::state::Workspace::Explore

@@ -20,6 +20,7 @@ pub(crate) enum ScreenId {
     Findings,
     System,
     Globe,
+    Jobs,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,6 +157,7 @@ const TURN: &[Act] = &[
 const CENTER: &[Act] = &[Act::Char('c')];
 const ARROWS: &[Act] = &[Act::Left, Act::Right, Act::Up, Act::Down];
 const CLAIMS: &[Act] = &[Act::Char('c')];
+const DETAIL_KEY: &[Act] = &[Act::Char('d')];
 const ORIGINAL: &[Act] = &[Act::Char('o')];
 const HOLD: &[Act] = &[Act::Char('H')];
 const SEEK: &[Act] = &[Act::Char('['), Act::Char(']')];
@@ -174,6 +176,7 @@ const DIGITS: &[Act] = &[
     Act::Char('5'),
     Act::Char('6'),
     Act::Char('7'),
+    Act::Char('8'),
 ];
 const ACROSS: &[Act] = &[Act::Left, Act::Right];
 const BACK_TAB: &[Act] = &[Act::BackTab];
@@ -201,6 +204,7 @@ pub(crate) const fn screen_for(workspace: Workspace) -> ScreenId {
         Workspace::Findings => ScreenId::Findings,
         Workspace::System => ScreenId::System,
         Workspace::Globe => ScreenId::Globe,
+        Workspace::Jobs => ScreenId::Jobs,
     }
 }
 
@@ -216,7 +220,8 @@ pub(crate) const fn parent(screen: ScreenId) -> Option<ScreenId> {
         | ScreenId::Monitors
         | ScreenId::Findings
         | ScreenId::System
-        | ScreenId::Globe => Some(ScreenId::Home),
+        | ScreenId::Globe
+        | ScreenId::Jobs => Some(ScreenId::Home),
     }
 }
 
@@ -378,7 +383,18 @@ fn workspace_actions(workspace: Workspace) -> Vec<Action> {
         Workspace::Findings => findings(),
         Workspace::System => system(),
         Workspace::Globe => globe(),
+        Workspace::Jobs => jobs(),
     };
+    // Pause and seek apply to a retained listen. Jobs never starts one, so its
+    // table does not advertise those keys.
+    if workspace == Workspace::Jobs {
+        let tail: Vec<Action> = common()
+            .iter()
+            .copied()
+            .filter(|action| action.keys != HOLD && action.keys != SEEK)
+            .collect();
+        return finish(head, &tail);
+    }
     finish(head, common())
 }
 
@@ -822,7 +838,69 @@ fn monitors() -> Vec<Action> {
             ENTER,
             "inspect row",
             Group::View,
+            "  Enter opens coverage, passages, or one passage",
+            Show::Always,
+        ),
+        row(
+            TAB,
+            "Tab coverage",
+            Group::Move,
+            "  Tab switches Coverage and Passages",
+            Show::Always,
+        ),
+        row(
+            ORIGINAL,
+            "o recording",
+            Group::View,
+            "  o opens the passage recording",
+            Show::Always,
+        ),
+        row(RELOAD, "r reload", Group::View, "  r reload", Show::Always),
+        row(
+            BACK,
+            "Esc back",
+            Group::Move,
+            "  Esc or Backspace goes up one level",
+            Show::Always,
+        ),
+        row(
+            QUIT,
+            "q quit",
+            Group::View,
+            "  q quits this client",
+            Show::Always,
+        ),
+        row(
+            SELECT,
+            "",
+            Group::Move,
+            "  arrows select or scroll",
+            Show::Always,
+        ),
+    ]
+}
+
+fn jobs() -> Vec<Action> {
+    vec![
+        row(
+            ENTER,
+            "inspect row",
+            Group::View,
             "  Enter inspects",
+            Show::Always,
+        ),
+        row(
+            TAB,
+            "Tab section",
+            Group::Move,
+            "  Tab switches section",
+            Show::Always,
+        ),
+        row(
+            PAGE,
+            "n/p page",
+            Group::Move,
+            "  n and p turn pages",
             Show::Always,
         ),
         row(RELOAD, "r reload", Group::View, "  r reload", Show::Always),
@@ -874,6 +952,13 @@ fn findings() -> Vec<Action> {
             "c claims",
             Group::View,
             "  c opens stored claims, read-only",
+            Show::Always,
+        ),
+        row(
+            DETAIL_KEY,
+            "d detail",
+            Group::View,
+            "  d shows full text and boundary notes",
             Show::Always,
         ),
         slot(
@@ -1040,7 +1125,7 @@ fn home() -> Vec<Action> {
             "  Up and Down select",
             Show::Always,
         ),
-        row(DIGITS, "", Group::Move, "  1-7 open a task", Show::Always),
+        row(DIGITS, "", Group::Move, "  1-8 open a task", Show::Always),
         row(
             ENTER,
             "Enter open",
@@ -1100,7 +1185,7 @@ const COMMON: [Action; 17] = [
         "  Esc or Backspace goes up one level",
         Show::Always,
     ),
-    row_const(DIGITS, "", Group::Move, "  1-7 workspace", Show::Always),
+    row_const(DIGITS, "", Group::Move, "  1-8 workspace", Show::Always),
     row_const(
         ACROSS,
         "",

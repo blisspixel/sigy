@@ -48,6 +48,18 @@ enum Kind {
     ClaimShow {
         id: String,
     },
+    JobsList {
+        cursors: crate::explorer::jobs::PageCursors,
+    },
+    JobCaptureShow {
+        id: String,
+    },
+    JobScheduleShow {
+        id: String,
+    },
+    JobTaskShow {
+        id: String,
+    },
 }
 
 struct Job {
@@ -108,6 +120,28 @@ enum ReadOutcome {
         result: Attempt<(bool, Snapshot)>,
     },
     ClaimShow {
+        epoch: u64,
+        id: String,
+        result: Attempt<(bool, Snapshot)>,
+    },
+    JobsList {
+        epoch: u64,
+        record: Attempt<(bool, Snapshot)>,
+        schedule: Attempt<(bool, Snapshot)>,
+        task: Attempt<(bool, Snapshot)>,
+        task_views: Vec<sigy_service::task::TaskView>,
+    },
+    JobCaptureShow {
+        epoch: u64,
+        id: String,
+        result: Attempt<(bool, Snapshot)>,
+    },
+    JobScheduleShow {
+        epoch: u64,
+        id: String,
+        result: Attempt<(bool, Snapshot)>,
+    },
+    JobTaskShow {
         epoch: u64,
         id: String,
         result: Attempt<(bool, Snapshot)>,
@@ -270,6 +304,36 @@ impl Reads {
                 model,
                 Kind::ClaimShow { id: id.clone() },
             ),
+            Effect::JobsList
+            | Effect::JobCaptureShow { .. }
+            | Effect::JobScheduleShow { .. }
+            | Effect::JobTaskShow { .. } => self.enqueue_job(runtime, directory, model, effect),
+            Effect::SetFavorite { .. } | Effect::ProtectInterval { .. } => {
+                self.submit_write(runtime, directory, model, effect);
+            }
+            Effect::None
+            | Effect::Detach
+            | Effect::Play { .. }
+            | Effect::PlayRecording { .. }
+            | Effect::PlayFinding { .. }
+            | Effect::PlayInterval { .. }
+            | Effect::PlayLatest { .. }
+            | Effect::HoldRetained
+            | Effect::SeekRetained { .. }
+            | Effect::StopListen
+            | Effect::StopRetained
+            | Effect::Fetch(_) => {}
+        }
+    }
+
+    fn submit_write(
+        &mut self,
+        runtime: &Runtime,
+        directory: &Path,
+        model: &mut Explorer,
+        effect: &Effect,
+    ) {
+        match effect {
             Effect::SetFavorite {
                 generation,
                 id,
@@ -291,19 +355,27 @@ impl Reads {
                     end_us: *end_us,
                 },
             ),
-            Effect::None
-            | Effect::Detach
-            | Effect::Play { .. }
-            | Effect::PlayRecording { .. }
-            | Effect::PlayFinding { .. }
-            | Effect::PlayInterval { .. }
-            | Effect::PlayLatest { .. }
-            | Effect::HoldRetained
-            | Effect::SeekRetained { .. }
-            | Effect::StopListen
-            | Effect::StopRetained
-            | Effect::Fetch(_) => {}
+            _ => {}
         }
+    }
+
+    fn enqueue_job(
+        &mut self,
+        runtime: &Runtime,
+        directory: &Path,
+        model: &mut Explorer,
+        effect: &Effect,
+    ) {
+        let kind = match effect {
+            Effect::JobsList => Kind::JobsList {
+                cursors: model.jobs.cursors(),
+            },
+            Effect::JobCaptureShow { id } => Kind::JobCaptureShow { id: id.clone() },
+            Effect::JobScheduleShow { id } => Kind::JobScheduleShow { id: id.clone() },
+            Effect::JobTaskShow { id } => Kind::JobTaskShow { id: id.clone() },
+            _ => return,
+        };
+        self.enqueue(runtime, directory, model, kind);
     }
 
     pub(super) fn poll(&mut self, runtime: &Runtime, directory: &Path, model: &mut Explorer) {
@@ -693,6 +765,55 @@ async fn execute(directory: &Path, epoch: u64, kind: Kind) -> ReadOutcome {
             result: finish(client::fetch(directory, client::claim_show_operation(&id)).await),
             id,
         },
+        Kind::JobsList { cursors } => jobs_list_outcome(directory, epoch, cursors).await,
+        Kind::JobCaptureShow { id } => {
+            job_show_outcome(directory, epoch, id, JobRead::Capture).await
+        }
+        Kind::JobScheduleShow { id } => {
+            job_show_outcome(directory, epoch, id, JobRead::Schedule).await
+        }
+        Kind::JobTaskShow { id } => job_show_outcome(directory, epoch, id, JobRead::Task).await,
+    }
+}
+
+enum JobRead {
+    Capture,
+    Schedule,
+    Task,
+}
+
+async fn jobs_list_outcome(
+    directory: &Path,
+    epoch: u64,
+    cursors: crate::explorer::jobs::PageCursors,
+) -> ReadOutcome {
+    let pages = client::load_jobs(directory, &cursors).await;
+    ReadOutcome::JobsList {
+        epoch,
+        record: finish(pages.records),
+        schedule: finish(pages.schedules),
+        task: finish(pages.tasks),
+        task_views: pages.task_views,
+    }
+}
+
+async fn job_show_outcome(directory: &Path, epoch: u64, id: String, read: JobRead) -> ReadOutcome {
+    let operation = match read {
+        JobRead::Capture => sigy_service::control::Operation::Record {
+            command: sigy_service::control::RecordingOperation::Show { id: id.clone() },
+        },
+        JobRead::Schedule => sigy_service::control::Operation::Schedule {
+            command: sigy_service::control::ScheduleOperation::Show { id: id.clone() },
+        },
+        JobRead::Task => sigy_service::control::Operation::Task {
+            command: sigy_service::control::TaskOperation::Show { id: id.clone() },
+        },
+    };
+    let result = finish(client::fetch(directory, operation).await);
+    match read {
+        JobRead::Capture => ReadOutcome::JobCaptureShow { epoch, result, id },
+        JobRead::Schedule => ReadOutcome::JobScheduleShow { epoch, result, id },
+        JobRead::Task => ReadOutcome::JobTaskShow { epoch, result, id },
     }
 }
 
@@ -757,6 +878,28 @@ fn closed_read(epoch: u64, kind: &Kind) -> ReadOutcome {
             result: Attempt::Closed,
         },
         Kind::ClaimShow { id } => ReadOutcome::ClaimShow {
+            epoch,
+            id: id.clone(),
+            result: Attempt::Closed,
+        },
+        Kind::JobsList { .. } => ReadOutcome::JobsList {
+            epoch,
+            record: Attempt::Closed,
+            schedule: Attempt::Closed,
+            task: Attempt::Closed,
+            task_views: Vec::new(),
+        },
+        Kind::JobCaptureShow { id } => ReadOutcome::JobCaptureShow {
+            epoch,
+            id: id.clone(),
+            result: Attempt::Closed,
+        },
+        Kind::JobScheduleShow { id } => ReadOutcome::JobScheduleShow {
+            epoch,
+            id: id.clone(),
+            result: Attempt::Closed,
+        },
+        Kind::JobTaskShow { id } => ReadOutcome::JobTaskShow {
             epoch,
             id: id.clone(),
             result: Attempt::Closed,
@@ -834,6 +977,57 @@ fn adopt_read(model: &mut Explorer, outcome: ReadOutcome) {
             Attempt::Closed => model.note_message(UNRESOLVED),
             Attempt::Finished(result) => client::adopt_claim_show(model, &id, *result),
         },
+        other @ (ReadOutcome::JobsList { .. }
+        | ReadOutcome::JobCaptureShow { .. }
+        | ReadOutcome::JobScheduleShow { .. }
+        | ReadOutcome::JobTaskShow { .. }) => adopt_job_read(model, other),
+    }
+}
+
+fn adopt_job_read(model: &mut Explorer, outcome: ReadOutcome) {
+    match outcome {
+        ReadOutcome::JobsList {
+            record,
+            schedule,
+            task,
+            task_views,
+            ..
+        } => {
+            let records = match record {
+                Attempt::Closed => Err(Error::Protocol("closed")),
+                Attempt::Finished(result) => *result,
+            };
+            let schedules = match schedule {
+                Attempt::Closed => Err(Error::Protocol("closed")),
+                Attempt::Finished(result) => *result,
+            };
+            let tasks = match task {
+                Attempt::Closed => Err(Error::Protocol("closed")),
+                Attempt::Finished(result) => *result,
+            };
+            client::adopt_jobs_list(
+                model,
+                client::JobsPages {
+                    records,
+                    schedules,
+                    tasks,
+                    task_views,
+                },
+            );
+        }
+        ReadOutcome::JobCaptureShow { id, result, .. } => match result {
+            Attempt::Closed => model.note_message(UNRESOLVED),
+            Attempt::Finished(result) => client::adopt_job_capture_show(model, &id, *result),
+        },
+        ReadOutcome::JobScheduleShow { id, result, .. } => match result {
+            Attempt::Closed => model.note_message(UNRESOLVED),
+            Attempt::Finished(result) => client::adopt_job_schedule_show(model, &id, *result),
+        },
+        ReadOutcome::JobTaskShow { id, result, .. } => match result {
+            Attempt::Closed => model.note_message(UNRESOLVED),
+            Attempt::Finished(result) => client::adopt_job_task_show(model, &id, *result),
+        },
+        _ => {}
     }
 }
 
@@ -852,7 +1046,11 @@ fn epoch_of(outcome: &ReadOutcome) -> u64 {
         | ReadOutcome::Finding { epoch, .. }
         | ReadOutcome::FindingOriginal { epoch, .. }
         | ReadOutcome::ClaimList { epoch, .. }
-        | ReadOutcome::ClaimShow { epoch, .. } => *epoch,
+        | ReadOutcome::ClaimShow { epoch, .. }
+        | ReadOutcome::JobsList { epoch, .. }
+        | ReadOutcome::JobCaptureShow { epoch, .. }
+        | ReadOutcome::JobScheduleShow { epoch, .. }
+        | ReadOutcome::JobTaskShow { epoch, .. } => *epoch,
     }
 }
 

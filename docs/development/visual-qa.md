@@ -16,16 +16,16 @@ The command selects one explicitly ignored renderer test. It creates a unique
 directory under `target/visual-qa/` and prints the path to `index.html`. Existing
 artifacts are preserved. Open that index locally to review the grouped SVG
 screenshots. `manifest.json` records each case, dimensions, plain-mode flags and
-hashes of the compiled renderer, state, popup, menu, listen, actions, globe, spin, monitor, context and gallery sources;
+hashes of the compiled renderer, state, popup, menu, listen, actions, globe, spin, monitor, jobs, context and gallery sources;
 each adjacent JSON file preserves every terminal cell's symbol, foreground,
 background, modifiers, display width and wide-character continuation flag.
 
-The bounded matrix contains 94 frames. The shared sizes are 20 by 8, 80 by 24 and 132 by 40 cells. A layout case also renders 60 by 20 and 90 by 30. One globe frame is a deterministic mid-turn at 80 by 24.
-The matrix covers Home and an offline Home; Explore, Live, Recordings, Monitors, Findings, System and Globe; Listen playing, idle with favorites, and empty at 80 by 24; the recordings list, timeline, menu, and plain linear and monochrome timelines at 80 by 24; the action menu and the play dialog at 80 by 24; the key overlay at 80 by 24; filter
+The bounded matrix contains 104 frames. The shared sizes are 20 by 8, 80 by 24 and 132 by 40 cells. A layout case also renders 60 by 20 and 90 by 30. One globe frame is a deterministic mid-turn at 80 by 24.
+The matrix covers Home and an offline Home; Explore, Live, Recordings, Watch topics, Findings, System, Globe, and Jobs; Listen playing, idle with favorites, and empty at 80 by 24; the recordings list, timeline, menu, and plain linear and monochrome timelines at 80 by 24; the Watch topics list, Coverage, and Passages at 80 by 24; the Findings summary at 80 by 24; Jobs populated, empty, and disconnected at 80 by 24; the action menu and the play dialog at 80 by 24; the key overlay at 80 by 24; filter
 and country editors; frozen station context; linked pending, loaded and failed
 reads; empty and unobserved cache; disconnected state; pending search; changed
-catalog; monochrome, linear, linear-with-color, and high-contrast presentation; and random selected, empty and monochrome results. Random views use immediate reduced-motion jumps and label approximate directory coordinates and eligible cache counts. Podcast and job controls remain
-CLI operations and have no dedicated explorer workspace to screenshot.
+catalog; monochrome, linear, linear-with-color, and high-contrast presentation; and random selected, empty and monochrome results. Random views use immediate reduced-motion jumps and label approximate directory coordinates and eligible cache counts. Podcast controls remain
+CLI operations. Jobs is a read-only explorer workspace.
 
 Review the actual user journey, not only whether a label exists. Check selected
 identity, applied versus draft scope, bounded unknown and partial statements,
@@ -37,10 +37,10 @@ Independent ordinary tests verify intent is drawn before a synchronous read,
 outcome redraw, clock freshness without observation rewrites, unknown versus
 observed-empty cache and reachable wrapped monitor passages.
 
-Monitor passages are bounded previews. A cut is labeled explicitly, and wrapping
-and clipping preserve complete graphemes. The underlying original cue remains
-separate from this display; the monitor view does not claim to display an entire
-passage when its preview limit is reached.
+Monitor passage rows are bounded previews. A cut is labeled explicitly, and wrapping
+and clipping preserve complete graphemes. Opening a passage shows that row's stored
+original, up to the display limit, and the exact interval. The list row uses a clock
+label and does not show microseconds.
 
 SVG uses an explicit terminal palette, escaped text, wide-cell positions,
 inverted selection and underline. RGB and indexed colors are supported. Font

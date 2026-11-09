@@ -182,7 +182,7 @@ fn visual_case_matrix_covers_real_workspaces_and_modals_within_cap() -> Result<(
     let cases = cases()?;
     assert_eq!(
         cases.iter().map(|(_, _, sizes)| sizes.len()).sum::<usize>(),
-        94
+        104
     );
     for workspace in Workspace::ALL {
         assert!(
@@ -475,6 +475,7 @@ fn production_monitor_passage_suffix_remains_reachable_in_screen_scroll() {
         let mut model = sample();
         model.handle(Key::Char('4'));
         model.monitors = crate::explorer::monitor::passage_fixture();
+        model.monitors.open_passage();
         let mut seen = String::new();
         for _ in 0..160 {
             let text = frame(&model, width, height).0;
@@ -493,6 +494,7 @@ fn gallery_monitor_navigation_places_original_in_each_actual_viewport() -> Resul
     let mut original = gallery_sample();
     original.handle(Key::Char('4'));
     original.monitors = crate::explorer::monitor::passage_fixture();
+    original.monitors.open_passage();
     let before = original.clone();
     for (width, height) in [(20, 8), (80, 24), (132, 40)] {
         let model = case_at_size("monitor-detail", &original, width, height)?;
@@ -537,11 +539,11 @@ fn visual_qa_gallery() -> Result<()> {
             manifest.push(serde_json::json!({"name":name,"cols":width,"rows":height,"json":format!("{stem}.json"),"json_sha256":json_hash,"svg":format!("{stem}.svg"),"svg_sha256":svg_hash,"synthetic":true,"workspace":model.workspace().label(),"linear":model.modes().linear,"monochrome":model.modes().monochrome,"high_contrast":model.modes().emphasis.high()}));
         }
     }
-    assert!(manifest.len() <= 94);
+    assert_eq!(manifest.len(), 104, "gallery frame count");
     std::fs::write(
         directory.join("manifest.json"),
         serde_json::to_vec_pretty(
-            &serde_json::json!({"format":1,"method":"production Ratatui TestBackend","synthetic":true,"source_hashes":{"renderer":sha256(include_bytes!("../../screen.rs")),"state":sha256(include_bytes!("../../state.rs")),"monitor":sha256(include_bytes!("../../monitor.rs")),"context":sha256(include_bytes!("../../context.rs")),"context_state":sha256(include_bytes!("../../state/context.rs")),"context_renderer":sha256(include_bytes!("../context.rs")),"globe":sha256(include_bytes!("../../globe.rs")),"spin":sha256(include_bytes!("../../state/spin.rs")),"popup":sha256(include_bytes!("../popup.rs")),"menu":sha256(include_bytes!("../../state/menu.rs")),"listen":sha256(include_bytes!("../../state/listen.rs")),"actions":sha256(include_bytes!("../../actions.rs")),"gallery":sha256(include_bytes!("visual_qa.rs"))},"frames":manifest}),
+            &serde_json::json!({"format":1,"method":"production Ratatui TestBackend","synthetic":true,"source_hashes":{"renderer":sha256(include_bytes!("../../screen.rs")),"state":sha256(include_bytes!("../../state.rs")),"monitor":sha256(include_bytes!("../../monitor.rs")),"context":sha256(include_bytes!("../../context.rs")),"context_state":sha256(include_bytes!("../../state/context.rs")),"context_renderer":sha256(include_bytes!("../context.rs")),"globe":sha256(include_bytes!("../../globe.rs")),"spin":sha256(include_bytes!("../../state/spin.rs")),"popup":sha256(include_bytes!("../popup.rs")),"menu":sha256(include_bytes!("../../state/menu.rs")),"listen":sha256(include_bytes!("../../state/listen.rs")),"actions":sha256(include_bytes!("../../actions.rs")),"jobs":sha256(include_bytes!("../../jobs.rs")),"gallery":sha256(include_bytes!("visual_qa.rs"))},"frames":manifest}),
         )?,
     )?;
     std::fs::write(directory.join("index.html"), html)?;
@@ -613,6 +615,7 @@ fn cases() -> Result<Vec<Case>> {
     let mut monitor = gallery_sample();
     monitor.handle(Key::Char('4'));
     monitor.monitors = crate::explorer::monitor::passage_fixture();
+    monitor.monitors.open_passage();
     // The fixture is a loaded detail; ordinary navigation witnesses qualify scroll.
     cases.push(("monitor-detail", monitor, sizes.clone()));
     let mut countries = gallery_sample();
@@ -664,7 +667,67 @@ fn cases() -> Result<Vec<Case>> {
     append_popup_cases(&mut cases);
     append_listen_cases(&mut cases);
     append_recording_cases(&mut cases);
+    append_content_cases(&mut cases);
     Ok(cases)
+}
+
+fn append_content_cases(cases: &mut Vec<Case>) {
+    let mut list = gallery_sample();
+    list.handle(Key::Char('4'));
+    list.monitors = crate::explorer::monitor::passage_fixture();
+    list.monitors.close_detail();
+    cases.push(("monitor-list", list, vec![(80, 24)]));
+
+    let mut coverage = gallery_sample();
+    coverage.handle(Key::Char('4'));
+    coverage.monitors = crate::explorer::monitor::passage_fixture();
+    cases.push(("monitor-coverage", coverage.clone(), vec![(80, 24)]));
+    coverage.monitors.switch_tab();
+    cases.push(("monitor-passages", coverage, vec![(80, 24)]));
+
+    let mut landing = gallery_sample();
+    landing.handle(Key::Char('5'));
+    cases.push(("findings-landing", landing, vec![(80, 24)]));
+
+    let mut populated = gallery_sample();
+    populated.handle(Key::Char('8'));
+    populated.jobs.load_data(
+        vec![crate::explorer::jobs::CaptureJob {
+            id: "rec-morning".into(),
+            source: "radio:v1".into(),
+            elapsed_seconds: 45,
+            bound_seconds: 300,
+            max_bytes: 64 * 1024 * 1024,
+            running: true,
+            management_cmd: "sigy record show 'rec-morning'".into(),
+        }],
+        vec![crate::explorer::jobs::ScheduleJob {
+            id: "morning-news".into(),
+            source: "radio:v1".into(),
+            zone: "Europe/London".into(),
+            rule_time: "daily 08:00".into(),
+            management_cmd: "sigy schedule show 'morning-news'".into(),
+        }],
+        vec![crate::explorer::jobs::TaskJob {
+            id: "water-survey".into(),
+            goal: "Follow water news".into(),
+            scope_window: "2026-11-08 00:00 to 2026-11-08 06:00".into(),
+            state_or_checkpoint: "checkpoint 1".into(),
+            management_cmd: "sigy task show 'water-survey'".into(),
+        }],
+        10_000,
+    );
+    cases.push(("jobs-populated", populated.clone(), vec![(80, 24)]));
+
+    let mut empty = gallery_sample();
+    empty.handle(Key::Char('8'));
+    empty
+        .jobs
+        .load_data(Vec::new(), Vec::new(), Vec::new(), 10_000);
+    cases.push(("jobs-empty", empty, vec![(80, 24)]));
+
+    populated.note_disconnect(20_000, "synthetic unavailable service");
+    cases.push(("jobs-disconnected", populated, vec![(80, 24)]));
 }
 
 fn append_recording_cases(cases: &mut Vec<Case>) {

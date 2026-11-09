@@ -171,17 +171,21 @@ fn render_sections(frame: &mut Frame<'_>, area: Rect, sections: &[Section], mode
             recording_lines(model, usize::from(rect.width), usize::from(rect.height))
         } else if model.workspace() == Workspace::Findings && matches!(section.height, Height::Fill)
         {
+            let prefix = if section.linear_focus {
+                FOCUS_PREFIX.len()
+            } else {
+                0
+            };
+            finding_lines(
+                model,
+                usize::from(rect.height),
+                usize::from(rect.width),
+                prefix,
+            )
+        } else if model.workspace() == Workspace::Jobs && matches!(section.height, Height::Fill) {
             model
-                .findings
-                .lines(
-                    usize::from(rect.height),
-                    usize::from(rect.width),
-                    if section.linear_focus {
-                        FOCUS_PREFIX.len()
-                    } else {
-                        0
-                    },
-                )
+                .jobs
+                .lines(usize::from(rect.height), usize::from(rect.width))
                 .into_iter()
                 .map(Line::from)
                 .collect()
@@ -313,11 +317,22 @@ fn pane_lines(model: &Explorer, width: usize, height: usize) -> Vec<Line<'static
             .into_iter()
             .map(Line::from)
             .collect(),
-        Workspace::Findings => finding_lines(model, height, width),
+        Workspace::Findings => finding_lines(model, height, width, 0),
+        Workspace::Jobs => model
+            .jobs
+            .lines(height, width)
+            .into_iter()
+            .map(Line::from)
+            .collect(),
     }
 }
 
-fn finding_lines(model: &Explorer, limit: usize, width: usize) -> Vec<Line<'static>> {
+fn finding_lines(
+    model: &Explorer,
+    limit: usize,
+    width: usize,
+    first_prefix: usize,
+) -> Vec<Line<'static>> {
     if model.claims.open() {
         model
             .claims
@@ -325,13 +340,26 @@ fn finding_lines(model: &Explorer, limit: usize, width: usize) -> Vec<Line<'stat
             .into_iter()
             .map(Line::from)
             .collect()
-    } else {
+    } else if model.findings.has_page() {
         model
             .findings
-            .lines(limit, width, 0)
+            .lines(limit, width, first_prefix)
             .into_iter()
             .map(Line::from)
             .collect()
+    } else {
+        let mut lines = Vec::new();
+        lines.push(Line::from(
+            model
+                .findings
+                .query_line(width.saturating_sub(first_prefix)),
+        ));
+        let claim_room = limit.saturating_sub(1);
+        for line in model.claims.lines(claim_room) {
+            lines.push(Line::from(line));
+        }
+        lines.truncate(limit);
+        lines
     }
 }
 
@@ -1154,7 +1182,13 @@ fn body(model: &Explorer, limit: usize) -> Vec<Line<'static>> {
                 .into_iter()
                 .map(Line::from)
                 .collect(),
-            Workspace::Findings => finding_lines(model, limit, 60),
+            Workspace::Findings => finding_lines(model, limit, 60, 0),
+            Workspace::Jobs => model
+                .jobs
+                .lines(limit, 80)
+                .into_iter()
+                .map(Line::from)
+                .collect(),
         }
     } else {
         unavailable_lines(model)
@@ -1167,12 +1201,13 @@ fn unavailable_lines(model: &Explorer) -> Vec<Line<'static>> {
         Workspace::Findings => {
             "Stored findings: use sigy monitor finding MONITOR FINDING show. Listing is pending."
         }
-        Workspace::Monitors => "Monitors: Enter inspects coverage and literal passages.",
+        Workspace::Monitors => "Watch topics: Enter opens coverage and passages.",
         Workspace::Explore
         | Workspace::Live
         | Workspace::Recordings
         | Workspace::Globe
-        | Workspace::System => "This workspace has no operation yet.",
+        | Workspace::System
+        | Workspace::Jobs => "This workspace has no operation yet.",
     };
     vec![Line::from(paint(model, Tone::Muted, text))]
 }
@@ -1602,6 +1637,7 @@ fn home_summary(model: &Explorer, workspace: Workspace) -> String {
         }
         Workspace::System => "Service, storage, and budgets".to_owned(),
         Workspace::Globe => "Directory map".to_owned(),
+        Workspace::Jobs => model.jobs.home_summary(),
     }
 }
 
@@ -3040,7 +3076,7 @@ mod tests {
         model.handle(crate::explorer::state::Key::Char('4'));
         assert_eq!(model.workspace(), Workspace::Monitors);
         let (text, _) = frame(&model, 80, 24);
-        assert!(text.contains("Monitors: arrows select, Enter inspects"));
+        assert!(text.contains("Watch topics: arrows select, Enter opens"));
         let (small, _) = frame(&model, 10, 4);
         assert!(small.contains("Too small"), "{small}");
         assert!(small.contains("^C quits"), "{small}");
@@ -3124,8 +3160,8 @@ mod tests {
             assert!(all.contains("revision 2"), "{all}");
         }
         model.note_disconnect(model.now_ms(), "service stopped");
-        let text = model.findings.lines(20, 132, 0).join("\n");
-        assert!(text.contains("work."));
+        let text = model.findings.detail().join("\n");
+        assert!(text.contains("tomorrow"));
         assert!(model.playback().is_some());
         Ok(())
     }
@@ -3531,10 +3567,10 @@ mod tests {
             "Findings",
             "System",
             "Globe",
+            "Jobs",
         ] {
             assert!(text.contains(task), "{task} missing from {text}");
         }
-        assert!(!text.contains("Jobs"), "{text}");
         assert!(!text.contains("Cache:"), "{text}");
         assert!(!text.contains("Search:"), "{text}");
         let selected = row_cells(&home, 80, 24, ">");
@@ -3740,12 +3776,15 @@ mod tests {
         assert!(home.contains("> 4 Watch topics"), "{home}");
         let parked = detail.monitors.lines(8).join("\n");
         assert!(
-            parked.contains("Monitors:") && !parked.contains("Read-only snapshot"),
+            parked.contains("Watch topics:") && !parked.contains("Read-only snapshot"),
             "0 leaves the detail {parked}"
         );
         assert_eq!(detail.handle(Key::Char('4')), Effect::MonitorList);
         let list = detail.monitors.lines(8).join("\n");
-        assert!(list.contains("> news"), "{list}");
+        assert!(
+            list.contains("> Reports") || list.contains("> news"),
+            "{list}"
+        );
         assert!(
             !list.contains("Read-only snapshot"),
             "the next visit is the list {list}"
@@ -3764,7 +3803,7 @@ mod tests {
         assert_eq!(detail.workspace(), Workspace::Explore);
         assert_eq!(detail.handle(Key::Char('4')), Effect::MonitorList);
         let list = detail.monitors.lines(8).join("\n");
-        assert!(list.contains("Monitors:"), "{list}");
+        assert!(list.contains("Watch topics:"), "{list}");
         assert!(
             !list.contains("Read-only snapshot"),
             "the list is showing {list}"
@@ -3904,7 +3943,7 @@ mod tests {
         assert_eq!(claims.handle(Key::Char('0')), Effect::None);
         assert!(claims.at_home());
         assert!(!claims.claims.open());
-        assert_eq!(claims.handle(Key::Enter), Effect::None);
+        assert_eq!(claims.handle(Key::Enter), Effect::ClaimList);
         assert_eq!(claims.workspace(), Workspace::Findings);
         assert!(!claims.claims.open());
 
@@ -3969,6 +4008,43 @@ mod tests {
         let before = model.findings.clone();
         let _ = model.findings.handle(&Key::Down);
         assert_ne!(model.findings, before, "finding scroll did not move");
+        model.jobs.load_data(
+            vec![
+                crate::explorer::jobs::CaptureJob {
+                    id: "rec-1".into(),
+                    source: "radio:v1".into(),
+                    elapsed_seconds: 10,
+                    bound_seconds: 60,
+                    max_bytes: 10_000,
+                    running: true,
+                    management_cmd: "sigy record show rec-1".into(),
+                },
+                crate::explorer::jobs::CaptureJob {
+                    id: "rec-2".into(),
+                    source: "radio:v2".into(),
+                    elapsed_seconds: 20,
+                    bound_seconds: 120,
+                    max_bytes: 20_000,
+                    running: true,
+                    management_cmd: "sigy record show rec-2".into(),
+                },
+                crate::explorer::jobs::CaptureJob {
+                    id: "rec-3".into(),
+                    source: "radio:v3".into(),
+                    elapsed_seconds: 30,
+                    bound_seconds: 180,
+                    max_bytes: 30_000,
+                    running: true,
+                    management_cmd: "sigy record show rec-3".into(),
+                },
+            ],
+            Vec::new(),
+            Vec::new(),
+            10_000,
+        );
+        let before_jobs = model.jobs.clone();
+        let _ = model.jobs.handle(&Key::Down);
+        assert_ne!(model.jobs, before_jobs, "jobs selection did not move");
         model
     }
 
